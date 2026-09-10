@@ -146,6 +146,38 @@ export async function runTurn(state, opts = {}) {
     onEvent({ type: 'warn', message: `达到步数上限（${maxSteps}），本回合结束` });
   }
 
+  // ---------- 兜底：一整个回合一个字都没写 ----------
+  // 实测会发生的真实情况：模型把步数全花在调用工具上，
+  // 一次叙事都没输出，玩家看到的是一片空白。
+  // 所以这里强制再要一次 —— 明确禁止它继续调工具，只能写文字。
+  if (!narrations.length) {
+    onEvent({ type: 'warn', message: '这一回合没有产生叙事文字，正在要求 GM 补写…' });
+    try {
+      messages.push({
+        role: 'user',
+        content:
+          '你刚才只调用了工具，没有输出任何叙事文字，玩家现在看到的是一片空白。\n\n' +
+          '请**只写叙事**，不要再调用任何工具。\n' +
+          '基于已经发生的事，把这个场景写给玩家看：他身处何处、看到什么、' +
+          '听到什么、有什么处境。两到三段。',
+      });
+
+      const forced = await chat(messages, { signal });
+      const parsed = parseToolCalls(forced);
+      const text = parsed.clean || forced.trim();
+
+      if (text) {
+        narrations.push(text);
+        onEvent({ type: 'narration', text });
+      } else {
+        onEvent({ type: 'warn', message: 'GM 依然没有输出文字' });
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') throw err;
+      onEvent({ type: 'warn', message: `补写叙事失败：${err.message}` });
+    }
+  }
+
   // 把本回合的叙事写进日志，供刷新后恢复。
   // 没有这一步的话，存档只有数值、没有故事 —— 刷新页面就只剩一个裸的状态栏。
   if (narrations.length) {
