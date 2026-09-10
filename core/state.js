@@ -1,57 +1,52 @@
 /**
  * core/state.js —— 世界状态与存档
  *
- * 核心设计：**引擎持有事实，模型只能提出改动建议。**
+ * 设计原则：**状态越少，模型越自由。**
  *
- * 模型通过工具（比如 set_stat、add_item）请求修改状态，
- * 但真正写入的是这里的代码。所以模型没法凭空让血量变 999。
+ * 早期版本有属性、背包、NPC、剧情标记等一堆字段，逼着模型每回合
+ * 输出一堆 JSON 去维护它们，反而挤掉了「写故事」的注意力。
+ * 现在只留两样：
+ *   1. 场景（现在在哪、什么样）
+ *   2. 时间（第几天、什么时段）—— 唯一的引擎状态
  *
- * 存档方案（纯前端）：
- *   - 主存：localStorage（自动保存，刷新不丢）
- *   - 备份：导出为 JSON 文件 / 从文件导入
- *   这样做是因为 localStorage 会随浏览器缓存一起被清掉，
- *   导出的文件才是真正属于玩家的东西。
+ * 存档方案：
+ *   - 主存 localStorage（自动保存，刷新不丢）
+ *   - 备份：导出 JSON 文件 / 从文件导入
  */
 
-const SAVE_KEY = 'tavernGame.save.v1';
+import { SEGMENTS } from './tools.js';
+
+const SAVE_KEY = 'tavernGame.save.v2';
 
 /** 新游戏的初始状态 */
 export function createInitialState() {
   return {
     meta: {
-      version: 1,
+      version: 2,
       createdAt: new Date().toISOString(),
       turn: 0,
     },
-    // 玩家角色
     player: {
       name: '无名者',
-      hp: 10,
-      hpMax: 10,
-      stats: {
-        STR: 10,   // 力量
-        DEX: 10,   // 敏捷
-        WIS: 10,   // 感知
-        CHA: 10,   // 魅力
-      },
-      inventory: [],
     },
-    // 当前场景
     scene: {
       name: '未知之地',
       description: '你睁开眼睛，不记得自己是怎么来到这里的。',
     },
-    // 已登场的 NPC：{ name, note, attitude }
-    npcs: [],
-    // 剧情标记：自由键值对，由模型通过工具写入
-    flags: {},
-    // 叙事日志（只留最近若干条，避免无限增长）
+    // 唯一的结构化引擎状态
+    time: {
+      day: 1,
+      segment: 0,        // 索引，对应 SEGMENTS[0] = 上午
+    },
+    // 叙事日志，用于刷新后恢复故事
     log: [],
+    // 时间推进记录（只用作叙事参考）
+    timeline: [],
   };
 }
 
-/** 日志最多保留多少条 */
-const MAX_LOG = 60;
+const MAX_LOG = 80;
+const MAX_TIMELINE = 40;
 
 export class GameState {
   constructor(data) {
@@ -65,16 +60,38 @@ export class GameState {
       const raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return new GameState(createInitialState());
       const parsed = JSON.parse(raw);
-      // 简单校验，防止坏数据把界面搞崩
       if (!parsed || typeof parsed !== 'object' || !parsed.player) {
         console.warn('存档格式不对，已忽略');
         return new GameState(createInitialState());
       }
-      return new GameState(parsed);
+      return new GameState(GameState.migrate(parsed));
     } catch (err) {
       console.warn('读档失败：', err);
       return new GameState(createInitialState());
     }
+  }
+
+  /**
+   * 兼容旧存档。
+   * 旧版本有 hp / stats / inventory / npcs / flags —— 那些字段现在不用了，
+   * 直接丢掉，保留还能用的部分（场景、日志、回合数）。
+   */
+  static migrate(old) {
+    const fresh = createInitialState();
+    return {
+      meta: { ...fresh.meta, turn: old.meta?.turn ?? 0 },
+      player: { name: old.player?.name || fresh.player.name },
+      scene: {
+        name: old.scene?.name || fresh.scene.name,
+        description: old.scene?.description || fresh.scene.description,
+      },
+      time: {
+        day: old.time?.day ?? 1,
+        segment: old.time?.segment ?? 0,
+      },
+      log: Array.isArray(old.log) ? old.log.slice(-MAX_LOG) : [],
+      timeline: Array.isArray(old.timeline) ? old.timeline.slice(-MAX_TIMELINE) : [],
+    };
   }
 
   save() {
@@ -92,28 +109,21 @@ export class GameState {
     this.save();
   }
 
-  /** 导出成 JSON 文本，供玩家下载 */
   export() {
     return JSON.stringify(this.data, null, 2);
   }
 
-  /** 从 JSON 文本导入 */
   import(json) {
     const parsed = JSON.parse(json);
     if (!parsed || !parsed.player) throw new Error('这不是有效的存档文件');
-    this.data = parsed;
+    this.data = GameState.migrate(parsed);
     this.save();
   }
 
   // ---------- 日志 ----------
 
   addLog(kind, text) {
-    this.data.log.push({
-      kind,               // 'narration' | 'action' | 'system'
-      text,
-      at: new Date().toISOString(),
-    });
-    // 超长就裁掉最老的
+    this.data.log.push({ kind, text, at: new Date().toISOString() });
     if (this.data.log.length > MAX_LOG) {
       this.data.log.splice(0, this.data.log.length - MAX_LOG);
     }
@@ -124,79 +134,79 @@ export class GameState {
   get player() { return this.data.player; }
   get scene() { return this.data.scene; }
   get turn() { return this.data.meta.turn; }
+  get day() { return this.data.time.day; }
+  get segmentIndex() { return this.data.time.segment; }
+  get segmentName() { return SEGMENTS[this.data.time.segment] || SEGMENTS[0]; }
 
-  // ---------- 供模型调用的工具操作 ----------
+  /** 「第 3 天 · 下午」 */
+  get timeLabel() {
+    return `第 ${this.data.time.day} 天 · ${this.segmentName}`;
+  }
+
+  // ---------- 工具：时间推进 ----------
 
   /**
-   * 修改数值。clamp 到 [0, hpMax]，所以模型改不出负数或超上限。
-   * @returns {string} 人类可读的结果说明
+   * 推进时间。这是**唯一的工具**。
+   *
+   * 引擎在这里做把关，模型不能乱推：
+   *   - step 不是正整数 → 拒绝
+   *   - 一次推太多段 → 夹到合理范围
+   *
+   * @param {number} step 推进几段（1 = 下一段，3 = 睡一觉到第二天同一段）
+   * @param {string} reason 原因（记录用）
    */
-  setStat(name, value) {
-    const p = this.data.player;
-    if (name === 'hp') {
-      const before = p.hp;
-      p.hp = Math.max(0, Math.min(p.hpMax, Math.round(value)));
-      return `HP: ${before} → ${p.hp}`;
+  advanceTime(step, reason) {
+    const raw = Number(step);
+    const n = Number.isFinite(raw) ? Math.round(raw) : 1;
+
+    if (n <= 0) {
+      return `⚠ 时间是单向的，不能倒退或原地不动。（当前：${this.timeLabel}）`;
     }
-    if (name in p.stats) {
-      const before = p.stats[name];
-      p.stats[name] = Math.max(1, Math.min(30, Math.round(value)));
-      return `${name}: ${before} → ${p.stats[name]}`;
+    if (n > 6) {
+      return `⚠ 一次最多推进 6 段（两天）。请分几次推进，或直接用 3 表示「睡一觉到第二天」。（当前：${this.timeLabel}）`;
     }
-    return `未知属性：${name}`;
+
+    const before = this.timeLabel;
+    const perDay = SEGMENTS.length;
+
+    // 用总段数计算，避免跨天时出错
+    let total = this.data.time.day * perDay + this.data.time.segment;
+    total += n;
+    this.data.time.day = Math.floor(total / perDay);
+    this.data.time.segment = total % perDay;
+
+    // 天从 1 开始（上面的算法会从 0 起，修正一下）
+    if (this.data.time.segment === 0 && this.data.time.day === 0) {
+      this.data.time.day = 1;
+    }
+
+    const after = this.timeLabel;
+    this.data.timeline.push({
+      from: before,
+      to: after,
+      reason: reason || '',
+      at: new Date().toISOString(),
+    });
+    if (this.data.timeline.length > MAX_TIMELINE) {
+      this.data.timeline.splice(0, this.data.timeline.length - MAX_TIMELINE);
+    }
+
+    return `🕐 时间推进：${before} → ${after}` +
+      (reason ? `（${reason}）` : '') +
+      (n >= perDay ? '\n   （新的一天开始了）' : '');
   }
 
-  /** 增减数值（相对变化），比绝对赋值更常用 */
-  adjustStat(name, delta) {
-    const p = this.data.player;
-    if (name === 'hp') return this.setStat('hp', p.hp + delta);
-    if (name in p.stats) return this.setStat(name, p.stats[name] + delta);
-    return `未知属性：${name}`;
-  }
-
-  addItem(item) {
-    if (!item) return '物品名称为空';
-    if (!this.data.player.inventory.includes(item)) {
-      this.data.player.inventory.push(item);
-      return `获得物品：${item}`;
-    }
-    return `已经有「${item}」了`;
-  }
-
-  removeItem(item) {
-    const idx = this.data.player.inventory.indexOf(item);
-    if (idx === -1) return `背包里没有「${item}」`;
-    this.data.player.inventory.splice(idx, 1);
-    return `失去物品：${item}`;
-  }
+  // ---------- 场景 ----------
 
   setScene(name, description) {
     const before = this.data.scene.name;
-    this.data.scene.name = name || before;
+    if (name) this.data.scene.name = name;
     if (description) this.data.scene.description = description;
-    return `场景：${before} → ${this.data.scene.name}`;
-  }
-
-  setNpc(name, note, attitude) {
-    if (!name) return 'NPC 名称为空';
-    const existing = this.data.npcs.find((n) => n.name === name);
-    if (existing) {
-      if (note) existing.note = note;
-      if (attitude) existing.attitude = attitude;
-      return `更新 NPC：${name}`;
+    // 名字没变就不算切换，避免模型反复调同一个值刷屏
+    if (name && name === before) {
+      return `场景描述已更新（仍在「${before}」）`;
     }
-    this.data.npcs.push({ name, note: note || '', attitude: attitude || '中立' });
-    return `新 NPC：${name}`;
-  }
-
-  setFlag(key, value) {
-    if (!key) return '标记名为空';
-    this.data.flags[key] = value;
-    return `记录标记：${key} = ${JSON.stringify(value)}`;
-  }
-
-  getFlag(key) {
-    return this.data.flags[key];
+    return `场景：${before} → ${this.data.scene.name}`;
   }
 
   endTurn() {
@@ -204,45 +214,42 @@ export class GameState {
     return `回合 +1（当前第 ${this.data.meta.turn} 回合）`;
   }
 
+  // ---------- 给模型看的快照 ----------
+
   /**
-   * 生成给模型看的「世界状态快照」。
-   * 这是模型了解现状的主要途径 —— 它看不到原始 JSON。
-   *
-   * @param {Array} [history] 最近几轮对话。会被截取末尾若干条一并给出，
-   *                          因为页面刷新后 history 是空的，日志才是唯一线索。
+   * 世界状态快照 —— 模型了解现状的主要途径。
+   * @param {Array} [history] 最近几轮对话（刷新后为空，会回退到日志）
    */
   snapshot(history = []) {
-    const p = this.data.player;
     const lines = [
-      `【第 ${this.data.meta.turn} 回合】`,
-      `角色：${p.name}  HP ${p.hp}/${p.hpMax}`,
-      `属性：${Object.entries(p.stats).map(([k, v]) => `${k} ${v}`).join('  ')}`,
-      `背包：${p.inventory.length ? p.inventory.join('、') : '（空）'}`,
-      `场景：${this.data.scene.name} —— ${this.data.scene.description}`,
+      `【第 ${this.turn} 回合】`,
+      `时间：${this.timeLabel}`,
+      `地点：${this.data.scene.name}`,
+      `　　${this.data.scene.description}`,
     ];
-    if (this.data.npcs.length) {
-      lines.push(`在场/已知人物：${this.data.npcs.map((n) => `${n.name}(${n.attitude})`).join('、')}`);
-    }
-    const flagKeys = Object.keys(this.data.flags);
-    if (flagKeys.length) {
-      lines.push(`剧情标记：${flagKeys.map((k) => `${k}=${JSON.stringify(this.data.flags[k])}`).join('  ')}`);
-    }
 
     // 最近发生的事：优先用对话历史，没有就回退到日志。
-    // 这一步是「刷新页面后剧情还能接上」的关键。
+    // 这是「刷新页面后剧情还能接上」的关键。
     const recent = history.filter((h) => typeof h.content === 'string').slice(-4);
     if (recent.length) {
       lines.push('', '### 最近发生的事');
       for (const h of recent) {
         const who = h.role === 'user' ? '玩家' : '你(GM)';
-        const text = h.content.replace(/\s+/g, ' ').slice(0, 160);
-        lines.push(`- ${who}：${text}`);
+        lines.push(`- ${who}：${h.content.replace(/\s+/g, ' ').slice(0, 160)}`);
       }
     } else if (this.data.log.length) {
       lines.push('', '### 最近发生的事');
       for (const entry of this.data.log.slice(-4)) {
         const text = String(entry.text).replace(/\s+/g, ' ').slice(0, 160);
         lines.push(`- ${text}`);
+      }
+    }
+
+    // 时间线（如果推进过）
+    if (this.data.timeline.length) {
+      lines.push('', '### 时间线');
+      for (const t of this.data.timeline.slice(-5)) {
+        lines.push(`- ${t.from} → ${t.to}${t.reason ? `（${t.reason}）` : ''}`);
       }
     }
 

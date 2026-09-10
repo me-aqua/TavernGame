@@ -69,7 +69,9 @@ const DEFAULTS = {
   apiBase: PRESETS.deepseek.apiBase,
   model: PRESETS.deepseek.models[0],
   temperature: 0.85,
-  maxAgentSteps: 8,
+  // 实测：开场时模型常常要用 3-4 步设置场景、NPC、物品、标记，
+  // 之后才有余力写叙事。上限给太少会导致「工具调完了、字没写」。
+  maxAgentSteps: 10,
 };
 
 let cache = null;

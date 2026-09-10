@@ -160,6 +160,15 @@
     .bar.low i { background: var(--danger); }
 
     .empty { font-size: 12px; color: var(--faint); font-style: italic; margin: 0; }
+
+    /* 时间显示：这是唯一的结构化状态，给它视觉分量 */
+    .time-display {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--accent);
+      letter-spacing: 0.04em;
+      font-variant-numeric: tabular-nums;
+    }
     .tag-list { display: flex; flex-wrap: wrap; gap: 5px; }
     .tag {
       font-size: 11.5px; padding: 3px 9px; border-radius: 999px;
@@ -241,23 +250,16 @@
 
     <aside class="sidebar">
       <div class="card">
-        <h2>角色</h2>
-        <div class="stat"><span id="p-name">—</span><span id="p-hp">—</span></div>
-        <div class="bar" id="hp-bar"><i style="width:100%"></i></div>
-        <div id="p-stats"></div>
+        <h2>时间</h2>
+        <div class="time-display" id="p-time">第 1 天 · 上午</div>
+        <div id="p-timeline"></div>
       </div>
+
       <div class="card">
-        <h2>背包</h2>
-        <div id="p-inv"></div>
-      </div>
-      <div class="card">
-        <h2>场景</h2>
+        <h2>地点</h2>
         <div id="p-scene"></div>
       </div>
-      <div class="card">
-        <h2>人物</h2>
-        <div id="p-npcs"></div>
-      </div>
+
       <div class="card">
         <h2>回合</h2>
         <div class="stat"><span>已进行</span><span id="p-turn">0</span></div>
@@ -326,9 +328,8 @@
       send: $('btn-send'), stop: $('btn-stop'),
       light: $('light'), statusText: $('status-text'),
       drawer: $('drawer'),
-      pName: $('p-name'), pHp: $('p-hp'), hpBar: $('hp-bar'),
-      pStats: $('p-stats'), pInv: $('p-inv'), pScene: $('p-scene'),
-      pNpcs: $('p-npcs'), pTurn: $('p-turn'),
+      pTime: $('p-time'), pTimeline: $('p-timeline'),
+      pScene: $('p-scene'), pTurn: $('p-turn'),
       result: $('cfg-result'),
     };
 
@@ -373,32 +374,20 @@
 
     // ---------- 界面：刷新状态面板 ----------
     function renderState() {
-      const p = state.player;
-      el.pName.textContent = p.name;
-      el.pHp.textContent = `${p.hp} / ${p.hpMax}`;
+      // 时间：唯一的结构化状态，用大字显示，因为它是节奏感的来源
+      el.pTime.textContent = state.timeLabel;
 
-      const pct = Math.max(0, Math.min(100, (p.hp / p.hpMax) * 100));
-      el.hpBar.querySelector('i').style.width = `${pct}%`;
-      el.hpBar.classList.toggle('low', pct <= 30);
+      // 时间线（最近几次推进）
+      const tl = state.data.timeline.slice(-4);
+      el.pTimeline.innerHTML = tl.length
+        ? `<div style="margin-top:10px;font-size:11.5px;color:var(--faint);line-height:1.9">${
+            tl.map((t) => `↑ ${escapeHtml(t.to)}${t.reason ? `<br><span style="color:#4a5270">　${escapeHtml(t.reason)}</span>` : ''}`).join('<br>')
+          }</div>`
+        : '';
 
-      el.pStats.innerHTML = Object.entries(p.stats)
-        .map(([k, v]) => `<div class="stat"><span>${k}</span><span>${v}</span></div>`)
-        .join('');
-
-      el.pInv.innerHTML = p.inventory.length
-        ? `<div class="tag-list">${p.inventory.map((i) => `<span class="tag">${escapeHtml(i)}</span>`).join('')}</div>`
-        : '<p class="empty">（空）</p>';
-
-      el.pScene.innerHTML = `<div style="font-size:13px;color:var(--accent);margin-bottom:5px">${escapeHtml(state.scene.name)}</div>
-        <div style="font-size:12.5px;color:var(--dim);line-height:1.7">${escapeHtml(state.scene.description)}</div>`;
-
-      el.pNpcs.innerHTML = state.data.npcs.length
-        ? state.data.npcs.map((n) =>
-            `<div style="font-size:12.5px;margin-bottom:5px">
-               <span style="color:var(--accent2)">${escapeHtml(n.name)}</span>
-               <span style="color:var(--faint)"> · ${escapeHtml(n.attitude)}</span>
-             </div>`).join('')
-        : '<p class="empty">（暂无）</p>';
+      el.pScene.innerHTML =
+        `<div style="font-size:13px;color:var(--accent);margin-bottom:5px">${escapeHtml(state.scene.name)}</div>
+         <div style="font-size:12.5px;color:var(--dim);line-height:1.7">${escapeHtml(state.scene.description)}</div>`;
 
       el.pTurn.textContent = state.turn;
     }
@@ -449,8 +438,11 @@
               showThinking(true);
             }
             if (evt.type === 'narration') {
-              // 叙事是分批到达的（每步一段），到达时先撤掉「思考中」
+              // ⚠️ 必须在这里 append，否则文字永远进不了界面。
+              // 曾经漏了这一行：文字只存在于 runTurn 的返回值里，
+              // 结果实时界面一片空白、刷新后才有故事（存档里有）。
               showThinking(false);
+              append(evt.text, 'narration');
             }
             // 调试模式：把模型的原始回复完整打出来
             if (evt.type === 'raw' && debugMode) {
