@@ -206,9 +206,12 @@ export class GameState {
 
   /**
    * 生成给模型看的「世界状态快照」。
-   * 这是模型了解现状的唯一途径 —— 它看不到原始 JSON。
+   * 这是模型了解现状的主要途径 —— 它看不到原始 JSON。
+   *
+   * @param {Array} [history] 最近几轮对话。会被截取末尾若干条一并给出，
+   *                          因为页面刷新后 history 是空的，日志才是唯一线索。
    */
-  snapshot() {
+  snapshot(history = []) {
     const p = this.data.player;
     const lines = [
       `【第 ${this.data.meta.turn} 回合】`,
@@ -224,6 +227,25 @@ export class GameState {
     if (flagKeys.length) {
       lines.push(`剧情标记：${flagKeys.map((k) => `${k}=${JSON.stringify(this.data.flags[k])}`).join('  ')}`);
     }
+
+    // 最近发生的事：优先用对话历史，没有就回退到日志。
+    // 这一步是「刷新页面后剧情还能接上」的关键。
+    const recent = history.filter((h) => typeof h.content === 'string').slice(-4);
+    if (recent.length) {
+      lines.push('', '### 最近发生的事');
+      for (const h of recent) {
+        const who = h.role === 'user' ? '玩家' : '你(GM)';
+        const text = h.content.replace(/\s+/g, ' ').slice(0, 160);
+        lines.push(`- ${who}：${text}`);
+      }
+    } else if (this.data.log.length) {
+      lines.push('', '### 最近发生的事');
+      for (const entry of this.data.log.slice(-4)) {
+        const text = String(entry.text).replace(/\s+/g, ' ').slice(0, 160);
+        lines.push(`- ${text}`);
+      }
+    }
+
     return lines.join('\n');
   }
 }

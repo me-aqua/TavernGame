@@ -46,25 +46,28 @@ if errorlevel 1 (
   exit /b 1
 )
 
+REM ---- Local port (override by setting PORT before running) ----
+if "%PORT%"=="" set "PORT=3000"
+
 for /f "delims=" %%v in ('node --version 2^>nul') do set "NODEVER=%%v"
 echo   Node.js %NODEVER%  [OK]
 echo.
-echo   Starting local server on http://localhost:3000 ...
+echo   Starting local server on http://localhost:%PORT% ...
 echo   (First run downloads a tiny static server, may take a moment)
 echo.
 
 REM ---- Open the browser a few seconds later ----
-start "" /b cmd /c "timeout /t 8 /nobreak >nul & start "" http://localhost:3000/"
+start "" /b cmd /c "timeout /t 8 /nobreak >nul & start "" http://localhost:%PORT%/"
 
 echo   --------------------------------------------------
-echo    Game URL:  http://localhost:3000/
+echo    Game URL:  http://localhost:%PORT%/
 echo.
 echo    TO STOP:  close this window, or press Ctrl+C
 echo   --------------------------------------------------
 echo.
 
 REM ---- Run the static server in the foreground ----
-npx --yes serve -l 3000 .
+npx --yes serve -l %PORT% .
 
 echo.
 echo   Server stopped.
