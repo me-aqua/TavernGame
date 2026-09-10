@@ -45,3 +45,7 @@ Desktop.ini
 .env.local
 *.pem
 *.key
+
+# --- AI 助手的个人指令文件（只属于我自己）---
+# 这类 .local 文件是和 AI 的私人沟通偏好，不该公开给协作者
+*.local.md
