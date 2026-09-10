@@ -18,7 +18,7 @@
     安全 Security   —— 安全相关
 -->
 
-## [未发布] — 目标 v0.3.0
+## [0.3.0] - 2026-09-10
 
 ### 新增
 - **`server/index.js`** —— 零依赖的 Node HTTP 服务器
@@ -38,8 +38,10 @@
 ### 修改
 - 根目录 `index.html` 重写为**项目介绍页**（面向网页访客）
   - 说明项目定位、与酒馆的区别、如何自己运行
+  - 新增「下载 start.bat」入口，区分「一键启动」与「手动命令」两种方式
 - `README.md` 全面重写，反映 agent 循环的新定位
 - `AGENTS.md` 更新项目现状、目录结构，并记录两个部署陷阱
+- 统一版本号为 `0.3.0`（`package.json` / 服务器 healthz / 介绍页此前不一致）
 
 ### 修复
 - 修正根目录 `index.html` 的图片引用：绝对路径 `/assets/...`
@@ -47,6 +49,18 @@
 
 ### 移除
 - 清除 `README.md`、`package.json` 等文件的 UTF-8 BOM 残留
+
+### 分发
+- **`public/start.bat`** —— Windows 一键启动脚本
+  - 自动定位项目根目录（放在 `public/` 里也能正确找到）
+  - 检测 Node.js，未安装时给出下载指引而不是直接报错
+  - 启动服务器并自动打开浏览器
+  - 以 CRLF 换行保存，并在 `.gitattributes` 中固定，跨平台 clone 不会损坏
+
+### 测试
+- 以全新 clone 的副本模拟真实用户，验证分发完整性：
+  服务器可启动、页面可访问、`config.json` 与 `AGENTS.local.md` 未泄漏
+- `start.bat` 在「测试前确认为空闲」的端口上独占验证通过
 
 ---
 
@@ -91,6 +105,7 @@
 
 <!-- 版本链接（GitHub 上会自动生成对比页面） -->
 
-[未发布]: https://github.com/me-aqua/TavernGame/compare/v0.2.0...HEAD
+[未发布]: https://github.com/me-aqua/TavernGame/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/me-aqua/TavernGame/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/me-aqua/TavernGame/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/me-aqua/TavernGame/releases/tag/v0.1.0

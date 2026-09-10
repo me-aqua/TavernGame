@@ -163,7 +163,7 @@ async function handleRequest(req, res) {
     const payload = JSON.stringify({
       ok: true,
       server: 'tavern-game',
-      version: '0.3.0-dev',
+      version: '0.3.0',
       agent: false,                       // ← 第 2 步会变成 true
       message: '服务器已在运行，但 agent 循环尚未接入',
     });

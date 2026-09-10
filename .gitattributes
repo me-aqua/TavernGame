@@ -35,5 +35,11 @@
 *.ttf    binary
 *.zip    binary
 
+# ⚠️ Windows 批处理脚本必须始终保持 CRLF 换行。
+# 如果被转成 LF，某些命令会执行出错。
+# 这条规则强制：仓库里存 CRLF，检出时也是 CRLF，谁 clone 都不会坏。
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+
 # 在 GitHub 上把 Markdown 标记为文档，统计语言占比时不计入
 *.md     linguist-documentation
