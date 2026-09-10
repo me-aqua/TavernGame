@@ -7,12 +7,13 @@
   <meta name="description" content="TavernGame —— 正在搭建中的项目" />
   <style>
     :root {
-      --bg: #0d0f1a;
-      --panel: #161b2e;
-      --accent: #6ee7b7;
-      --text: #e8ecf5;
-      --dim: #8b95b0;
-      --border: rgba(110, 231, 183, 0.22);
+      --bg:      #0d0f1a;
+      --panel:   #161b2e;
+      --accent:  #6ee7b7;
+      --accent2: #7dd3fc;
+      --text:    #e8ecf5;
+      --dim:     #8b95b0;
+      --border:  rgba(110, 231, 183, 0.22);
     }
 
     * { box-sizing: border-box; }
@@ -32,40 +33,75 @@
       justify-content: center;
       min-height: 100vh;
       padding: 24px;
-      background: radial-gradient(circle at 50% 30%, #1a2136 0%, var(--bg) 65%);
+      background: radial-gradient(circle at 50% 28%, #1a2136 0%, var(--bg) 68%);
     }
 
     main {
       width: 100%;
-      max-width: 560px;
-      padding: 40px 32px;
+      max-width: 520px;
+      padding: 36px 32px 30px;
       border: 1px solid var(--border);
-      border-radius: 18px;
+      border-radius: 20px;
       background: var(--panel);
       text-align: center;
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+    }
+
+    /* --- 角色头像 --- */
+    .avatar-wrap {
+      position: relative;
+      width: 190px;
+      height: 190px;
+      margin: 0 auto 22px;
+    }
+
+    .avatar-wrap::after {
+      /* 外圈光晕，让头像和深色背景融得更自然 */
+      content: "";
+      position: absolute;
+      inset: -14px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(125, 211, 252, 0.20) 0%, transparent 70%);
+      z-index: 0;
+    }
+
+    .avatar {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid rgba(125, 211, 252, 0.55);
+      box-shadow: 0 10px 34px rgba(0, 0, 0, 0.45);
+      animation: float 5s ease-in-out infinite;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50%      { transform: translateY(-7px); }
     }
 
     .badge {
       display: inline-block;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
       padding: 5px 14px;
       border: 1px solid var(--border);
       border-radius: 999px;
       font-size: 12px;
-      letter-spacing: 0.14em;
+      letter-spacing: 0.16em;
       color: var(--accent);
     }
 
     h1 {
       margin: 0 0 12px;
-      font-size: clamp(30px, 7vw, 42px);
+      font-size: clamp(28px, 6vw, 38px);
       font-weight: 700;
       letter-spacing: 0.06em;
     }
 
     p {
-      margin: 0 0 10px;
+      margin: 0 0 8px;
       font-size: 15px;
       line-height: 1.8;
       color: var(--dim);
@@ -83,11 +119,11 @@
     }
 
     @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50%      { opacity: 0.35; transform: scale(0.8); }
+      0%, 100% { opacity: 1;   transform: scale(1); }
+      50%      { opacity: 0.3; transform: scale(0.8); }
     }
 
-    a {
+    a.btn {
       display: inline-block;
       margin-top: 22px;
       padding: 11px 28px;
@@ -99,26 +135,37 @@
       transition: background 0.2s ease, transform 0.15s ease;
     }
 
-    a:hover {
+    a.btn:hover {
       background: rgba(110, 231, 183, 0.14);
       transform: translateY(-1px);
     }
 
     footer {
-      margin-top: 26px;
-      font-size: 12px;
-      color: #5b6480;
+      margin-top: 24px;
+      font-size: 11px;
+      line-height: 1.7;
+      color: #555e78;
     }
   </style>
 </head>
 <body>
   <main>
+    <div class="avatar-wrap">
+      <!-- 头像素材来自神楽めあ官方 YouTube 频道 @KaguraMea -->
+      <img class="avatar" src="assets/mea-avatar.jpg" alt="神楽めあ" width="190" height="190" />
+    </div>
+
     <span class="badge">TAVERNGAME</span>
     <h1>正在搭建中</h1>
     <p><span class="dot"></span>这个项目还是空白状态</p>
     <p>入口页面已就位，接下来做什么由你决定。<br />等真正的第一版做出来，直接替换这个页面即可。</p>
-    <a href="https://github.com/me-aqua/TavernGame">查看 GitHub 仓库</a>
-    <footer>由 GitHub Pages 提供托管</footer>
+
+    <a class="btn" href="https://github.com/me-aqua/TavernGame">查看 GitHub 仓库</a>
+
+    <footer>
+      头像素材 © 神楽めあ 官方频道（@KaguraMea），此处仅作个人练习用途<br />
+      由 GitHub Pages 提供托管
+    </footer>
   </main>
 </body>
 </html>
