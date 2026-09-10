@@ -47,7 +47,7 @@ DeepSeek 官方、硅基流动、OpenRouter、Mistral 均允许浏览器直连
 - **`core/config.js`** —— 配置管理与服务商预设
 - **`core/llm.js`** —— LLM 调用层，含 CORS 失败的友好提示
 - **`core/prompts.js`** —— 提示词集中管理
-- **`play.html`** —— 完整游戏界面，纯静态可直接部署
+- **`index.html`** —— 完整游戏界面，纯静态可直接部署
 
 ### 修改
 - GitHub Pages 现在就是**可玩的游戏本体**，不再只是介绍页

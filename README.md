@@ -6,7 +6,7 @@
 
 **不需要安装任何东西。** 打开网址 → 填一次自己的 API key → 开始玩。
 
-### 👉 https://me-aqua.github.io/TavernGame/play.html
+### 👉 https://me-aqua.github.io/TavernGame/
 
 API key 保存在**你自己的浏览器**里，请求直接从浏览器发往服务商，
 不经过任何中间服务器。
@@ -81,7 +81,7 @@ TavernGame 用**回合制 agent 循环**：
 git clone https://github.com/me-aqua/TavernGame.git
 cd TavernGame
 npm start                       # 需要 Node.js 18+
-# 打开 http://localhost:3000/play.html
+# 打开 http://localhost:3000/
 ```
 
 Windows 用户也可以直接双击 `start.bat`。
@@ -91,7 +91,7 @@ Windows 用户也可以直接双击 `start.bat`。
 ```
 TavernGame/
 ├── index.html       项目介绍页
-├── play.html        游戏界面（本体）
+├── about.html        游戏界面（本体）
 ├── core/            核心逻辑
 │   ├── agent.js     agent 循环 ← 灵魂
 │   ├── tools.js     工具定义与执行
