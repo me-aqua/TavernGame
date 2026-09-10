@@ -3,17 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TavernGame</title>
-  <meta name="description" content="TavernGame —— 正在搭建中的项目" />
+  <title>TavernGame · agent 驱动的文字游戏</title>
+  <meta name="description" content="TavernGame —— 一个用 agent 循环驱动的文字游戏，做卡也能玩卡。" />
   <style>
     :root {
       --bg:      #0d0f1a;
-      --panel:   #161b2e;
+      --panel:   #141828;
+      --panel-2: #1b2035;
       --accent:  #6ee7b7;
       --accent2: #7dd3fc;
       --text:    #e8ecf5;
       --dim:     #8b95b0;
-      --border:  rgba(110, 231, 183, 0.22);
+      --faint:   #555e78;
+      --border:  rgba(110, 231, 183, 0.2);
     }
 
     * { box-sizing: border-box; }
@@ -29,104 +31,127 @@
 
     body {
       display: flex;
-      align-items: center;
       justify-content: center;
-      min-height: 100vh;
-      padding: 24px;
-      background: radial-gradient(circle at 50% 28%, #1a2136 0%, var(--bg) 68%);
+      padding: 40px 20px 60px;
+      background: radial-gradient(circle at 50% 0%, #1a2136 0%, var(--bg) 60%);
     }
 
     main {
       width: 100%;
-      max-width: 520px;
-      padding: 36px 32px 30px;
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      background: var(--panel);
+      max-width: 620px;
+    }
+
+    /* ---------- 头部 ---------- */
+    .hero {
       text-align: center;
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
-    }
-
-    /* --- 角色头像 --- */
-    .avatar-wrap {
-      position: relative;
-      width: 190px;
-      height: 190px;
-      margin: 0 auto 22px;
-    }
-
-    .avatar-wrap::after {
-      /* 外圈光晕，让头像和深色背景融得更自然 */
-      content: "";
-      position: absolute;
-      inset: -14px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(125, 211, 252, 0.20) 0%, transparent 70%);
-      z-index: 0;
+      margin-bottom: 34px;
     }
 
     .avatar {
-      position: relative;
-      z-index: 1;
-      width: 100%;
-      height: 100%;
+      width: 128px;
+      height: 128px;
       border-radius: 50%;
       object-fit: cover;
-      border: 3px solid rgba(125, 211, 252, 0.55);
-      box-shadow: 0 10px 34px rgba(0, 0, 0, 0.45);
-      animation: float 5s ease-in-out infinite;
-    }
-
-    @keyframes float {
-      0%, 100% { transform: translateY(0); }
-      50%      { transform: translateY(-7px); }
-    }
-
-    .badge {
-      display: inline-block;
-      margin-bottom: 16px;
-      padding: 5px 14px;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      font-size: 12px;
-      letter-spacing: 0.16em;
-      color: var(--accent);
+      border: 3px solid rgba(125, 211, 252, 0.5);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+      margin-bottom: 18px;
     }
 
     h1 {
-      margin: 0 0 12px;
-      font-size: clamp(28px, 6vw, 38px);
+      margin: 0 0 10px;
+      font-size: clamp(26px, 6vw, 34px);
       font-weight: 700;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.04em;
     }
 
-    p {
-      margin: 0 0 8px;
+    .tagline {
+      margin: 0;
       font-size: 15px;
       line-height: 1.8;
       color: var(--dim);
     }
 
-    .dot {
+    .badge {
       display: inline-block;
-      width: 7px;
-      height: 7px;
-      margin-right: 8px;
-      border-radius: 50%;
-      background: var(--accent);
-      animation: pulse 1.6s ease-in-out infinite;
-      vertical-align: middle;
+      margin-top: 14px;
+      padding: 4px 13px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      color: var(--accent);
     }
 
-    @keyframes pulse {
-      0%, 100% { opacity: 1;   transform: scale(1); }
-      50%      { opacity: 0.3; transform: scale(0.8); }
+    /* ---------- 卡片 ---------- */
+    .card {
+      margin-bottom: 16px;
+      padding: 20px 22px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel);
+    }
+
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .card p {
+      margin: 0 0 10px;
+      font-size: 14px;
+      line-height: 1.8;
+      color: var(--dim);
+    }
+
+    .card p:last-child { margin-bottom: 0; }
+
+    /* ---------- 提示条 ---------- */
+    .notice {
+      margin-bottom: 16px;
+      padding: 14px 18px;
+      border: 1px dashed rgba(251, 191, 36, 0.4);
+      border-radius: 12px;
+      background: rgba(251, 191, 36, 0.06);
+      font-size: 13.5px;
+      line-height: 1.8;
+      color: #d8c9a0;
+    }
+
+    .notice strong { color: #fbbf24; }
+
+    /* ---------- 命令块 ---------- */
+    pre {
+      margin: 0;
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: #0a0c15;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.9;
+    }
+
+    code {
+      font-family: "Cascadia Code", "Consolas", ui-monospace, monospace;
+      color: var(--accent);
+    }
+
+    pre .comment { color: var(--faint); }
+
+    /* ---------- 按钮 ---------- */
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 26px;
     }
 
     a.btn {
       display: inline-block;
-      margin-top: 22px;
-      padding: 11px 28px;
+      padding: 11px 26px;
       border: 1px solid var(--border);
       border-radius: 999px;
       color: var(--text);
@@ -140,25 +165,27 @@
       transform: translateY(-1px);
     }
 
-    footer {
-      margin-top: 24px;
-      font-size: 11px;
-      line-height: 1.7;
-      color: #555e78;
+    a.btn.primary {
+      background: linear-gradient(180deg, rgba(110, 231, 183, 0.22), rgba(110, 231, 183, 0.08));
     }
 
-    /* --- 右下角签名：AI 助手署名 --- */
+    /* ---------- 页脚 ---------- */
+    footer {
+      margin-top: 34px;
+      text-align: center;
+      font-size: 11.5px;
+      line-height: 1.9;
+      color: var(--faint);
+    }
+
     .signature {
       position: fixed;
       right: 18px;
       bottom: 14px;
-      z-index: 10;
       font-size: 11px;
-      letter-spacing: 0.03em;
       color: #4a5270;
       pointer-events: none;
       user-select: none;
-      transition: color 0.3s ease;
     }
 
     .signature .spark {
@@ -167,10 +194,7 @@
       animation: twinkle 3.2s ease-in-out infinite;
     }
 
-    .signature .sig-name {
-      color: #6b7595;
-      font-weight: 600;
-    }
+    .signature .sig-name { color: #6b7595; font-weight: 600; }
 
     @keyframes twinkle {
       0%, 100% { opacity: 0.3; transform: scale(0.85); }
@@ -178,30 +202,76 @@
     }
 
     @media (max-width: 520px) {
-      .signature {
-        right: 12px;
-        bottom: 10px;
-        font-size: 10px;
-      }
+      .signature { right: 12px; bottom: 10px; font-size: 10px; }
+      body { padding: 26px 16px 50px; }
     }
   </style>
 </head>
 <body>
   <main>
-    <div class="avatar-wrap">
-      <!-- 头像素材来自神楽めあ官方 YouTube 频道 @KaguraMea -->
-      <img class="avatar" src="assets/mea-avatar.jpg" alt="神楽めあ" width="190" height="190" />
+    <div class="hero">
+      <!-- ⚠️ 必须用相对路径：GitHub Pages 部署在 /TavernGame/ 子目录下，
+           写成 /assets/... 会被解析到域名根目录，导致 404 -->
+      <img class="avatar" src="assets/mea-avatar.jpg" alt="神楽めあ" width="128" height="128" />
+      <h1>TavernGame</h1>
+      <p class="tagline">
+        一个用 <strong>agent 循环</strong>驱动的文字游戏。<br />
+        既能做卡，也能玩卡。
+      </p>
+      <span class="badge">开发中 · v0.3.0</span>
     </div>
 
-    <span class="badge">TAVERNGAME</span>
-    <h1>正在搭建中</h1>
-    <p><span class="dot"></span>这个项目还是空白状态</p>
-    <p>入口页面已就位，接下来做什么由你决定。<br />等真正的第一版做出来，直接替换这个页面即可。</p>
+    <div class="notice">
+      <strong>⚠️ 这个网站不能直接玩。</strong><br />
+      TavernGame 是一个「软件型」项目 —— 需要在你自己的电脑上运行，
+      由你提供自己的 API key。这里只是一张介绍页。
+    </div>
 
-    <a class="btn" href="https://github.com/me-aqua/TavernGame">查看 GitHub 仓库</a>
+    <div class="card">
+      <h2>它是什么</h2>
+      <p>
+        传统 AI 角色扮演工具（比如酒馆）是<strong>轮次对话</strong>：你说一句，它回一句。
+      </p>
+      <p>
+        TavernGame 换成 <strong>agent 循环</strong>：你给一条指令，它自己思考、调用工具、
+        掷骰判定、修改世界状态，把整个回合跑完再给你结果。
+      </p>
+      <p>
+        游戏状态由<strong>引擎</strong>持有，不是由模型随口说的 —— 所以数值不会崩、
+        剧情不会自相矛盾。
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>怎么跑起来</h2>
+      <pre><code><span class="comment"># 1. 克隆仓库</span>
+git clone https://github.com/me-aqua/TavernGame.git
+cd TavernGame
+
+<span class="comment"># 2. 启动服务器（零依赖，不需要 npm install）</span>
+npm start
+
+<span class="comment"># 3. 浏览器打开</span>
+http://localhost:3000/play.html</code></pre>
+    </div>
+
+    <div class="card">
+      <h2>现在做到哪了</h2>
+      <p>
+        目前完成<strong>第 1 步：骨架</strong> —— 本地服务器能跑，界面壳子已就位。
+      </p>
+      <p>
+        agent 循环、世界状态、掷骰判定正在开发中，还没接上。
+      </p>
+    </div>
+
+    <div class="actions">
+      <a class="btn primary" href="https://github.com/me-aqua/TavernGame">GitHub 仓库</a>
+      <a class="btn" href="https://github.com/me-aqua/TavernGame/blob/main/CHANGELOG.md">更新日志</a>
+    </div>
 
     <footer>
-      头像素材 © 神楽めあ 官方频道（@KaguraMea），此处仅作个人练习用途<br />
+      头像素材 © 神楽めあ 官方频道（@KaguraMea），仅作个人练习用途<br />
       由 GitHub Pages 提供托管
     </footer>
   </main>

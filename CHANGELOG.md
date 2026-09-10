@@ -18,11 +18,35 @@
     安全 Security   —— 安全相关
 -->
 
-## [未发布]
+## [未发布] — 目标 v0.3.0
 
-### 计划中
-- 设计并实现文字游戏的核心玩法
-- 替换当前的占位首页
+### 新增
+- **`server/index.js`** —— 零依赖的 Node HTTP 服务器
+  - 静态文件服务（含正确的 MIME 类型与请求日志）
+  - `/api/healthz` 状态接口，供前端探测后端能力
+  - 路径穿越防护，`server/`、`config.json` 等不会对外暴露
+  - `/assets/` 特殊映射到仓库根目录，避免素材复制两份
+- **`public/play.html`** —— 游戏界面壳子
+  - 叙事区 / 状态面板 / 输入区三块布局，适配窄屏
+  - 自动探测后端状态并用指示灯显示
+- **`public/index.html`** —— 本地服务器的测试页
+- **`package.json`** —— `npm start` 启动脚本，声明 Node >= 18
+- **`config.example.json`** —— 配置模板（API key / 模型 / 参数）
+- **`data/`** —— 游戏存档目录（内容已被 git 忽略）
+- `.gitignore` 新增 `config.json` 与 `data/*` 规则
+
+### 修改
+- 根目录 `index.html` 重写为**项目介绍页**（面向网页访客）
+  - 说明项目定位、与酒馆的区别、如何自己运行
+- `README.md` 全面重写，反映 agent 循环的新定位
+- `AGENTS.md` 更新项目现状、目录结构，并记录两个部署陷阱
+
+### 修复
+- 修正根目录 `index.html` 的图片引用：绝对路径 `/assets/...`
+  在 GitHub Pages 的子目录部署下会 404，改为相对路径
+
+### 移除
+- 清除 `README.md`、`package.json` 等文件的 UTF-8 BOM 残留
 
 ---
 
