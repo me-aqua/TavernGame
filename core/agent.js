@@ -26,7 +26,7 @@ function buildMessages(state, history, userContent) {
       content: `${SYSTEM_PROMPT}
 
 ## 当前世界状态
-${state.snapshot()}`,
+${state.snapshot(history)}`,
     },
   ];
 
@@ -58,6 +58,11 @@ export async function runTurn(state, opts = {}) {
   const userContent = action
     ? `玩家的行动：${action}`
     : `【游戏开始】\n${OPENING_INSTRUCTION}`;
+
+  // 先把玩家的行动记入日志。
+  // 必须在拼装消息之前做 —— snapshot() 会读日志，这样模型就能看到
+  // 玩家刚说了什么（而不是只看到一堆历史数值）。
+  state.addLog(action ? 'action' : 'system', action || '（新的冒险开始了）');
 
   const messages = buildMessages(state, history, userContent);
 
@@ -122,6 +127,12 @@ export async function runTurn(state, opts = {}) {
   // 步数用尽
   if (steps >= maxSteps && toolResults.length > 0) {
     onEvent({ type: 'warn', message: `达到步数上限（${maxSteps}），本回合结束` });
+  }
+
+  // 把本回合的叙事写进日志，供刷新后恢复。
+  // 没有这一步的话，存档只有数值、没有故事 —— 刷新页面就只剩一个裸的状态栏。
+  if (narrations.length) {
+    state.addLog('narration', narrations.join('\n\n'));
   }
 
   // 记录回合数并落盘

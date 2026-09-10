@@ -30,9 +30,16 @@
       color: var(--text);
       font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
       -webkit-font-smoothing: antialiased;
+      /* 防止拖选文字影响操作（-webkit- 前缀兼容 Safari） */
+      user-select: none;
+      -webkit-user-select: none;
     }
 
-    body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    /* 输入框必须允许选中，否则没法编辑 */
+    textarea, input { user-select: text; -webkit-user-select: text; }
+
+    /* 用 100% 而不是 100vh：手机浏览器地址栏伸缩时 vh 会算错，导致底部被裁 */
+    body { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
     /* ---------- 顶栏 ---------- */
     header {
@@ -424,6 +431,14 @@
           history,
           signal: controller.signal,
           onEvent: (evt) => {
+            // 每一步开始都提示一次，让玩家知道 agent 在转圈而不是卡住了
+            if (evt.type === 'thinking') {
+              showThinking(true);
+            }
+            if (evt.type === 'narration') {
+              // 叙事是分批到达的（每步一段），到达时先撤掉「思考中」
+              showThinking(false);
+            }
             if (evt.type === 'tool') {
               append(`⚙ 调用 ${evt.tool}(${JSON.stringify(evt.args)})`, 'system tool');
             }

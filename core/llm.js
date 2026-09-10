@@ -22,8 +22,14 @@ export async function chat(messages, options = {}) {
   const cfg = loadConfig();
   const preset = PRESETS[cfg.provider];
 
-  if (!cfg.apiBase) throw new Error('还没配置接口地址，请先在设置里填写');
-  if (!preset?.noKey && !cfg.apiKey) throw new Error('还没填 API key，请先在设置里填写');
+  // 配置校验：给出「该去做什么」而不是一句 undefined 报错
+  const missing = [];
+  if (!cfg.apiKey && !preset?.noKey) missing.push('API Key');
+  if (!cfg.apiBase || !String(cfg.apiBase).trim()) missing.push('接口地址');
+  if (!cfg.model || !String(cfg.model).trim()) missing.push('模型名称');
+  if (missing.length) {
+    throw new Error(`还缺少配置：${missing.join('、')}。\n请点右上角「⚙ 设置」补上。`);
+  }
 
   // 拼接请求地址：兼容用户填带不带 /v1 的情况
   const base = cfg.apiBase.replace(/\/+$/, '');
