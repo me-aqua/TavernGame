@@ -11,7 +11,7 @@ echo.
 echo   NOTE: TavernGame is a pure front-end game.
 echo   You can usually just open the online version:
 echo.
-echo      https://me-aqua.github.io/TavernGame/play.html
+echo      https://me-aqua.github.io/TavernGame/
 echo.
 echo   This script starts a small local web server so you
 echo   can play offline, or develop without deploying.
@@ -21,8 +21,8 @@ REM ---- This file can sit anywhere in the project; use its own folder ----
 set "ROOT=%~dp0"
 pushd "%ROOT%"
 
-if not exist "play.html" (
-  echo   [ERROR] play.html not found in this folder:
+if not exist "index.html" (
+  echo   [ERROR] index.html not found in this folder:
   echo           %ROOT%
   echo   Please run this file from inside the project folder.
   echo.
@@ -54,10 +54,10 @@ echo   (First run downloads a tiny static server, may take a moment)
 echo.
 
 REM ---- Open the browser a few seconds later ----
-start "" /b cmd /c "timeout /t 8 /nobreak >nul & start "" http://localhost:3000/play.html"
+start "" /b cmd /c "timeout /t 8 /nobreak >nul & start "" http://localhost:3000/"
 
 echo   --------------------------------------------------
-echo    Game URL:  http://localhost:3000/play.html
+echo    Game URL:  http://localhost:3000/
 echo.
 echo    TO STOP:  close this window, or press Ctrl+C
 echo   --------------------------------------------------

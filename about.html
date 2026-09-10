@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TavernGame · agent 驱动的文字游戏</title>
+  <meta name="description" content="TavernGame —— 一个用 agent 循环驱动的文字游戏，做卡也能玩卡。" />
+  <style>
+    :root {
+      --bg:      #0d0f1a;
+      --panel:   #141828;
+      --panel-2: #1b2035;
+      --accent:  #6ee7b7;
+      --accent2: #7dd3fc;
+      --text:    #e8ecf5;
+      --dim:     #8b95b0;
+      --faint:   #555e78;
+      --border:  rgba(110, 231, 183, 0.2);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+      padding: 40px 20px 60px;
+      background: radial-gradient(circle at 50% 0%, #1a2136 0%, var(--bg) 60%);
+    }
+
+    main {
+      width: 100%;
+      max-width: 620px;
+    }
+
+    /* ---------- 头部 ---------- */
+    .hero {
+      text-align: center;
+      margin-bottom: 34px;
+    }
+
+    .avatar {
+      width: 128px;
+      height: 128px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid rgba(125, 211, 252, 0.5);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(26px, 6vw, 34px);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .tagline {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.8;
+      color: var(--dim);
+    }
+
+    .badge {
+      display: inline-block;
+      margin-top: 14px;
+      padding: 4px 13px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      color: var(--accent);
+    }
+
+    /* ---------- 卡片 ---------- */
+    .card {
+      margin-bottom: 16px;
+      padding: 20px 22px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel);
+    }
+
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .card p {
+      margin: 0 0 10px;
+      font-size: 14px;
+      line-height: 1.8;
+      color: var(--dim);
+    }
+
+    .card p:last-child { margin-bottom: 0; }
+
+    /* ---------- 提示条 ---------- */
+    .notice {
+      margin-bottom: 16px;
+      padding: 14px 18px;
+      border: 1px dashed rgba(251, 191, 36, 0.4);
+      border-radius: 12px;
+      background: rgba(251, 191, 36, 0.06);
+      font-size: 13.5px;
+      line-height: 1.8;
+      color: #d8c9a0;
+    }
+
+    .notice strong { color: #fbbf24; }
+
+    /* ---------- 命令块 ---------- */
+    pre {
+      margin: 0;
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: #0a0c15;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.9;
+    }
+
+    code {
+      font-family: "Cascadia Code", "Consolas", ui-monospace, monospace;
+      color: var(--accent);
+    }
+
+    pre .comment { color: var(--faint); }
+
+    /* ---------- 按钮 ---------- */
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 26px;
+    }
+
+    a.btn {
+      display: inline-block;
+      padding: 11px 26px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 14px;
+      transition: background 0.2s ease, transform 0.15s ease;
+    }
+
+    a.btn:hover {
+      background: rgba(110, 231, 183, 0.14);
+      transform: translateY(-1px);
+    }
+
+    a.btn.primary {
+      background: linear-gradient(180deg, rgba(110, 231, 183, 0.22), rgba(110, 231, 183, 0.08));
+    }
+
+    /* ---------- 页脚 ---------- */
+    footer {
+      margin-top: 34px;
+      text-align: center;
+      font-size: 11.5px;
+      line-height: 1.9;
+      color: var(--faint);
+    }
+
+    .signature {
+      position: fixed;
+      right: 18px;
+      bottom: 14px;
+      font-size: 11px;
+      color: #4a5270;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    .signature .spark {
+      color: var(--accent2);
+      opacity: 0.75;
+      animation: twinkle 3.2s ease-in-out infinite;
+    }
+
+    .signature .sig-name { color: #6b7595; font-weight: 600; }
+
+    @keyframes twinkle {
+      0%, 100% { opacity: 0.3; transform: scale(0.85); }
+      50%      { opacity: 0.95; transform: scale(1.1); }
+    }
+
+    @media (max-width: 520px) {
+      .signature { right: 12px; bottom: 10px; font-size: 10px; }
+      body { padding: 26px 16px 50px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="hero">
+      <!-- ⚠️ 必须用相对路径：GitHub Pages 部署在 /TavernGame/ 子目录下，
+           写成 /assets/... 会被解析到域名根目录，导致 404 -->
+      <img class="avatar" src="assets/mea-avatar.jpg" alt="神楽めあ" width="128" height="128" />
+      <h1>TavernGame</h1>
+      <p class="tagline">
+        一个用 <strong>agent 循环</strong>驱动的文字游戏。<br />
+        既能做卡，也能玩卡。
+      </p>
+      <span class="badge">开发中 · v0.4.0</span>
+    </div>
+
+    <div class="notice">
+      <strong>⚠️ 这个网站不能直接玩。</strong><br />
+      TavernGame 是一个「软件型」项目 —— 需要在你自己的电脑上运行，
+      由你提供自己的 API key。这里只是一张介绍页。
+    </div>
+
+    <div class="card">
+      <h2>它是什么</h2>
+      <p>
+        传统 AI 角色扮演工具（比如酒馆）是<strong>轮次对话</strong>：你说一句，它回一句。
+      </p>
+      <p>
+        TavernGame 换成 <strong>agent 循环</strong>：你给一条指令，它自己思考、调用工具、
+        掷骰判定、修改世界状态，把整个回合跑完再给你结果。
+      </p>
+      <p>
+        游戏状态由<strong>引擎</strong>持有，不是由模型随口说的 —— 所以数值不会崩、
+        剧情不会自相矛盾。
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>直接开玩</h2>
+      <p>TavernGame 是<b>纯前端</b>游戏 —— 不需要安装任何东西。</p>
+      <p>
+        打开下面的网址，填一次你自己的 API key（存在你浏览器里，不会上传），
+        就能开始玩。
+      </p>
+      <p style="margin-top:16px">
+        <a class="btn primary" href="./" style="padding:11px 28px">▶ 开始游戏</a>
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>关于 API key</h2>
+      <p>
+        游戏需要调用 LLM，所以要你自己的 API key。
+        它在<b>你自己的浏览器</b>里保存和使用，请求直接从浏览器发往服务商，
+        不经过任何中间服务器。
+      </p>
+      <p>
+        已实测支持浏览器直连的服务商：<b>DeepSeek 官方</b>、硅基流动、
+        OpenRouter、Mistral，以及本地 Ollama（零成本）。
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>其他方式</h2>
+
+      <p>
+        想离线玩，或者想改代码？<br />
+        下载仓库后在文件夹里双击 <code>start.bat</code>，
+        或者手动运行：
+      </p>
+      <pre><code><span class="comment"># 克隆仓库</span>
+git clone https://github.com/me-aqua/TavernGame.git
+cd TavernGame
+
+<span class="comment"># 启动本地静态服务器</span>
+npm start
+
+<span class="comment"># 浏览器打开</span>
+http://localhost:3000/</code></pre>
+      <p style="margin-top:14px;font-size:13px">
+        <a class="btn" href="https://github.com/me-aqua/TavernGame/raw/main/start.bat"
+           style="padding:9px 22px;font-size:13.5px">⬇ 下载 start.bat</a>
+      </p>
+
+      <p style="margin-top:14px;font-size:13px">
+        ⚠️ 前置条件：需要 <strong>Node.js 18 或更高版本</strong>
+        （<a href="https://nodejs.org/" style="color:var(--accent2)">nodejs.org</a>）。
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>现在做到哪了</h2>
+      <p>
+        <strong>agent 循环已经跑通了。</strong>
+        你能输入行动，它会调用工具、掷骰判定、真实改变世界状态，
+        然后把结果写进叙事。
+      </p>
+      <p>
+        仍然在完善的部分：做卡系统（自定义角色与世界设定）、
+        更丰富的工具、存档的多设备同步。
+      </p>
+    </div>
+
+    <div class="actions">
+      <a class="btn primary" href="https://github.com/me-aqua/TavernGame">GitHub 仓库</a>
+      <a class="btn" href="https://github.com/me-aqua/TavernGame/blob/main/CHANGELOG.md">更新日志</a>
+    </div>
+
+    <footer>
+      头像素材 © 神楽めあ 官方频道（@KaguraMea），仅作个人练习用途<br />
+      由 GitHub Pages 提供托管
+    </footer>
+  </main>
+
+  <!-- 右下角署名 -->
+  <div class="signature">
+    <span class="spark">✧</span>
+    使用 <span class="sig-name">Agenia</span> 协助开发 · 她负责码字，我负责挑刺
+  </div>
+</body>
+</html>

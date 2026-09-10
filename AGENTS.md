@@ -9,7 +9,7 @@
 - 形态：**纯前端**。没有服务器、没有构建步骤、没有 npm 依赖
 - 与酒馆的区别：酒馆是**轮次对话**，本项目是**回合制 agent 循环**
 - 当前版本：**v0.4.0**（agent 循环跑通 + 架构转纯前端）
-- 游戏地址：https://me-aqua.github.io/TavernGame/play.html
+- 游戏地址：https://me-aqua.github.io/TavernGame/
 
 ### 开发路线
 
@@ -119,8 +119,8 @@ GitHub Pages 部署在 **`/TavernGame/` 子目录**下。
 
 ```
 TavernGame/
-├── index.html        项目介绍页（Pages 入口）
-├── play.html         游戏界面 —— 本体，纯静态
+├── index.html        游戏界面 —— 本体，Pages 入口就是它
+├── about.html        项目介绍页（介绍定位与用法）
 ├── core/
 │   ├── agent.js      agent 循环（灵魂）
 │   ├── tools.js      工具定义、执行、解析
