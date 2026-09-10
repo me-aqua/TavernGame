@@ -55,3 +55,6 @@ Desktop.ini
 # 这类 .local 文件是和 AI 的私人沟通偏好，不该公开给协作者
 *.local.md
 
+# --- 项目所有者的个人档案：不公开 ---
+ME-AQUA.md
+
