@@ -138,9 +138,20 @@ export class GameState {
   get segmentIndex() { return this.data.time.segment; }
   get segmentName() { return SEGMENTS[this.data.time.segment] || SEGMENTS[0]; }
 
-  /** 「第 3 天 · 下午」 */
+  /** 「第 3 天 · 下午」，跨度大时带上大概说法：「第 40 天 · 上午（约一个多月）」 */
   get timeLabel() {
-    return `第 ${this.data.time.day} 天 · ${this.segmentName}`;
+    const base = `第 ${this.data.time.day} 天 · ${this.segmentName}`;
+    const rough = this.roughSpan(this.data.time.day);
+    return rough ? `${base}（${rough}）` : base;
+  }
+
+  /** 把天数换算成人类说法，用于长跨度叙事 */
+  roughSpan(days) {
+    // 注意顺序：从大到小判断。先把「月」判掉，否则「周」会先命中，
+    // 第 29 天就会显示成「第 5 周」而不是「约 1 个月」。
+    if (days >= 30) return `约 ${Math.round(days / 30)} 个月`;
+    if (days >= 7) return `第 ${Math.floor(days / 7) + (days % 7 ? 1 : 0)} 周`;
+    return '';
   }
 
   // ---------- 工具：时间推进 ----------
@@ -148,39 +159,54 @@ export class GameState {
   /**
    * 推进时间。这是**唯一的工具**。
    *
-   * 引擎在这里做把关，模型不能乱推：
-   *   - step 不是正整数 → 拒绝
-   *   - 一次推太多段 → 夹到合理范围
+   * 设计取舍：
+   *   - **不设上限** —— 「等了七天」「修养一个月」都是正常剧情，
+   *     卡死跨度等于把这类叙事堵死
+   *   - **保留单向性检查** —— 那不是限制，是在拦模型的错误输入
+   *     （手滑传 0 或负数）
    *
-   * @param {number} step 推进几段（1 = 下一段，3 = 睡一觉到第二天同一段）
-   * @param {string} reason 原因（记录用）
+   * @param {number} step 推进多少（配合 unit）
+   * @param {string} [unit] 'segment'（默认，一个时段）/ 'day' / 'week'
+   * @param {string} [reason] 原因（记录用）
    */
-  advanceTime(step, reason) {
+  advanceTime(step, unit = 'segment', reason = '') {
+    const perDay = SEGMENTS.length;
+    const UNIT_SEGMENTS = { segment: 1, day: perDay, week: perDay * 7 };
+
+    // 兼容旧调用签名 advanceTime(step, reason)
+    if (typeof unit === 'string' && !(unit in UNIT_SEGMENTS)) {
+      reason = unit;
+      unit = 'segment';
+    }
+
     const raw = Number(step);
     const n = Number.isFinite(raw) ? Math.round(raw) : 1;
 
+    // 唯一保留的检查：时间不能倒退。这是在拦错误输入，不是限制玩法。
     if (n <= 0) {
       return `⚠ 时间是单向的，不能倒退或原地不动。（当前：${this.timeLabel}）`;
     }
-    if (n > 6) {
-      return `⚠ 一次最多推进 6 段（两天）。请分几次推进，或直接用 3 表示「睡一觉到第二天」。（当前：${this.timeLabel}）`;
+
+    // 防呆：拦住「推十万年」这种明显是模型手滑的输入。
+    // 这只是兜底，不构成玩法限制 —— 一万天约等于 27 年跨度。
+    const MAX = 10000 * perDay;
+    const requested = n * UNIT_SEGMENTS[unit];
+    if (requested > MAX) {
+      return `⚠ 一次推进跨度太大（${n} ${unit}），已忽略。当前：${this.timeLabel}`;
     }
 
+    const daysBefore = this.data.time.day;
     const before = this.timeLabel;
-    const perDay = SEGMENTS.length;
 
-    // 用总段数计算，避免跨天时出错
+    // 用「绝对段数」做加法，避免跨天时算错
     let total = this.data.time.day * perDay + this.data.time.segment;
-    total += n;
+    total += requested;
     this.data.time.day = Math.floor(total / perDay);
     this.data.time.segment = total % perDay;
 
-    // 天从 1 开始（上面的算法会从 0 起，修正一下）
-    if (this.data.time.segment === 0 && this.data.time.day === 0) {
-      this.data.time.day = 1;
-    }
-
     const after = this.timeLabel;
+    const daysPassed = this.data.time.day - daysBefore;
+
     this.data.timeline.push({
       from: before,
       to: after,
@@ -191,9 +217,14 @@ export class GameState {
       this.data.timeline.splice(0, this.data.timeline.length - MAX_TIMELINE);
     }
 
-    return `🕐 时间推进：${before} → ${after}` +
-      (reason ? `（${reason}）` : '') +
-      (n >= perDay ? '\n   （新的一天开始了）' : '');
+    // 跨度较大时，把「过了多久」明确说出来，方便模型在叙事里体现
+    let elapsed = '';
+    if (unit === 'week') elapsed = `（过去了 ${n} 周）`;
+    else if (unit === 'day') elapsed = `（过去了 ${n} 天）`;
+    else if (daysPassed >= 2) elapsed = `（过去了 ${daysPassed} 天）`;
+
+    return `🕐 时间推进：${before} → ${after}${elapsed}` +
+      (reason ? `\n   原因：${reason}` : '');
   }
 
   // ---------- 场景 ----------
