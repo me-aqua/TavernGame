@@ -218,6 +218,31 @@ npm run dev        # 或双击 start.bat
 - **标签必须单独推送**：`git push origin v0.4.0`
 - 每个版本同步更新 `CHANGELOG.md`
 
+### 9. 发布流程：一次翻车记录（务必照做）
+
+真实事故：安全检查失败时脚本执行了 `git reset`（清空暂存区），
+但我只修正了检查逻辑、**忘了重新 `git add`** →
+提交失败 → HEAD 没动 → **标签打在了上一个提交上** →
+远端出现「指向错误提交的 v0.5.2 标签 + 一个内容为空的 Release」。
+
+**发布必须按这个顺序，每步都要验证：**
+
+1. `git add -A` **然后确认 `git diff --cached --name-only` 非空**
+2. `git commit -F <文件>`（提交信息用文件传，避免引号地狱）
+3. **验证提交真的成功**：`git log -1 --format=%s` 看标题对不对
+4. 确认 `git rev-parse --short HEAD` 变了
+5. 才打标签：`git tag -a vX.Y.Z`
+6. **核对标签指向**：`git rev-list -n 1 vX.Y.Z` 应等于 HEAD
+7. `git push` + `git push origin vX.Y.Z`（**推送可能因代理抖动失败，要重试**）
+8. 最后核对本地 HEAD 与 `origin/main` 一致
+
+**另外：Shell 的安全检查模式别写太宽。**
+已经踩了两次：
+- `data/` 撞上 `data/.gitkeep`（那是要提交的占位文件）
+- `*tools*` 撞上 `core/tools.js`（那是游戏源码）
+
+要匹配目录就写 `.tools/*`，要匹配文件就写全名。
+
 ## 📁 目录结构
 
 ```
