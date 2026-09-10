@@ -1,0 +1,39 @@
+# ============================================================
+#  .gitattributes —— 告诉 Git「怎么处理不同类型文件的细节」
+#
+#  最核心的作用：统一换行符。
+#  Windows 用 CRLF 换行，Linux/macOS 用 LF。如果不统一，
+#  多人协作时会看到「整个文件都被改了」的假象。
+#  这里的规则是：仓库里统一存 LF，检出到 Windows 时用 CRLF。
+# ============================================================
+
+# 默认：自动处理文本文件的换行符
+* text=auto
+
+# 明确指定文本文件类型
+*.html   text
+*.css    text
+*.js     text
+*.json   text
+*.md     text
+*.yml    text
+*.yaml   text
+*.txt    text
+
+# 二进制文件：不要碰，不要尝试转换
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.webp   binary
+*.ico    binary
+*.mp3    binary
+*.ogg    binary
+*.wav    binary
+*.woff   binary
+*.woff2  binary
+*.ttf    binary
+*.zip    binary
+
+# 在 GitHub 上把 Markdown 标记为文档，统计语言占比时不计入
+*.md     linguist-documentation
