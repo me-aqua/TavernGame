@@ -108,6 +108,26 @@ GitHub Pages 部署在 **`/TavernGame/` 子目录**下。
 测试端口前**必须先确认端口是空的**，否则 200 可能来自旧进程。
 这类「看起来通过、其实测错了」的结果比不测更危险。
 
+
+### 5. 本地调试用 dev-server.js，不要拿线上页面调
+
+```bash
+npm run dev        # 或双击 start.bat
+# http://localhost:3000/
+```
+
+它有两点比 `npx serve` 强：
+
+- **禁用缓存**（`Cache-Control: no-store`）—— 改完刷新即生效，
+  不会出现「代码改了但浏览器还在跑旧 JS」这种排查半天的假象
+- 零依赖，不用等 npx 下载
+
+> ⚠️ localStorage 按域名隔离：`localhost` 与 `me-aqua.github.io`
+> 各存一份 API key，首次在本地调试要重新填一次。
+
+线上（GitHub Pages）的缓存不受我们控制 —— 发布更新后，
+用户可能需要硬刷新（Ctrl+Shift+R）才能拿到新 JS。
+
 ## 🏷️ 版本管理约定
 
 - 提交信息用约定式前缀：`feat` / `fix` / `docs` / `chore` / `refactor` / `style`
@@ -128,9 +148,10 @@ TavernGame/
 │   ├── llm.js        LLM 调用（含 CORS 失败提示）
 │   ├── config.js     配置与服务商预设
 │   └── prompts.js    提示词（改玩法主要改这里）
-├── start.bat         Windows 本地静态服务器
+├── start.bat         Windows 本地启动脚本（调用 dev-server.js）
+├── dev-server.js     本地调试服务器（禁用缓存，零依赖）
 ├── assets/           静态素材
-├── package.json      仅用于本地开发（npx serve）
+├── package.json      仅用于本地开发（npm run dev）
 ├── README.md / CHANGELOG.md / AGENIA.md
 ├── AGENTS.md         本文件
 └── AGENTS.local.md   个人偏好（git 忽略）
