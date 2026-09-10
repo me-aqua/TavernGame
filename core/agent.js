@@ -81,6 +81,10 @@ export async function runTurn(state, opts = {}) {
 
     const { blocks, clean, errors } = parseToolCalls(reply);
 
+    // 把原始回复透出去，供调试模式查看。
+    // 排查「模型为什么不按格式输出」时，这是唯一的一手证据。
+    onEvent({ type: 'raw', text: reply, blocks: blocks.length });
+
     for (const e of errors) {
       console.warn('[工具解析]', e);
       onEvent({ type: 'warn', message: e });

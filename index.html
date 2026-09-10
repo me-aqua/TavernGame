@@ -336,6 +336,19 @@
     let history = [];
     let controller = null;   // AbortController，用于「停止」
 
+    // 调试模式：显示模型的原始输出，用来排查「为什么不按格式调用工具」。
+    // 在浏览器控制台执行  __DEBUG = true  即可打开（刷新后失效）。
+    let debugMode = false;
+    Object.defineProperty(window, '__DEBUG', {
+      get: () => debugMode,
+      set: (v) => {
+        debugMode = Boolean(v);
+        append(debugMode
+          ? '🔧 调试模式已开启 —— 之后会显示模型的原始输出'
+          : '🔧 调试模式已关闭', 'system');
+      },
+    });
+
     // ---------- 界面：追加内容 ----------
     function append(text, kind = 'narration') {
       const div = document.createElement('div');
@@ -438,6 +451,20 @@
             if (evt.type === 'narration') {
               // 叙事是分批到达的（每步一段），到达时先撤掉「思考中」
               showThinking(false);
+            }
+            // 调试模式：把模型的原始回复完整打出来
+            if (evt.type === 'raw' && debugMode) {
+              const div = document.createElement('details');
+              div.className = 'line system tool';
+              div.style.cursor = 'pointer';
+              const summary = document.createElement('summary');
+              summary.textContent = `🔍 模型原始输出（解析出 ${evt.blocks} 个工具块）—— 点击展开`;
+              const pre = document.createElement('pre');
+              pre.style.cssText = 'white-space:pre-wrap;margin:8px 0 0;font-size:12px;line-height:1.6';
+              pre.textContent = evt.text;
+              div.append(summary, pre);
+              el.story.appendChild(div);
+              el.story.scrollTop = el.story.scrollHeight;
             }
             if (evt.type === 'tool') {
               append(`⚙ 调用 ${evt.tool}(${JSON.stringify(evt.args)})`, 'system tool');
