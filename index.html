@@ -1,0 +1,124 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TavernGame</title>
+  <meta name="description" content="TavernGame —— 正在搭建中的项目" />
+  <style>
+    :root {
+      --bg: #0d0f1a;
+      --panel: #161b2e;
+      --accent: #6ee7b7;
+      --text: #e8ecf5;
+      --dim: #8b95b0;
+      --border: rgba(110, 231, 183, 0.22);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+      background: radial-gradient(circle at 50% 30%, #1a2136 0%, var(--bg) 65%);
+    }
+
+    main {
+      width: 100%;
+      max-width: 560px;
+      padding: 40px 32px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--panel);
+      text-align: center;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+    }
+
+    .badge {
+      display: inline-block;
+      margin-bottom: 20px;
+      padding: 5px 14px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      color: var(--accent);
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(30px, 7vw, 42px);
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+
+    p {
+      margin: 0 0 10px;
+      font-size: 15px;
+      line-height: 1.8;
+      color: var(--dim);
+    }
+
+    .dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      margin-right: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 1.6s ease-in-out infinite;
+      vertical-align: middle;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: 0.35; transform: scale(0.8); }
+    }
+
+    a {
+      display: inline-block;
+      margin-top: 22px;
+      padding: 11px 28px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 14px;
+      transition: background 0.2s ease, transform 0.15s ease;
+    }
+
+    a:hover {
+      background: rgba(110, 231, 183, 0.14);
+      transform: translateY(-1px);
+    }
+
+    footer {
+      margin-top: 26px;
+      font-size: 12px;
+      color: #5b6480;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="badge">TAVERNGAME</span>
+    <h1>正在搭建中</h1>
+    <p><span class="dot"></span>这个项目还是空白状态</p>
+    <p>入口页面已就位，接下来做什么由你决定。<br />等真正的第一版做出来，直接替换这个页面即可。</p>
+    <a href="https://github.com/me-aqua/TavernGame">查看 GitHub 仓库</a>
+    <footer>由 GitHub Pages 提供托管</footer>
+  </main>
+</body>
+</html>
