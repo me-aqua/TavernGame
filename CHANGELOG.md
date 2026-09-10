@@ -18,6 +18,53 @@
     安全 Security   —— 安全相关
 -->
 
+## [未发布] — 目标 v0.5.0
+
+### 计划中
+- 做卡系统：自定义角色与世界设定
+- 更多工具（战斗流程、时间推进、多 NPC 互动）
+- 存档的多设备同步方案
+
+---
+
+## [0.4.0] - 2026-09-10
+
+架构转向：**全面纯前端**。移除本地服务器，agent 循环跑在浏览器里。
+
+这个决定来自一次实测：探测主流 LLM 服务的 CORS 响应头，发现
+DeepSeek 官方、硅基流动、OpenRouter、Mistral 均允许浏览器直连
+（Groq 不允许）。既然玩家用的是自己的 key，「后端藏着密钥」这个
+理由就不成立了。
+
+### 新增
+- **`core/agent.js`** —— agent 循环：拼装提示词 → 解析工具调用 →
+  执行 → 回传结果 → 循环，直到模型收尾或达到步数上限
+- **`core/tools.js`** —— 工具系统：set_stat / adjust_stat / roll_check /
+  add_item / remove_item / set_scene / set_npc / set_flag
+  - 采用「文本协议 + JSON 代码块」而非各家原生 function calling，
+    从而与供应商解耦，且便于排查问题
+- **`core/state.js`** —— 世界状态与存档（localStorage + 导出/导入文件）
+- **`core/config.js`** —— 配置管理与服务商预设
+- **`core/llm.js`** —— LLM 调用层，含 CORS 失败的友好提示
+- **`core/prompts.js`** —— 提示词集中管理
+- **`play.html`** —— 完整游戏界面，纯静态可直接部署
+
+### 修改
+- GitHub Pages 现在就是**可玩的游戏本体**，不再只是介绍页
+- `start.bat` 改为启动本地静态服务器（离线玩或本地开发用）
+- 介绍页重写为「纯前端」定位
+
+### 移除
+- `server/index.js` —— 纯前端后不再需要本地服务器
+- `config.example.json` —— API key 改为存在浏览器里
+- `data/` —— 存档改存 localStorage
+
+### 测试
+- agent 循环离线测试 **17/17 项通过**：工具解析、状态真实修改、
+  叙事与工具分离、结果回传、自动存档、导出/导入
+
+---
+
 ## [0.3.0] - 2026-09-10
 
 ### 新增
@@ -105,7 +152,8 @@
 
 <!-- 版本链接（GitHub 上会自动生成对比页面） -->
 
-[未发布]: https://github.com/me-aqua/TavernGame/compare/v0.3.0...HEAD
+[未发布]: https://github.com/me-aqua/TavernGame/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/me-aqua/TavernGame/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/me-aqua/TavernGame/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/me-aqua/TavernGame/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/me-aqua/TavernGame/releases/tag/v0.1.0

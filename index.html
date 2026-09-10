@@ -218,7 +218,7 @@
         一个用 <strong>agent 循环</strong>驱动的文字游戏。<br />
         既能做卡，也能玩卡。
       </p>
-      <span class="badge">开发中 · v0.3.0</span>
+      <span class="badge">开发中 · v0.4.0</span>
     </div>
 
     <div class="notice">
@@ -243,29 +243,51 @@
     </div>
 
     <div class="card">
-      <h2>怎么跑起来</h2>
-
-      <p style="margin-bottom:14px">
-        <strong>方式一：一键启动（推荐）</strong><br />
-        下载下面的启动脚本，放进项目文件夹的 <code>public</code> 目录，双击即可。
-        它会自动检测环境、启动服务器、打开浏览器。
+      <h2>直接开玩</h2>
+      <p>TavernGame 是<b>纯前端</b>游戏 —— 不需要安装任何东西。</p>
+      <p>
+        打开下面的网址，填一次你自己的 API key（存在你浏览器里，不会上传），
+        就能开始玩。
       </p>
-
-      <p style="margin-bottom:16px">
-        <a class="btn primary" href="https://github.com/me-aqua/TavernGame/raw/main/public/start.bat"
-           style="padding:9px 22px;font-size:13.5px">⬇ 下载 start.bat</a>
+      <p style="margin-top:16px">
+        <a class="btn primary" href="play.html" style="padding:11px 28px">▶ 开始游戏</a>
       </p>
+    </div>
 
-      <p style="margin-bottom:10px"><strong>方式二：手动命令</strong></p>
-      <pre><code><span class="comment"># 1. 克隆仓库</span>
+    <div class="card">
+      <h2>关于 API key</h2>
+      <p>
+        游戏需要调用 LLM，所以要你自己的 API key。
+        它在<b>你自己的浏览器</b>里保存和使用，请求直接从浏览器发往服务商，
+        不经过任何中间服务器。
+      </p>
+      <p>
+        已实测支持浏览器直连的服务商：<b>DeepSeek 官方</b>、硅基流动、
+        OpenRouter、Mistral，以及本地 Ollama（零成本）。
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>其他方式</h2>
+
+      <p>
+        想离线玩，或者想改代码？<br />
+        下载仓库后在文件夹里双击 <code>start.bat</code>，
+        或者手动运行：
+      </p>
+      <pre><code><span class="comment"># 克隆仓库</span>
 git clone https://github.com/me-aqua/TavernGame.git
 cd TavernGame
 
-<span class="comment"># 2. 启动服务器（零依赖，不需要 npm install）</span>
+<span class="comment"># 启动本地静态服务器</span>
 npm start
 
-<span class="comment"># 3. 浏览器打开</span>
+<span class="comment"># 浏览器打开</span>
 http://localhost:3000/play.html</code></pre>
+      <p style="margin-top:14px;font-size:13px">
+        <a class="btn" href="https://github.com/me-aqua/TavernGame/raw/main/start.bat"
+           style="padding:9px 22px;font-size:13.5px">⬇ 下载 start.bat</a>
+      </p>
 
       <p style="margin-top:14px;font-size:13px">
         ⚠️ 前置条件：需要 <strong>Node.js 18 或更高版本</strong>
@@ -276,10 +298,13 @@ http://localhost:3000/play.html</code></pre>
     <div class="card">
       <h2>现在做到哪了</h2>
       <p>
-        目前完成<strong>第 1 步：骨架</strong> —— 本地服务器能跑，界面壳子已就位。
+        <strong>agent 循环已经跑通了。</strong>
+        你能输入行动，它会调用工具、掷骰判定、真实改变世界状态，
+        然后把结果写进叙事。
       </p>
       <p>
-        agent 循环、世界状态、掷骰判定正在开发中，还没接上。
+        仍然在完善的部分：做卡系统（自定义角色与世界设定）、
+        更丰富的工具、存档的多设备同步。
       </p>
     </div>
 
