@@ -351,12 +351,21 @@
     });
 
     // ---------- 界面：追加内容 ----------
+    // 记录「界面上已经显示过的玩家行动」，用于刷新恢复时去重。
+    // 日志里保留 action 是为了给模型看历史，界面不该重复显示。
+    const shownActions = new Set();
+    let logRestored = false;   // 日志恢复完成后，行动一律实时追加
+
     function append(text, kind = 'narration') {
       const div = document.createElement('div');
       div.className = `line ${kind}`;
       div.textContent = text;
       el.story.appendChild(div);
       el.story.scrollTop = el.story.scrollHeight;
+
+      // 只有「实时产生」的行动才登记。恢复历史时不登记，
+      // 否则同一条行动如果出现两次，第二次会被误判成已显示。
+      if (kind === 'action' && logRestored) shownActions.add(text);
       return div;
     }
 
@@ -665,10 +674,15 @@
     refreshStatus();
     renderState();
 
-    // 恢复上次的叙事日志
+    // 恢复上次的叙事日志。
+    // ⚠️ 叙事和玩家行动都要恢复，按日志顺序原样输出。
+    //    刷新时整个界面是空的，所以不存在「重复」问题 ——
+    //    日志里每条都是唯一的。system 类不恢复（本次加载会重新生成提示）。
     for (const entry of state.data.log.slice(-20)) {
+      if (entry.kind !== 'narration' && entry.kind !== 'action') continue;
       append(entry.text, entry.kind);
     }
+    logRestored = true;   // 之后的行动都是实时追加的
 
     if (isConfigured()) {
       if (state.turn === 0) {
