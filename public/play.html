@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TavernGame · 游戏界面</title>
+  <meta name="description" content="TavernGame —— agent 驱动的文字游戏" />
+  <style>
+    :root {
+      --bg:      #0d0f1a;
+      --panel:   #141828;
+      --panel-2: #1b2035;
+      --accent:  #6ee7b7;
+      --accent2: #7dd3fc;
+      --text:    #e8ecf5;
+      --dim:     #8b95b0;
+      --faint:   #555e78;
+      --border:  rgba(110, 231, 183, 0.18);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ---------- 顶栏 ---------- */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      flex-shrink: 0;
+    }
+
+    .logo {
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      font-size: 14px;
+      color: var(--accent);
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--dim);
+      margin-left: auto;
+    }
+
+    .light {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--faint);
+      transition: background 0.3s ease;
+    }
+
+    .light.on   { background: var(--accent);  box-shadow: 0 0 8px var(--accent); }
+    .light.warn { background: #fbbf24;        box-shadow: 0 0 8px #fbbf24; }
+    .light.off  { background: #f87171;        box-shadow: 0 0 8px #f87171; }
+
+    header a {
+      color: var(--faint);
+      font-size: 12px;
+      text-decoration: none;
+    }
+    header a:hover { color: var(--accent2); }
+
+    /* ---------- 主体两栏 ---------- */
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 300px;
+      flex: 1;
+      min-height: 0;   /* 关键：让内部区域能正确滚动 */
+    }
+
+    /* ---------- 叙事区 ---------- */
+    .story {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      border-right: 1px solid var(--border);
+    }
+
+    .story-log {
+      flex: 1;
+      overflow-y: auto;
+      padding: 22px 26px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      scroll-behavior: smooth;
+    }
+
+    /* 自定义滚动条，不然 Windows 上很突兀 */
+    .story-log::-webkit-scrollbar { width: 8px; }
+    .story-log::-webkit-scrollbar-track { background: transparent; }
+    .story-log::-webkit-scrollbar-thumb {
+      background: rgba(110, 231, 183, 0.18);
+      border-radius: 4px;
+    }
+
+    .line {
+      line-height: 1.85;
+      font-size: 15px;
+      max-width: 68ch;
+    }
+
+    .line.narration { color: #c8d0e2; }
+
+    .line.action {
+      color: var(--accent2);
+      padding-left: 12px;
+      border-left: 2px solid rgba(125, 211, 252, 0.4);
+    }
+
+    .line.system {
+      color: var(--faint);
+      font-size: 12.5px;
+      padding: 10px 14px;
+      border: 1px dashed rgba(139, 149, 176, 0.25);
+      border-radius: 10px;
+      background: rgba(139, 149, 176, 0.05);
+    }
+
+    .line.system strong { color: #fbbf24; font-weight: 600; }
+    .line.system code {
+      background: rgba(110, 231, 183, 0.1);
+      color: var(--accent);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    /* ---------- 输入区 ---------- */
+    .composer {
+      flex-shrink: 0;
+      padding: 12px 16px 16px;
+      border-top: 1px solid var(--border);
+      background: var(--panel);
+    }
+
+    .composer-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    textarea {
+      flex: 1;
+      resize: none;
+      min-height: 44px;
+      max-height: 140px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--panel-2);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 1.5;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    textarea:focus { border-color: rgba(110, 231, 183, 0.5); }
+    textarea::placeholder { color: var(--faint); }
+
+    button {
+      flex-shrink: 0;
+      height: 44px;
+      padding: 0 22px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(110, 231, 183, 0.2), rgba(110, 231, 183, 0.07));
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.12s ease;
+    }
+
+    button:hover:not(:disabled) {
+      background: linear-gradient(180deg, rgba(110, 231, 183, 0.32), rgba(110, 231, 183, 0.12));
+    }
+    button:active:not(:disabled) { transform: scale(0.97); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .hint {
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--faint);
+    }
+
+    /* ---------- 右侧状态面板 ---------- */
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 18px 16px;
+      overflow-y: auto;
+      background: var(--panel);
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      background: var(--panel-2);
+    }
+
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      color: var(--faint);
+      text-transform: uppercase;
+    }
+
+    .stat {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 5px 0;
+      font-size: 13px;
+    }
+
+    .stat span:first-child { color: var(--dim); }
+    .stat span:last-child {
+      color: var(--accent);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .bar {
+      height: 5px;
+      margin-top: 6px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.07);
+      overflow: hidden;
+    }
+
+    .bar i {
+      display: block;
+      height: 100%;
+      background: var(--accent);
+      border-radius: 3px;
+      transition: width 0.4s ease;
+    }
+
+    .empty {
+      font-size: 12px;
+      color: var(--faint);
+      font-style: italic;
+    }
+
+    /* ---------- 窄屏适配 ---------- */
+    @media (max-width: 760px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        border-top: 1px solid var(--border);
+        max-height: 42vh;
+      }
+      .story { border-right: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <span class="logo">TAVERNGAME</span>
+    <span class="status">
+      <span class="light" id="light"></span>
+      <span id="status-text">正在连接服务器…</span>
+    </span>
+    <a href="/">测试页</a>
+  </header>
+
+  <div class="layout">
+    <!-- 叙事区 -->
+    <section class="story">
+      <div class="story-log" id="log">
+        <div class="line system">
+          <strong>这里是界面骨架。</strong><br />
+          服务器已经跑起来了，但 <code>agent 循环</code> 还没接上 —— 所以现在你发消息不会有反应。
+          这是第 1 步的正常状态，第 2 步会把它接上。
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="composer-row">
+          <textarea id="input" rows="1" placeholder="你想做什么？（第 2 步之后才有效）"></textarea>
+          <button id="send" disabled>行动</button>
+        </div>
+        <div class="hint" id="hint">等待服务器状态…</div>
+      </div>
+    </section>
+
+    <!-- 状态面板 -->
+    <aside class="sidebar">
+      <div class="card">
+        <h2>角色</h2>
+        <div id="char">
+          <div class="stat"><span>名称</span><span>—</span></div>
+          <div class="stat"><span>状态</span><span>未创建</span></div>
+          <div class="bar"><i style="width:0%"></i></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>背包</h2>
+        <p class="empty">（空）</p>
+      </div>
+
+      <div class="card">
+        <h2>场景</h2>
+        <p class="empty">尚未开始</p>
+      </div>
+
+      <div class="card">
+        <h2>回合</h2>
+        <div class="stat"><span>已进行</span><span id="turn-count">0</span></div>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module">
+    /**
+     * 前端脚本：目前只做两件事
+     *   1. 探测后端状态，把结果显示在顶栏
+     *   2. 提供一个能输入、能追加消息的界面骨架
+     *
+     * 真正的「发消息 → agent 处理 → 返回叙事」是第 2 步的事。
+     */
+
+    const light = document.querySelector('#light');
+    const statusText = document.querySelector('#status-text');
+    const hint = document.querySelector('#hint');
+    const input = document.querySelector('#input');
+    const sendBtn = document.querySelector('#send');
+    const log = document.querySelector('#log');
+
+    /** 追加一条内容到叙事区 */
+    function append(text, kind = 'narration') {
+      const div = document.createElement('div');
+      div.className = `line ${kind}`;
+      div.textContent = text;
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+      return div;
+    }
+
+    // ---------- 探测后端 ----------
+    async function checkServer() {
+      try {
+        const res = await fetch('/api/healthz', { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        if (data.agent) {
+          light.className = 'light on';
+          statusText.textContent = '已就绪';
+          sendBtn.disabled = false;
+          hint.textContent = 'agent 已接通，可以开始行动';
+        } else {
+          light.className = 'light warn';
+          statusText.textContent = '服务器在线 · agent 未接入';
+          sendBtn.disabled = true;
+          hint.innerHTML = `服务器版本 <code>${data.version}</code> · ${data.message}`;
+        }
+        return data;
+      } catch (err) {
+        light.className = 'light off';
+        statusText.textContent = '未连接到服务器';
+        sendBtn.disabled = true;
+        hint.textContent = `连不上后端（${err.message}）。如果你直接双击打开了这个文件，请改用 npm start 启动服务器。`;
+        return null;
+      }
+    }
+
+    // ---------- 输入框自动增高 ----------
+    input.addEventListener('input', () => {
+      input.style.height = 'auto';
+      input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+    });
+
+    // Ctrl+Enter 或 Enter 发送（Shift+Enter 换行）
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submit();
+      }
+    });
+    sendBtn.addEventListener('click', submit);
+
+    function submit() {
+      const text = input.value.trim();
+      if (!text) return;
+
+      append(text, 'action');
+      input.value = '';
+      input.style.height = 'auto';
+
+      // 第 2 步会在这里调用 /api/turn
+      append('（agent 尚未接入，这条输入没有被处理）', 'system');
+    }
+
+    checkServer();
+  </script>
+</body>
+</html>
