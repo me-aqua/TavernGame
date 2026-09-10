@@ -74,18 +74,18 @@ export const TOOLS = {
   },
 
   set_scene: {
-    desc: '切换或更新当前场景',
+    desc: '切换或更新当前场景。**两个参数都是必填**',
     args: {
-      name: '场景名称',
-      description: '场景的一句话描述',
+      name: '场景名称，必填。要写具体，例如「破晓酒馆」，不要写「名字」这种占位文字',
+      description: '场景的一句话描述，必填',
     },
     run: (state, a) => state.setScene(a.name, a.description),
   },
 
   set_npc: {
-    desc: '记录或更新一个重要人物',
+    desc: '记录或更新一个重要人物。name 必填',
     args: {
-      name: '人物名称',
+      name: '人物名称，必填，写具体名字',
       note: '关于这个人的要点',
       attitude: '对玩家的态度，例如：友好 / 警惕 / 敌对 / 中立',
     },
@@ -93,9 +93,9 @@ export const TOOLS = {
   },
 
   set_flag: {
-    desc: '记录一个剧情标记，用于后续保持一致（例如「已答应帮忙」）',
+    desc: '记录一个剧情标记，用于后续保持一致（例如「已答应帮忙」）。key 必填',
     args: {
-      key: '标记名',
+      key: '标记名，必填，例如 agreed_to_help',
       value: '标记值，可以是文字或 true/false',
     },
     run: (state, a) => state.setFlag(a.key, a.value),
@@ -128,8 +128,20 @@ export function runTool(state, name, args) {
   if (!tool) {
     return `❌ 没有名为「${name}」的工具。可用工具：${Object.keys(TOOLS).join('、')}`;
   }
+
+  // 空参数的反馈要「教会」模型，而不只是报错。
+  // 否则模型会继续输出空 args，陷入无用循环。
+  const keys = Object.keys(args || {});
+  if (keys.length === 0) {
+    const need = Object.keys(tool.args).join('、');
+    return `❌ ${name} 没有收到任何参数，所以什么都没做。\n` +
+      `   需要提供：${need}\n` +
+      `   正确写法示例：{"tool": "${name}", "args": {${Object.entries(tool.args)
+        .map(([k]) => `"${k}": <请填入具体内容>`).join(', ')}}}`;
+  }
+
   try {
-    return String(tool.run(state, args || {}));
+    return String(tool.run(state, args));
   } catch (err) {
     return `❌ 工具执行出错：${err.message}`;
   }
