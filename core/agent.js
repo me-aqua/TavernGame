@@ -83,7 +83,20 @@ export async function runTurn(state, opts = {}) {
 
     // 把原始回复透出去，供调试模式查看。
     // 排查「模型为什么不按格式输出」时，这是唯一的一手证据。
-    onEvent({ type: 'raw', text: reply, blocks: blocks.length });
+    // 一并给出解析结果，因为「模型有没有写叙事」正是常见问题。
+    onEvent({
+      type: 'raw',
+      text: reply,
+      blocks: blocks.length,
+      narrationLength: clean.length,
+      replyLength: reply.length,
+    });
+
+    // 模型只调工具、不写叙事时提示一句。
+    // 这不该发生（提示词要求先叙事），但模型有时候会偷懒。
+    if (!clean && blocks.length > 0) {
+      onEvent({ type: 'warn', message: `模型这一步只调用了工具，没有写叙事文字（第 ${steps} 步）` });
+    }
 
     for (const e of errors) {
       console.warn('[工具解析]', e);
