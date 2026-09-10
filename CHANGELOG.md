@@ -1,4 +1,4 @@
-# 更新日志
+﻿# 更新日志
 
 本文件记录 TavernGame 的每个版本改了什么。
 
@@ -23,6 +23,21 @@
 ### 计划中
 - 设计并实现文字游戏的核心玩法
 - 替换当前的占位首页
+
+---
+
+## [0.2.0] - 2026-09-10
+
+### 新增
+- `AGENIA.md`：AI 助手的自我介绍文档
+  - 说明其角色定位、性格、工作方式
+  - 列出能力范围与能力边界
+  - 公开记录项目开发中犯过的错误及教训
+- `AGENTS.md` 增补版本管理约定（语义化版本、标签推送、CHANGELOG）
+
+### 安全
+- `.gitignore` 新增 `*.local.md` 规则
+  - 防止个人的 AI 指令文件被提交到公开仓库
 
 ---
 
@@ -52,5 +67,6 @@
 
 <!-- 版本链接（GitHub 上会自动生成对比页面） -->
 
-[未发布]: https://github.com/me-aqua/TavernGame/compare/v0.1.0...HEAD
+[未发布]: https://github.com/me-aqua/TavernGame/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/me-aqua/TavernGame/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/me-aqua/TavernGame/releases/tag/v0.1.0
