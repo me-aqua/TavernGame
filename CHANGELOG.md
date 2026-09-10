@@ -18,6 +18,35 @@
     安全 Security   —— 安全相关
 -->
 
+## [0.5.2] - 2026-09-10
+
+### 新增
+- **时间改用现实世界的公历**，起点 = 玩家点「开始」的那一刻
+  - 状态里存一个绝对时刻（ISO 字符串），不再是自己编的「第 N 天 · 第 M 段」
+  - 日期运算**全部交给 JavaScript 的 `Date`**，所以这些边界永远正确：
+    「1 月 31 日 + 1 个月」→ 3 月 3 日（2 月没有 31 日）、
+    「闰年 2 月 28 日 + 1 天」→ 2 月 29 日、「平年」→ 3 月 1 日
+  - 时间单位扩展到：`segment` / `hour` / `day` / `week` / `month` / `year`
+- `core/calendar.js` —— 历法独立成模块，与引擎解耦
+- 新增 `setCalendar()`：同一时刻可换显示方式（为以后的「做卡」留接口）
+
+### 修改
+- 状态结构升级到 v3，并带旧存档迁移（v1/v2 的「第 N 天」无法精确换算，
+  时间重新从「现在」开始，但**场景、日志、回合数都保留**）
+- 提示词注入历法说明，模型才知道这个世界怎么算日子
+
+### 移除
+- **删除「奇幻历法（12 月 × 30 天）」预设**
+  - 它是为「以后可能要用」提前造的轮子，没人会用、还要维护
+  - 按用户意见整个砍掉，只保留现实历
+
+### 测试
+- 离线测试 **39/39 通过**（含 Date 边界、单向前进把关、存档迁移、提示词注入）
+- 真实 API 验证：起点显示为真实日期；模型主动用 `unit:"week"`
+  跳过两周（9/10 → 9/24），刷新后时间与故事都保留
+
+---
+
 ## [0.5.1] - 2026-09-10
 
 ### 新增
@@ -227,7 +256,8 @@ DeepSeek 官方、硅基流动、OpenRouter、Mistral 均允许浏览器直连
 
 <!-- 版本链接（GitHub 上会自动生成对比页面） -->
 
-[未发布]: https://github.com/me-aqua/TavernGame/compare/v0.5.1...HEAD
+[未发布]: https://github.com/me-aqua/TavernGame/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/me-aqua/TavernGame/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/me-aqua/TavernGame/compare/v0.5.0...v0.5.1
 [0.4.0]: https://github.com/me-aqua/TavernGame/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/me-aqua/TavernGame/compare/v0.2.0...v0.3.0

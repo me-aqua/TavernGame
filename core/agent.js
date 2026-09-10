@@ -15,19 +15,17 @@
 
 import { chat } from './llm.js';
 import { runTool, parseToolCalls } from './tools.js';
-import { SYSTEM_PROMPT, OPENING_INSTRUCTION } from './prompts.js';
+import { buildSystemPrompt, OPENING_INSTRUCTION } from './prompts.js';
 import { loadConfig } from './config.js';
 
-/** 拼装发给模型的消息列表 */
+/**
+ * 拼装发给模型的消息列表。
+ * system 消息交给 prompts.buildSystemPrompt —— 因为历法说明是动态的
+ * （玩家用哪套历法，说明就不同），不便在这里写死。
+ */
 function buildMessages(state, history, userContent) {
   const messages = [
-    {
-      role: 'system',
-      content: `${SYSTEM_PROMPT}
-
-## 当前世界状态
-${state.snapshot(history)}`,
-    },
+    { role: 'system', content: buildSystemPrompt(state, history) },
   ];
 
   // 最近几轮对话，提供连贯性
