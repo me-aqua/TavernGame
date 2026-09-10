@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -146,6 +146,44 @@
       line-height: 1.7;
       color: #555e78;
     }
+
+    /* --- 右下角签名：AI 助手署名 --- */
+    .signature {
+      position: fixed;
+      right: 18px;
+      bottom: 14px;
+      z-index: 10;
+      font-size: 11px;
+      letter-spacing: 0.03em;
+      color: #4a5270;
+      pointer-events: none;
+      user-select: none;
+      transition: color 0.3s ease;
+    }
+
+    .signature .spark {
+      color: var(--accent2);
+      opacity: 0.75;
+      animation: twinkle 3.2s ease-in-out infinite;
+    }
+
+    .signature .sig-name {
+      color: #6b7595;
+      font-weight: 600;
+    }
+
+    @keyframes twinkle {
+      0%, 100% { opacity: 0.3; transform: scale(0.85); }
+      50%      { opacity: 0.95; transform: scale(1.1); }
+    }
+
+    @media (max-width: 520px) {
+      .signature {
+        right: 12px;
+        bottom: 10px;
+        font-size: 10px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -167,5 +205,11 @@
       由 GitHub Pages 提供托管
     </footer>
   </main>
+
+  <!-- 右下角署名 -->
+  <div class="signature">
+    <span class="spark">✧</span>
+    使用 <span class="sig-name">Agenia</span> 协助开发 · 她负责码字，我负责挑刺
+  </div>
 </body>
 </html>
