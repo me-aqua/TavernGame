@@ -35,7 +35,17 @@ TavernGame 换一种方式，用**回合制 agent 循环**：
 
 ## 怎么跑起来
 
-需要 **Node.js 18 或更高版本**。
+前置条件：**Node.js 18 或更高版本**（[下载](https://nodejs.org/)）。
+
+### 方式一：一键启动（Windows，推荐）
+
+1. clone 仓库（或下载 ZIP 解压）
+2. 双击 `public/start.bat`
+
+脚本会自动检测 Node.js、启动服务器、打开浏览器。
+**停止服务**：关掉那个窗口，或按 `Ctrl + C`。
+
+### 方式二：手动命令（任何系统）
 
 ```bash
 # 1. 克隆
@@ -49,8 +59,6 @@ npm start
 #    测试页    http://localhost:3000/
 #    游戏界面  http://localhost:3000/play.html
 ```
-
-停止服务：按 `Ctrl + C`。
 
 ## 现在做到哪了
 

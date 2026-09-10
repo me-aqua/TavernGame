@@ -1,6 +1,6 @@
 {
   "name": "tavern-game",
-  "version": "0.3.0-dev",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "一个用 agent 循环驱动的文字游戏，既能做卡也能玩卡",
@@ -9,7 +9,14 @@
     "dev": "node server/index.js",
     "serve": "npx --yes serve -l 5173 ."
   },
-  "keywords": ["agent", "text-game", "trpg", "llm"],
-  "engines": { "node": ">=18" },
+  "keywords": [
+    "agent",
+    "text-game",
+    "trpg",
+    "llm"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "license": "MIT"
 }
