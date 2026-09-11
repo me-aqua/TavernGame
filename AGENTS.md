@@ -133,7 +133,8 @@ GitHub Pages 部署在 **`/TavernGame/` 子目录**下。
 ### 3. Windows PowerShell 5.1 的限制
 
 - 没有 `Start-Process -Environment`（那是 PS 7+）
-- `$env:TEMP` 在沙箱里**每次调用都不同**，别用它存跨命令的状态
+- `$env:TEMP` 在沙箱里**每次调用都不同**，别用它存跨命令状态；
+  需要跨命令的文件（临时脚本、浏览器 profile）放**工作区内的 `.tools/`**（已被忽略）
 - `curl.exe` 连不上时错误会写进 **stderr**，`2>&1` 会污染变量；
   取状态码要 `2>$null` 再取末尾 3 字符
 - `$PID` 是只读变量，别拿来当普通变量名
@@ -241,6 +242,52 @@ npm run dev        # 或双击 start.bat
 - `*tools*` 撞上 `core/tools.js`（那是游戏源码）
 
 要匹配目录就写 `.tools/*`，要匹配文件就写全名。
+
+### 10. 浏览器 CDP 调试：启动方式与两个障碍
+
+**要调试页面、看实时 DOM，就照这个开**（试错了很多次才定下来）：
+
+```powershell
+$prof = 'F:\SillyTavernX\TavernGame\.tools\edge-profile'   # 独立 profile，别用 $env:TEMP
+Start-Process 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe' -ArgumentList @(
+  '--remote-debugging-port=9222', "--user-data-dir=$prof",
+  '--no-first-run', '--no-default-browser-check', '--no-sandbox',
+  '--window-size=1440,960', '--new-window', 'http://localhost:3000/'
+)
+```
+
+⚠️ Edge 的崩溃对话框**会直接弹到用户桌面上**，所以**绝不要按进程名批量杀 msedge**
+（用户的浏览器窗口会一起没）。只清理带 `remote-debugging-port=9222` 的那个实例。
+
+**两个障碍，缺一不可：**
+
+| 障碍 | 症状 | 解法 |
+| --- | --- | --- |
+| Chromium 的多进程 IPC 被沙箱拒 | `mojo platform_channel 拒绝访问 (0x5)`，或无头模式直接崩 | 用 `danger-full-access` 跑；**并把浏览器进程放进持续运行的后台任务**（命令一结束，进程树会被回收） |
+| 过程浏览器看不见 | 调试成了盲调 | 必须**可见窗口**（不要 headless），用户要能实时看到画面 |
+
+**顺带澄清**：本机**没有独立安装 Chrome**，只有 Edge —— 但 Edge 就是 Chromium 内核
+（152 版 Edge = Chromium 152），所以 `chrome_elf`、`v8_context_snapshot.bin` 这些
+Chromium 组件都在 Edge 目录里，CDP 协议也通用。说「Chromium 跑不起来」=「Edge 跑不起来」。
+
+### 11. `git push` 被沙箱挡住时
+
+两个独立的障碍，配置文件里都要有：
+
+```powershell
+# 1) schannel: AcquireCredentialsHandle failed → 换 TLS 后端
+git config --local http.sslBackend openssl
+
+# 2) 认证：让 gh 当凭据助手，token 不进命令行、不进日志
+git config --local credential."https://github.com".helper "E:\Github\GitHubCLI\gh.exe auth git-credential"
+```
+
+- 仍需 `danger-full-access`：git 的 bash 子进程**创建不了命名管道**，否则报
+  `couldn't create signal pipe, Win32 error 5`
+- 凭据助手会打印一行 `store: command not found` 的警告 —— **无害**，push 用的是 `get`
+- **`gh` 能连 GitHub 而 `curl` 不能**：gh（Go）读 Windows 系统代理
+  （`HKCU:\...\Internet Settings` 里 `ProxyEnable=1`），curl/git 不读，得显式 `-x`。
+  所以**线上页面的内容验证不要依赖 curl**。
 
 ## 📁 目录结构
 
