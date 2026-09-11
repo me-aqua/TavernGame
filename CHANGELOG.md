@@ -18,7 +18,7 @@
     安全 Security   —— 安全相关
 -->
 
-## [未发布]
+## [0.5.3] - 2026-09-11
 
 ### 移除
 - **清掉工作区里的「AI 助手人格」文件，只保留游戏项目本身**
@@ -273,7 +273,7 @@ DeepSeek 官方、硅基流动、OpenRouter、Mistral 均允许浏览器直连
 
 <!-- 版本链接（GitHub 上会自动生成对比页面） -->
 
-[未发布]: https://github.com/me-aqua/TavernGame/compare/v0.5.2...HEAD
+[0.5.3]: https://github.com/me-aqua/TavernGame/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/me-aqua/TavernGame/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/me-aqua/TavernGame/compare/v0.5.0...v0.5.1
 [0.4.0]: https://github.com/me-aqua/TavernGame/compare/v0.3.0...v0.4.0
