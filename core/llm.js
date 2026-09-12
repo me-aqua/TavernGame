@@ -69,13 +69,23 @@ export async function chat(messages, options = {}) {
   }
 
   if (!res.ok) {
+    // ⚠️ 顺序很重要：response body 只能读一次。
+    // 先 res.json() 失败、再 res.text() 会抛「Body is unusable」，
+    // 被 .catch 吞成空串 —— 于是网关返回 HTML 502 时，
+    // 玩家只看到一行状态码、拿不到任何可用于排查的内容。
+    // 所以先整体读成文本，再尝试从中解析 JSON。
     let detail = '';
     try {
-      const j = await res.json();
-      detail = j?.error?.message || j?.message || JSON.stringify(j).slice(0, 300);
-    } catch {
-      detail = await res.text().catch(() => '');
-    }
+      const body = await res.text().catch(() => '');
+      if (body) {
+        try {
+          const j = JSON.parse(body);
+          detail = j?.error?.message || j?.message || body.slice(0, 300);
+        } catch {
+          detail = body.slice(0, 300);   // 不是 JSON（HTML 错误页等），照样给出来
+        }
+      }
+    } catch { /* 读不到就算了，下面至少还有状态码 */ }
     throw new Error(`接口返回 ${res.status} ${res.statusText}\n${detail}`);
   }
 

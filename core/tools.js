@@ -62,10 +62,15 @@ export function toolsPrompt() {
  * @returns {string} 执行结果（会被回传给模型）
  */
 export function runTool(state, name, args) {
-  const tool = TOOLS[name];
-  if (!tool) {
+  // ⚠️ 必须用 Object.hasOwn，不能写成 `const tool = TOOLS[name]` —— 那样
+  // `constructor` / `toString` / `valueOf` / `__proto__` / `hasOwnProperty`
+  // 会从 Object.prototype 上取到**真值**，绕过「没有这个工具」的判断，
+  // 随后读 `tool.args` 抛 TypeError；而这个异常会穿出 runTurn，
+  // 让 endTurn/save/addLog 全都不执行 —— 玩家看到的叙事不落盘、时间却已改。
+  if (typeof name !== 'string' || !Object.hasOwn(TOOLS, name)) {
     return `❌ 没有名为「${name}」的工具。可用工具：${Object.keys(TOOLS).join('、')}`;
   }
+  const tool = TOOLS[name];
 
   // advance_time 的 step 有默认值，所以空参数是合法的
   const keys = Object.keys(args || {});
@@ -99,28 +104,45 @@ export function parseToolCalls(text) {
   const blocks = [];
   const errors = [];
 
-  const re = /```(?:tool|json)\s*\n([\s\S]*?)```/g;
+  // 围栏允许两种写法：换行的 ```tool\n{...}\n```，以及同行的 ```tool {...}```
+  const re = /```(tool|json)[ \t]*\r?\n?([\s\S]*?)```/g;
   let match;
+  const ranges = [];   // 需要从正文里**删掉**的区间
 
   while ((match = re.exec(text)) !== null) {
-    const raw = match[1].trim();
-    if (!raw) continue;
+    const lang = match[1];
+    const raw = match[2].trim();
+    const start = match.index;
+    const end = start + match[0].length;
+    if (!raw) { ranges.push([start, end]); continue; }
 
     try {
       const parsed = JSON.parse(raw);
       const items = Array.isArray(parsed) ? parsed : [parsed];
+      let 收到工具 = false;
       for (const item of items) {
-        if (item && typeof item.tool === 'string') {
-          blocks.push({ tool: item.tool, args: item.args || {} });
-        }
+        if (item && typeof item.tool === 'string') { blocks.push({ tool: item.tool, args: item.args || {} }); 收到工具 = true; }
+      }
+      // 解析成功且是工具块 → 从正文里删掉；否则（普通 json 数据块）**保留**
+      if (收到工具) ranges.push([start, end]);
+      else if (lang === 'tool') {
+        errors.push(`工具块里没有 "tool" 字段，已忽略：${raw.slice(0, 120)}`);
+        ranges.push([start, end]);
       }
     } catch (err) {
-      if (raw.includes('"tool"')) {
-        errors.push(`解析失败：${err.message}｜原文：${raw.slice(0, 120)}`);
-      }
+      // 解析失败一律要出声 —— 否则模型以为调了工具（时间没动、故事却说「七天后」），
+      // 而玩家什么提示都看不到。会解析失败的块都删掉：留着只会把裸 JSON 当正文显示。
+      errors.push(`工具块解析失败：${err.message}｜原文：${raw.slice(0, 120)}`);
+      ranges.push([start, end]);
     }
   }
 
-  const clean = text.replace(re, '').replace(/\n{3,}/g, '\n\n').trim();
+  // 从后往前删，避免影响前面的下标
+  let clean = text;
+  for (let i = ranges.length - 1; i >= 0; i--) {
+    clean = clean.slice(0, ranges[i][0]) + clean.slice(ranges[i][1]);
+  }
+  clean = clean.replace(/\n{3,}/g, '\n\n').trim();
+
   return { blocks, clean, errors };
 }

@@ -1,6 +1,6 @@
 {
   "name": "tavern-game",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "private": true,
   "type": "module",
   "description": "一个用 agent 循环驱动的文字游戏（纯前端，浏览器里直接玩）",
