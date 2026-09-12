@@ -251,7 +251,7 @@
     <aside class="sidebar">
       <div class="card">
         <h2>时间</h2>
-        <div class="time-display" id="p-time">第 1 天 · 上午</div>
+        <div class="time-display" id="p-time">载入中…</div>
         <div id="p-timeline"></div>
       </div>
 
@@ -387,10 +387,12 @@
       el.pTime.textContent = state.timeLabel;
 
       // 时间线（最近几次推进）
+      // 每条显示**起点**：终点已经在上面的「时间」里了，
+      // 这里要回答的是「从哪个时刻起、发生了什么」。
       const tl = state.data.timeline.slice(-4);
       el.pTimeline.innerHTML = tl.length
         ? `<div style="margin-top:10px;font-size:11.5px;color:var(--faint);line-height:1.9">${
-            tl.map((t) => `↑ ${escapeHtml(t.to)}${t.reason ? `<br><span style="color:#4a5270">　${escapeHtml(t.reason)}</span>` : ''}`).join('<br>')
+            tl.map((t) => `↑ ${escapeHtml(t.from)}${t.reason ? `<br><span style="color:#4a5270">　${escapeHtml(t.reason)}</span>` : ''}`).join('<br>')
           }</div>`
         : '';
 
