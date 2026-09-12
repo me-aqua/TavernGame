@@ -426,9 +426,25 @@
     }
 
     // ---------- 回合执行 ----------
+    // ⚠️ 重入保护：一次只能跑一个回合。
+    // 没有它的时候，模型正在写故事时点「重来」/「导入」，会同时跑两个回合 ——
+    // 旧回合的 addLog/advanceTime/save 全都作用在**新游戏**上，
+    // 于是新存档里混进旧剧情、回合数对不上。按钮的禁用状态不足以防住这个：
+    // 任一回合的 finally 都会解禁按钮，看起来空闲而实际还有请求在飞。
+    let busy = false;
+
+    /** 中止正在跑的回合，并等它自己收尾（避免它继续往新状态里写东西） */
+    function abortRunning() {
+      if (!controller) return;
+      controller.abort();
+      controller = null;
+    }
+
     async function doTurn(action) {
+      if (busy) return;                       // 上一回合还没结束，直接忽略
       if (!isConfigured()) { openSettings(); return; }
 
+      busy = true;
       el.send.disabled = true;
       el.stop.hidden = false;
       el.input.disabled = true;
@@ -495,10 +511,12 @@
       } finally {
         showThinking(false);
         controller = null;
+        busy = false;                    // ← 没有这行，重入保护会把之后所有回合都挡掉
         el.stop.hidden = true;
         el.input.disabled = false;
         el.send.disabled = false;
         el.input.focus();
+        refreshStatus();                 // 成功的回合要把报错时的红灯恢复回来
         renderState();
       }
     }
@@ -547,6 +565,7 @@
         const file = inp.files?.[0];
         if (!file) return;
         try {
+          abortRunning();                    // 换 state 之前先中止正在跑的回合
           state.import(await file.text());
           history = [];
           el.story.innerHTML = '';
@@ -562,6 +581,7 @@
 
     document.getElementById('btn-reset').addEventListener('click', () => {
       if (!confirm('确定要重新开始吗？当前进度会丢失（建议先导出存档）')) return;
+      abortRunning();                        // 同导入：换 state 前先停掉在跑的回合
       state.reset();
       history = [];
       el.story.innerHTML = '';
@@ -634,7 +654,7 @@
       el.drawer.hidden = true;
       refreshStatus();
       append('设置已保存 ✓', 'system');
-      if (!history.length && state.turn === 0) startNewGame();
+      if (!history.length && state.turn === 0 && !busy) startNewGame();
     });
 
     $('btn-test').addEventListener('click', async () => {
@@ -651,6 +671,9 @@
         const r = await testConnection();
         el.result.className = 'result ok';
         el.result.textContent = `✅ 连接成功（${r.ms}ms）· 回复：${r.reply}`;
+        // 测试连接会把配置写进 localStorage，所以顶栏状态也要跟着刷新 ——
+        // 否则玩家会看到「连接成功」却仍是「未配置」+ 红灯 + 按钮禁用，以为配置失败。
+        refreshStatus();
       } catch (err) {
         el.result.className = 'result bad';
         el.result.textContent = `❌ 失败\n${err.message}`;

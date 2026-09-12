@@ -64,11 +64,15 @@ async function resolve(urlPath) {
   if (relToRoot.startsWith('..') || path.isAbsolute(relToRoot)) return null;
 
   // 不提供后端源码、文档、Git 数据 —— 调试时也只暴露网站资源
-  const first = relToRoot.split(path.sep)[0];
+  // ⚠️ 必须用小写副本比较：Windows 文件系统**不区分大小写**，而字符串比较区分。
+  //    否则 `/DEV-SERVER.JS`、`/.GIT/config` 都能绕过去，
+  //    把服务器源码本身、README、甚至连 `.git/config` 一起吐出来。
+  const relLower = relToRoot.toLowerCase();
+  const first = relLower.split(path.sep)[0];
   if (['.git', '.tools', 'node_modules'].includes(first)) return null;
   if (first.endsWith('.md') || first === 'package.json') return null;
   // 屏蔽服务器自己的源码（否则它会被当成静态文件提供出去）
-  if (relToRoot === 'dev-server.js') return null;
+  if (relLower === 'dev-server.js') return null;
 
   try {
     const info = await stat(target);

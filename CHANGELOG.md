@@ -18,7 +18,7 @@
     安全 Security   —— 安全相关
 -->
 
-## [未发布]
+## [0.5.4] - 2026-09-12
 
 ### 修复
 - **时间线（侧栏那块）从来没正常显示过** —— 两个 bug 叠在一起：
@@ -49,11 +49,49 @@
   `RangeError: Invalid time value`，但 `state.advanceTime` 有 try/catch 兜住，
   返回警告文案而不是崩溃。这条路径只在存档被人工篡改时才会走到。
 
+### 加固（一次独立代码审查的产出）
+
+发布前把一个独立审查员放进来重新读全部代码，它找出并**逐条实测复现**了一批缺陷，
+下面这些已修：
+
+- **回合可以并发跑**（`index.html`）—— 模型正在写故事时点「重来」或「导入」，
+  会同时跑两个回合：旧回合的 `addLog` / `advanceTime` / `save` 全作用在**新游戏**上，
+  于是新存档里混进旧剧情、回合数对不上；「设置→保存」连点两次还会重复开场、双倍额度。
+  现在加了重入保护，且换 state 之前先中止在跑的回合。
+- **工具名撞上 `Object.prototype`**（`tools.js`）—— `TOOLS[name]` 对
+  `constructor` / `toString` / `valueOf` / `__proto__` / `hasOwnProperty`
+  会取到原型上的**真值**，绕过「没有这个工具」的判断，随后抛 TypeError；
+  异常穿出 `runTurn`，`endTurn` / `save` 全不执行 —— 玩家看到的叙事不落盘、
+  时间却已经改了。改用 `Object.hasOwn`。
+- **认不出的时间单位被当成 reason**（`state.js`）—— 模型很爱写复数，
+  而 `unit:"days"` 会被当成「reason」、单位退回 `segment`：
+  **推进量错算成 4 小时**，模型给的原因被顶掉，时间线里永久记着 `reason:"days"`。
+  现在认不出就明确报错，并加了别名表（复数 / 中文 / 大小写）。
+- **解析器静默吞内容**（`tools.js`）—— 同行围栏（` ```tool {...}``` ` 不换行）
+  解析不出工具块、还会把裸 JSON 当正文显示；解析失败的块既不报错也不提示，
+  整块从正文消失。现在支持同行围栏、失败一律出声、非工具的 json 数据块**保留**。
+- **脏存档会让游戏永久卡死**（`state.js`）—— `normalize` 原来只判「是不是数组」：
+  非法 `iso` 会让侧栏永久显示 `NaN 年 …` 且**唯一的工具每次都失败**；
+  `log` / `timeline` 里有一个 `null`，`snapshot()` 就抛 TypeError，
+  而它在拼提示词阶段调用 —— 此后**每一回合**都在同一处崩，且 `save()` 在抛错点之后，
+  坏数据永远不会被覆盖修复。现在逐项过滤校验，`turn` 也强制成数字。
+- **`dev-server` 的黑名单可被大小写绕过**（`dev-server.js`）—— Windows 文件系统
+  不区分大小写，而比较区分。实测（修复前）：`/DEV-SERVER.JS`、
+  `/README.MD`、`/PACKAGE.JSON` 全部 **200**，`/.GIT/config` 甚至能直接读出
+  仓库的 git 配置。虽然只监听 `127.0.0.1`，但过滤逻辑是失效的。
+- 另外三处小的：网络报错后顶栏红灯不复位；「测试连接」成功却不刷新顶栏
+  （玩家会以为配置失败）；接口返回非 JSON 错误（HTML 502）时拿不到任何正文
+  —— 因为 `res.json()` 失败后再 `res.text()` 必然抛错，被吞成空串。
+
+**已知未修**（记在 `AGENTS.md` 待办，不影响本次发布）：
+失败/取消路径的内存与存档分叉、步数上限误报、时长文案丢掉小时、
+`month` 单位月末溢出、时间线只显示起点（这是**有意设计**，非缺陷）。
+
 ### 测试
-- `.tools/verify-core.mjs`：离线验证 **63 项**（新增日期边界、存档畸形输入、
-  工具参数容错、时间描述自洽性）
-- `.tools/verify-page.mjs`：真实浏览器 **15 项**（新增「时间线渲染的是起点而非终点」）
-- `.tools/playtest.mjs`：**新增**，用真实 API 跑完整一局 —— 共 **9 项**
+- `.tools/verify-core.mjs`：离线验证 **82 项**（新增日期边界、存档畸形输入、
+  工具参数容错、时间描述自洽性，以及本轮全部缺陷的防回归断言）
+- `.tools/verify-page.mjs`：真实浏览器 **15 项**（含「时间线渲染的是起点而非终点」）
+- `.tools/playtest.mjs`：用真实 API 跑完整一局 —— **9 项**
   （开场、agent 循环多步、时间推进、刷新恢复、console 无异常）
 
 ## [0.5.3] - 2026-09-11
@@ -311,6 +349,7 @@ DeepSeek 官方、硅基流动、OpenRouter、Mistral 均允许浏览器直连
 
 <!-- 版本链接（GitHub 上会自动生成对比页面） -->
 
+[0.5.4]: https://github.com/me-aqua/TavernGame/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/me-aqua/TavernGame/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/me-aqua/TavernGame/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/me-aqua/TavernGame/compare/v0.5.0...v0.5.1

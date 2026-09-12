@@ -61,6 +61,44 @@ export function createInitialState() {
 const MAX_LOG = 80;
 const MAX_TIMELINE = 40;
 
+// ---------- 存档字段校验 ----------
+// 读档只做「是不是数组」是不够的：导入的存档可能来自手改、旧版本或别的程序。
+// 元素是 null / 字符串 / 缺字段都会让 snapshot() 抛 TypeError，
+// 而 snapshot() 在拼提示词阶段调用 —— 一抛，之后**每一回合**都在同一处崩，
+// 且 save() 在抛错点之后，坏数据永远不会被覆盖修复。所以这里逐项过滤。
+
+/** 时刻必须能被 Date 解析，否则回退到当前时间（比让整局卡死好） */
+function pickIso(v) {
+  return typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : nowIso();
+}
+
+/** 数组里只保留普通对象；顺带补齐关键字段，避免渲染层或 snapshot 抛错 */
+function sanitizeLog(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((x) => x && typeof x === 'object' && !Array.isArray(x))
+    .map((x) => ({ kind: String(x.kind || 'narration'), text: String(x.text ?? ''), at: x.at || nowIso() }))
+    .slice(-MAX_LOG);
+}
+
+function sanitizeTimeline(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((x) => x && typeof x === 'object' && !Array.isArray(x))
+    .map((x) => ({
+      from: String(x.from ?? ''), to: String(x.to ?? ''), reason: String(x.reason ?? ''),
+      elapsedMs: Number.isFinite(Number(x.elapsedMs)) ? Number(x.elapsedMs) : 0,
+      at: x.at || nowIso(),
+    }))
+    .slice(-MAX_TIMELINE);
+}
+
+/** 回合数必须是数字：字符串会被 endTurn 拼成 "51" */
+function pickTurn(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
 export class GameState {
   constructor(data) {
     this.data = data || createInitialState();
@@ -105,19 +143,20 @@ export class GameState {
    */
   static normalize(saved) {
     const fresh = createInitialState();
+    const s = (saved && typeof saved === 'object') ? saved : {};
     return {
-      meta: { ...fresh.meta, ...(saved.meta || {}), version: 3 },
-      player: { name: saved.player?.name || fresh.player.name },
+      meta: { ...fresh.meta, ...(s.meta || {}), version: 3, turn: pickTurn(s.meta?.turn) },
+      player: { name: s.player?.name || fresh.player.name },
       scene: {
-        name: saved.scene?.name || fresh.scene.name,
-        description: saved.scene?.description || fresh.scene.description,
+        name: s.scene?.name || fresh.scene.name,
+        description: s.scene?.description || fresh.scene.description,
       },
       time: {
-        iso: saved.time?.iso || fresh.time.iso,
-        calendar: saved.time?.calendar || DEFAULT_CALENDAR_ID,
+        iso: pickIso(s.time?.iso),
+        calendar: s.time?.calendar || DEFAULT_CALENDAR_ID,
       },
-      log: Array.isArray(saved.log) ? saved.log.slice(-MAX_LOG) : [],
-      timeline: Array.isArray(saved.timeline) ? saved.timeline.slice(-MAX_TIMELINE) : [],
+      log: sanitizeLog(s.log),
+      timeline: sanitizeTimeline(s.timeline),
     };
   }
 
@@ -129,16 +168,17 @@ export class GameState {
    */
   static migrateLegacy(old) {
     const fresh = createInitialState();
+    const o = (old && typeof old === 'object') ? old : {};
     return {
-      meta: { ...fresh.meta, turn: old.meta?.turn ?? 0, version: 3 },
-      player: { name: old.player?.name || fresh.player.name },
+      meta: { ...fresh.meta, turn: pickTurn(o.meta?.turn), version: 3 },
+      player: { name: o.player?.name || fresh.player.name },
       scene: {
-        name: old.scene?.name || fresh.scene.name,
-        description: old.scene?.description || fresh.scene.description,
+        name: o.scene?.name || fresh.scene.name,
+        description: o.scene?.description || fresh.scene.description,
       },
       time: { iso: fresh.time.iso, calendar: DEFAULT_CALENDAR_ID },
-      log: Array.isArray(old.log) ? old.log.slice(-MAX_LOG) : [],
-      timeline: Array.isArray(old.timeline) ? old.timeline.slice(-MAX_TIMELINE) : [],
+      log: sanitizeLog(o.log),
+      timeline: sanitizeTimeline(o.timeline),
     };
   }
 
@@ -163,7 +203,11 @@ export class GameState {
 
   import(json) {
     const parsed = JSON.parse(json);
-    if (!parsed || !parsed.player) throw new Error('这不是有效的存档文件');
+    // 至少要是个对象、且 player 是对象 —— 只判 parsed.player 会放过 `{"player": 1}`
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+      || !parsed.player || typeof parsed.player !== 'object') {
+      throw new Error('这不是有效的存档文件');
+    }
     this.data = GameState.normalize(parsed);
     this.save();
   }
@@ -238,13 +282,24 @@ export class GameState {
   advanceTime(step, unit = 'segment', reason = '') {
     const cal = this.calendar;
 
-    // 兼容旧调用签名 advanceTime(step, reason)
-    const KNOWN_UNITS = ['segment', 'hour', 'day', 'week', 'month', 'year'];
-    if (typeof unit === 'string' && !KNOWN_UNITS.includes(unit)) {
-      reason = unit;
-      unit = 'segment';
+    // 单位识别。别小看这一步：模型很爱写复数（days / hours），
+    // 以前认不出就「当成 reason 用、单位退回 segment」——
+    // 结果是**推进量错算成 4 小时**，而且模型给的 reason 被顶掉、
+    // 时间线里永久记着 reason:"days"。认不出就该报错，不该猜。
+    const UNIT_ALIASES = {
+      segment: 'segment', segments: 'segment', 时段: 'segment',
+      hour: 'hour', hours: 'hour', hr: 'hour', hrs: 'hour', 小时: 'hour',
+      day: 'day', days: 'day', 天: 'day',
+      week: 'week', weeks: 'week', 周: 'week', 星期: 'week',
+      month: 'month', months: 'month', 月: 'month', 个月: 'month',
+      year: 'year', years: 'year', yr: 'year', yrs: 'year', 年: 'year',
+    };
+    const key = unit == null ? 'segment' : String(unit).trim().toLowerCase();
+    const u = UNIT_ALIASES[key];
+    if (!u) {
+      return `⚠ 不认识的时间单位「${unit}」。可用：segment（时段，约 4 小时）/ hour / day / week / month / year。（当前：${this.timeLabel}）`;
     }
-    if (!KNOWN_UNITS.includes(unit)) unit = 'segment';
+    unit = u;
 
     const raw = Number(step);
     const n = Number.isFinite(raw) ? Math.round(raw) : 1;
@@ -336,25 +391,35 @@ export class GameState {
       `　　${this.data.scene.description}`,
     ];
 
-    const recent = history.filter((h) => typeof h.content === 'string').slice(-4);
+    // ⚠️ 防御性读取：这里的字段可能是脏的（存档被手改、或旧版本格式）。
+    // 这个函数在**拼提示词**阶段被调用 —— 它一抛错，之后每一回合都在同一处崩，
+    // 而且 save() 在抛错点之后，坏数据永远不会被覆盖修复。所以宁可少显示几行。
+    const logs = Array.isArray(this.data.log) ? this.data.log : [];
+    const timeline = Array.isArray(this.data.timeline) ? this.data.timeline : [];
+
+    const recent = history.filter((h) => h && typeof h.content === 'string').slice(-4);
     if (recent.length) {
       lines.push('', '### 最近发生的事');
       for (const h of recent) {
         const who = h.role === 'user' ? '玩家' : '你(GM)';
         lines.push(`- ${who}：${h.content.replace(/\s+/g, ' ').slice(0, 160)}`);
       }
-    } else if (this.data.log.length) {
+    } else if (logs.length) {
       lines.push('', '### 最近发生的事');
-      for (const entry of this.data.log.slice(-4)) {
-        const text = String(entry.text).replace(/\s+/g, ' ').slice(0, 160);
+      for (const entry of logs.slice(-4)) {
+        if (!entry || typeof entry !== 'object') continue;
+        const text = String(entry.text ?? '').replace(/\s+/g, ' ').slice(0, 160);
         lines.push(`- ${text}`);
       }
     }
 
-    if (this.data.timeline.length) {
+    if (timeline.length) {
       lines.push('', '### 时间线');
-      for (const t of this.data.timeline.slice(-5)) {
-        lines.push(`- ${t.to}${t.reason ? `（${t.reason}）` : ''}`);
+      for (const t of timeline.slice(-5)) {
+        if (!t || typeof t !== 'object') continue;
+        const time = String(t.to ?? '');
+        if (!time) continue;
+        lines.push(`- ${time}${t.reason ? `（${t.reason}）` : ''}`);
       }
     }
 
