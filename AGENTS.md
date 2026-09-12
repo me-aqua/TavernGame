@@ -341,6 +341,19 @@ Start-Process 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe' -Ar
 （152 版 Edge = Chromium 152），所以 `chrome_elf`、`v8_context_snapshot.bin` 这些
 Chromium 组件都在 Edge 目录里，CDP 协议也通用。说「Chromium 跑不起来」=「Edge 跑不起来」。
 
+**判断"浏览器还在不在"，只看这两个，别信进程枚举：**
+
+| 手段 | 可靠性 |
+| --- | --- |
+| `curl http://127.0.0.1:9222/json/list` | ✅ 有响应 = 活着，还能看到当前是哪个页面 |
+| `curl http://127.0.0.1:3000/` | ✅ 200 = dev-server 活着 |
+| `Get-CimInstance Win32_Process -Filter "Name='msedge.exe'"` | ❌ **沙箱里可能返回空**，即使浏览器正常运行 —— 会让人误判「窗口关了吧」 |
+
+**别把 9222 和 3000 搞混**（用户会困惑）：3000 是网页地址，**用户看得到**（窗口地址栏）；
+9222 是调试通道，**不是网页、没有界面**，只有 agent 用得上。
+另外：CDP 的 `goto` 会把用户眼前的窗口导航走 —— 调试完记得切回
+`http://localhost:3000/`，否则用户会以为窗口不见了。
+
 ### 11. `git push` 被沙箱挡住时
 
 两个独立的障碍，配置文件里都要有：
