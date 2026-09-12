@@ -96,7 +96,13 @@ export const realCalendar = {
 
   /**
    * 把毫秒差说成人话。
-   * 用真实的日历长度换算（一年 365 天、一月 30 天取近似），不手写累计。
+   *
+   * ⚠️ 这是**时长换算**，不是日历跨度：1 年按 365 天、1 个月按 30 天折算，
+   *   所以「1 个月」不等于日历上的任何一个月。要精确表达日期差，
+   *   得同时知道起止两个时刻（本函数只拿到差值，做不到）。
+   *
+   * 逐级剥离：先年、再月、最后天。不能用 `days % 365 / 30` 配 `days % 30` ——
+   * 365 = 12×30 + 5，那样两个取模都从"年"里吃天数，每满一年就凭空多出 5 天。
    */
   describeElapsed(ms) {
     if (ms <= 0) return '';
@@ -109,15 +115,25 @@ export const realCalendar = {
       return totalMinutes > 0 ? `过去了 ${totalMinutes} 分钟` : '';
     }
 
-    const years = Math.floor(days / 365);
-    const months = Math.floor((days % 365) / 30);
-    const remDays = days % 30;
+    // 不足一年：按月 + 天
+    if (days < 365) {
+      const months = Math.floor(days / 30);
+      const remDays = days % 30;
+      const parts = [];
+      if (months) parts.push(`${months} 个月`);
+      if (remDays) parts.push(`${remDays} 天`);
+      return `过去了 ${parts.join(' ')}`;
+    }
 
-    const parts = [];
-    if (years) parts.push(`${years} 年`);
+    // 一年以上：年 + 月 + 天，逐级从余数里剥，谁都不重复吃
+    const years = Math.floor(days / 365);
+    const afterYears = days % 365;
+    const months = Math.floor(afterYears / 30);
+    const remDays = afterYears % 30;
+    const parts = [`${years} 年`];
     if (months) parts.push(`${months} 个月`);
-    if (remDays && !years) parts.push(`${remDays} 天`);
-    return `过去了 ${parts.join('')}`;
+    if (remDays) parts.push(`${remDays} 天`);
+    return `过去了 ${parts.join(' ')}`;
   },
 
   /** 给模型看的历法说明 */

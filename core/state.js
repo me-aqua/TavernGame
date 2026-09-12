@@ -265,6 +265,7 @@ export class GameState {
     }
 
     const before = this.timeLabel;
+    const beforeIso = this.data.time.iso;   // 推进前的时刻：时间线要用它记起点
     let result;
     try {
       result = cal.advance(this.data.time.iso, n, unit);
@@ -275,12 +276,16 @@ export class GameState {
     this.data.time.iso = result.iso;
     const after = this.timeLabel;
 
-    // 时间线只记录「值得记」的跳跃，避免每回合都堆一条
-    const isNotable = result.elapsedMs >= 6 * 3600000 || this.data.timeline.length < 3;
+    // 时间线只记录「值得记」的跳跃，避免每回合都堆一条。
+    // 阈值必须 ≤ 一个 segment（4 小时），否则默认单位的推进永远进不了时间线 ——
+    // 侧栏那块就一直是空的。
+    const isNotable = result.elapsedMs >= 4 * 3600000 || this.data.timeline.length < 3;
     if (isNotable) {
-      // 只存「简短」的起止，侧栏空间有限；完整时间抬头看得到
+      // 只存「简短」的起止，侧栏空间有限；完整时间抬头看得到。
+      // ⚠️ from 必须是**推进前**的时刻：这里 this.data.time.iso 已经被覆盖成结果了，
+      //    用它会让 from === to，起止就失去意义。
       this.data.timeline.push({
-        from: cal.formatShort(this.data.time.iso),
+        from: cal.formatShort(beforeIso),
         to: cal.formatShort(result.iso),
         reason: reason || '',
         elapsedMs: result.elapsedMs,
