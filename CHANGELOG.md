@@ -18,6 +18,27 @@
     安全 Security   —— 安全相关
 -->
 
+## [0.5.5] - 2026-09-13
+
+### 移除
+- **清掉实现层的死代码**（本轮全库体检发现的，全库导出一一核对过引用）
+  - `calendar.js` 的 `listCalendars()` —— 注释写着「以后做选历法界面时用得上」，
+    正是**提前预留**（`AGENTS.md` 明确警告过这类东西）
+  - `calendar.js` 的 `SEGMENTS_PER_DAY` —— 从定义起无人用过
+  - `tools.js` 的 `TIME_UNITS` —— 与 `state.js` 里的单位表**重复定义**，
+    删掉后**单位真相只留一处**
+  - `index.html` 的 `shownActions`（审查遗留的 #5）—— 值只被写入、**从无读取**
+  - 顺带清掉它旁边的 `logRestored` —— 删 `shownActions` 之后它变成新的死变量
+
+### 新增
+- **`DESIGN.md`** —— 目标架构的设计备忘（**当前代码不是那个架构**）：
+  以玩家为中心的交互媒介定位、控制权归属、图执行器、声明式卡格式、
+  玩家定义，以及 16 条已决定 + 8 条待定。讨论推导过程也记在里面。
+
+### 说明
+- 本版**没有改动游戏行为**：全部是死代码清理 + 设计文档。
+  82 项离线测试、语法自检全过。
+
 ## [0.5.4] - 2026-09-12
 
 ### 修复
@@ -349,6 +370,7 @@ DeepSeek 官方、硅基流动、OpenRouter、Mistral 均允许浏览器直连
 
 <!-- 版本链接（GitHub 上会自动生成对比页面） -->
 
+[0.5.5]: https://github.com/me-aqua/TavernGame/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/me-aqua/TavernGame/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/me-aqua/TavernGame/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/me-aqua/TavernGame/compare/v0.5.1...v0.5.2

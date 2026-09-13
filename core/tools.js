@@ -15,9 +15,6 @@
 
 import { SEGMENTS } from './calendar.js';
 
-/** 时间推进的合法单位。新增单位要同步改 calendar.js 的 advance() */
-export const TIME_UNITS = ['segment', 'hour', 'day', 'week', 'month', 'year'];
-
 export const TOOLS = {
   advance_time: {
     desc:
