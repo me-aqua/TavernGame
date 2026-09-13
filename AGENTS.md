@@ -310,6 +310,18 @@ npm run dev        # 或双击 start.bat
 **验证「页面真的能跑」的正确姿势**：不是看 HTTP 200（那只说明文件送到了），
 而是**用 CDP 连上页面读 DOM**（`story块数`、`配置状态` 这些真实运行时状态）。
 
+**而且：沙箱里关不掉「自己起的服务」。** 2026-09-13 实测三种办法全失败：
+
+| 办法 | 结果 |
+| --- | --- |
+| `Get-NetTCPConnection -LocalPort 3000` 找监听进程 | 返回空（看不到别的进程的连接） |
+| `Get-CimInstance Win32_Process -Filter "Name='node.exe'"` | 返回空（看不到进程） |
+| `taskkill /F /IM node.exe` | `ERROR: Access denied` |
+
+**所以别答应用户"我帮你把服务关掉"** —— 做不到。可以：
+① 用 CDP 的 `/json/close/<id>` 关浏览器**标签页**（这个能行）；
+② 进程本身让用户自己关，或者留着（dev-server 只占一个端口，无害）。
+
 ### 9. 发布流程：一次翻车记录（务必照做）
 
 真实事故：安全检查失败时脚本执行了 `git reset`（清空暂存区），
