@@ -26,7 +26,6 @@
 
 /** 一天的时段 */
 export const SEGMENTS = ['上午', '下午', '晚上'];
-export const SEGMENTS_PER_DAY = SEGMENTS.length;
 
 /** 把小时数映射到时段索引 */
 export function hourToSegment(hour) {
@@ -171,15 +170,6 @@ export function getCalendar(id) {
     return CALENDARS[DEFAULT_CALENDAR_ID];
   }
   return found;
-}
-
-/** 列出全部历法（以后做「选历法」的界面时用得上） */
-export function listCalendars() {
-  return Object.values(CALENDARS).map((c) => ({
-    id: c.id,
-    label: c.label,
-    description: c.description || '',
-  }));
 }
 
 /**
