@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    // DOM：e2e 的 page.evaluate 回调跑在浏览器里（写的是浏览器代码）
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    // vite/vitest 配置里 import './vite-plugins/prompts.ts' 带扩展名
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true
+  },
+  // 所有构建/配置文件都要包含：否则类型感知 linting 找不到它们
+  "include": [
+    "vite.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts",
+    "eslint.config.js",
+    "commitlint.config.js",
+    "vite-plugins/**/*.ts",
+    "e2e/**/*.ts",
+    ".storybook/**/*.ts"
+  ]
+}

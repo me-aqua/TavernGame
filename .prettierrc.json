@@ -1,0 +1,18 @@
+{
+  "semi": false,
+  "singleQuote": true,
+  "printWidth": 110,
+  "trailingComma": "all",
+  "proseWrap": "preserve",
+  "endOfLine": "lf",
+  "overrides": [
+    {
+      "files": "*.md",
+      "options": { "proseWrap": "preserve" }
+    },
+    {
+      "files": "*.vue",
+      "options": { "printWidth": 110 }
+    }
+  ]
+}

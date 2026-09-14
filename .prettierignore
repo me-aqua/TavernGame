@@ -1,0 +1,16 @@
+# 生成物与第三方内容，不格式化
+dist/
+coverage/
+node_modules/
+package-lock.json
+public/mea-avatar.jpg
+
+# 文档里有大量手工排版的中文行宽，Prettier 会打乱（proseWrap: preserve 已尽力，仍不动它们）
+doc/
+.agents/
+
+# 钩子脚本没有扩展名，Prettier 按 JS 猜；而且**绝不能自动格式化它们** ——
+# 在提交中途改动钩子自身会让本次提交的行为变得不可预测
+.githooks/commit-msg
+.githooks/pre-commit
+.githooks/pre-push

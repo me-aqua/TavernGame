@@ -1,0 +1,407 @@
+#!/usr/bin/env node
+// 提交时强制执行：违规就拦下提交 —— 纪律不是写在文档里的请求，而是一条真会跑的检查。
+// 逃生口：SKIP_DISCIPLINE=1 git commit ...（并在提交信息里说明理由）
+import { execSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
+
+const git = (cmd) => execSync('git ' + cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+
+// 视觉提醒要用的两条正则：放在最前面，因为 SKIP_DISCIPLINE 的分支也要用它
+// （曾经放在文件后半段，于是 `SKIP_DISCIPLINE=1 git commit` 直接 ReferenceError）
+/** 整页层面：布局、样式 token、文案（会影响所有组件） */
+const UI_PAGE = /^(src\/App\.vue|src\/styles\/|src\/locales\/)/
+/** 单个组件：src/components/<Name>.vue */
+const UI_COMPONENT = /^src\/components\/([A-Za-z0-9]+)\.vue$/
+
+// 跳过检查时也要提醒视觉检验 —— 它不是检查，是「别忘了看图」
+if (process.env.SKIP_DISCIPLINE === '1') {
+  console.log('⚠ SKIP_DISCIPLINE=1 —— 纪律检查已跳过')
+  remindVisualCheck(git('diff --cached --name-only --diff-filter=ACM').split('\n').filter(Boolean))
+  process.exit(0)
+}
+
+/**
+ * 把失败的 execSync 输出读成文本。
+ *
+ * ⚠️ 踩过的坑：err.stdout / err.stderr 是 **Buffer**，而**空 Buffer 为真** ——
+ *    `String(err.stdout || err.stderr)` 可能挑中一个空 Buffer，把真正的信息吞掉
+ *    （密钥扫描失败曾以一条空记录的形式出现）。先解码，再按长度挑。
+ */
+const readOutput = (err) => {
+  const decode = (v) => (Buffer.isBuffer(v) ? v.toString('utf8') : String(v ?? ''))
+  return (decode(err.stdout) || decode(err.stderr) || decode(err.message)).trim()
+}
+
+
+/**
+ * 视觉提醒（**不阻塞**，而且**只在动过界面时**才打印）。
+ *
+ * 为什么要有它：单测与结构探针只能证明「没坏」，证明不了「看着对」——
+ * 遮挡、拥挤、比例失衡只有看图才发现。用户 2026-09-14 的要求：
+ * **改了 UI 就要做对应的视觉检查**，所以提醒按改了什么来给具体命令：
+ *   · 整页（App.vue / 样式 / 文案）→ 跑整个矩阵
+ *   · 某个组件 → 只跑那个组件的故事（并检查它到底有没有故事文件）
+ */
+function remindVisualCheck(files) {
+  const pageLevel = files.filter((f) => UI_PAGE.test(f))
+  const components = [...new Set(files.map((f) => UI_COMPONENT.exec(f)?.[1]).filter(Boolean))]
+  if (!pageLevel.length && !components.length) return
+
+  console.log('')
+  console.log('👀 这次动了界面 —— 提交前做一次**对应的**视觉检查（检查通过 ≠ 好看）：')
+  if (pageLevel.length) {
+    const shown = pageLevel.slice(0, 3).join(', ') + (pageLevel.length > 3 ? ' …' : '')
+    console.log(`   整页层面动了（${shown}）→ npm run visual`)
+    console.log('   然后打开 artifacts/screenshots/index.html 逐张看：遮挡 / 拥挤 / 比例')
+  }
+  if (components.length) {
+    console.log(`   组件动了（${components.join(', ')}）→ npm run stories`)
+    console.log(
+      `   只看改动的那几个：npx playwright test e2e/stories.spec.ts -g "${components.join('|').toLowerCase()}"`,
+    )
+    console.log('   截图在 artifacts/stories/index.html（每个故事 × 浅深 × 中英）')
+    const missing = components.filter((name) => !existsSync(`src/components/${name}.stories.ts`))
+    if (missing.length) console.log(`   ⚠️ 这些组件还没有故事文件，巡检覆盖不到：${missing.join(', ')}`)
+  }
+  console.log('   有意改外观时刷新基线：npx playwright test e2e/visual.spec.ts --update-snapshots')
+  console.log('')
+}
+
+const problems = []
+const allStaged = git('diff --cached --name-only --diff-filter=ACM').split('\n').filter(Boolean)
+// 开发工具（钩子、e2e、测试）不进产物，豁免源码纪律检查：它们是工具代码，
+// 套同样的行数 / 防御性规则只会制造噪音
+const staged = allStaged.filter((f) => !/^(\.githooks|e2e|tests|scripts)\//.test(f))
+
+// 只看文本文件（跳过图片等二进制）
+const textFiles = staged.filter((f) => /\.(ts|vue|js|mjs|css|html|json|md|bat|yml|yaml)$/.test(f))
+const contentOf = (file) => {
+  try {
+    return readFileSync(file, 'utf8')
+  } catch {
+    return ''
+  }
+}
+
+// ---------- 检查 1：密钥扫描（最重要的一条）----------
+// 纯前端项目：API key 在玩家手里，真 key 很容易进仓库；一旦提交就留在历史里。
+try {
+  execSync('node .githooks/checks/secrets.mjs ' + staged.map((f) => '"' + f + '"').join(' '), {
+    stdio: 'pipe',
+  })
+} catch (err) {
+  problems.push(readOutput(err))
+}
+
+// ---------- 检查 2：调试残留 ----------
+for (const file of textFiles) {
+  const lines = contentOf(file).split('\n')
+  lines.forEach((line, i) => {
+    const at = `${file}:${i + 1}`
+    if (/(^|[^\w.])debugger\b/.test(line)) problems.push(`[调试残留] ${at} —— debugger`)
+    if (/\.only\(/.test(line)) problems.push(`[调试残留] ${at} —— .only 会跳过其余测试`)
+    if (/\b(TODO|FIXME|XXX)\b/.test(line)) {
+      problems.push(`[调试残留] ${at} —— ${line.trim().slice(0, 50)}`)
+    }
+  })
+}
+
+// ---------- 检查 3：吞掉的错误 ----------
+// 规则：绝不吞错误（没有裸 catch、没有静默默认值）。
+// catch 体既不抛/不返回、也没有注释，就算吞。
+for (const file of textFiles.filter((f) => /\.(ts|vue|js|mjs)$/.test(f))) {
+  const lines = contentOf(file).split('\n')
+  lines.forEach((line, i) => {
+    // 需要配对大括号来隔离 catch 体 —— 否则 catch 之后的一个 return
+    // 会被误判成出口（实测发生过）。
+    const catchAt = line.indexOf('catch')
+    if (catchAt < 0) return
+    const fromCatch = lines.slice(i).join('\n').slice(catchAt)
+    const body = (() => {
+      let depth = 0
+      let started = false
+      for (let k = 0; k < fromCatch.length; k += 1) {
+        const c = fromCatch[k]
+        if (c === '{') {
+          depth += 1
+          started = true
+          continue
+        }
+        if (c !== '}') continue
+        depth -= 1
+        if (started && depth === 0) return fromCatch.slice(0, k + 1)
+      }
+      return fromCatch
+    })()
+    if (!/throw|return/.test(body) && !/\/\/|\/\*/.test(body)) {
+      problems.push(`[吞错误] ${file}:${i + 1} —— catch 块里既没抛出也没说明，错误被吞掉`)
+    }
+  })
+}
+
+// ---------- 检查 4：一次性抽象 ----------
+const ABSTRACTION_NAMES = /\b(safeGet|safeSet|withFallback|tryOr|maybeNull|ensureDefined|nullSafe)\b/
+for (const file of staged.filter((f) => /composables\/|utils?\/|helpers?\//.test(f))) {
+  const m = contentOf(file).match(ABSTRACTION_NAMES)
+  if (m) problems.push(`[多余抽象] ${file} —— ${m[0]}()，请确认它真有两个以上调用点`)
+}
+
+// ---------- 检查 5：边界之外的防御性校验 ----------
+// 规则：只在校验边界（用户输入、外部 API、网络）做校验。
+// ⚠️ 豁免范围跟着目录结构走：改目录时必须同步这里，否则规则会**悄悄失效**
+//    （src/core 消失后，这条曾对外层代码全部放行过一阵）。
+const BOUNDARY = /^src\/(game\/save|utils\/storage|utils\/calendar|agent\/llm|agent\/config)\.ts$/
+for (const file of textFiles.filter((f) => /\.(ts|vue)$/.test(f) && !BOUNDARY.test(f))) {
+  const lines = contentOf(file).split('\n')
+  lines.forEach((line, i) => {
+    if (/typeof\s+\w+\s*===\s*'(string|object|number)'/.test(line) && !/unknown/.test(line)) {
+      problems.push(
+        `[防御性校验] ${file}:${i + 1} —— 内部代码在做 typeof 校验；边界校验只属于系统边界`,
+      )
+    }
+  })
+}
+
+// ---------- 检查 6：新源码模块必须带测试 ----------
+// 规则：每个新功能都必须带测试。
+// 判据：每个 src 模块都要在 tests/ 下被提到。
+const SRC = /^src\/(?!types\/|main\.ts$).*\.(ts|vue)$/
+const testsContent = (() => {
+  try {
+    return execSync('git ls-files tests', { encoding: 'utf8' })
+      .trim()
+      .split('\n')
+      .map((f) => (f.endsWith('.md') ? '' : readFileSync(f, 'utf8')))
+      .join('\n')
+  } catch {
+    return ''
+  }
+})()
+
+// *.stories.ts 不是源码模块（只在 Storybook 里跑），它的检查是 e2e/stories.spec.ts
+for (const file of textFiles.filter((f) => SRC.test(f) && !f.endsWith('.stories.ts'))) {
+  const moduleName = file
+    .replace(/^src\//, '')
+    .replace(/\.(ts|vue)$/, '')
+    .split('/')
+    .pop()
+  if (!testsContent.includes(moduleName)) {
+    problems.push(`[缺测试] ${file} —— tests/ 里没有任何地方提到「${moduleName}」；新增功能必须配测试`)
+  }
+}
+
+// ---------- 检查 7：体积（保持精简）----------
+// 阈值校准（2026-09-14）：Prettier 会拆开模板属性，同样的语义占更多行
+//（SettingsDrawer.vue 201 → 278）。那是格式器的风格，不是代码膨胀，
+// 所以上限跟着新基线走。
+const SIZE = { file: 400, func: 150, net: 500 }
+const countLines = (s) => s.split('\n').length
+// 生成物不算「我写的代码」：lockfile
+const generated = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/
+// 文档不受代码行数限制：DESIGN.md 是设计推导，本来就长
+const notDocs = (f) => !/^doc\//.test(f) && !/^(README|AGENTS)\.md$/.test(f)
+for (const file of textFiles.filter((f) => !generated.test(f) && notDocs(f))) {
+  const n = countLines(contentOf(file))
+  if (n > SIZE.file) problems.push(`[体积] ${file} —— ${n} 行（上限 ${SIZE.file}）`)
+}
+// 函数长度：数大括号深度 —— 粗糙但够用
+for (const file of textFiles.filter((f) => /\.(ts|vue)$/.test(f))) {
+  const lines = contentOf(file).split('\n')
+  lines.forEach((line, i) => {
+    if (!/^\s*(export\s+)?(async\s+)?function\s|^\s*const\s+\w+\s*=\s*(async\s*)?\(/.test(line)) return
+    let depth = 0
+    let end = -1
+    for (let j = i; j < lines.length; j++) {
+      depth += (lines[j].match(/{/g) ?? []).length - (lines[j].match(/}/g) ?? []).length
+      if (depth > 0) end = j
+      if (end >= 0 && depth === 0) break
+    }
+    const len = end - i + 1
+    if (len > SIZE.func) problems.push(`[体积] ${file}:${i + 1} —— 函数 ${len} 行（上限 ${SIZE.func}）`)
+  })
+}
+// 净增行数排除生成物
+const stat = git('diff --cached --shortstat -- . ":(exclude)package-lock.json"')
+const net = Number(stat.match(/(\d+) insertion/)?.[1] ?? 0)
+if (net > SIZE.net) {
+  problems.push(`[体积] 本次改动 +${net} 行（上限 ${SIZE.net}）—— 拆成多次提交，或解释为什么必须一次改这么多`)
+}
+
+// ---------- 检查 8：行尾 / BOM / 编码（一次管三个平台）----------
+// 规则：索引里一律 LF；.bat/.cmd 在工作区必须 CRLF；不许有 BOM。
+// 判据来自 .gitattributes，用 `git ls-files --eol` 读 —— 以 git 自己的结论为准，
+// 绝不手工数（git add 会做归一化，手工数看不到违规）。
+for (const file of allStaged) {
+  const attr = git('check-attr eol text -- "' + file + '"')
+  const eol = attr.match(/eol: (\S+)/)?.[1] ?? 'unspecified'
+  if (!/text: (set|auto)/.test(attr)) continue // binary, leave it alone
+
+  const report = git('ls-files --eol -- "' + file + '"')
+  const indexSide = report.match(/i\/(\S+)/)?.[1]
+  const worktreeSide = report.match(/w\/(\S+)/)?.[1]
+  if (!indexSide || !worktreeSide) continue
+
+  if (indexSide === 'crlf' || indexSide === 'mixed') {
+    problems.push(`[换行] ${file} —— 索引里是 ${indexSide}；git 要求索引一律 lf`)
+  }
+  const wanted = eol === 'crlf' ? 'crlf' : 'lf'
+  if (worktreeSide !== wanted) {
+    problems.push(
+      `[换行] ${file} —— 工作区是 ${worktreeSide}，应为 ${wanted}` +
+        (wanted === 'crlf' ? '（Windows 脚本用 LF 会执行出错）' : '（Windows 编辑器默认写 CRLF，请改成 LF）'),
+    )
+  }
+
+  const worktreeText = contentOf(file)
+  if (worktreeText.charCodeAt(0) === 0xfeff) {
+    problems.push(`[BOM] ${file} —— 带 UTF-8 BOM；脚本类文件会因为多出三个字节而报错`)
+  }
+  if (worktreeText.includes('\uFFFD')) {
+    problems.push(`[编码] ${file} —— 不是合法 UTF-8（保存时请确认编码为 UTF-8，不要用 GBK）`)
+  }
+}
+
+// ---------- 检查 9：语法（TypeScript 编译器 API，亚秒级）----------
+const syntaxTargets = staged.filter((f) => /\.(ts|vue)$/.test(f))
+if (syntaxTargets.length) {
+  try {
+    execSync('node .githooks/checks/syntax.mjs ' + syntaxTargets.map((f) => '"' + f + '"').join(' '), {
+      stdio: 'pipe',
+    })
+  } catch (err) {
+    problems.push('[语法] ' + readOutput(err).split('\n').slice(-4).join(' / '))
+  }
+}
+
+// ---------- 检查 10：代码是 ASCII（中文只在 locales/docs）----------
+// 规则：src/locales/*.json 与 doc/ 之外一切都是 ASCII —— 标识符、对象键、
+// 字符串字面量都算。UI 文案走 t('key')。注释豁免（扫描前会剥掉注释）。
+// ⚠️ 用 allStaged 而不是 staged：tests/ 与 e2e/ 是工具代码，豁免「源码卫生」检查，
+//    但 ASCII 不是卫生问题 —— 测试里的中文断言和 src 里的一样会漂移。
+const asciiTargets = allStaged.filter((f) => /\.(ts|vue|css|html|mjs|js)$/.test(f))
+if (asciiTargets.length) {
+  try {
+    execSync('node .githooks/checks/ascii.mjs ' + asciiTargets.map((f) => '"' + f + '"').join(' '), {
+      stdio: 'pipe',
+    })
+  } catch (err) {
+    problems.push(readOutput(err))
+  }
+}
+
+// ---------- 检查 11：标识符是英文 ----------
+// 规则（用户 2026-09-14 决定）：每个标识符都是英文，没有领域概念例外。
+// 在代码骨架上做，所以中文字符串藏不住标识符。
+const identifierTargets = allStaged.filter((f) => /\.(ts|vue|mjs|js)$/.test(f))
+if (identifierTargets.length) {
+  try {
+    execSync(
+      'node .githooks/checks/identifiers.mjs ' + identifierTargets.map((f) => '"' + f + '"').join(' '),
+      { stdio: 'pipe' },
+    )
+  } catch (err) {
+    problems.push(readOutput(err))
+  }
+}
+
+// ---------- 检查 12：提示词不许内联 ----------
+const promptTargets = staged.filter((f) => /^src\/.*\.(ts|vue)$/.test(f))
+if (promptTargets.length) {
+  try {
+    execSync('node .githooks/checks/prompts.mjs ' + promptTargets.map((f) => '"' + f + '"').join(' '), {
+      stdio: 'pipe',
+    })
+  } catch (err) {
+    problems.push(readOutput(err))
+  }
+}
+
+// ---------- 检查 13：ESLint（类型感知规则能抓浮空 Promise 这类真 bug）----------
+const lintTargets = staged.filter((f) => /\.(ts|vue|js|mjs)$/.test(f))
+let lintPromise = null
+if (lintTargets.length) {
+  lintPromise = new Promise((resolve) => {
+    try {
+      execSync('npx eslint ' + lintTargets.map((f) => '"' + f + '"').join(' '), { stdio: 'pipe' })
+      resolve(null)
+    } catch (err) {
+      resolve(readOutput(err).split('\n').slice(0, 12).join('\n'))
+    }
+  })
+}
+
+// ---------- 检查 14：类型检查 + 单元测试（并行跑，缩短等待）----------
+const needsHeavy = staged.some((f) => /\.(ts|vue)$/.test(f)) || /package\.json|tsconfig/.test(staged.join(' '))
+const heavyTasks = []
+if (needsHeavy) {
+  heavyTasks.push(
+    new Promise((resolve) => {
+      try {
+        execSync('npm run -s typecheck', { stdio: 'pipe' })
+        resolve(null)
+      } catch (err) {
+        resolve('typecheck：\n' + readOutput(err).split('\n').slice(0, 10).join('\n'))
+      }
+    }),
+  )
+  // 单元测试很快（<1s）—— 在这里抓到坏掉，比留到推送时更好
+  heavyTasks.push(
+    new Promise((resolve) => {
+      try {
+        execSync('npm run -s test', { stdio: 'pipe' })
+        resolve(null)
+      } catch (err) {
+        resolve('测试：\n' + readOutput(err).split('\n').slice(-12).join('\n'))
+      }
+    }),
+  )
+}
+
+if (lintPromise || heavyTasks.length) {
+  const results = await Promise.all([lintPromise, ...heavyTasks])
+  for (const result of results) {
+    if (!result) continue
+    if (result.startsWith('typecheck') || result.startsWith('测试')) {
+      problems.push('[' + result.split('：')[0] + '] ' + result.split('\n').slice(1).join('\n     '))
+    } else {
+      problems.push('[lint]\n' + result.split('\n').map((l) => '     ' + l).join('\n'))
+    }
+  }
+}
+
+// ⚠️ 已经出错就先报告并停下，不要走到下面的格式化：Prettier 会以「请重新提交」退出，
+//    把真正的原因盖掉（密钥扫描失败曾被「Prettier 已格式化」挡住 —— 实测）。
+if (problems.length) {
+  console.error('\n✖ 纪律检查未通过：\n')
+  for (const p of problems) console.error('  ' + p)
+  console.error(`\n共 ${problems.length} 项。逐条修掉，或用 SKIP_DISCIPLINE=1 跳过（需说明理由）。\n`)
+  process.exit(1)
+}
+
+// ---------- 检查 15：格式化（Prettier 就地修好并重新暂存）----------
+const formatTargets = staged.filter((f) => /\.(ts|vue|js|mjs|json|css|html|md|yml|yaml)$/.test(f))
+if (formatTargets.length && !process.env.SKIP_FORMAT) {
+  try {
+    const out = execSync('npx prettier --write ' + formatTargets.map((f) => '"' + f + '"').join(' '), {
+      stdio: 'pipe',
+      encoding: 'utf8',
+    })
+    if (/ms$|ms\b/m.test(out) && !/unchanged/.test(out)) {
+      // 把修好的内容重新暂存，否则提交的还是没格式化的版本
+      execSync('git add ' + formatTargets.map((f) => '"' + f + '"').join(' '), { stdio: 'pipe' })
+      console.log('⟳ Prettier 已格式化并重新暂存；请再执行一次 git commit')
+      process.exit(1)
+    }
+  } catch (err) {
+    problems.push('[格式化] Prettier 失败：' + readOutput(err).slice(0, 200))
+  }
+}
+
+if (problems.length) {
+  console.error('\n✖ 格式化后仍有问题：\n')
+  for (const p of problems) console.error('  ' + p)
+  console.error('')
+  process.exit(1)
+}
+console.log(`✓ 纪律检查通过（${staged.length} 个文件）`)
+remindVisualCheck(allStaged)

@@ -1,0 +1,217 @@
+{
+  "app": {
+    "statusUnconfigured": "未配置",
+    "debugOn": "🔧 调试模式已开启 —— 之后会显示模型的原始输出",
+    "debugOff": "🔧 调试模式已关闭",
+    "generatingOpening": "正在生成开场…",
+    "openingFailed": "生成开场失败：{message}",
+    "saveFileName": "taverngame-存档-{date}.json",
+    "saveExported": "存档已导出为文件",
+    "saveImported": "存档已导入 ✓",
+    "importFailed": "导入失败：{message}",
+    "confirmReset": "确定要重新开始吗？当前进度会丢失（建议先导出存档）",
+    "startupCorrupted": "本地存档已损坏，本次从空白开始：\n{message}\n\n原存档已备份到浏览器存储中（key 以 .broken- 开头），可在控制台导出。",
+    "welcome": "欢迎。请先点右上角「⚙ 设置」填入 API key。",
+    "settingsSaved": "设置已保存 ✓"
+  },
+  "header": {
+    "debug": "调试",
+    "debugTitle": "调试模式：故事区会多出模型的输入输出与工具调用",
+    "debugToggleOn": "调试：开",
+    "debugToggleOff": "调试：关",
+    "debugToggleTitle": "调试模式：点一下切换（本地开发默认开启，关掉后刷新仍然保持关闭）",
+    "themeSystem": "主题：跟随系统（点击切换）",
+    "themeLight": "主题：浅色（点击切换）",
+    "themeDark": "主题：深色（点击切换）",
+    "export": "导出",
+    "import": "导入",
+    "reset": "重来",
+    "settings": "设置",
+    "exportTitle": "导出存档文件",
+    "importTitle": "从文件导入存档",
+    "resetTitle": "重新开始",
+    "themeIconSystem": "🖥",
+    "themeIconDark": "🌙",
+    "themeIconLight": "☀️",
+    "languageSystem": "语言：跟随系统（点击切换）",
+    "languageZh": "语言：中文（点击切换）",
+    "languageEn": "语言：English（点击切换）",
+    "languageIconSystem": "文/A",
+    "languageIconZh": "中",
+    "languageIconEn": "EN"
+  },
+  "composer": {
+    "placeholder": "你想做什么？",
+    "submit": "行动",
+    "hintBefore": "还没配置 API key —— 点右上角",
+    "hintAfter": "填一下就能开始"
+  },
+  "sidebar": {
+    "time": "时间",
+    "place": "地点",
+    "turn": "回合",
+    "separator": " · ",
+    "turnCount": "已进行",
+    "timelineArrow": "↑"
+  },
+  "toolbar": {
+    "toolCall": "⚙ 调用 {tool}({args})"
+  },
+  "store": {
+    "rawRequest": "📤 模型输入（{count} 条消息）",
+    "rawReply": "🔍 模型原始回复（{count} 次工具调用）",
+    "noText": "（模型没有返回文字，可能只调用了工具）",
+    "cancelled": "已取消本回合",
+    "failed": "出错了：\n{message}",
+    "toolResultLine": "   → {result}",
+    "warnLine": "⚠ {message}"
+  },
+  "settings": {
+    "title": "设置",
+    "apiKey": "API Key",
+    "apiBase": "接口地址（Base URL）",
+    "stepsLimit": "每回合最多思考步数：{count}",
+    "stepsNote": "防止模型陷入循环把额度烧光。",
+    "noKeyNeeded": "这个服务不需要 key",
+    "keyUrlPrefix": "在这里获取：",
+    "currentKey": "当前：{masked}",
+    "test": "测试连接",
+    "save": "保存",
+    "forget": "清除密钥",
+    "testing": "测试中…",
+    "testOk": "✅ 连接成功（{ms}ms）· 回复：{reply}",
+    "testFailed": "❌ 失败\n{message}",
+    "cleared": "已清除",
+    "confirmForget": "清除浏览器里保存的 API key？",
+    "corsYes": "✅ 实测支持浏览器直连",
+    "corsNo": "⚠️ 该服务商实测不允许浏览器直连（CORS），用不了",
+    "corsUnknown": "未实测，可能需要代理",
+    "introBefore": "纯前端运行 —— 你的 API key 只保存在",
+    "introAfter": "里，不会上传到任何服务器。请求直接从浏览器发往服务商。",
+    "appName": "你自己的浏览器",
+    "providerLabel": "服务商",
+    "modelLabel": "模型名（modelName）",
+    "theme": "主题",
+    "themeSystem": "跟随系统",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "themeNote": "只影响这台设备，不影响存档",
+    "language": "语言",
+    "languageNote": "模型也会用这个语言写作。",
+    "languageSystem": "跟随系统",
+    "saveSection": "存档",
+    "exportSave": "导出存档文件",
+    "importSave": "从文件导入存档",
+    "resetGame": "重新开始"
+  },
+  "provider": {
+    "deepseek": "DeepSeek 官方",
+    "siliconflow": "硅基流动 SiliconFlow",
+    "openrouter": "OpenRouter",
+    "mistral": "Mistral",
+    "ollama": "本地 Ollama（零成本）",
+    "custom": "自定义（任意 OpenAI 兼容接口）"
+  },
+  "calendar": {
+    "yearMonthDay": "{year} 年 {month} 月 {day} 日",
+    "weekday": {
+      "0": "星期日",
+      "1": "星期一",
+      "2": "星期二",
+      "3": "星期三",
+      "4": "星期四",
+      "5": "星期五",
+      "6": "星期六"
+    },
+    "segment": {
+      "morning": "上午",
+      "afternoon": "下午",
+      "evening": "晚上"
+    },
+    "elapsedHours": "过去了 {hours} 小时",
+    "elapsedMinutes": "过去了 {minutes} 分钟",
+    "elapsedMonths": "过去了 {months} 个月",
+    "elapsedMonthsDays": "过去了 {months} 个月 {days} 天",
+    "monthDay": "{month} 月 {day} 日",
+    "months": "{months} 个月",
+    "days": "{days} 天",
+    "years": "{years} 年",
+    "elapsed": "过去了 {parts}",
+    "dateSeparator": " · "
+  },
+  "llm": {
+    "missingConfig": "还缺少配置：{items}。\n请点右上角「⚙ 设置」补上。",
+    "requestFailed": "请求发不出去。可能原因：\n• 该服务商不允许浏览器直连（CORS 拦截）\n• 接口地址写错了：{url}\n• 网络不通或需要代理",
+    "httpError": "接口返回 {status} {statusText}\n{detail}",
+    "badResponse": "回复格式看不懂：{body}",
+    "emptyResponse": "回复里既没有文字也没有工具调用：{body}",
+    "field": {
+      "apiKey": "API Key",
+      "apiBase": "接口地址",
+      "model": "模型名称"
+    }
+  },
+  "tools": {
+    "unknown": "❌ 没有名为「{name}」的工具。可用工具：{available}",
+    "notJsonObject": "❌ 参数必须是 JSON 对象，收到的是：{got}",
+    "invalidJson": "❌ 参数不是合法 JSON（{message}）。你给的是：{got}",
+    "advanceFailed": "⚠ 推进失败：{message}（当前：{current}）",
+    "advanceResult": "🕐 时间推进：{before}\n           → {after}",
+    "advanceElapsed": "\n   （{elapsed}）",
+    "advanceReason": "\n   原因：{reason}",
+    "advanceTime": {
+      "description": "推进故事内的时间。只在剧情确实经过了一段时间时才调用（赶路、交谈很久、睡了一觉、等到天黑、修养数日）。如果这一回合只是几句话、几个动作，就不要调用。跨度没有上限。",
+      "step": "推进的数量，正整数。默认 1",
+      "unit": "时间单位。默认 segment（一个时段，约 4 小时）",
+      "reason": "为什么时间会流逝（会记录在时间线里）"
+    }
+  },
+  "snapshot": {
+    "turn": "【第 {turn} 回合】",
+    "time": "时间：{time}",
+    "place": "地点：{name}",
+    "recent": "### 最近发生的事",
+    "timeline": "### 时间线",
+    "player": "玩家",
+    "gm": "你(GM)",
+    "recentLog": "### 最近发生的事",
+    "sceneDescription": "　　{text}",
+    "recentLine": "- {who}：{text}",
+    "timelineLine": "- {to}（{reason}）",
+    "timelineLineNoReason": "- {to}"
+  },
+  "save": {
+    "notValid": "这不是有效的存档文件",
+    "corrupted": "本地存档已损坏：{message}"
+  },
+  "agent": {
+    "stepLimit": "达到步数上限（{max}），本回合结束",
+    "forcingNarration": "这一回合没有产生叙事文字，正在要求 GM 补写…",
+    "stillNoText": "GM 依然没有输出文字",
+    "saveFailed": "存档写入失败（可能是隐私模式或空间已满）—— 这一回合的进度重启后会丢失",
+    "actionPrefix": "玩家的行动：{action}",
+    "playerAction": "玩家的行动：{action}",
+    "gameStart": "【游戏开始】\n{instruction}",
+    "newAdventure": "（新的冒险开始了）",
+    "toolsOnly": "模型这一步只调用了工具，没有写叙事文字（第 {step} 步）",
+    "turnAdvanced": "回合 +1（当前第 {turn} 回合）"
+  },
+  "story": {
+    "thinking": "思考中…",
+    "rawToggle": " —— 点击展开"
+  },
+  "config": {
+    "notSet": "（未设置）"
+  },
+  "player": {
+    "defaultName": "无名者"
+  },
+  "scene": {
+    "unknownPlace": "未知之地",
+    "unknownPlaceDesc": "你睁开眼睛，不记得自己是怎么来到这里的。"
+  },
+  "prompts": {
+    "badBase64": "提示词模块不是合法 base64",
+    "unfilled": "提示词有未填的占位符：{names}"
+  }
+}

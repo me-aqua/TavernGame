@@ -1,0 +1,217 @@
+{
+  "app": {
+    "statusUnconfigured": "Not configured",
+    "debugOn": "🔧 Debug mode on — raw model output will be shown",
+    "debugOff": "🔧 Debug mode off",
+    "generatingOpening": "Generating the opening scene…",
+    "openingFailed": "Failed to generate the opening: {message}",
+    "saveFileName": "taverngame-save-{date}.json",
+    "saveExported": "Save exported to a file",
+    "saveImported": "Save imported ✓",
+    "importFailed": "Import failed: {message}",
+    "confirmReset": "Start over? Current progress will be lost (export a save first).",
+    "startupCorrupted": "Local save is corrupted; starting from a blank game:\n{message}\n\nThe broken data was backed up in browser storage (key starts with .broken-); you can export it from the console.",
+    "welcome": "Welcome. Open ⚙ Settings (top right) and add your API key to begin.",
+    "settingsSaved": "Settings saved ✓"
+  },
+  "header": {
+    "debug": "debug",
+    "debugTitle": "Debug mode: the story area also shows model I/O and tool calls",
+    "debugToggleOn": "debug: on",
+    "debugToggleOff": "debug: off",
+    "debugToggleTitle": "Debug mode: click to toggle (on by default for local development; stays off after you turn it off)",
+    "themeSystem": "Theme: follow system (click to switch)",
+    "themeLight": "Theme: light (click to switch)",
+    "themeDark": "Theme: dark (click to switch)",
+    "export": "Export",
+    "import": "Import",
+    "reset": "Restart",
+    "settings": "Settings",
+    "exportTitle": "Export save file",
+    "importTitle": "Import save from file",
+    "resetTitle": "Start over",
+    "themeIconSystem": "🖥",
+    "themeIconDark": "🌙",
+    "themeIconLight": "☀️",
+    "languageSystem": "Language: follow system (click to switch)",
+    "languageZh": "Language: Chinese (click to switch)",
+    "languageEn": "Language: English (click to switch)",
+    "languageIconSystem": "A/文",
+    "languageIconZh": "中",
+    "languageIconEn": "EN"
+  },
+  "composer": {
+    "placeholder": "What do you do?",
+    "submit": "Act",
+    "hintBefore": "No API key yet — open",
+    "hintAfter": "in the top right to get started"
+  },
+  "sidebar": {
+    "time": "Time",
+    "place": "Place",
+    "turn": "Turn",
+    "separator": " · ",
+    "turnCount": "Elapsed",
+    "timelineArrow": "↑"
+  },
+  "toolbar": {
+    "toolCall": "⚙ call {tool}({args})"
+  },
+  "store": {
+    "rawRequest": "📤 Model input ({count} messages)",
+    "rawReply": "🔍 Raw model reply ({count} tool calls)",
+    "noText": "(The model returned no text — it may have only called tools)",
+    "cancelled": "This turn was cancelled",
+    "failed": "Something went wrong:\n{message}",
+    "toolResultLine": "   -> {result}",
+    "warnLine": "⚠ {message}"
+  },
+  "settings": {
+    "title": "Settings",
+    "apiKey": "API Key",
+    "apiBase": "Base URL",
+    "stepsLimit": "Max thinking steps per turn: {count}",
+    "stepsNote": "Prevents the model from looping and burning your quota.",
+    "noKeyNeeded": "This provider needs no key",
+    "keyUrlPrefix": "Get one here:",
+    "currentKey": "Current: {masked}",
+    "test": "Test connection",
+    "save": "Save",
+    "forget": "Forget key",
+    "testing": "Testing…",
+    "testOk": "✅ Connected ({ms}ms) · reply: {reply}",
+    "testFailed": "❌ Failed\n{message}",
+    "cleared": "Cleared",
+    "confirmForget": "Forget the API key stored in this browser?",
+    "corsYes": "✅ Verified: browser can connect directly",
+    "corsNo": "⚠️ Verified: this provider blocks browser requests (CORS) — unusable",
+    "corsUnknown": "Not verified; a proxy may be needed",
+    "introBefore": "Runs entirely in your browser — your API key is stored only in",
+    "introAfter": "and is sent straight to the provider, never to any server of ours.",
+    "appName": "your own browser",
+    "providerLabel": "Provider",
+    "modelLabel": "Model name (modelName)",
+    "theme": "Theme",
+    "themeSystem": "System",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeNote": "Applies to this device only, not to the save",
+    "language": "Language",
+    "languageNote": "The GM writes in this language too.",
+    "languageSystem": "Follow system",
+    "saveSection": "Save data",
+    "exportSave": "Export save file",
+    "importSave": "Import save file",
+    "resetGame": "Start over"
+  },
+  "provider": {
+    "deepseek": "DeepSeek (official)",
+    "siliconflow": "SiliconFlow",
+    "openrouter": "OpenRouter",
+    "mistral": "Mistral",
+    "ollama": "Local Ollama (free)",
+    "custom": "Custom (any OpenAI-compatible endpoint)"
+  },
+  "calendar": {
+    "yearMonthDay": "{month}/{day}/{year}",
+    "weekday": {
+      "0": "Sunday",
+      "1": "Monday",
+      "2": "Tuesday",
+      "3": "Wednesday",
+      "4": "Thursday",
+      "5": "Friday",
+      "6": "Saturday"
+    },
+    "segment": {
+      "morning": "morning",
+      "afternoon": "afternoon",
+      "evening": "evening"
+    },
+    "elapsedHours": "{hours} hours passed",
+    "elapsedMinutes": "{minutes} minutes passed",
+    "elapsedMonths": "{months} months passed",
+    "elapsedMonthsDays": "{months} months {days} days passed",
+    "monthDay": "{month}/{day}",
+    "months": "{months} months",
+    "days": "{days} days",
+    "years": "{years} years",
+    "elapsed": "{parts} passed",
+    "dateSeparator": " · "
+  },
+  "llm": {
+    "missingConfig": "Missing configuration: {items}.\nOpen ⚙ Settings (top right) to fill it in.",
+    "requestFailed": "The request could not be sent. Likely causes:\n• The provider blocks browser requests (CORS)\n• Wrong base URL: {url}\n• No network, or a proxy is required",
+    "httpError": "HTTP {status} {statusText}\n{detail}",
+    "badResponse": "Unrecognized response shape: {body}",
+    "emptyResponse": "The reply contained neither text nor tool calls: {body}",
+    "field": {
+      "apiKey": "API Key",
+      "apiBase": "base URL",
+      "model": "model name"
+    }
+  },
+  "tools": {
+    "unknown": "❌ There is no tool named \"{name}\". Available tools: {available}",
+    "notJsonObject": "❌ Arguments must be a JSON object; received: {got}",
+    "invalidJson": "❌ Arguments are not valid JSON ({message}). You sent: {got}",
+    "advanceFailed": "⚠ Advance failed: {message} (current: {current})",
+    "advanceResult": "🕐 Time advanced: {before}\n           → {after}",
+    "advanceElapsed": "\n   ({elapsed})",
+    "advanceReason": "\n   Reason: {reason}",
+    "advanceTime": {
+      "description": "Advance in-story time. Call this only when the plot really spans time (travelling, a long conversation, sleeping, waiting for nightfall, recovering for days). If the turn is just a few lines or actions, do not call it. There is no upper bound on the span.",
+      "step": "How many units to advance; a positive integer. Defaults to 1",
+      "unit": "Time unit. Defaults to segment (one part of the day, about 4 hours)",
+      "reason": "Why time passes (recorded on the timeline)"
+    }
+  },
+  "snapshot": {
+    "turn": "[Turn {turn}]",
+    "time": "Time: {time}",
+    "place": "Place: {name}",
+    "recent": "### Recently",
+    "timeline": "### Timeline",
+    "player": "Player",
+    "gm": "You (GM)",
+    "recentLog": "### Recent events",
+    "sceneDescription": "    {text}",
+    "recentLine": "- {who}: {text}",
+    "timelineLine": "- {to} ({reason})",
+    "timelineLineNoReason": "- {to}"
+  },
+  "save": {
+    "notValid": "Not a valid save file",
+    "corrupted": "Corrupted local save: {message}"
+  },
+  "agent": {
+    "stepLimit": "Step limit reached ({max}); the turn ends here",
+    "forcingNarration": "This turn produced no narration; asking the GM to write some…",
+    "stillNoText": "The GM still produced no text",
+    "saveFailed": "Failed to write the save (private mode or storage full) — this turn will be lost on restart",
+    "actionPrefix": "Player's action: {action}",
+    "playerAction": "Player's action: {action}",
+    "gameStart": "[GAME START]\n{instruction}",
+    "newAdventure": "(a new adventure begins)",
+    "toolsOnly": "The model only called tools and wrote no narration (step {step})",
+    "turnAdvanced": "Turn +1 (now turn {turn})"
+  },
+  "story": {
+    "thinking": "Thinking…",
+    "rawToggle": " - click to expand"
+  },
+  "config": {
+    "notSet": "(not set)"
+  },
+  "player": {
+    "defaultName": "Nameless"
+  },
+  "scene": {
+    "unknownPlace": "Unknown place",
+    "unknownPlaceDesc": "You open your eyes with no memory of how you got here."
+  },
+  "prompts": {
+    "badBase64": "Prompt module is not valid base64",
+    "unfilled": "Prompt has unfilled placeholders: {names}"
+  }
+}
