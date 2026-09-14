@@ -1,18 +1,34 @@
 {
   "name": "tavern-game",
-  "version": "0.5.5",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "一个用 agent 循环驱动的文字游戏（纯前端，浏览器里直接玩）",
   "scripts": {
-    "dev": "node dev-server.js",
-    "start": "node dev-server.js"
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "npm run typecheck && npm test && npm run build"
   },
   "keywords": [
     "agent",
     "text-game",
     "trpg",
-    "llm"
+    "llm",
+    "vue"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "vue": "^3.5.42"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "typescript": "^5.9.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0",
+    "vue-tsc": "^3.1.1"
+  }
 }

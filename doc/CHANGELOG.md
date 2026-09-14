@@ -18,11 +18,58 @@
     安全 Security   —— 安全相关
 -->
 
+## [0.6.0] - 2026-09-14
+
+**架构重构：原生 JS 单文件 → Vue 3 + Vite + TypeScript。**
+⚠️ **本版没有改动任何游戏行为** —— 完全是工程结构升级。
+
+### 新增
+- **标准前端项目结构**（此前根目录散着 index.html / core/ / assets/ / 4 个 .md）
+  - `src/core/` 游戏逻辑 · `src/components/` 界面 · `src/stores/` 状态桥接
+  - `src/types/state.ts` —— 存档字段的**唯一真相**（以前只存在于注释里）
+  - `public/` 静态资源（about.html 与头像，构建时原样拷贝）
+  - `doc/` 全部文档（AGENTS / DESIGN / CHANGELOG）
+  - 根目录只剩配置文件和 README
+- **TypeScript（strict 全开）** —— `core/*.js` 全部转 `src/core/*.ts`：
+  这是本项目第一次让**编译器**替我们盯着状态字段；以前靠注释与防御性代码，
+  现在字段名写错在构建期就报错
+- **测试**（`tests/`，29 项，`npm test`）—— 这是**全历史第一次把测试提交进仓库**：
+  - 日期边界（闰年 / 月末溢出 / 跨年）、时长文案（防「每满一年多 5 天」回归）
+  - 脏存档净化（null / 字符串 / 非法时刻 / 字符串回合数）
+  - 推进把关（倒退 / 原地 / 未知单位 / 手滑超大跨度）
+  - 工具解析（同行围栏 / 数组工具 / 解析失败要出声 / 原型链工具名）
+- **GitHub Actions 自动部署**（`.github/workflows/deploy.yml`）
+- `npm run verify` = 类型检查 + 测试 + 构建（一条命令跑完全部把关）
+
+### 修改
+- **`index.html` 从 714 行降到 12 行**：HTML + CSS + JS 混在一起的三合一
+  拆成 1 个入口 + 5 个组件 + 1 个 store + 1 份全局样式
+- 界面渲染由「手动 append DOM」改为**数据驱动**：
+  - 叙事流 = `v-for` 一个数组（**不可能再出现「忘了渲染」那类 bug**）
+  - 顶栏状态、侧栏三块 = 从状态派生的 computed（不再手工调 renderState）
+- 样式从「全局 class」改为**组件内 scoped**，新增组件不会污染别人
+- `README.md` 本地运行章节改为 npm install + npm run dev
+
+### 移除
+- `dev-server.js`（163 行，自写的禁用缓存静态服务器）—— Vite dev server 自带 HMR
+- `core/`（原生 JS 版）—— 已全部迁入 `src/core/` 的 TS 版本
+
+### 修复
+- **`URL.revokeObjectURL` 紧跟 `a.click()`**（v0.5.4 审查遗留的 #6）——
+  改为 `setTimeout` 延后释放，避免部分浏览器在下载启动前就把 blob 撤掉
+- `about.html` 里失效的头像路径（跟随目录整理一起修正）
+
+### 说明
+- **线上地址不变**：https://me-aqua.github.io/TavernGame/
+- ⚠️ **部署方式变了**：仓库设置里 Pages 的 Source 必须改成 **GitHub Actions**，
+  否则 push 之后线上不会更新（详见 `doc/AGENTS.md`）
+- 产物：JS 97.7 kB → gzip **39.4 kB**（其中约 34 kB 是 Vue 运行时本身），CSS 7.3 kB
+
 ## [0.5.5] - 2026-09-13
 
 ### 移除
 - **清掉实现层的死代码**（本轮全库体检发现的，全库导出一一核对过引用）
-  - `calendar.js` 的 `listCalendars()` —— 注释写着「以后做选历法界面时用得上」，
+  - `calendar.ts` 的 `listCalendars()` —— 注释写着「以后做选历法界面时用得上」，
     正是**提前预留**（`AGENTS.md` 明确警告过这类东西）
   - `calendar.js` 的 `SEGMENTS_PER_DAY` —— 从定义起无人用过
   - `tools.js` 的 `TIME_UNITS` —— 与 `state.js` 里的单位表**重复定义**，
@@ -370,6 +417,7 @@ DeepSeek 官方、硅基流动、OpenRouter、Mistral 均允许浏览器直连
 
 <!-- 版本链接（GitHub 上会自动生成对比页面） -->
 
+[0.6.0]: https://github.com/me-aqua/TavernGame/compare/v0.5.5...v0.6.0
 [0.5.5]: https://github.com/me-aqua/TavernGame/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/me-aqua/TavernGame/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/me-aqua/TavernGame/compare/v0.5.2...v0.5.3

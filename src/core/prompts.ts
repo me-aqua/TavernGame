@@ -1,5 +1,5 @@
 /**
- * core/prompts.js —— 提示词集中管理
+ * src/core/prompts.ts —— 提示词集中管理
  *
  * 提示词单独放一个文件，而不是散在代码里，原因是：
  *   - 调玩法时 90% 的时间在改这里，不该每次翻代码
@@ -11,7 +11,9 @@
  *   模型就会输出空参数；把工具块单独展示，模型就会以为工具是单独一条消息。
  */
 
-import { toolsPrompt } from './tools.js';
+import { toolsPrompt } from './tools'
+import type { GameState } from './state'
+import type { ChatMessage } from '../types/state'
 
 /**
  * GM（游戏主持）的核心人设与规则 —— 与历法无关的固定部分。
@@ -109,23 +111,20 @@ ${toolsPrompt()}
 
 **跳跃前后要有交代**：跳跃前说清楚「你决定等下去」，
 跳跃后描写「醒来时已经是……」，别让玩家莫名其妙就到了别的时间。
-`;
+`
 
 /**
  * 拼装完整的 system 提示词。
  *
  * 把历法说明插进来，这样模型才知道这个世界怎么算日子 ——
  * 换历法（做卡时）不用改这个文件。
- *
- * @param {GameState} state
- * @param {Array} history
  */
-export function buildSystemPrompt(state, history) {
+export function buildSystemPrompt(state: GameState, history: ChatMessage[] = []): string {
   return `${SYSTEM_PROMPT}
 
 ${state.calendar.prompt()}
 ## 当前世界状态
-${state.snapshot(history)}`;
+${state.snapshot(history)}`
 }
 
 /** 开新游戏时给 GM 的额外指令 */
@@ -138,4 +137,4 @@ export const OPENING_INSTRUCTION = `这是一个新游戏的开始。
    （清晨、正午、黄昏、深夜，给人的感觉完全不同）。
 
 不要问「你想扮演谁」之类的元问题 —— 直接开始故事。
-`;
+`
