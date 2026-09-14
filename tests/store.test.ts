@@ -2,11 +2,11 @@
  * store 测试 —— 界面与游戏之间唯一的桥梁，此前 0% 覆盖。
  *
  * 只通过公开 API 驱动：store 的实例是模块级的，
- * 所以每个用例开头都「resetGame」清空（数据、日志、历史、调试痕迹、通知一起清）。
+ * 所以每个用例开头都「resetGame」清空（数据、事件流、历史、通知一起清）。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { watchEffect } from 'vue'
-import { isDevHost, useGame } from '../src/stores/game'
+import { isDevHost, readStoredDebug, resolveDebug, storeDebug, useGame } from '../src/stores/game'
 import { initialState, hydrateFromSave, turn } from '../src/game/state'
 import { SAVE_KEY } from '../src/utils/storage'
 import { hourToSegment, SEGMENTS } from '../src/utils/calendar'
@@ -431,6 +431,44 @@ describe('hasStory', () => {
     fake = null
 
     expect(g.hasStory.value).toBe(true)
+  })
+})
+
+describe('the debug switch (dev hosts only, remembered choice)', () => {
+  /** 与 store 里的 DEBUG_KEY 同名：写错了这里会当场变红 */
+  const DEBUG_KEY = 'tavernGame.debug'
+
+  it('defaults to "not chosen" so the caller can fall back to the host', () => {
+    localStorage.removeItem(DEBUG_KEY)
+    expect(readStoredDebug()).toBeNull()
+  })
+
+  it('remembers an explicit choice', () => {
+    storeDebug(false)
+    expect(localStorage.getItem(DEBUG_KEY)).toBe('off')
+    expect(readStoredDebug()).toBe(false)
+
+    storeDebug(true)
+    expect(readStoredDebug()).toBe(true)
+  })
+
+  it('ignores a value it does not understand (hand-edited storage)', () => {
+    localStorage.setItem(DEBUG_KEY, 'maybe')
+    expect(readStoredDebug()).toBeNull()
+  })
+
+  it('devHost is off until the browser entry says otherwise', () => {
+    // store 不认识 location：纯逻辑测试里它必须是关的
+    expect(useGame().devHost.value).toBe(false)
+  })
+
+  it('the explicit choice wins over the host default', () => {
+    // 没选过 → 按域名（本机开发默认开，线上默认关）
+    expect(resolveDebug(null, true)).toBe(true)
+    expect(resolveDebug(null, false)).toBe(false)
+    // 选过 → 听玩家的（线上用控制台打开过也算）
+    expect(resolveDebug(false, true)).toBe(false)
+    expect(resolveDebug(true, false)).toBe(true)
   })
 })
 

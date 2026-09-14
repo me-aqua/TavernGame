@@ -20,8 +20,10 @@ const props = defineProps<{
   theme: 'system' | 'light' | 'dark'
   /** languageMode（跟随系统 / zh-CN / en） */
   language: 'system' | 'zh-CN' | 'en'
-  /** 调试模式：本地开发默认打开，故事区会多出模型输入输出与工具调用 */
+  /** 调试模式：开着时故事区会多出模型输入输出与工具调用 */
   debug: boolean
+  /** 给不给开关：只有本机开发地址才给（线上玩家不该看到它） */
+  debugToggle: boolean
 }>()
 
 defineEmits<{
@@ -31,6 +33,7 @@ defineEmits<{
   settings: []
   toggleTheme: []
   toggleLanguage: []
+  toggleDebug: []
 }>()
 
 const lightColor = computed(() => ({ ok: 'bg-accent', warn: 'bg-warn', err: 'bg-danger' })[props.light])
@@ -76,6 +79,11 @@ const languageHint = computed(
 // for tests only (e2e/smoke.mjs), never for styling or behaviour.
 const secondaryButton =
   'rounded-lg px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-text'
+
+/** 调试开关的两个状态：开着用暖色（提醒故事区多了东西），关掉就是普通次要按钮 */
+const debugOn = 'rounded border border-warn/40 bg-warn-soft px-1.5 py-0.5 text-[11px] font-medium text-warn'
+const debugOff =
+  'rounded border border-line px-1.5 py-0.5 text-[11px] font-medium text-faint transition-colors hover:bg-surface-2 hover:text-muted'
 </script>
 
 <template>
@@ -87,9 +95,19 @@ const secondaryButton =
       <span class="hidden sm:inline">{{ statusText }}</span>
     </span>
 
-    <!-- 调试模式标记：故事区里那些工具调用与原始响应不是 bug -->
+    <!-- 调试开关（只有本机开发给）：开着时故事区里那些模型 I/O 与工具调用不是 bug -->
+    <button
+      v-if="debugToggle"
+      data-debug
+      :title="t('header.debugToggleTitle')"
+      :class="debug ? debugOn : debugOff"
+      @click="$emit('toggleDebug')"
+    >
+      {{ debug ? t('header.debugToggleOn') : t('header.debugToggleOff') }}
+    </button>
+    <!-- 没法用开关却开着调试（例如线上在控制台设了 __DEBUG）：至少标出来 -->
     <span
-      v-if="debug"
+      v-else-if="debug"
       data-debug
       :title="t('header.debugTitle')"
       class="rounded border border-warn/40 bg-warn-soft px-1.5 py-0.5 text-[11px] font-medium text-warn"

@@ -204,25 +204,52 @@ describe('GameComposer', () => {
 describe('AppHeader', () => {
   it('shows the status light in its ok and error states', async () => {
     const w = render(AppHeader, {
-      props: { light: 'ok', statusText: STATUS_TEXT, theme: 'system', debug: false },
+      props: { light: 'ok', statusText: STATUS_TEXT, theme: 'system', debug: false, debugToggle: false },
     })
     expect(w.find('.bg-accent').exists()).toBe(true)
     await w.setProps({ light: 'err' })
     expect(w.find('.bg-danger').exists()).toBe(true)
   })
 
-  it('marks debug mode so the extra story lines are explainable', async () => {
+  it('gives a debug switch on dev hosts, and says which state it is in', async () => {
     const w = render(AppHeader, {
-      props: { light: 'ok', statusText: STATUS_TEXT, theme: 'system', debug: false },
+      props: { light: 'ok', statusText: STATUS_TEXT, theme: 'system', debug: true, debugToggle: true },
+    })
+    const toggle = w.find('[data-debug]')
+    expect(toggle.text()).toBe(t('header.debugToggleOn'))
+
+    await toggle.trigger('click')
+    expect(w.emitted('toggleDebug')).toHaveLength(1)
+
+    await w.setProps({ debug: false })
+    expect(w.find('[data-debug]').text()).toBe(t('header.debugToggleOff'))
+  })
+
+  it('shows a static debug mark when there is no switch but debug is on', () => {
+    const w = render(AppHeader, {
+      props: { light: 'ok', statusText: STATUS_TEXT, theme: 'system', debug: true, debugToggle: false },
+    })
+    expect(w.find('[data-debug]').text()).toBe(t('header.debug'))
+    expect(w.find('button[data-debug]').exists()).toBe(false)
+  })
+
+  it('shows nothing at all when debug is off and there is no switch', () => {
+    const w = render(AppHeader, {
+      props: { light: 'ok', statusText: STATUS_TEXT, theme: 'system', debug: false, debugToggle: false },
     })
     expect(w.find('[data-debug]').exists()).toBe(false)
-    await w.setProps({ debug: true })
-    expect(w.find('[data-debug]').text()).toBe(t('header.debug'))
   })
 
   it('every header button emits its event (theme and language toggles included)', async () => {
     const w = render(AppHeader, {
-      props: { light: 'ok', statusText: '', theme: 'system', language: 'system', debug: false },
+      props: {
+        light: 'ok',
+        statusText: '',
+        theme: 'system',
+        language: 'system',
+        debug: false,
+        debugToggle: false,
+      },
     })
     const btns = w.findAll('header button')
     expect(btns).toHaveLength(6)

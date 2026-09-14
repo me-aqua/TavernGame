@@ -180,7 +180,10 @@ const firstPaint = await evaluate(`(() => {
     sidebar: [...document.querySelectorAll('aside h2')].map((h) => h.textContent),
     time: q('.time-display')?.textContent?.trim() ?? null,
     status: q('header span:nth-child(2) span:last-child')?.textContent ?? null,
-    buttons: [...document.querySelectorAll('header button')].map((b) => b.textContent.trim()),
+    // The debug switch is a dev-only affordance (localhost), not one of the app buttons
+    buttons: [...document.querySelectorAll('header button:not([data-debug])')].map((b) =>
+      b.textContent.trim(),
+    ),
     storyLines: document.querySelectorAll('.line').length,
     // Notices and in-progress hints are a computed status row, never story lines
     notice: document.querySelector('[data-status]')?.textContent?.trim() ?? null,
@@ -209,16 +212,49 @@ check(
   firstPaint.status === (await T('app.statusUnconfigured')),
   firstPaint.status,
 )
-check('all header buttons are present', firstPaint.buttons.length === 6, JSON.stringify(firstPaint.buttons))
+check(
+  'all header buttons are present (the dev debug switch does not count)',
+  firstPaint.buttons.length === 6,
+  JSON.stringify(firstPaint.buttons),
+)
 check(
   'an unconfigured first paint shows the welcome notice (not a story line)',
   firstPaint.storyLines === 0 && firstPaint.notice === (await T('app.welcome')),
   `${firstPaint.storyLines} lines, notice=${firstPaint.notice}`,
 )
 check(
-  'localhost turns debug mode on (badge shown)',
-  firstPaint.debugBadge === (await T('header.debug')),
+  'localhost turns debug mode on by default (switch reads "on")',
+  firstPaint.debugBadge === (await T('header.debugToggleOn')),
   String(firstPaint.debugBadge),
+)
+
+// The switch is what lets a developer see the normal (non-debug) UI: click it off,
+// check the label, the status row and the remembered choice, then click it back on.
+await evaluate(`document.querySelector('button[data-debug]')?.click()`)
+await sleep(300)
+const debugOff = await evaluate(`(() => ({
+  label: document.querySelector('[data-debug]')?.textContent?.trim() ?? null,
+  status: document.querySelector('[data-status]')?.textContent?.trim() ?? null,
+  stored: localStorage.getItem('tavernGame.debug'),
+}))()`)
+check(
+  'clicking the switch turns debug off',
+  debugOff.label === (await T('header.debugToggleOff')),
+  String(debugOff.label),
+)
+check(
+  'the off state is announced in the status row',
+  debugOff.status === (await T('app.debugOff')),
+  String(debugOff.status),
+)
+check('the explicit choice is remembered', debugOff.stored === 'off', String(debugOff.stored))
+
+await evaluate(`document.querySelector('button[data-debug]')?.click()`)
+await sleep(300)
+check(
+  'clicking again turns it back on',
+  (await evaluate(`document.querySelector('[data-debug]')?.textContent?.trim() ?? null`)) ===
+    (await T('header.debugToggleOn')),
 )
 
 // ---------- case 2: settings drawer ----------

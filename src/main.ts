@@ -10,7 +10,7 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import { i18n, readStoredLanguage, resolveLocale, type Locale } from './i18n'
-import { isDevHost, useGame } from './stores/game'
+import { isDevHost, readStoredDebug, resolveDebug, useGame } from './stores/game'
 import './styles/main.css'
 
 /**
@@ -25,9 +25,11 @@ const locale: Locale = resolveLocale(readStoredLanguage(), navigator.language)
 ;(i18n.global.locale as unknown as { value: Locale }).value = locale
 document.documentElement.lang = locale
 
-// 本机开发（localhost / 127.0.0.1）默认打开调试模式：故事区会多出
-// 模型的输入输出与工具调用。线上域名不会命中，玩家看不到这些。
-useGame().debugMode.value = isDevHost(location.hostname)
+// 调试模式：显式选过就照它（顶栏开关会记住），没选过则本机开发默认打开 ——
+// 线上域名两条都不命中，玩家看不到模型 I/O。入口是唯一知道 location 的地方。
+const game = useGame()
+game.devHost.value = isDevHost(location.hostname)
+game.debugMode.value = resolveDebug(readStoredDebug(), game.devHost.value)
 
 createApp(App).use(i18n).mount('#app')
 

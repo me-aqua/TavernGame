@@ -71,6 +71,45 @@ export function isDevHost(host: string): boolean {
   return host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
 }
 
+/** 调试开关的存储键：显式选过就记住，刷新后不再自己打开 */
+const DEBUG_KEY = 'tavernGame.debug'
+
+/**
+ * 读回显式的调试选择。
+ * @returns true / false = 玩家的显式选择；null = 没选过（由域名决定默认值）
+ */
+export function readStoredDebug(): boolean | null {
+  try {
+    const raw = localStorage.getItem(DEBUG_KEY)
+    if (raw === 'on') return true
+    if (raw === 'off') return false
+    return null
+  } catch {
+    // 隐私模式下读不到：当作没选过，默认值照旧按域名算
+    return null
+  }
+}
+
+/**
+ * 初始调试状态：**显式选择优先**，没选过才看域名（本机开发默认打开）。
+ *
+ * 这就是「本地默认开、但关掉之后刷新仍然关着」这条规则的唯一实现处 ——
+ * 入口只负责把 location 与存储读进来。
+ */
+export function resolveDebug(stored: boolean | null, devHost: boolean): boolean {
+  return stored ?? devHost
+}
+
+/** 记住显式的调试选择。写不进去只影响「刷新后还记不记得」，开关本身照常 */
+export function storeDebug(on: boolean): void {
+  try {
+    localStorage.setItem(DEBUG_KEY, on ? 'on' : 'off')
+  } catch (err) {
+    // 配额满 / 隐私模式：记不住就算了（这不是玩家数据）
+    console.warn('[store] debug flag save failed', err)
+  }
+}
+
 /** 存档读写器（模块级建一次） */
 const saveStore: GameStore = localStorageStore(localStorage)
 
@@ -87,10 +126,14 @@ const notice = ref<{ text: string; level: NoticeLevel } | null>(null)
 /**
  * 调试模式：把模型输入输出与工具调用也渲染出来。
  *
- * ⚠️ 默认值由入口（main.ts）按当前域名决定 —— 「本机开发默认打开」这条规则
- *    住在浏览器入口，store 只持有这个状态，于是纯逻辑测试不需要 location。
+ * ⚠️ 初始值由入口（main.ts）决定：显式选择优先，没选过就按域名
+ *    （本机开发默认打开）。这样「浏览器事实」留在入口，store 只持有状态，
+ *    纯逻辑测试不需要 location。
  */
 const debugMode = ref(false)
+
+/** 当前是不是本机开发地址 —— 只有它为真时，顶栏才给调试开关 */
+const devHost = ref(false)
 
 /** store 的唯一入口；模块级单例，所有界面共享同一份状态 */
 export function useGame() {
@@ -198,6 +241,7 @@ export function useGame() {
     status,
     busy,
     debugMode,
+    devHost,
     // 动作
     notify,
     runTurnAction,

@@ -16,7 +16,7 @@ import StoryPanel from './components/StoryPanel.vue'
 import GameComposer from './components/GameComposer.vue'
 import AppSidebar from './components/AppSidebar.vue'
 import SettingsDrawer from './components/SettingsDrawer.vue'
-import { useGame } from './stores/game'
+import { storeDebug, useGame } from './stores/game'
 import { useTheme } from './composables/useTheme'
 import { useLanguage } from './composables/useLanguage'
 import { useI18n } from 'vue-i18n'
@@ -34,6 +34,7 @@ const {
   status,
   busy,
   debugMode,
+  devHost,
   notify,
   runTurnAction,
   resetGame,
@@ -71,7 +72,18 @@ function refreshConfigStatus() {
   statusLight.value = configState.value ? 'ok' : 'warn'
 }
 
-// debugMode：本地开发默认打开，也可以在控制台执行 __DEBUG = true/false 切换
+/**
+ * 切换调试模式（顶栏那个开关）。
+ *
+ * 显式选择会被记住：关掉之后刷新页面不会再自己打开，
+ * 这样才能看到「非调试的正常界面」。
+ */
+function toggleDebug() {
+  debugMode.value = !debugMode.value
+  storeDebug(debugMode.value)
+}
+
+// debugMode：本机开发默认打开；顶栏开关或控制台 __DEBUG = true/false 都能改
 watch(debugMode, (on) => {
   notify(on ? t('app.debugOn') : t('app.debugOff'))
   window.__DEBUG = on
@@ -202,6 +214,8 @@ onMounted(() => {
       :theme="themeMode"
       :language="languageMode"
       :debug="debugMode"
+      :debug-toggle="devHost"
+      @toggle-debug="toggleDebug"
       @export="doExport"
       @import="doImport"
       @reset="resetAll"
