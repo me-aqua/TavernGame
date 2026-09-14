@@ -189,7 +189,14 @@ export function loadState(): { data: GameData | null; error: string | null } {
     // 存档存在但读不出来 = 数据受损。不静默开新局：
     // 把坏数据另存一份（玩家还有机会导出），把原因交给调用方去提示玩家。
     const broken = localStorage.getItem(SAVE_KEY)
-    if (broken) localStorage.setItem(`${SAVE_KEY}.broken-${Date.now()}`, broken)
+    if (broken) {
+      // 只保留最新一份备份：否则每次启动都新建一个键，会无限堆积把配额吃光
+      for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+        const k = localStorage.key(i)
+        if (k?.startsWith(`${SAVE_KEY}.broken-`)) localStorage.removeItem(k)
+      }
+      localStorage.setItem(`${SAVE_KEY}.broken-${Date.now()}`, broken)
+    }
     return { data: null, error: (err as Error).message }
   }
 }

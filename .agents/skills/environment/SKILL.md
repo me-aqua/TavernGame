@@ -56,6 +56,33 @@ http://localhost:3000/               ❌ 404
 结论：**TS 的版本上限由 vue-tsc 决定，不能只看它自己的 latest。**
 升级前先跑 `npm run verify` —— 不兼容会当场暴露。
 
+### 换行 / 编码：三平台同时开发
+
+**规则只有三条**（都由 `.gitattributes` 声明、`.githooks/pre-commit` 强制）：
+
+| 位置 | 要求 | 为什么 |
+| --- | --- | --- |
+| 仓库（索引） | 一律 **LF** | clone 到任何平台都一致 |
+| 工作区：普通文本 | **LF** | Windows 编辑器默认写 CRLF，所以要拦 |
+| 工作区：`.bat` / `.cmd` | **CRLF** | cmd.exe 用 LF 换行可能执行出错 |
+| 所有文本 | 无 **BOM**、UTF-8 | BOM 会让脚本多出三个字节；GBK 会导致乱码 |
+
+⚠️ **容易搞错的一点**（我实测踩过）：`eol=crlf` 只作用于**检出的工作区**，
+**索引里永远是 LF**。所以 `git show HEAD:start.bat` 看到 LF 是正常的，
+不要试图把 CRLF 提交进仓库。用 `git ls-files --eol` 看真相：
+
+```
+i/lf w/crlf attr/text eol=crlf   start.bat   ← 正常
+i/lf w/lf   attr/text eol=crlf   start.bat   ← 坏了（钩子会拦）
+```
+
+⚠️ **别用 `git diff` 判断"文件有没有变"**：`git add` 会按 `.gitattributes`
+做规范化，一个只改了换行符的文件归一化后与 HEAD 完全相同，
+于是**它不会出现在 `git diff --cached` 里** —— 钩子也就看不到它。
+
+Windows 开发者建议设 `git config --global core.autocrlf true`
+（Git for Windows 默认就是），交给 git 管转换。
+
 ### 路径大小写
 
 仓库在 macOS 上（默认大小写不敏感），但 GitHub Actions 在 Linux 上跑（**敏感**）。

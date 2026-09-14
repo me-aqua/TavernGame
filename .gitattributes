@@ -1,45 +1,73 @@
 # ============================================================
-#  .gitattributes —— 告诉 Git「怎么处理不同类型文件的细节」
+#  .gitattributes —— 跨平台换行 / 编码的**唯一真相**
 #
-#  最核心的作用：统一换行符。
-#  Windows 用 CRLF 换行，Linux/macOS 用 LF。如果不统一，
-#  多人协作时会看到「整个文件都被改了」的假象。
-#  这里的规则是：仓库里统一存 LF，检出到 Windows 时用 CRLF。
+#  本项目在 Linux / Windows / macOS 上同时开发，所以规则必须显式且完整。
+#
+#  约定：
+#    · 仓库里一律存 **LF**（包括 Markdown、源码、配置）
+#    · Windows 专用脚本（.bat / .cmd）例外：仓库里存 **CRLF**，
+#      因为 cmd.exe 解析 LF 换行在某些情况下会出错
+#    · 二进制文件不碰
+#    · 不带 BOM：UTF-8 BOM 会让 shell / Node / 批处理出怪问题
+#      （.bat 带 BOM 时，第一条命令前面会多出三个不可见字节）
+#
+#  ⚠️ 提交时由 .githooks/pre-commit 强制检查，不靠自觉。
 # ============================================================
 
-# 默认：自动处理文本文件的换行符
+# --- 默认：文本文件自动判定，二进制不动 ---
 * text=auto
 
-# 明确指定文本文件类型
-*.html   text
-*.css    text
-*.js     text
-*.json   text
-*.md     text
-*.yml    text
-*.yaml   text
-*.txt    text
+# --- 文本：仓库里固定存 LF ---
+# 显式写 eol=lf，这样无论开发者本机 core.autocrlf 设成什么，
+# 检出与提交都是 LF —— 避免同一个人换个设置就产生「整个文件都改了」的假 diff
+*.md        text eol=lf
+*.txt       text eol=lf
+*.html      text eol=lf
+*.css       text eol=lf
+*.ts        text eol=lf
+*.vue       text eol=lf
+*.js        text eol=lf
+*.mjs       text eol=lf
+*.json      text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.sh        text eol=lf
 
-# 二进制文件：不要碰，不要尝试转换
-*.png    binary
-*.jpg    binary
-*.jpeg   binary
-*.gif    binary
-*.webp   binary
-*.ico    binary
-*.mp3    binary
-*.ogg    binary
-*.wav    binary
-*.woff   binary
-*.woff2  binary
-*.ttf    binary
-*.zip    binary
-
-# ⚠️ Windows 批处理脚本必须始终保持 CRLF 换行。
+# --- Windows 脚本：仓库里固定存 CRLF ---
 # 如果被转成 LF，某些命令会执行出错。
-# 这条规则强制：仓库里存 CRLF，检出时也是 CRLF，谁 clone 都不会坏。
-*.bat    text eol=crlf
-*.cmd    text eol=crlf
+# eol=crlf 表示「检出时转成 CRLF」，但这不代表索引里存的就是 CRLF ——
+# 实测：git 索引里 .bat 需要是 CRLF 才不会在 Windows 上出问题，
+# 所以 pre-commit 会检查暂存内容，见 .githooks/pre-commit。
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
 
-# 在 GitHub 上把 Markdown 标记为文档，统计语言占比时不计入
-*.md     linguist-documentation
+# --- 二进制：禁止任何转换（否则 Git 会尝试当文本处理、损坏文件）---
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.webp      binary
+*.ico       binary
+*.bmp       binary
+*.tiff      binary
+*.mp3       binary
+*.ogg       binary
+*.wav       binary
+*.mp4       binary
+*.webm      binary
+*.woff      binary
+*.woff2     binary
+*.ttf       binary
+*.otf       binary
+*.eot       binary
+*.zip       binary
+*.gz        binary
+*.7z        binary
+*.pdf       binary
+*.exe       binary
+*.dll       binary
+*.so        binary
+*.dylib     binary
+
+# --- linguist：统计语言占比时的归类（不影响换行）---
+*.md        linguist-documentation
