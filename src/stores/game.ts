@@ -1,19 +1,23 @@
 /**
  * src/stores/game.ts —— 界面与游戏之间的唯一桥梁
  *
- * 这里承担了原来 index.html 里那一大坨 <script> 的职责：
  *   - 持有 GameState 实例与对话历史
  *   - 跑回合（含重入保护、中止）
  *   - 把 agent 循环抛出的事件转成界面用的消息流
  *   - doExport / doImport / 重开
  *
- * 为什么用 shallowRef 包 GameState：
- *   GameState 内部是普通对象 + getter（日历、时间标签都是 getter），
- *   用 deep reactive 包会把整棵存档做成响应式代理，既慢又容易在
- *   深层嵌套上报错。只做「浅层替换 + 手动 triggerRef」最省事也最可控。
+ * 响应式边界在这里，不在引擎里：
+ *   GameState 是普通类（src/core 不依赖 Vue，能在 Node 里直接测）。
+ *   引擎改 this.data 的**内部**字段（addLog / advanceTime）能被追踪，
+ *   是因为 store 把实例放进了 reactive 容器，由容器提供深响应式。
+ *
+ * 为什么用容器 object 而不是 shallowRef + triggerRef：
+ *   存档会被整份替换（读档 / 重来 / 导入），替换也要能被追踪。
+ *   容器里换属性会自然触发；shallowRef 则要靠每处调用点记得写 triggerRef，
+ *   漏一处就是「界面不更新」这种最难查的 bug。
  */
 
-import { computed, ref, shallowRef, triggerRef } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { GameState } from '../core/state'
 import { t } from '../i18n'
 import { loadState, createInitialState } from '../core/persistence'
@@ -31,6 +35,8 @@ export interface StoryLine {
 }
 
 let nextId = 0
+
+/** 造一行叙事流（id 单调递增，供 v-for 的 key 用） */
 function makeLine(kind: StoryLine['kind'], text: string, extra: Partial<StoryLine> = {}): StoryLine {
   return { id: ++nextId, kind, text, ...extra }
 }
@@ -50,34 +56,43 @@ function loadAtStartup(): { state: GameState; error: string | null } {
 }
 
 const startupResult = loadAtStartup()
-const state = shallowRef(startupResult.state)
+/**
+ * 当前存档。深响应式由这个容器提供：引擎只管改数据，追踪交给 Vue。
+ *
+ * ⚠️ 不要退化成 shallowRef + triggerRef：那样每个改动点都得记得触发，
+ *    而「忘了触发」的表现是界面不更新 —— 没有任何测试会因此变红。
+ */
+const store = reactive({ game: startupResult.state })
 const messages = ref<StoryLine[]>([])
 const history = ref<ChatMessage[]>([])
 const running = ref(false)
 const debugMode = ref(false)
 let controller: AbortController | null = null
 
+/** store 的唯一入口；模块级单例，所有界面共享同一份状态 */
 export function useGame() {
   // ---------- 只读派生 ----------
-  const timeLabel = computed(() => (state.value, state.value.timeLabel))
-  const timeline = computed(() => (state.value, state.value.data.timeline.slice(-4)))
+  const timeLabel = computed(() => store.game.timeLabel)
+  const timeline = computed(() => store.game.data.timeline.slice(-4))
   // ⚠️ state.scene（getter）而不是 state.data.scene：默认场景名/描述来自 locale，
   //    空值时由 getter 现取，所以切换语言时侧栏会跟着变。
-  const scene = computed(() => (state.value, state.value.scene))
-  const turn = computed(() => (state.value, state.value.turn))
+  const scene = computed(() => store.game.scene)
+  const turn = computed(() => store.game.turn)
 
   // ---------- messages ----------
+  /** 往叙事流末尾追加一行 */
   function append(kind: StoryLine['kind'], text: string, extra: Partial<StoryLine> = {}) {
     messages.value.push(makeLine(kind, text, extra))
   }
 
+  /** 清空叙事流（重来 / 导入后调用） */
   function clearMessages() {
     messages.value = []
   }
 
   /** 刷新页面后从日志恢复叙事与行动（system 类不恢复，避免重复提示） */
   function restoreLog(limit = 20) {
-    for (const entry of state.value.data.log.slice(-limit)) {
+    for (const entry of store.game.data.log.slice(-limit)) {
       if (entry.kind !== 'narration' && entry.kind !== 'action') continue
       append(entry.kind, entry.text)
     }
@@ -97,6 +112,7 @@ export function useGame() {
     controller = null
   }
 
+  /** 把 agent 循环抛出的事件翻译成叙事流里的一行 */
   function handleEvent(evt: AgentEvent) {
     switch (evt.type) {
       case 'narration':
@@ -125,6 +141,10 @@ export function useGame() {
     }
   }
 
+  /**
+   * 跑一个回合：把玩家输入交给引擎，事件实时转成界面消息。
+   * @param action 玩家输入；不传表示开新游戏（开场）
+   */
   async function runTurnAction(action?: string): Promise<void> {
     if (running.value) return
     running.value = true
@@ -132,7 +152,7 @@ export function useGame() {
 
     controller = new AbortController()
     try {
-      const result = await runTurn(state.value, {
+      const result = await runTurn(store.game, {
         action,
         history: history.value,
         signal: controller.signal,
@@ -151,31 +171,36 @@ export function useGame() {
     } finally {
       controller = null
       running.value = false
-      // ⚠️ 必须手动触发：GameState 是普通对象，改动不会自动被 Vue 感知
-      triggerRef(state)
     }
   }
 
   // ---------- 换 state 的三个入口 ----------
 
+  /**
+   * 重来：清空存档与对话，并立刻落盘。
+   *
+   * ⚠️ store.game = store.game 看着多余，其实是「整体替换」的统一写法：
+   * 换掉整份 state 时依赖方必须重算，ref 的 setter 负责通知。
+   * 新实例的写法（store.game = new GameState(...)）走的是同一条路。
+   */
   function resetGame() {
     abortRunningTurn()
-    state.value.reset()
+    store.game.reset()
     history.value = []
-    triggerRef(state)
     clearMessages()
   }
 
+  /** 从文件导入存档：换掉整份 state，并让依赖方重算 */
   function importSave(json: string) {
     abortRunningTurn()
-    state.value.import(json)
+    store.game.import(json)
     history.value = []
-    triggerRef(state)
     clearMessages()
   }
 
+  /** 把当前存档序列化成 JSON 文本（导出文件用） */
   function exportSave(): string {
-    return state.value.export()
+    return store.game.export()
   }
 
   return {
