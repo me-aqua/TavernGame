@@ -1,5 +1,5 @@
 /**
- * src/core/agent.ts —— agent 循环（项目的灵魂）
+ * src/agent/agent.ts —— agent 循环（项目的灵魂）
  *
  * 一次「回合」的完整流程：
  *
@@ -30,7 +30,7 @@ import {
 } from './prompts'
 import { loadConfig } from './config'
 import type { ChatMessage } from '../types/state'
-import type { GameState } from './state'
+import type { GameState } from '../game/GameState'
 import type { ChatReply, ToolCallRequest, ToolSchema } from './llm'
 
 /** agent 循环里抛给界面的事件（界面据此实时渲染） */

@@ -5,8 +5,8 @@
  * 这些断言全部对应 v0.5.4 那次独立审查修掉的缺陷，是防回归用的。
  */
 import { describe, expect, it, vi } from 'vitest'
-import { GameState } from '../src/core/state'
-import { createInitialState, normalize } from '../src/core/persistence'
+import { GameState } from '../src/game/GameState'
+import { createInitialState, normalize } from '../src/game/json'
 import { SAVE_KEY } from '../src/utils/storage'
 import { i18n, t } from '../src/i18n'
 

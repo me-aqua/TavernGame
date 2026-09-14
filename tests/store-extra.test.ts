@@ -10,8 +10,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effect, reactive } from 'vue'
 import { useGame } from '../src/stores/game'
-import { saveConfig } from '../src/core/config'
-import { GameState } from '../src/core/state'
+import { saveConfig } from '../src/agent/config'
+import { GameState } from '../src/game/GameState'
 import { t } from '../src/i18n'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 

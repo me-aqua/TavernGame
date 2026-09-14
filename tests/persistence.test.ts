@@ -4,7 +4,7 @@
  * localStorage 的读写与坏档备份在 tests/storage.test.ts。
  */
 import { describe, expect, it } from 'vitest'
-import { createInitialState, normalize, parseSave } from '../src/core/persistence'
+import { createInitialState, normalize, parseSave } from '../src/game/json'
 import { t } from '../src/i18n'
 
 // Fixtures: a player name and the garbage values the system boundary has to reject.

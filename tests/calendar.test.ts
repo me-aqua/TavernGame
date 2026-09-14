@@ -2,7 +2,7 @@
  * 历法测试 —— 重点盯「手写日期运算一定会算错」的那些边界。
  */
 import { describe, expect, it } from 'vitest'
-import { realCalendar, hourToSegment, nowIso, segmentName } from '../src/core/calendar'
+import { realCalendar, hourToSegment, nowIso, segmentName } from '../src/utils/calendar'
 import { t } from '../src/i18n'
 
 describe('Hour to segment mapping', () => {

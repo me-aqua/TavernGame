@@ -2,8 +2,8 @@
  * llm.ts 补充测试 —— 覆盖 testConnection 与回复解析的容错分支。
  */
 import { afterEach, describe, expect, it } from 'vitest'
-import { chat, testConnection } from '../src/core/llm'
-import { saveConfig, clearConfig } from '../src/core/config'
+import { chat, testConnection } from '../src/agent/llm'
+import { saveConfig, clearConfig } from '../src/agent/config'
 import { i18n, t } from '../src/i18n'
 import { installFakeLlm } from './support/fakeLlm'
 import type { ChatMessage } from '../src/types/state'

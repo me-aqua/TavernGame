@@ -7,12 +7,12 @@
  * file stays ASCII-only; fixtures are ASCII constants.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GameState } from '../src/core/state'
-import { createInitialState } from '../src/core/persistence'
-import { runTurn, type AgentEvent } from '../src/core/agent'
-import { saveConfig } from '../src/core/config'
+import { GameState } from '../src/game/GameState'
+import { createInitialState } from '../src/game/json'
+import { runTurn, type AgentEvent } from '../src/agent/agent'
+import { saveConfig } from '../src/agent/config'
 import { t } from '../src/i18n'
-import { FORCED_NARRATION_INSTRUCTION, TOOL_CALLS_WITHOUT_NARRATION } from '../src/core/prompts'
+import { FORCED_NARRATION_INSTRUCTION, TOOL_CALLS_WITHOUT_NARRATION } from '../src/agent/prompts'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 
 /** ASCII fixtures */

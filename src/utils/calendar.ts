@@ -1,5 +1,13 @@
 /**
- * src/core/calendar.ts —— 历法
+ * src/utils/calendar.ts —— 历法
+ *
+ * ## 参数把关（原来单独一个文件，现已折进来）
+ *
+ * 模型给的是**外部输入**，检查只有三类，别再加：
+ *   1. 单位必须是协议枚举里的 6 个规范值之一（见 agent/tools.ts 的 toolSchemas()）
+ *   2. step 必须 >= 1（时间是单向的）
+ *   3. 防呆：一次推 1000 年以上视为手滑
+ * **跨度本身没有上限** —— 那是玩法，不是错误。
  *
  * ## 当前只有一种：现实日历
  *
@@ -178,4 +186,60 @@ export const realCalendar: Calendar = {
  */
 export function nowIso(): string {
   return new Date().toISOString()
+}
+
+const TIME_UNITS = ['segment', 'hour', 'day', 'week', 'month', 'year'] as const
+
+/** 一次推进的防呆上限：超过这个量级视为手滑，不是玩法 */
+const MAX_YEARS = 1000
+const YEARS_PER_UNIT: Record<TimeUnit, number> = {
+  segment: 4 / 8760,
+  hour: 1 / 8760,
+  day: 1 / 365,
+  week: 7 / 365,
+  month: 1 / 12,
+  year: 1,
+}
+
+type AdvanceOutcome = { ok: true; iso: string; elapsedMs: number } | { ok: false; message: string }
+
+/** 单位是否是协议枚举里的规范值 */
+function isTimeUnit(value: unknown): value is TimeUnit {
+  return typeof value === 'string' && (TIME_UNITS as readonly string[]).includes(value)
+}
+
+/** 校验并推进一个 ISO 时刻；失败返回结构化错误（交给模型改参数重试） */
+export function advanceTime(iso: string, step: unknown, unit: unknown, currentLabel: string): AdvanceOutcome {
+  // 未提供按默认单位处理；提供了就必须是规范值，不做任何容错猜测
+  const resolved: unknown = unit == null ? 'segment' : unit
+  if (!isTimeUnit(resolved)) {
+    return {
+      ok: false,
+      message:
+        'Unknown time unit: ' +
+        `${JSON.stringify(unit)}` +
+        '. Expected one of: ' +
+        TIME_UNITS.join(', ') +
+        '. Current time: ' +
+        currentLabel,
+    }
+  }
+
+  const raw = Number(step)
+  const n = Number.isFinite(raw) ? Math.round(raw) : 1
+
+  if (n <= 0) {
+    const why = n < 0 ? 'time cannot move backwards' : 'time cannot stand still'
+    return { ok: false, message: `Invalid step: ${why}. Current time: ${currentLabel}` }
+  }
+
+  if (n * YEARS_PER_UNIT[resolved] > MAX_YEARS) {
+    return {
+      ok: false,
+      message: `Step too large: ${n} ${resolved} exceeds the ${MAX_YEARS}-year guard. Ignored. Current time: ${currentLabel}`,
+    }
+  }
+
+  const { iso: next, elapsedMs } = realCalendar.advance(iso, n, resolved)
+  return { ok: true, iso: next, elapsedMs }
 }

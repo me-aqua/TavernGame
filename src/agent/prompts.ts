@@ -1,5 +1,5 @@
 /**
- * src/core/prompts.ts —— 提示词装配器
+ * src/agent/prompts.ts —— 提示词装配器
  *
  * ⚠️ **这里不放任何提示词内容。** 内容全部在 `prompts/*.md`。
  * 这个文件的职责只有两件：
@@ -57,8 +57,8 @@ export const CONNECTION_TEST_PROMPT = decodePrompt(connectionTestB64)
 /** 模型只调工具、不写叙事时的催稿指令（prompts/tool-calls-without-narration.md） */
 export const TOOL_CALLS_WITHOUT_NARRATION = decodePrompt(toolCallsWithoutNarrationB64)
 
-import { SEGMENTS } from './calendar'
-import type { GameState } from './state'
+import { SEGMENTS } from '../utils/calendar'
+import type { GameState } from '../game/GameState'
 import type { ChatMessage } from '../types/state'
 
 /**

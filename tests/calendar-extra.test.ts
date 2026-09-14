@@ -5,7 +5,7 @@
  * silence these checks and this file stays ASCII-only.
  */
 import { describe, expect, it } from 'vitest'
-import { realCalendar, hourToSegment } from '../src/core/calendar'
+import { realCalendar, hourToSegment } from '../src/utils/calendar'
 import { t } from '../src/i18n'
 
 describe('advance -- units not covered elsewhere', () => {

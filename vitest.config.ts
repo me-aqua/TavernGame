@@ -23,7 +23,8 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
-      include: ['src/core/**/*.ts', 'src/stores/**/*.ts'],
+      // ⚠️ 改了 src 目录结构就必须同步这里：漏改 = 搬出去的代码静默脱离门禁
+      include: ['src/game/**/*.ts', 'src/agent/**/*.ts', 'src/utils/**/*.ts', 'src/stores/**/*.ts'],
       exclude: ['src/types/**'],
       // Coverage gate: fail below these numbers.
       // Calibrated from measured values (99.57 / 93.46 / 100 / 99.53 after the

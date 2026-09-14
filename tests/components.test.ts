@@ -13,7 +13,7 @@ import AppHeader from '../src/components/AppHeader.vue'
 import SettingsDrawer from '../src/components/SettingsDrawer.vue'
 import type { StoryLine } from '../src/stores/game'
 import { i18n, t } from '../src/i18n'
-import { realCalendar } from '../src/core/calendar'
+import { realCalendar } from '../src/utils/calendar'
 
 /** 组件要 t()，所以统一装上 i18n 插件；断言按中文写，固定用 zh-CN */
 i18n.global.locale.value = 'zh-CN'

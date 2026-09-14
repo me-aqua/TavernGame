@@ -9,9 +9,9 @@
  * 属于为本项目纪律所不允许的「不可能发生的场景」写的防御代码（报给上游判断）。
  */
 import { describe, expect, it } from 'vitest'
-import { runTool } from '../src/core/tools'
-import { GameState } from '../src/core/state'
-import { createInitialState } from '../src/core/persistence'
+import { runTool } from '../src/agent/tools'
+import { GameState } from '../src/game/GameState'
+import { createInitialState } from '../src/game/json'
 import { t } from '../src/i18n'
 
 /** 非法时刻 fixture（存档被手改成这种值时走的就是这条路径） */

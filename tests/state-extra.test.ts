@@ -11,8 +11,8 @@
  * silence these checks and this file stays ASCII-only.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { GameState } from '../src/core/state'
-import { createInitialState } from '../src/core/persistence'
+import { GameState } from '../src/game/GameState'
+import { createInitialState } from '../src/game/json'
 import { SAVE_KEY } from '../src/utils/storage'
 import { t } from '../src/i18n'
 

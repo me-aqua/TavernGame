@@ -11,10 +11,10 @@
  * is wired; fixtures are ASCII constants so this file stays ASCII-only.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GameState } from '../src/core/state'
-import { createInitialState } from '../src/core/persistence'
-import { runTurn, type AgentEvent } from '../src/core/agent'
-import { saveConfig } from '../src/core/config'
+import { GameState } from '../src/game/GameState'
+import { createInitialState } from '../src/game/json'
+import { runTurn, type AgentEvent } from '../src/agent/agent'
+import { saveConfig } from '../src/agent/config'
 import { i18n, t } from '../src/i18n'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 

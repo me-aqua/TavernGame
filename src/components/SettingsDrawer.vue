@@ -7,9 +7,9 @@
  */
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { PRESETS, loadConfig, saveConfig, clearConfig, maskKey } from '../core/config'
+import { PRESETS, loadConfig, saveConfig, clearConfig, maskKey } from '../agent/config'
 import type { LanguageMode } from '../i18n'
-import { testConnection as testApiConnection } from '../core/llm'
+import { testConnection as testApiConnection } from '../agent/llm'
 
 const { t } = useI18n()
 

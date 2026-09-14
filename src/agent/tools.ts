@@ -1,5 +1,5 @@
 /**
- * src/core/tools.ts —— 工具定义与执行
+ * src/agent/tools.ts —— 工具定义与执行
  *
  * 设计原则（重要）：
  *   工具越少，模型越能把注意力放在「写故事」上。
@@ -16,7 +16,7 @@
  */
 
 import { t } from '../i18n'
-import type { GameState } from './state'
+import type { GameState } from '../game/GameState'
 import type { ToolSchema } from './llm'
 
 interface ToolDef {

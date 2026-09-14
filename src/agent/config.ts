@@ -1,5 +1,5 @@
 /**
- * src/core/config.ts —— 配置管理
+ * src/agent/config.ts —— 配置管理
  *
  * 纯前端方案下，API key 存在**浏览器本地**（localStorage），不经过任何服务器。
  *
@@ -10,7 +10,7 @@
  *      所以别在公用电脑上填。
  */
 
-import { isRecord } from './persistence'
+import { isRecord } from '../game/json'
 import { t } from '../i18n'
 
 const STORAGE_KEY = 'tavernGame.config'

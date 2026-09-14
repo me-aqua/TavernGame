@@ -1,5 +1,5 @@
 /**
- * src/core/state.ts —— GameState：这一局游戏本身
+ * src/game/GameState.ts —— GameState：这一局游戏本身
  *
  * 它是**唯一的核心实体**，一个类管三样：
  *   1. data —— 持久化的世界状态（玩家 / 场景 / 时间 / 日志 / 时间线）
@@ -16,9 +16,8 @@
  * 它只描述「校验通过之后」的形状。
  */
 
-import { realCalendar, segmentName } from './calendar'
-import { advanceTime } from './time'
-import { parseSave, createInitialState, normalize, MAX_LOG, MAX_TIMELINE } from './persistence'
+import { realCalendar, segmentName, advanceTime } from '../utils/calendar'
+import { parseSave, createInitialState, normalize, MAX_LOG, MAX_TIMELINE } from '../game/json'
 import { localStorageStore, backupBrokenSave, type GameStore, type StorageLike } from '../utils/storage'
 import { t } from '../i18n'
 import type { ChatMessage, GameData, LogEntry } from '../types/state'

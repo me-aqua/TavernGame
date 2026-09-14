@@ -15,7 +15,7 @@ import { useGame } from './stores/game'
 import { useTheme } from './composables/useTheme'
 import { useLanguage } from './composables/useLanguage'
 import { useI18n } from 'vue-i18n'
-import { loadConfig, isConfigured, PRESETS } from './core/config'
+import { loadConfig, isConfigured, PRESETS } from './agent/config'
 import { downloadText, pickFile } from './composables/useDownload'
 
 const {

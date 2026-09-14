@@ -13,7 +13,7 @@
  */
 
 import { computed, reactive, ref } from 'vue'
-import { GameState, type StoryLine } from '../core/state'
+import { GameState, type StoryLine } from '../game/GameState'
 import { createTurnRunner } from './turn'
 import type { ChatMessage } from '../types/state'
 

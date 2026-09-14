@@ -10,8 +10,8 @@
  */
 
 import { t } from '../i18n'
-import { runTurn, type AgentEvent } from '../core/agent'
-import type { GameState } from '../core/state'
+import { runTurn, type AgentEvent } from '../agent/agent'
+import type { GameState } from '../game/GameState'
 import type { ChatMessage } from '../types/state'
 import type { Ref } from 'vue'
 import type { StoryLine } from './game'

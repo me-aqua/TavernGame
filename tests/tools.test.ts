@@ -12,10 +12,10 @@
  * cannot make a test pass or fail for the wrong reason.
  */
 import { beforeAll, describe, expect, it } from 'vitest'
-import { runTool, TOOLS, toolSchemas } from '../src/core/tools'
+import { runTool, TOOLS, toolSchemas } from '../src/agent/tools'
 import { i18n, t } from '../src/i18n'
-import { GameState } from '../src/core/state'
-import { createInitialState } from '../src/core/persistence'
+import { GameState } from '../src/game/GameState'
+import { createInitialState } from '../src/game/json'
 
 beforeAll(() => {
   i18n.global.locale.value = 'zh-CN'
@@ -130,9 +130,8 @@ describe('runTool', () => {
       const state = fresh()
       const before = state.iso
       const out = runTool(state, 'advance_time', `{"step":1,"unit":"${bad}"}`)
-      // NOTE (reported upstream): src/core/time.ts builds this message itself in
-      // English -- it does NOT go through t('calendar.unknownUnit'), so that locale
-      // key is currently unused. Assert the actual contract (rejected + listed units).
+      // 这条错误文案由 utils/calendar.ts 的 advanceTime 直接拼英文（不走 locale 表：
+      // 它是给模型看的结构化提示）。这里断言实际契约：拒绝 + 列出可用单位。
       expect(out, `unit "${bad}" must be rejected`).toContain('Unknown time unit')
       expect(out, `unit "${bad}" must be rejected`).toContain(bad)
       expect(out, `unit "${bad}" must be rejected`).toContain('segment')

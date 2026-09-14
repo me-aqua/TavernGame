@@ -7,8 +7,8 @@
  *   3. 错误信息对排查有用（状态码 + 服务商返回的正文）
  */
 import { afterEach, describe, expect, it } from 'vitest'
-import { chat } from '../src/core/llm'
-import { saveConfig, clearConfig } from '../src/core/config'
+import { chat } from '../src/agent/llm'
+import { saveConfig, clearConfig } from '../src/agent/config'
 import { i18n, t } from '../src/i18n'
 import { installFakeLlm, installFakeLlmError } from './support/fakeLlm'
 import type { ChatMessage } from '../src/types/state'

@@ -6,10 +6,10 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useGame } from '../src/stores/game'
-import { GameState } from '../src/core/state'
+import { GameState } from '../src/game/GameState'
 import { SAVE_KEY } from '../src/utils/storage'
-import { saveConfig } from '../src/core/config'
-import { hourToSegment, SEGMENTS } from '../src/core/calendar'
+import { saveConfig } from '../src/agent/config'
+import { hourToSegment, SEGMENTS } from '../src/utils/calendar'
 import { t } from '../src/i18n'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 

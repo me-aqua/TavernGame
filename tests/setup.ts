@@ -1,7 +1,7 @@
 /**
  * Test environment shims.
  *
- * core/state.ts uses localStorage, which Node does not have — a minimal
+ * game/GameState.ts uses localStorage, which Node does not have — a minimal
  * in-memory implementation stands in. Cleared before every test so cases
  * cannot leak state into each other.
  */

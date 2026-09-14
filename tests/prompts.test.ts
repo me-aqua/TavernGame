@@ -17,9 +17,9 @@ import {
   FORCED_NARRATION_INSTRUCTION,
   TOOL_CALLS_WITHOUT_NARRATION,
   CONNECTION_TEST_PROMPT,
-} from '../src/core/prompts'
-import { GameState } from '../src/core/state'
-import { createInitialState } from '../src/core/persistence'
+} from '../src/agent/prompts'
+import { GameState } from '../src/game/GameState'
+import { createInitialState } from '../src/game/json'
 import { t } from '../src/i18n'
 
 // 测试直接读源文件：断言的是**内容本身**（中文版，与 src/core/prompts.ts 当前取的语言一致）

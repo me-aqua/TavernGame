@@ -5,7 +5,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { localStorageStore, backupBrokenSave, SAVE_KEY } from '../src/utils/storage'
-import { createInitialState } from '../src/core/persistence'
+import { createInitialState } from '../src/game/json'
 import { t } from '../src/i18n'
 
 /** 存档写入失败时用的假实现（隐私模式 / 配额满） */

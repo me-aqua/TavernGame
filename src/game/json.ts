@@ -1,5 +1,5 @@
 /**
- * src/core/persistence.ts —— 存档的进出与校验
+ * src/game/json.ts —— 存档的进出与校验
  *
  * 这个模块处理的都是**外部数据**（用户能手改、能从文件导入），
  * 按纪律只有系统边界才做校验，所以校验集中在这里；
@@ -11,7 +11,7 @@
  * 这里的函数都是纯函数；localStorage 的读写与坏档备份在 utils/storage.ts。
  */
 
-import { nowIso } from './calendar'
+import { nowIso } from '../utils/calendar'
 import { t } from '../i18n'
 import type { GameData, LogEntry, TimelineEntry } from '../types/state'
 
