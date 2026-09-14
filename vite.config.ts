@@ -2,6 +2,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
+import { promptsPlugin } from './vite-plugins/prompts.ts'
 
 /**
  * ⚠️ base 必须是 '/TavernGame/'。
@@ -13,7 +14,8 @@ import vue from '@vitejs/plugin-vue'
  */
 export default defineConfig({
   base: '/TavernGame/',
-  plugins: [vue(), tailwindcss()],
+  // promptsPlugin：把 prompts/*.md 转成 base64 虚拟模块（构建期转换，无中间文件）
+  plugins: [vue(), tailwindcss(), promptsPlugin()],
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },

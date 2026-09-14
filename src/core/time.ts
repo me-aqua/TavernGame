@@ -1,43 +1,24 @@
 /**
  * src/core/time.ts —— 时间推进的参数把关
  *
- * 模型输出的是**外部输入**，所以单位识别与防呆在这里做。
- * 检查只有两类，别再加：
- *   1. 拦模型的错误输入（认不出的单位、倒退、原地不动）
- *   2. 拦手滑（一次推十万年）
+ * 模型输出的是**外部输入**，所以检查在这里做。只有三类，别再加：
+ *   1. 单位必须是协议枚举里的 6 个规范值之一（见 tools.ts 的 TOOL_SCHEMAS）
+ *   2. step 必须 >= 1（时间是单向的）
+ *   3. 防呆：一次推 1000 年以上视为手滑
  * **跨度本身没有上限** —— 那是玩法，不是错误。
+ *
+ * ⚠️ 这里**没有**「复数 / 中文 / 大小写」的容错别名表。
+ *    那是文本协议时代的残留：当时模型在正文里写 JSON，格式飘了就得兜。
+ *    现在工具参数由 OpenAI 原生 tool calling 的 schema 约束
+ *    （unit 是 enum），协议层已经挡住非法值；
+ *    真出现非法值时返回结构化错误，让模型自己改参数重试。
  */
 
 import { realCalendar, type TimeUnit } from './calendar'
 
-/** 单位别名：模型很爱写复数、中文、大小写混用 */
-const UNIT_ALIASES: Record<string, TimeUnit> = {
-  segment: 'segment',
-  segments: 'segment',
-  时段: 'segment',
-  hour: 'hour',
-  hours: 'hour',
-  hr: 'hour',
-  hrs: 'hour',
-  小时: 'hour',
-  day: 'day',
-  days: 'day',
-  天: 'day',
-  week: 'week',
-  weeks: 'week',
-  周: 'week',
-  星期: 'week',
-  month: 'month',
-  months: 'month',
-  月: 'month',
-  个月: 'month',
-  year: 'year',
-  years: 'year',
-  yr: 'year',
-  yrs: 'year',
-  年: 'year',
-}
+const TIME_UNITS = ['segment', 'hour', 'day', 'week', 'month', 'year'] as const
 
+/** 一次推进的防呆上限：超过这个量级视为手滑，不是玩法 */
 const MAX_YEARS = 1000
 const YEARS_PER_UNIT: Record<TimeUnit, number> = {
   segment: 4 / 8760,
@@ -50,19 +31,30 @@ const YEARS_PER_UNIT: Record<TimeUnit, number> = {
 
 export type AdvanceOutcome = { ok: true; iso: string; elapsedMs: number } | { ok: false; message: string }
 
+/** 单位是否是协议枚举里的规范值 */
+function isTimeUnit(value: unknown): value is TimeUnit {
+  return typeof value === 'string' && (TIME_UNITS as readonly string[]).includes(value)
+}
+
 /**
  * 推进时间。
  * @param step 数量（外部输入）
- * @param unit 单位（外部输入）
+ * @param unit 单位（外部输入）；不传按 segment 处理
  * @param currentLabel 当前时间标签，只用于错误文案
  */
 export function advanceTime(iso: string, step: unknown, unit: unknown, currentLabel: string): AdvanceOutcome {
-  const key = unit == null ? 'segment' : String(unit).trim().toLowerCase()
-  const u = UNIT_ALIASES[key]
-  if (!u) {
+  // 未提供按默认单位处理；提供了就必须是规范值，不做任何容错猜测
+  const resolved: unknown = unit == null ? 'segment' : unit
+  if (!isTimeUnit(resolved)) {
     return {
       ok: false,
-      message: `⚠ 不认识的时间单位「${String(unit)}」。可用：segment（时段，约 4 小时）/ hour / day / week / month / year。（当前：${currentLabel}）`,
+      message:
+        'Unknown time unit: ' +
+        `${JSON.stringify(unit)}` +
+        '. Expected one of: ' +
+        TIME_UNITS.join(', ') +
+        '. Current time: ' +
+        currentLabel,
     }
   }
 
@@ -70,14 +62,17 @@ export function advanceTime(iso: string, step: unknown, unit: unknown, currentLa
   const n = Number.isFinite(raw) ? Math.round(raw) : 1
 
   if (n <= 0) {
-    const why = n < 0 ? '不能倒退' : '不能原地不动'
-    return { ok: false, message: `⚠ 时间是单向的，${why}。（当前：${currentLabel}）` }
+    const why = n < 0 ? 'time cannot move backwards' : 'time cannot stand still'
+    return { ok: false, message: `Invalid step: ${why}. Current time: ${currentLabel}` }
   }
 
-  if (n * YEARS_PER_UNIT[u] > MAX_YEARS) {
-    return { ok: false, message: `⚠ 一次推进跨度太大（${n} ${u}），已忽略。当前：${currentLabel}` }
+  if (n * YEARS_PER_UNIT[resolved] > MAX_YEARS) {
+    return {
+      ok: false,
+      message: `Step too large: ${n} ${resolved} exceeds the ${MAX_YEARS}-year guard. Ignored. Current time: ${currentLabel}`,
+    }
   }
 
-  const { iso: next, elapsedMs } = realCalendar.advance(iso, n, u)
+  const { iso: next, elapsedMs } = realCalendar.advance(iso, n, resolved)
   return { ok: true, iso: next, elapsedMs }
 }

@@ -10,7 +10,10 @@
  * 每一种行的样式都在下面 lineStyles 表里 —— 加一种 kind 只需加一行映射。
  */
 import { nextTick, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { StoryLine } from '../stores/game'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   lines: StoryLine[]
@@ -63,7 +66,7 @@ watch(
       <span class="size-1.5 animate-pulse rounded-full bg-accent" />
       <span class="size-1.5 animate-pulse rounded-full bg-accent [animation-delay:0.2s]" />
       <span class="size-1.5 animate-pulse rounded-full bg-accent [animation-delay:0.4s]" />
-      <span class="ml-1">思考中…</span>
+      <span class="ml-1">{{ t('story.thinking') }}</span>
     </p>
   </div>
 </template>

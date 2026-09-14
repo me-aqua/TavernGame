@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 /**
  * 输入区：玩家输入行动。
  * 输入框随字数长高 —— 用 scrollHeight 算，再夹一个 max-height。
@@ -6,6 +7,8 @@
  * 提示文字用模板条件渲染，**不用 v-html** —— 这样连转义都不需要。
  */
 import { nextTick, ref, watch } from 'vue'
+
+const { t } = useI18n()
 
 defineProps<{
   /** 正在跑回合时禁用 */
@@ -44,7 +47,7 @@ function submit() {
         ref="textareaRef"
         v-model="draft"
         rows="1"
-        placeholder="你想做什么？"
+        :placeholder="t('composer.placeholder')"
         :disabled="disabled"
         class="max-h-40 min-h-[42px] flex-1 resize-none rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-[14px] leading-relaxed text-text outline-none transition-colors placeholder:text-faint focus:border-accent-line disabled:opacity-50"
         @keydown.enter.exact.prevent="submit"
@@ -54,14 +57,15 @@ function submit() {
         :disabled="disabled"
         @click="submit"
       >
-        行动
+        {{ t('composer.submit') }}
       </button>
     </div>
     <p class="mt-2 text-[11px] text-faint">
       <template v-if="!configured">
-        还没配置 API key —— 点右上角 <b class="text-text">⚙ 设置</b> 填一下就能开始
+        {{ t('composer.hintBefore') }} <b class="text-text">⚙ {{ t('settings.title') }}</b>
+        {{ t('composer.hintAfter') }}
       </template>
-      <template v-else>Enter 发送 · Shift+Enter 换行</template>
+      <template v-else>{{ t('composer.hintKeys') }}</template>
     </p>
   </div>
 </template>

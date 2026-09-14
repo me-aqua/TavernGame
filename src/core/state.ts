@@ -21,9 +21,10 @@
  * 类型标注在这里**不能当验证手段**，它只描述「校验通过之后」的形状。
  */
 
-import { getCalendar, SEGMENTS, type Calendar } from './calendar'
+import { getCalendar, segmentName, type Calendar } from './calendar'
 import { advanceTime } from './time'
 import { writeSave, parseSave, createInitialState } from './persistence'
+import { t } from '../i18n'
 import type { ChatMessage, GameData, LogEntry } from '../types/state'
 
 /** 最后一次「大跨度跳跃」的显示阈值：超过半年就不显示「过去了多久」 */
@@ -109,8 +110,7 @@ export class GameState {
 
   /** 当前时段名（上午/下午/晚上），部分历法也有这个概念 */
   get segmentName(): string {
-    const h = new Date(this.data.time.iso).getHours()
-    return SEGMENTS[h < 12 ? 0 : h < 18 ? 1 : 2]
+    return segmentName(new Date(this.data.time.iso).getHours())
   }
 
   // ---------- 工具：时间推进 ----------
@@ -183,9 +183,9 @@ export class GameState {
    */
   snapshot(history: ChatMessage[] = []): string {
     const lines = [
-      `【第 ${this.turn} 回合】`,
-      `时间：${this.timeLabel}`,
-      `地点：${this.data.scene.name}`,
+      t('snapshot.turn', { turn: this.turn }),
+      t('snapshot.time', { time: this.timeLabel }),
+      t('snapshot.place', { name: this.data.scene.name }),
       `　　${this.data.scene.description}`,
     ]
 
@@ -197,9 +197,9 @@ export class GameState {
 
     const recent = history.filter((h) => h && typeof h.content === 'string').slice(-4)
     if (recent.length) {
-      lines.push('', '### 最近发生的事')
+      lines.push('', t('snapshot.recent'))
       for (const h of recent) {
-        const who = h.role === 'user' ? '玩家' : '你(GM)'
+        const who = h.role === 'user' ? t('snapshot.player') : t('snapshot.gm')
         lines.push(`- ${who}：${h.content.replace(/\s+/g, ' ').slice(0, 160)}`)
       }
     } else if (logs.length) {
@@ -220,7 +220,7 @@ export class GameState {
       .filter((t) => t && typeof t === 'object' && String(t.to ?? ''))
       .map((t) => `- ${t.to}${t.reason ? `（${t.reason}）` : ''}`)
     if (timelineLines.length) {
-      lines.push('', '### timeline', ...timelineLines)
+      lines.push('', t('snapshot.timeline'), ...timelineLines)
     }
 
     return lines.join('\n')

@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
+import { promptsPlugin } from './vite-plugins/prompts.ts'
 
 /**
  * 测试配置。
@@ -10,7 +11,8 @@ import vue from '@vitejs/plugin-vue'
  *   是我们能真正测透的部分；Vue 组件由组件测试 + e2e 覆盖。
  */
 export default defineConfig({
-  plugins: [vue()],
+  // 必须与 vite.config.ts 一致：测试也要能 import 那些虚拟模块
+  plugins: [vue(), promptsPlugin()],
   test: {
     environment: 'node',
     globals: true,
@@ -23,14 +25,16 @@ export default defineConfig({
       reporter: ['text', 'html'],
       include: ['src/core/**/*.ts', 'src/stores/**/*.ts'],
       exclude: ['src/types/**'],
-      // 门禁：低于这个数就失败。
-      // 数值是**实测后略留余量**定的（实测 92.25 / 86.12 / 90.78 / 92.06），
-      // 不是为了好看：它的作用是「新增功能不写测试就过不去」。
+      // Coverage gate: fail below these numbers.
+      // Calibrated from measured values (99.57 / 93.46 / 100 / 99.53 after the
+      // i18n round), with a small margin so the gate flags real regressions
+      // rather than normal refactoring noise. Its purpose is to stop "new
+      // feature, no tests" from getting through.
       thresholds: {
-        statements: 90,
-        branches: 84,
-        functions: 88,
-        lines: 90,
+        statements: 99,
+        branches: 94,
+        functions: 100,
+        lines: 99,
       },
     },
   },

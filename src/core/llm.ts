@@ -17,6 +17,7 @@
  */
 
 import { loadConfig, PRESETS } from './config'
+import { t } from '../i18n'
 import { CONNECTION_TEST_PROMPT } from './prompts'
 import type { ChatMessage } from '../types/state'
 
@@ -71,12 +72,14 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
   const preset = PRESETS[cfg.provider]
 
   // 配置校验：给出「该去做什么」而不是一句 undefined 报错
+  // Field names are localized for the player: "Missing configuration: base URL",
+  // never the raw key "apiBase".
   const missing: string[] = []
-  if (!cfg.apiKey && !preset?.noKey) missing.push('API Key')
-  if (!cfg.apiBase || !String(cfg.apiBase).trim()) missing.push('接口地址')
-  if (!cfg.model || !String(cfg.model).trim()) missing.push('模型名称')
+  if (!cfg.apiKey && !preset?.noKey) missing.push(t('llm.field.apiKey'))
+  if (!cfg.apiBase || !String(cfg.apiBase).trim()) missing.push(t('llm.field.apiBase'))
+  if (!cfg.model || !String(cfg.model).trim()) missing.push(t('llm.field.model'))
   if (missing.length) {
-    throw new Error(`还缺少配置：${missing.join('、')}。\n请点右上角「⚙ 设置」补上。`)
+    throw new Error(t('llm.missingConfig', { items: missing.join(', ') }))
   }
 
   // 拼接请求地址：兼容用户填带不带 /v1 的情况
@@ -108,13 +111,7 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
   } catch (err) {
     // 网络层失败最常见的原因就是 CORS —— 给一句能指导行动的提示
     if (err instanceof TypeError) {
-      throw new Error(
-        `请求发不出去。可能原因：\n` +
-          `• 该服务商不允许浏览器直连（CORS 拦截）\n` +
-          `• 接口地址写错了：${url}\n` +
-          `• 网络不通或需要代理`,
-        { cause: err },
-      )
+      throw new Error(t('llm.requestFailed', { url }), { cause: err })
     }
     throw err
   }
@@ -132,7 +129,13 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
     } catch {
       // 成功路径：网关返回 HTML 错误页（502 等）时本来就不是 JSON
     }
-    throw new Error(`接口返回 ${res.status} ${res.statusText}\n${detail || raw.slice(0, 300)}`)
+    throw new Error(
+      t('llm.httpError', {
+        status: res.status,
+        statusText: res.statusText,
+        detail: detail || raw.slice(0, 300),
+      }),
+    )
   }
 
   const data = (await res.json()) as {
@@ -145,7 +148,7 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
   }
   const message = data?.choices?.[0]?.message
   if (!message) {
-    throw new Error(`回复格式看不懂：${JSON.stringify(data).slice(0, 300)}`)
+    throw new Error(t('llm.badResponse', { body: JSON.stringify(data).slice(0, 300) }))
   }
 
   const content = typeof message.content === 'string' ? message.content : ''
@@ -158,7 +161,7 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
     }))
 
   if (!content && !toolCalls.length) {
-    throw new Error(`回复里既没有文字也没有工具调用：${JSON.stringify(data).slice(0, 300)}`)
+    throw new Error(t('llm.emptyResponse', { body: JSON.stringify(data).slice(0, 300) }))
   }
 
   return { content, toolCalls, raw: data }
@@ -178,7 +181,7 @@ export async function testConnection(): Promise<TestResult> {
   const started = Date.now()
   const reply = await chat([
     { role: 'system', content: CONNECTION_TEST_PROMPT },
-    { role: 'user', content: '只回复两个字：可用' },
+    { role: 'user', content: 'OK' },
   ])
   return {
     ok: true,

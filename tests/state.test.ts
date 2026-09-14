@@ -108,38 +108,57 @@ describe('advanceTime —— 拦住非法输入', () => {
   it('拒绝倒退', () => {
     const s = fresh()
     const before = s.iso
-    expect(s.advanceTime(-1)).toContain('不能倒退')
+    expect(s.advanceTime(-1)).toContain('backwards')
     expect(s.iso).toBe(before)
   })
 
   it('拒绝原地不动', () => {
     const s = fresh()
     const before = s.iso
-    expect(s.advanceTime(0)).toContain('不能原地不动')
+    expect(s.advanceTime(0)).toContain('stand still')
     expect(s.iso).toBe(before)
   })
 
-  it('拒绝不认识的时间单位（以前会静默退回 segment，推进量错算成 4 小时）', () => {
-    const s = fresh()
-    const before = s.iso
-    const msg = s.advanceTime(1, '光年')
-    expect(msg).toContain('不认识的时间单位')
-    expect(s.iso).toBe(before)
+  it('拒绝非规范单位，且时间不动（不再有任何容错猜测）', () => {
+    // 旧版本靠一张别名表把「days / 天 / DAY」猜成 day；原生 tool calling 之后
+    // 协议层用 enum 挡住了这些，引擎只认 6 个规范值。
+    for (const bad of ['光年', 'days', 'DAY', '天', 'Segment', '']) {
+      const s = fresh()
+      const before = s.iso
+      const msg = s.advanceTime(1, bad)
+      expect(msg, `单位「${bad}」不该被接受`).toContain('Unknown time unit')
+      expect(s.iso, `单位「${bad}」不该改动时间`).toBe(before)
+    }
   })
 
-  it('认复数 / 中文 / 大小写别名', () => {
-    for (const u of ['days', 'DAY', '天', 'Days']) {
+  it('只认 6 个规范单位，各自的推进量都对', () => {
+    const expected: Record<string, number> = {
+      segment: 4 * 3600000,
+      hour: 3600000,
+      day: 86400000,
+      week: 7 * 86400000,
+      month: 30 * 86400000, // 近似：日历月长度不一，这里只验证量级
+      year: 365 * 86400000,
+    }
+    for (const [unit, ms] of Object.entries(expected)) {
       const s = fresh()
       const before = Date.parse(s.iso)
-      s.advanceTime(1, u)
-      expect(Date.parse(s.iso) - before).toBe(86400000)
+      s.advanceTime(1, unit)
+      const elapsed = Date.parse(s.iso) - before
+      if (unit === 'month') {
+        // 日历月的长度取决于起点，只断言落在合理区间（28–31 天）
+        expect(elapsed).toBeGreaterThanOrEqual(28 * 86400000)
+        expect(elapsed).toBeLessThanOrEqual(31 * 86400000)
+      } else {
+        expect(elapsed, `单位 ${unit} 的推进量`).toBe(ms)
+      }
     }
   })
 
   it('拦住「推十万年」这类手滑输入', () => {
     const s = fresh()
     const before = s.iso
-    expect(s.advanceTime(99999, 'year')).toContain('跨度太大')
+    expect(s.advanceTime(99999, 'year')).toContain('Step too large')
     expect(s.iso).toBe(before)
   })
 

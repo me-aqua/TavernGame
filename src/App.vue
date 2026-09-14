@@ -13,6 +13,7 @@ import AppSidebar from './components/AppSidebar.vue'
 import SettingsDrawer from './components/SettingsDrawer.vue'
 import { useGame } from './stores/game'
 import { useTheme } from './composables/useTheme'
+import { useI18n } from 'vue-i18n'
 import { loadConfig, isConfigured, PRESETS } from './core/config'
 import { downloadText, pickFile } from './composables/useDownload'
 
@@ -33,12 +34,13 @@ const {
   exportSave,
 } = useGame()
 
+const { t } = useI18n()
 const { mode: themeMode, cycle: toggleTheme } = useTheme()
 
 const settingsOpen = ref(false)
 const configState = ref(isConfigured())
 const statusLight = ref<'ok' | 'warn' | 'err'>('warn')
-const statusText = ref('检查配置…')
+const statusText = ref(t('app.statusChecking'))
 
 const configured = computed(() => configState.value)
 
@@ -48,16 +50,16 @@ function refreshConfigStatus() {
   configState.value = isConfigured()
   if (!configState.value) {
     statusLight.value = 'warn'
-    statusText.value = '未配置'
+    statusText.value = t('app.statusUnconfigured')
     return
   }
   statusLight.value = 'ok'
-  statusText.value = `${PRESETS[cfg.provider]?.label || cfg.provider} · ${cfg.model}`
+  statusText.value = `${PRESETS[cfg.provider] ? t(`provider.${cfg.provider}`) : cfg.provider} · ${cfg.model}`
 }
 
 // debugMode：在控制台执行 __DEBUG = true 即可打开（刷新后失效）
 watch(debugMode, (on) => {
-  append('system', on ? '🔧 调试模式已开启 —— 之后会显示模型的原始输出' : '🔧 调试模式已关闭')
+  append('system', on ? t('app.debugOn') : t('app.debugOff'))
   window.__DEBUG = on
 })
 Object.defineProperty(window, '__DEBUG', {
@@ -92,21 +94,21 @@ async function submitAction(text: string) {
  * 玩家完全不知道发生了什么。
  */
 async function startNewGame() {
-  append('system', '（正在生成开场…）')
+  append('system', t('app.generatingOpening'))
   try {
     await runTurnAction()
   } catch (err) {
     // 边界：这是开场生成，失败要显示给玩家 —— 不是吞掉
     if ((err as Error).name === 'AbortError') return
     statusLight.value = 'err'
-    append('error', `生成开场失败：${(err as Error).message}`)
+    append('error', t('app.openingFailed', { message: (err as Error).message }))
   }
 }
 
 function doExport() {
   const date = new Date().toISOString().slice(0, 10)
-  downloadText(`taverngame-存档-${date}.json`, exportSave())
-  append('system', '存档已导出为文件')
+  downloadText(t('app.saveFileName', { date }), exportSave())
+  append('system', t('app.saveExported'))
 }
 
 async function doImport() {
@@ -114,16 +116,16 @@ async function doImport() {
   if (!file) return
   try {
     importSave(await file.text())
-    append('system', '存档已导入 ✓')
+    append('system', t('app.saveImported'))
     restoreLog(12)
   } catch (err) {
     // 边界：导入的文件来自用户，坏了要告诉他哪里坏了 —— 不是吞掉
-    append('error', `导入失败：${(err as Error).message}`)
+    append('error', t('app.importFailed', { message: (err as Error).message }))
   }
 }
 
 function resetAll() {
-  if (!confirm('确定要重新开始吗？当前进度会丢失（建议先导出存档）')) return
+  if (!confirm(t('app.confirmReset'))) return
   resetGame()
   void startNewGame()
 }
@@ -142,11 +144,7 @@ onMounted(() => {
 
   // 存档坏了要说清楚，不能装作无事发生（坏数据已另存一份备份）
   if (startupError) {
-    append(
-      'error',
-      // 允许：这是给**玩家看的错误说明**，不是给模型的提示词
-      `本地存档已损坏，本次从空白开始：\n${startupError}\n\n原存档已备份到浏览器存储中（key 以 .broken- 开头），可在控制台导出。`,
-    )
+    append('error', t('app.startupCorrupted', { message: startupError }))
     statusLight.value = 'err'
   }
 
@@ -158,10 +156,10 @@ onMounted(() => {
     if (turn.value === 0) {
       void startNewGame()
     } else {
-      append('system', `继续游戏（第 ${turn.value} 回合）`)
+      append('system', t('app.resuming', { turn: turn.value }))
     }
   } else {
-    append('system', '欢迎。请先点右上角「⚙ 设置」填入 API key。')
+    append('system', t('app.welcome'))
   }
 })
 </script>

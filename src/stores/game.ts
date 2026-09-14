@@ -15,6 +15,7 @@
 
 import { computed, ref, shallowRef, triggerRef } from 'vue'
 import { GameState } from '../core/state'
+import { t } from '../i18n'
 import { loadState, createInitialState } from '../core/persistence'
 import { runTurn, type AgentEvent } from '../core/agent'
 import type { ChatMessage } from '../types/state'
@@ -102,14 +103,14 @@ export function useGame() {
       case 'raw':
         if (debugMode.value) {
           const callCount = evt.reply.toolCalls.length
-          append('tool', `🔍 模型原始回复（${callCount} 次工具调用）`, {
+          append('tool', t('store.rawReply', { count: callCount }), {
             raw: JSON.stringify(evt.reply.raw, null, 2),
           })
         }
         break
       case 'tool':
         // args 是协议原样给的 JSON 字符串，直接展示（它就是模型实际发出的内容）
-        append('tool', `⚙ 调用 ${evt.tool}(${evt.args})`)
+        append('tool', t('toolbar.toolCall', { tool: evt.tool, args: evt.args }))
         break
       case 'toolResult':
         append('tool', `   → ${evt.result}`)
@@ -136,13 +137,13 @@ export function useGame() {
         onEvent: handleEvent,
       })
       history.value = result.history
-      if (!result.text) append('system', '（模型没有返回文字，可能只调用了工具）')
+      if (!result.text) append('system', t('store.noText'))
     } catch (err) {
       const e = err as Error
       if (e.name === 'AbortError') {
-        append('system', '已取消本回合')
+        append('system', t('store.cancelled'))
       } else {
-        append('error', `出错了：\n${e.message}`)
+        append('error', t('store.failed', { message: e.message }))
       }
       throw err // 交给调用方决定要不要提示
     } finally {

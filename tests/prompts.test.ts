@@ -21,9 +21,10 @@ import {
 import { GameState } from '../src/core/state'
 import { createInitialState } from '../src/core/persistence'
 
-// 测试直接读源文件：断言的是**内容本身**（编码是否同步由 npm run prompts:check 负责）
-const systemMarkdown = readFileSync('prompts/system.md', 'utf8')
-const toolsMarkdown = readFileSync('prompts/tools.md', 'utf8')
+// 测试直接读源文件：断言的是**内容本身**（中文版，与 src/core/prompts.ts 当前取的语言一致）
+// 注意：提示词按语言分目录（prompts/<lang>/），路径必须带语言段
+const systemMarkdown = readFileSync('prompts/zh-CN/system.md', 'utf8')
+const toolsMarkdown = readFileSync('prompts/zh-CN/tools.md', 'utf8')
 
 describe('提示词文件（prompts/）', () => {
   it('不含 BOM、不含非法 UTF-8、不含 CRLF', () => {

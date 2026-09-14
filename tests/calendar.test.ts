@@ -98,7 +98,7 @@ describe('describeElapsed —— 时长换算', () => {
 describe('未覆盖分支补测', () => {
   it('advance 遇到不认识的时间单位会抛错（联合类型之外的输入）', () => {
     expect(() => realCalendar.advance('2026-09-10T02:00:00.000Z', 1, '光年' as never)).toThrow(
-      /不认识的时间单位/,
+      /Unknown time unit/,
     )
   })
 

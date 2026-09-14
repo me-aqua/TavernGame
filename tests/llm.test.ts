@@ -9,8 +9,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { chat } from '../src/core/llm'
 import { saveConfig, clearConfig } from '../src/core/config'
+import { i18n } from '../src/i18n'
 import { installFakeLlm, installFakeLlmError } from './support/fakeLlm'
 import type { ChatMessage } from '../src/types/state'
+
+// Pin the locale: engine messages go through i18n, so assertions must know
+// which language to expect. English is the reference language here.
+i18n.global.locale.value = 'en'
 
 const messages: ChatMessage[] = [{ role: 'user', content: '你好' }]
 let restore: (() => void) | null = null
@@ -121,7 +126,7 @@ describe('chat —— 回复解析（协议结构）', () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
     const fake = installFakeLlm([{ content: '', toolCalls: [] }])
     restore = fake.restore
-    await expect(chat(messages)).rejects.toThrow(/既没有文字也没有工具调用/)
+    await expect(chat(messages)).rejects.toThrow(/neither text nor tool calls/)
   })
 
   it('缺少 choices 时报出原文片段', async () => {
@@ -132,20 +137,20 @@ describe('chat —— 回复解析（协议结构）', () => {
     restore = () => {
       globalThis.fetch = original
     }
-    await expect(chat(messages)).rejects.toThrow(/回复格式看不懂/)
+    await expect(chat(messages)).rejects.toThrow(/Unrecognized response shape/)
   })
 })
 
 describe('chat —— 配置校验', () => {
   it('缺 key 时给出「去设置里补」的提示，而不是 undefined', async () => {
     saveConfig({ provider: 'custom', apiKey: '', apiBase: 'https://api.example.test/v1', model: 'm' })
-    await expect(chat(messages)).rejects.toThrow(/还缺少配置：API Key/)
-    await expect(chat(messages)).rejects.toThrow(/⚙ 设置/)
+    await expect(chat(messages)).rejects.toThrow(/Missing configuration: API Key/)
+    await expect(chat(messages)).rejects.toThrow(/Settings/)
   })
 
   it('缺模型名也会被拦下', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: '' })
-    await expect(chat(messages)).rejects.toThrow(/模型名称/)
+    await expect(chat(messages)).rejects.toThrow(/model/)
   })
 })
 
@@ -153,7 +158,7 @@ describe('chat —— 错误分支', () => {
   it('非 JSON 的错误页（网关 HTML 502）也要把正文带出来', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
     restore = installFakeLlmError(502, '<html><body>Bad Gateway</body></html>')
-    await expect(chat(messages)).rejects.toThrow(/接口返回 502/)
+    await expect(chat(messages)).rejects.toThrow(/HTTP 502/)
     await expect(chat(messages)).rejects.toThrow(/Bad Gateway/)
   })
 

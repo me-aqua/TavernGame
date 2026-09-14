@@ -88,11 +88,10 @@ export function runTool(state: GameState, name: string, rawArguments: string): s
     return `❌ 参数不是合法 JSON（${(err as Error).message}）。你给的是：${rawArguments.slice(0, 120)}`
   }
 
-  try {
-    return String(TOOLS[name].run(state, args))
-  } catch (err) {
-    return `❌ 工具执行出错：${(err as Error).message}`
-  }
+  // 没有 try/catch：唯一的工具 advance_time 内部已把失败转成 ⚠ 文案（见 state.advanceTime），
+  // 不会抛到这里。为「不可能发生」的场景写兜底违反项目纪律 —— 真抛了就让上层看见
+  // （runTurn 会把它作为回合错误暴露，而不是静默变成一句工具输出）。
+  return String(TOOLS[name].run(state, args))
 }
 
 /** 工具名列表，供测试与错误提示用 */

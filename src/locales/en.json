@@ -1,0 +1,176 @@
+{
+  "app": {
+    "title": "TavernGame",
+    "statusChecking": "Checking config…",
+    "statusUnconfigured": "Not configured",
+    "debugOn": "🔧 Debug mode on — raw model output will be shown",
+    "debugOff": "🔧 Debug mode off",
+    "generatingOpening": "(Generating the opening scene…)",
+    "openingFailed": "Failed to generate the opening: {message}",
+    "saveFileName": "taverngame-save-{date}.json",
+    "saveExported": "Save exported to a file",
+    "saveImported": "Save imported ✓",
+    "importFailed": "Import failed: {message}",
+    "confirmReset": "Start over? Current progress will be lost (export a save first).",
+    "startupCorrupted": "Local save is corrupted; starting from a blank game:\n{message}\n\nThe broken data was backed up in browser storage (key starts with .broken-); you can export it from the console.",
+    "resuming": "Resuming (turn {turn})",
+    "welcome": "Welcome. Open ⚙ Settings (top right) and add your API key to begin.",
+    "settingsSaved": "Settings saved ✓"
+  },
+  "header": {
+    "themeSystem": "Theme: follow system (click to switch)",
+    "themeLight": "Theme: light (click to switch)",
+    "themeDark": "Theme: dark (click to switch)",
+    "export": "Export",
+    "import": "Import",
+    "reset": "Restart",
+    "settings": "⚙ Settings",
+    "exportTitle": "Export save file",
+    "importTitle": "Import save from file",
+    "resetTitle": "Start over"
+  },
+  "composer": {
+    "placeholder": "What do you do?",
+    "submit": "Act",
+    "hintKeys": "Enter to send · Shift+Enter for a new line",
+    "hintBefore": "No API key yet — open",
+    "hintAfter": "in the top right to get started"
+  },
+  "sidebar": {
+    "time": "Time",
+    "place": "Place",
+    "turn": "Turn",
+    "turnCount": "Elapsed"
+  },
+  "toolbar": {
+    "toolCall": "⚙ call {tool}({args})"
+  },
+  "store": {
+    "rawReply": "🔍 Raw model reply ({count} tool calls)",
+    "noText": "(The model returned no text — it may have only called tools)",
+    "cancelled": "This turn was cancelled",
+    "failed": "Something went wrong:\n{message}"
+  },
+  "settings": {
+    "title": "Settings",
+    "provider": "Provider",
+    "apiKey": "API Key",
+    "apiBase": "Base URL",
+    "model": "Model",
+    "stepsLimit": "Max thinking steps per turn: {count}",
+    "stepsNote": "Prevents the model from looping and burning your quota.",
+    "noKeyNeeded": "This provider needs no key",
+    "keyUrlPrefix": "Get one here:",
+    "currentKey": "Current: {masked}",
+    "test": "Test connection",
+    "save": "Save",
+    "forget": "Forget key",
+    "testing": "Testing…",
+    "testOk": "✅ Connected ({ms}ms) · reply: {reply}",
+    "testFailed": "❌ Failed\n{message}",
+    "cleared": "Cleared",
+    "confirmForget": "Forget the API key stored in this browser?",
+    "corsYes": "✅ Verified: browser can connect directly",
+    "corsNo": "⚠️ Verified: this provider blocks browser requests (CORS) — unusable",
+    "corsUnknown": "Not verified; a proxy may be needed",
+    "introBefore": "Runs entirely in your browser — your API key is stored only in",
+    "introAfter": "and is sent straight to the provider, never to any server of ours.",
+    "appName": "your own browser"
+  },
+  "provider": {
+    "deepseek": "DeepSeek (official)",
+    "siliconflow": "SiliconFlow",
+    "openrouter": "OpenRouter",
+    "mistral": "Mistral",
+    "ollama": "Local Ollama (free)",
+    "custom": "Custom (any OpenAI-compatible endpoint)"
+  },
+  "calendar": {
+    "yearMonthDay": "{month}/{day}/{year}",
+    "weekday": {
+      "0": "Sunday",
+      "1": "Monday",
+      "2": "Tuesday",
+      "3": "Wednesday",
+      "4": "Thursday",
+      "5": "Friday",
+      "6": "Saturday"
+    },
+    "segment": {
+      "morning": "morning",
+      "afternoon": "afternoon",
+      "evening": "evening"
+    },
+    "elapsedHours": "{hours} hours passed",
+    "elapsedMinutes": "{minutes} minutes passed",
+    "elapsedDays": "{days} days passed",
+    "elapsedMonths": "{months} months passed",
+    "elapsedMonthsDays": "{months} months {days} days passed",
+    "elapsedYears": "{years} years passed",
+    "elapsedYearsMonths": "{years} years {months} months passed",
+    "elapsedFull": "{years} years {months} months {days} days passed",
+    "unknownUnit": "Unrecognized time unit \"{unit}\"",
+    "cannotGoBack": "⚠ Time only moves forward; it cannot go back. (Current: {time})",
+    "cannotStay": "⚠ Time must move forward; it cannot stand still. (Current: {time})",
+    "jumpTooLarge": "⚠ Jump too large ({step} {unit}); ignored. Current: {time}",
+    "advanced": "🕐 Time advanced: {from}\n           → {to}",
+    "advancedElapsed": "🕐 Time advanced: {from}\n           → {to}\n   ({elapsed})",
+    "advancedReason": "🕐 Time advanced: {from}\n           → {to}\n   Reason: {reason}",
+    "advancedElapsedReason": "🕐 Time advanced: {from}\n           → {to}\n   ({elapsed})\n   Reason: {reason}",
+    "monthDay": "{month}/{day}",
+    "months": "{months} months",
+    "days": "{days} days",
+    "years": "{years} years",
+    "elapsed": "{parts} passed",
+    "unknownCalendar": "Unknown calendar {id}; falling back to {fallback}"
+  },
+  "llm": {
+    "missingConfig": "Missing configuration: {items}.\nOpen ⚙ Settings (top right) to fill it in.",
+    "requestFailed": "The request could not be sent. Likely causes:\n• The provider blocks browser requests (CORS)\n• Wrong base URL: {url}\n• No network, or a proxy is required",
+    "httpError": "HTTP {status} {statusText}\n{detail}",
+    "badResponse": "Unrecognized response shape: {body}",
+    "emptyResponse": "The reply contained neither text nor tool calls: {body}",
+    "debugSwitchedOn": "🔧 Debug mode on",
+    "field": {
+      "apiKey": "API Key",
+      "apiBase": "base URL",
+      "model": "model name"
+    }
+  },
+  "tools": {
+    "noSuchTool": "❌ No tool named \"{name}\". Available: {available}",
+    "argsNotObject": "❌ Arguments must be a JSON object; got: {raw}",
+    "argsNotJson": "❌ Arguments are not valid JSON ({message}). You sent: {raw}",
+    "runFailed": "❌ Tool execution failed: {message}",
+    "advanceTimeDescription": "Advance in-story time. Call it only when time actually passes (travelling, a long conversation, sleeping, waiting for night, recovering for days). If the turn is just a few words or actions, do not call it. There is no upper bound on the jump.",
+    "stepDescription": "How much to advance; a positive integer. Defaults to 1",
+    "unitDescription": "Time unit. Defaults to segment (one part of the day, about 4 hours)",
+    "reasonDescription": "Why time passes (recorded on the timeline)"
+  },
+  "snapshot": {
+    "turn": "[Turn {turn}]",
+    "time": "Time: {time}",
+    "place": "Place: {name}",
+    "recent": "### Recently",
+    "timeline": "### Timeline",
+    "player": "Player",
+    "gm": "You (GM)"
+  },
+  "save": {
+    "failed": "Save failed (private mode, or storage full) — this turn will be lost on reload",
+    "corrupted": "Local save is corrupted: {message}",
+    "notValid": "This is not a valid save file"
+  },
+  "agent": {
+    "stepLimit": "Reached the step limit ({max}); turn ended",
+    "toolsOnlyWarning": "The model only called tools and wrote no narration (step {step})",
+    "forcingNarration": "This turn produced no narration; asking the GM to write it…",
+    "stillNoText": "The GM still produced no text",
+    "saveFailed": "Save failed (private mode, or storage full) — this turn will be lost on reload",
+    "openingLog": "(a new adventure begins)",
+    "actionPrefix": "Player's action: {action}"
+  },
+  "story": {
+    "thinking": "Thinking…"
+  }
+}

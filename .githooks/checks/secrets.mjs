@@ -18,19 +18,10 @@
  *
  * Note: the prefixes above are **rules**, not real keys; this file skips itself.
  */
-import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
-// First make sure the .md sources and their .b64 encodings are in sync —
-// otherwise the bundle would ship stale prompts (the hardest kind of bug to notice)
-try {
-  execSync('npm run -s prompts:check', { stdio: 'pipe' })
-} catch (err) {
-  const out = Buffer.isBuffer(err.stdout) ? err.stdout.toString('utf8') : String(err.stdout ?? '')
-  console.error('\n✖ ' + (out.trim() || 'prompts/*.b64 is out of sync with prompts/*.md'))
-  console.error('  fix: npm run prompts:encode\n')
-  process.exit(1)
-}
+// 注：提示词编码已改由 Vite 插件在构建期完成，不再有 .b64 生成物，
+// 所以这里曾经那段「先确认编码与源文件同步」的检查也随之删除。
 
 const RULES = [
   { label: 'OpenAI / DeepSeek 风格', re: /\bsk-[A-Za-z0-9_-]{20,}/, hint: 'sk-' },
