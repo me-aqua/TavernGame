@@ -14,8 +14,6 @@ function fresh() {
   return new GameState(createInitialState())
 }
 
-/** markdown 围栏（三个反引号）。写成常量是为了让下面的用例保持可读 */
-const F = String.fromCharCode(96).repeat(3)
 const NL = String.fromCharCode(10)
 
 describe('runTool', () => {

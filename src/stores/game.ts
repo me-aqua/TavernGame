@@ -174,10 +174,6 @@ export function useGame() {
     return state.value.export()
   }
 
-  function 打开存档文件(file: File): Promise<void> {
-    return file.text().then(导入存档)
-  }
-
   return {
     /** 启动时读档失败的说明；null = 正常 */
     启动错误: 启动结果.error,
@@ -185,10 +181,7 @@ export function useGame() {
     时间标签, 时间线, 场景, 回合数,
     消息流, 正在跑, 调试模式,
     // 动作
-    追加, 清空消息流, 恢复日志, 执行回合, 中止当前回合,
-    重新开始, 导入存档, 导出存档, 打开存档文件,
-    // 原始实例（设置面板等偶尔需要）
-    原始状态: state,
+    追加, 恢复日志, 执行回合, 重新开始, 导入存档, 导出存档,
   }
 }
 
