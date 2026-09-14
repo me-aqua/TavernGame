@@ -490,7 +490,7 @@ TavernGame/
 │   │   └── prompts.ts    提示词（改玩法主要改这里）
 │   ├── types/state.ts    状态的数据形状（存档字段的唯一真相）
 │   └── styles/main.css   全局设计系统（CSS 变量、按钮、卡片）
-├── tests/                vitest 单元测试（29 项）
+├── tests/                vitest 单元测试（49 项）
 │   ├── setup.ts          localStorage 垫片
 │   ├── calendar.test.ts  日期边界 / 时长文案
 │   ├── state.test.ts     脏存档净化 / 推进把关 / 快照
@@ -515,15 +515,19 @@ TavernGame/
 | `about.html` / `assets/` 在根目录 | `public/`（构建时原样拷贝） |
 | `dev-server.js`（自写无缓存服务器） | 删除 —— Vite dev server 自带 HMR |
 | 根目录散着 4 个 .md | 文档统一进 `doc/` |
-| 零测试 | `tests/` + `npm test`（29 项） |
+| 零测试 | `tests/` + `npm test`（49 项） |
 
 ## 📌 实测过的事实（别重新踩）
 
 - **CORS 实测结果**：DeepSeek 官方、硅基流动、OpenRouter、Mistral
   都返回 CORS 允许头，浏览器可直连；**Groq 不允许**。
-- **离线测试已经在仓库里了**（`tests/`，`npm test`）：vitest + `tests/setup.ts` 里的
+- **离线测试已经在仓库里了**（`tests/`，`npm test`，49 项）：vitest + `tests/setup.ts` 里的
   localStorage 垫片，不需要浏览器。**别再把它放到 `.tools/`（会被忽略）** —— v0.5.x
   的 82 项测试就是这样丢的，全历史零测试文件。
+- ⚠️ **垫片必须在 `vitest.config.ts` 的 `setupFiles` 里注册** —— 实测漏过一次：
+  文件写了却没注册，垫片从未加载，存档相关断言全部静默走「保存失败」的报错分支，
+  **测试全绿但是假通过**。另外 Node 22+ 自带一个取值为 undefined 的原生
+  `localStorage`，垫片要 `defineProperty` 覆盖它，不能只赋值。
 - **测试代码里写 markdown 围栏要小心**：模板字符串里的裸反引号会把字符串截断
   （本项目实测踩过，报错是 `Unexpected identifier 'tool'`）。
   用 `String.fromCharCode(96)` 拼出反引号，或改用数组 `join`。
