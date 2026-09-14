@@ -11,7 +11,6 @@
     "importFailed": "导入失败：{message}",
     "confirmReset": "确定要重新开始吗？当前进度会丢失（建议先导出存档）",
     "startupCorrupted": "本地存档已损坏，本次从空白开始：\n{message}\n\n原存档已备份到浏览器存储中（key 以 .broken- 开头），可在控制台导出。",
-    "resuming": "继续游戏（第 {turn} 回合）",
     "welcome": "欢迎。请先点右上角「⚙ 设置」填入 API key。",
     "settingsSaved": "设置已保存 ✓"
   },

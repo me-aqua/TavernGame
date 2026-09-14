@@ -192,14 +192,11 @@ onMounted(() => {
     return
   }
 
-  // 故事不用「恢复」：渲染的是日志本身。
-  // 通知只有一条能显示，所以按重要性挑：配好了就开场 / 接着上次 / 先欢迎。
+  // 故事不用「恢复」：渲染的就是事件流本身，接着上次玩是**默认行为**，
+  // 不需要再播报一句（回合数侧栏一直显示着，而且它才是响应式的）。
+  // 启动时只剩两件事要说：配好了就开场，没配就先告诉玩家去哪儿配。
   if (isConfigured()) {
-    if (turn.value === 0) {
-      void startNewGame()
-    } else {
-      notify(t('app.resuming', { turn: turn.value }))
-    }
+    if (turn.value === 0) void startNewGame()
   } else {
     notify(t('app.welcome'))
   }

@@ -306,6 +306,47 @@ check(
 )
 check('bad data is backed up', corrupted.backups === 1, String(corrupted.backups))
 
+// ---------- case 4b: an ongoing save resumes silently ----------
+// The turn number lives in the sidebar, which is derived from the data and therefore
+// reactive. There used to be a "Resuming (turn N)" notice: it was a *snapshot* of the
+// turn taken at load time and could only appear on a refresh (same fact told twice),
+// so it was deleted — this case is the regression net for that.
+const ONGOING_SAVE = JSON.stringify({
+  meta: { turn: 6 },
+  player: { name: 'tester' },
+  scene: { name: '', description: '' },
+  time: { iso: '2026-09-14T10:00:00.000Z' },
+  events: [{ kind: 'narration', text: 'an old story line', at: '2026-09-14T10:00:00.000Z' }],
+  timeline: [],
+})
+const FAKE_CONFIG = JSON.stringify({
+  provider: 'custom',
+  apiKey: 'k',
+  apiBase: 'https://example.test/v1',
+  model: 'm',
+  temperature: 0.85,
+  maxAgentSteps: 3,
+})
+await openWith({
+  statements: [
+    SET_LANGUAGE(LANG),
+    `localStorage.setItem('tavernGame.config', JSON.stringify(${FAKE_CONFIG}))`,
+    `localStorage.setItem('tavernGame.save', JSON.stringify(${ONGOING_SAVE}))`,
+  ],
+})
+const ongoing = await evaluate(`(() => ({
+  notice: document.querySelector('[data-status]')?.textContent?.trim() ?? null,
+  story: [...document.querySelectorAll('.line')].map((p) => p.textContent.trim()),
+  sidebar: document.querySelector('aside')?.innerText.replace(/\\n/g, ' ') ?? '',
+}))()`)
+check('an ongoing save resumes with no announcement', ongoing.notice === null, String(ongoing.notice))
+check('the old story is on screen', ongoing.story.length === 1, JSON.stringify(ongoing.story))
+check(
+  'the turn number is in the sidebar (the reactive place)',
+  ongoing.sidebar.includes('6'),
+  ongoing.sidebar.slice(0, 60),
+)
+
 // ---------- case 5: theme switching ----------
 await openWith({ statements: [SET_LANGUAGE(LANG), `localStorage.setItem('tavernGame.theme', 'dark')`] })
 const dark = await evaluate(`(() => ({
