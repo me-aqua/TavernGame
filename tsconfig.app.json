@@ -5,7 +5,8 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vitest/globals"],
+    // node：测试里用 node:fs 读提示词源文件做断言；vitest/globals：describe/it 等全局
+    "types": ["vitest/globals", "node"],
 
     /* 严格模式：这是转 TS 的主要收益来源。
        本项目的状态字段以前靠注释和防御性代码维持，

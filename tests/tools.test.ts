@@ -6,7 +6,7 @@
  *   - 解析器静默吞内容
  */
 import { describe, expect, it } from 'vitest'
-import { runTool, parseToolCalls, toolsPrompt, TOOLS } from '../src/core/tools'
+import { runTool, parseToolCalls, TOOLS } from '../src/core/tools'
 import { GameState } from '../src/core/state'
 import { createInitialState } from '../src/core/persistence'
 
@@ -47,9 +47,10 @@ describe('runTool', () => {
     expect(out).not.toContain('时间推进')
   })
 
-  it('工具说明里包含唯一的工具名', () => {
+  it('工具表里只有 advance_time，且不带任何提示词内容', () => {
     expect(Object.keys(TOOLS)).toEqual(['advance_time'])
-    expect(toolsPrompt()).toContain('advance_time')
+    // 说明文字在 prompts/tools.md —— 代码里只留执行体
+    expect(Object.keys(TOOLS.advance_time)).toEqual(['run'])
   })
 })
 
