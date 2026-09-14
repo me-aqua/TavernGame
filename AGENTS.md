@@ -21,4 +21,14 @@
 
 ---
 
+## 测试（纪律的可执行部分）
+
+**新增功能必须新增测试** —— 由 `.githooks/pre-commit` 强制：
+每个 `src` 模块都必须在 `tests/` 里被提到，否则拒绝提交。
+覆盖率门禁见 `vitest.config.ts`，一条命令验收：`npm run verify`。
+
+细节（各层测什么、坑在哪）见 skill: `testing`。
+
+---
+
 环境、调试、发布等具体做法在 `.agents/skills/`，不要写回这里。
