@@ -40,6 +40,8 @@ push 到 `main` → `npm ci` → `npm run build` → 发布 `dist/`。
 远端只有 **`upstream`** = `git@github.com:me-aqua/TavernGame.git`（唯一的仓库，**不要建 fork**）：
 两个协作者都在它上面开分支、发 PR。
 
+> **权限现状**（2026-09-14）：协作者 `Alice-space` 是 **Write** —— 可直接在本仓库建分支并推送，**不需要 fork**；但 `main` **没有开保护**（能直推 main），要不要加保护是取舍：加了之后 me-aqua 自己也不能直推。
+
 身份是**每个人各自的**，用 `--local` 设在仓库里，不动全局配置：
 
 ```bash
