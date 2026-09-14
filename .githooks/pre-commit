@@ -1,0 +1,119 @@
+#!/usr/bin/env node
+// 提交时强制检查。违规就在这里失败，不写在文档里求人自觉。
+// 兜底：确实要放行时用 SKIP_DISCIPLINE=1 git commit ...（并在改动理由里说明）
+import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+
+if (process.env.SKIP_DISCIPLINE === '1') {
+  console.log('⚠ SKIP_DISCIPLINE=1 —— 纪律检查已跳过')
+  process.exit(0)
+}
+
+const git = (cmd) =>
+  execSync('git ' + cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+
+const problems = []
+const staged = git('diff --cached --name-only --diff-filter=ACM').split('\n').filter(Boolean)
+
+// 只看文本文件（跳过图片等二进制）
+const textFiles = staged.filter((f) => /\.(ts|vue|js|mjs|css|html|json|md|bat|yml|yaml)$/.test(f))
+const contentOf = (f) => {
+  try {
+    return readFileSync(f, 'utf8')
+  } catch {
+    return ''
+  }
+}
+
+// ---------- 检查 1：调试残留 ----------
+for (const f of textFiles) {
+  const lines = contentOf(f).split('\n')
+  lines.forEach((line, i) => {
+    const at = `${f}:${i + 1}`
+    if (/(^|[^\w.])debugger\b/.test(line)) problems.push(`[调试残留] ${at} —— debugger`)
+    if (/\.only\(/.test(line)) problems.push(`[调试残留] ${at} —— .only 会跳过其余测试`)
+    if (/\b(TODO|FIXME|XXX)\b/.test(line)) problems.push(`[调试残留] ${at} —— ${line.trim().slice(0, 50)}`)
+  })
+}
+
+// ---------- 检查 2：吞掉错误 ----------
+// 规则：绝不吞掉错误（禁止宽泛 catch / 静默默认值）
+for (const f of textFiles.filter((f) => /\.(ts|vue|js|mjs)$/.test(f))) {
+  const lines = contentOf(f).split('\n')
+  lines.forEach((line, i) => {
+    // 空 catch / 只打日志的 catch。
+    // ⚠️ core/ 不做豁免：实测「吞掉错误」正好都发生在那里
+    const emptyCatch = /catch\s*(\([^)]*\))?\s*\{\s*(\/\*.*?\*\/\s*)?\}/
+    if (emptyCatch.test(line)) {
+      // 例外：catch 体里写了 // 说明的，属于「分支语义」而非吞错
+      // （例：期望 JSON 却拿到 HTML 错误页 → 走另一个分支给出正文）
+      const body = lines[i + 1] ?? ''
+      const documented = /^\s*\/\//.test(body)
+      if (!documented) {
+        problems.push(`[吞错误] ${f}:${i + 1} —— 空 catch，错误被静默丢掉`)
+      }
+    }
+    // catch 里只打日志、不抛出、不处理
+    if (/catch\s*\(/.test(line)) {
+      const rest = lines.slice(i, i + 3).join(' ')
+      if (!/throw|return|problems|process\.exit/.test(rest) && /console\.(warn|error|log)/.test(lines[i + 1] ?? '')) {
+        problems.push(`[吞错误] ${f}:${i + 1} —— catch 里只打日志，之后照常往下走`)
+      }
+    }
+  })
+}
+
+// ---------- 检查 3：一次性操作的抽象 ----------
+// 规则：禁止为一次性操作创建辅助函数／工具类／抽象
+const combinators = /\b(safeGet|safeSet|withFallback|tryOr|maybeNull|ensureDefined|nullSafe)\b/
+for (const f of staged.filter((f) => /composables\/|utils?\/|helpers?\//.test(f))) {
+  const m = contentOf(f).match(combinators)
+  if (m) problems.push(`[多余抽象] ${f} —— ${m[0]}()，请确认它真有两个以上调用点`)
+}
+
+// ---------- 检查 4：内部代码上的防御性校验 ----------
+// 规则：只在系统边界（用户输入、外部 API、网络）做校验
+for (const f of textFiles.filter((f) => /\.(ts|vue)$/.test(f) && !/^src\/core\//.test(f))) {
+  const lines = contentOf(f).split('\n')
+  lines.forEach((line, i) => {
+    if (/typeof\s+\w+\s*===\s*'(string|object|number)'/.test(line) && !/unknown/.test(line)) {
+      problems.push(`[防御性校验] ${f}:${i + 1} —— 内部代码在做 typeof 校验；边界校验只属于 core/ 的存档与网络层`)
+    }
+  })
+}
+
+// ---------- 检查 5：体积（最小代码） ----------
+const SIZE = { file: 260, func: 150, net: 500 }
+const countLines = (s) => s.split('\n').length
+for (const f of textFiles) {
+  const n = countLines(contentOf(f))
+  if (n > SIZE.file) problems.push(`[体积] ${f} —— ${n} 行（上限 ${SIZE.file}）`)
+}
+// 函数体长度：数花括号深度，粗略但够用
+for (const f of textFiles.filter((f) => /\.(ts|vue)$/.test(f))) {
+  const lines = contentOf(f).split('\n')
+  lines.forEach((line, i) => {
+    if (!/^\s*(export\s+)?(async\s+)?function\s|^\s*const\s+\w+\s*=\s*(async\s*)?\(/.test(line)) return
+    let depth = 0
+    let end = -1
+    for (let j = i; j < lines.length; j++) {
+      depth += (lines[j].match(/{/g) ?? []).length - (lines[j].match(/}/g) ?? []).length
+      if (depth > 0) end = j
+      if (end >= 0 && depth === 0) break
+    }
+    const len = end - i + 1
+    if (len > SIZE.func) problems.push(`[体积] ${f}:${i + 1} —— 函数 ${len} 行（上限 ${SIZE.func}）`)
+  })
+}
+const stat = git('diff --cached --shortstat')
+const net = Number(stat.match(/(\d+) insertion/)?.[1] ?? 0)
+if (net > SIZE.net) problems.push(`[体积] 本次改动 +${net} 行（上限 ${SIZE.net}）—— 拆成多次提交，或解释为什么必须一次改这么多`)
+
+// ---------- 结果 ----------
+if (problems.length) {
+  console.error('\n✖ 纪律检查未通过：\n')
+  for (const p of problems) console.error('  ' + p)
+  console.error(`\n共 ${problems.length} 项。逐条修掉，或用 SKIP_DISCIPLINE=1 跳过（需说明理由）。\n`)
+  process.exit(1)
+}
+console.log(`✓ 纪律检查通过（${staged.length} 个文件）`)

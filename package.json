@@ -11,7 +11,9 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "npm run typecheck && npm test && npm run build"
+    "verify": "npm run typecheck && npm test && npm run build",
+    "hooks": "git config --local core.hooksPath .githooks",
+    "prepare": "npm run hooks"
   },
   "keywords": [
     "agent",
