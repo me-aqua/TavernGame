@@ -25,6 +25,16 @@ whenToUse: 声明任何事「完成 / 通过 / 没问题」之前。
 
 **教训**：垫片本身要有自检（`expect(typeof localStorage.setItem).toBe('function')`）。
 
+### 2b. 类型检查其实没覆盖源码
+
+`vue-tsc --noEmit` 用根 `tsconfig.json`（空的项目引用壳）= **什么都没检查**。
+实测：往 `src/core/state.ts` 塞 `const x: number = "字符串"`，它照样退出 0。
+
+**必须写成 `vue-tsc --noEmit -p tsconfig.app.json`。**
+修好之后立刻抓出：缺导入、类型不符、多处未使用的导出。
+
+**教训**：声明「有类型检查」之前，先**故意塞一个类型错误**看它抓不抓得到。
+
 ### 3. 「数字变了」≠「有 bug」
 
 曾把「刷新后故事块从 9 变 5」断定成重复渲染，改了两版**越改越错**
