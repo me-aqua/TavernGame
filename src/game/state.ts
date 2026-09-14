@@ -145,11 +145,32 @@ export function endTurn(s: GameState): string {
 
 // ---------- 给模型看的快照 ----------
 
+/** 上游节点**本轮**的产出：节点名 + 它的产出原文 */
+export interface UpstreamOutput {
+  /** 产出它的节点名（拼进段落标题） */
+  node: string
+  /** 该节点本轮的产出原文 —— 原样累加，引擎不改写 */
+  output: string
+}
+
+/** contextFor 的输入：公共部分要的对话历史 + 本轮上游产出 */
+export interface ContextOptions {
+  /** 最近几轮对话（刷新后为空，快照会回退到日志） */
+  history?: ChatMessage[]
+  /** 本轮上游产出，**按拓扑顺序**给；不传或为空表示这是第一个节点 */
+  upstream?: UpstreamOutput[]
+}
+
 /**
- * 世界状态快照 —— 模型了解现状的主要途径。
- * @param history 最近几轮对话（刷新后为空，会回退到日志）
+ * 一个节点这一轮的上下文 = 公共部分 + 本轮上游累加（doc/DESIGN.md 第四节、决定 #26/#36）。
+ *
+ * 公共部分 = 世界状态快照，所有节点拿到的完全一样；上游产出按调用方给的顺序累加，
+ * 每段用节点名起一个标题。
+ *
+ * ⚠️ 拿不到上游产出时**不猜、不编占位符**（第四节那条纪律）：没传上游、传了空数组、
+ *    或某条没有产出，都只是「没有这一段」—— 不替它写任何话，也不留空标题。
  */
-export function snapshot(s: GameState, history: ChatMessage[] = []): string {
+export function contextFor(s: GameState, options: ContextOptions = {}): string {
   const place = sceneOf(s)
   const lines = [
     t('snapshot.turn', { turn: turn(s) }),
@@ -158,7 +179,7 @@ export function snapshot(s: GameState, history: ChatMessage[] = []): string {
     t('snapshot.sceneDescription', { text: place.description }),
   ]
 
-  const recent = history.filter((h) => h && typeof h.content === 'string').slice(-4)
+  const recent = (options.history ?? []).filter((h) => h && typeof h.content === 'string').slice(-4)
   if (recent.length) {
     lines.push('', t('snapshot.recent'))
     for (const h of recent) {
@@ -191,7 +212,23 @@ export function snapshot(s: GameState, history: ChatMessage[] = []): string {
     lines.push('', t('snapshot.timeline'), ...timelineLines)
   }
 
+  for (const upstream of options.upstream ?? []) {
+    // 空产出 / 缺字段 = 这个节点本轮没有结论可传：跳过它，而不是替它编一段
+    const node = upstream?.node
+    const output = upstream?.output
+    if (!node || !output) continue
+    lines.push('', t('snapshot.upstreamNode', { node }), output)
+  }
+
   return lines.join('\n')
+}
+
+/**
+ * 世界状态快照 —— 模型了解现状的主要途径。等于「没有上游」时的上下文。
+ * @param history 最近几轮对话（刷新后为空，会回退到日志）
+ */
+export function snapshot(s: GameState, history: ChatMessage[] = []): string {
+  return contextFor(s, { history })
 }
 
 // ---------- 存档 ----------

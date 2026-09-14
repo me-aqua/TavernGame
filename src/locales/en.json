@@ -178,7 +178,8 @@
     "sceneDescription": "    {text}",
     "recentLine": "- {who}: {text}",
     "timelineLine": "- {to} ({reason})",
-    "timelineLineNoReason": "- {to}"
+    "timelineLineNoReason": "- {to}",
+    "upstreamNode": "### Upstream output this round: {node}"
   },
   "save": {
     "notValid": "Not a valid save file",

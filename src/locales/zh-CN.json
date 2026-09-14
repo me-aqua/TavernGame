@@ -178,7 +178,8 @@
     "sceneDescription": "　　{text}",
     "recentLine": "- {who}：{text}",
     "timelineLine": "- {to}（{reason}）",
-    "timelineLineNoReason": "- {to}"
+    "timelineLineNoReason": "- {to}",
+    "upstreamNode": "### 本轮上游产出：{node}"
   },
   "save": {
     "notValid": "这不是有效的存档文件",
