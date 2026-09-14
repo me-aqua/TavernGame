@@ -31,8 +31,8 @@ import noNarrationEn from 'virtual:prompt/en/tool-calls-without-narration'
 import connectionTestZh from 'virtual:prompt/zh-CN/connection-test'
 import connectionTestEn from 'virtual:prompt/en/connection-test'
 
-import type { GameState } from '../game/GameState'
 import type { ChatMessage } from '../types/state'
+import type { AgentContext } from './agent'
 
 /**
  * 解码提示词：虚拟模块导出的就是**纯 base64 字符串**（无注释、无包装）。
@@ -98,12 +98,12 @@ export function toolsPrompt(): string {
  * 历法与工具说明都是动态的（换历法、加工具时不一样），
  * 所以在这里装配，而不是写死在提示词文件里。
  */
-export function buildSystemPrompt(state: GameState, history: ChatMessage[] = []): string {
+export function buildSystemPrompt(world: AgentContext, history: ChatMessage[] = []): string {
   const lang = locale()
   return renderPrompt(TEMPLATES.system[lang], {
     TOOLS: toolsPrompt(),
     CALENDAR: renderPrompt(TEMPLATES.calendar[lang]),
-    SNAPSHOT: state.snapshot(history),
+    SNAPSHOT: world.snapshot(history),
   })
 }
 

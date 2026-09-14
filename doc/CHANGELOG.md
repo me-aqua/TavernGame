@@ -27,7 +27,7 @@
 - **标准前端项目结构**（此前根目录散着 index.html / core/ / assets/ / 4 个 .md）
   - `src/game/` 游戏实体 · `src/agent/` 模型侧 · `src/utils/` 纯函数 ·
     `src/stores/` 状态桥接 · `src/components/` 界面
-  - 分层约定见 doc/DESIGN.md 决定 #21：**界面 = f(GameState)**，
+  - 分层约定见 doc/DESIGN.md 决定 #21：**界面 = f(state)**，
     Vue 只出现在 `src/stores/`（实体与模型侧都能在 Node 里直接测）
   - `src/types/state.ts` —— 存档字段的**唯一真相**（以前只存在于注释里）
   - `public/` 静态资源（about.html 与头像，构建时原样拷贝）

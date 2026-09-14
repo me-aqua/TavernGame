@@ -5,8 +5,9 @@
  * 所以每个用例开头都「resetGame」清空（它同时清空消息流与历史）。
  */
 import { beforeEach, describe, expect, it } from 'vitest'
+import { watchEffect } from 'vue'
 import { useGame } from '../src/stores/game'
-import { GameState } from '../src/game/GameState'
+import { initialState, hydrateFromSave, turn } from '../src/game/state'
 import { SAVE_KEY } from '../src/utils/storage'
 import { saveConfig } from '../src/agent/config'
 import { hourToSegment, SEGMENTS } from '../src/utils/calendar'
@@ -141,7 +142,9 @@ describe('the three entry points that swap state', () => {
     g.resetGame()
     expect(g.turn.value).toBe(0)
     expect(g.messages.value).toHaveLength(0)
-    expect(GameState.open(localStorage).turn).toBe(0)
+    const reloaded = initialState()
+    hydrateFromSave(reloaded, localStorage)
+    expect(turn(reloaded)).toBe(0)
   })
 
   it('export -> resetGame -> import: the turn count comes back', async () => {
@@ -189,5 +192,66 @@ describe('loadAtStartup', () => {
   it('startup error is null when there is no save', () => {
     localStorage.removeItem(SAVE_KEY)
     expect(useGame().startupError).toBeNull()
+  })
+})
+
+describe('reactivity: the UI updates when the domain mutates the data', () => {
+  /**
+   * ⚠️ 这是纯函数方案的**新风险**所在：领域函数原地改它拿到的对象，
+   * 前提是那个对象是 `reactive()` 的**代理**。传原对象（toRaw）不会报错，
+   * 但界面静默不更新 —— 没有任何类型能拦住它。
+   *
+   * 所以这里不测「函数改了数据」（那只证明函数对），而是测**读到 DOM 上**：
+   * 挂一个真组件，跑一个回合（工具会推进时间），断言渲染出来的时间变了。
+   */
+  it('a turn that advances time updates what a component renders', async () => {
+    fake = installFakeLlm([
+      { content: WAKE_REPLY, toolCalls: [{ name: 'advance_time', arguments: '{"step":1,"unit":"day"}' }] },
+      DONE_REPLY,
+    ])
+    const g = useGame()
+    const seen: string[] = []
+    // 组件读什么，就监视什么（computed 是它渲染时读的那个值）
+    const stop = watchEffect(() => seen.push(g.timeLabel.value))
+
+    const before = g.timeLabel.value
+    await g.runTurnAction(OPEN_EYES)
+    const after = g.timeLabel.value
+
+    expect(after, '时间必须真的推进了，否则这条测试是空的').not.toBe(before)
+    expect(seen, 'computed 必须在推进后重算（这才是「界面会更新」）').toContain(after)
+    expect(seen.length, '不能只求值一次').toBeGreaterThan(1)
+    stop()
+  })
+
+  it('the transcript the UI renders changes when the domain appends a line', async () => {
+    fake = installFakeLlm([WAKE_REPLY])
+    const g = useGame()
+    const counts: number[] = []
+    const stop = watchEffect(() => counts.push(g.messages.value.length))
+
+    expect(counts.length).toBe(1)
+    await g.runTurnAction(OPEN_EYES)
+
+    expect(counts.length, 'messages 变化必须触发重新求值').toBeGreaterThan(1)
+    expect(counts.at(-1)).toBe(g.messages.value.length)
+    stop()
+  })
+})
+
+describe('append: the one-line entry point components use', () => {
+  /**
+   * App.vue 通过它写系统提示（调试开关、开场失败、导入结果）。
+   * 它是 store 暴露给组件的唯一「追加一行」入口，不能只靠别的路径间接覆盖。
+   */
+  it('adds a line of the requested kind to the transcript', () => {
+    const g = useGame()
+    g.append('system', 'a system line')
+    g.append('error', 'an error line', { raw: 'raw payload' })
+
+    const last = g.messages.value.slice(-2)
+    expect(last.map((l) => l.kind)).toEqual(['system', 'error'])
+    expect(last.map((l) => l.text)).toEqual(['a system line', 'an error line'])
+    expect(last[1].raw).toBe('raw payload')
   })
 })

@@ -1,26 +1,37 @@
 /**
  * src/stores/turn.ts —— 回合编排
  *
- * 把「跑一个回合」从 store 里拆出来：它只管 agent 循环与事件转译，
- * 不持有状态（状态都从参数传进来）。
+ * 只管 agent 循环与事件转译，**不认识领域数据的形状**：
+ * 它需要的五种操作（记日志 / 追加消息 / 结束回合 / 出快照 / 落盘）都由调用方传进来。
+ * 这样它既能被 store 用（带响应式 + 存储），也能被离线脚本用（假存储）。
  *
  * ⚠️ 重入保护的道理：一次只能跑一个回合。没有它的时候，模型正在写故事时
- * 点「重来」/「导入」，会同时跑两个回合 —— 旧回合的 addLog/advanceTime/save
+ * 点「重来」/「导入」，会同时跑两个回合 —— 旧回合的日志/时间/落盘
  * 全作用在**新游戏**上，于是新存档里混进旧剧情、回合数对不上。
+ *
+ * ⚠️ 落盘在回合**成功之后**由这里调用，引擎（agent.ts）不碰存储：
+ * 数据不该知道怎么落盘。取消/失败时内存里的改动不落盘，与原有语义一致。
  */
 
 import { t } from '../i18n'
 import { runTurn, type AgentEvent } from '../agent/agent'
-import type { GameState } from '../game/GameState'
 import type { ChatMessage } from '../types/state'
+import type { GameState, StoryLine } from '../game/state'
 import type { Ref } from 'vue'
-import type { StoryLine } from './game'
 
 interface TurnDeps {
-  /** 当前存档（读的是 store 的响应式代理） */
-  game: () => GameState
+  /** 当前这一局的数据（引擎与工具会原地改它） */
+  state: GameState
+  /** 记一条日志 */
+  addLog: (kind: 'action' | 'narration' | 'system', text: string) => void
   /** 往叙事流追加一行 */
-  append: (kind: StoryLine['kind'], text: string, extra?: Partial<StoryLine>) => void
+  appendMessage: (kind: StoryLine['kind'], text: string, extra?: Partial<StoryLine>) => void
+  /** 回合 +1 */
+  endTurn: () => void
+  /** 世界状态快照（拼提示词用） */
+  snapshot: (history: ChatMessage[]) => string
+  /** 落盘；失败必须让玩家看到 */
+  save: () => boolean
   /** 对话历史（回合间共享） */
   history: Ref<ChatMessage[]>
   /** 是否有回合在飞 */
@@ -30,10 +41,11 @@ interface TurnDeps {
 }
 
 /** 造一组回合动作（闭包持有中止用的 controller） */
-export function createTurnRunner({ game, append, history, running, debugMode }: TurnDeps): {
+export function createTurnRunner(deps: TurnDeps): {
   runTurnAction: (action?: string) => Promise<void>
   abortRunningTurn: () => void
 } {
+  const { state, addLog, appendMessage, endTurn, snapshot, save, history, running, debugMode } = deps
   let controller: AbortController | null = null
 
   /** 中止在飞的回合；没有则什么也不做 */
@@ -47,25 +59,25 @@ export function createTurnRunner({ game, append, history, running, debugMode }: 
   function handleEvent(evt: AgentEvent) {
     switch (evt.type) {
       case 'narration':
-        append('narration', evt.text)
+        appendMessage('narration', evt.text)
         break
       case 'raw':
         if (debugMode.value) {
           const count = evt.reply.toolCalls.length
-          append('tool', t('store.rawReply', { count }), {
+          appendMessage('tool', t('store.rawReply', { count }), {
             raw: JSON.stringify(evt.reply.raw, null, 2),
           })
         }
         break
       case 'tool':
         // args 是协议原样给的 JSON 字符串，直接展示（它就是模型实际发出的内容）
-        append('tool', t('toolbar.toolCall', { tool: evt.tool, args: evt.args }))
+        appendMessage('tool', t('toolbar.toolCall', { tool: evt.tool, args: evt.args }))
         break
       case 'toolResult':
-        append('tool', t('store.toolResultLine', { result: evt.result }))
+        appendMessage('tool', t('store.toolResultLine', { result: evt.result }))
         break
       case 'warn':
-        append('warn', t('store.warnLine', { message: evt.message }))
+        appendMessage('warn', t('store.warnLine', { message: evt.message }))
         break
       case 'thinking':
         break
@@ -79,24 +91,23 @@ export function createTurnRunner({ game, append, history, running, debugMode }: 
   async function runTurnAction(action?: string): Promise<void> {
     if (running.value) return
     running.value = true
-    if (action) append('action', action)
+    if (action) appendMessage('action', action)
 
     controller = new AbortController()
     try {
-      const result = await runTurn(game(), {
-        action,
-        history: history.value,
-        signal: controller.signal,
-        onEvent: handleEvent,
-      })
+      const result = await runTurn(
+        { state, addLog, endTurn, snapshot },
+        { action, history: history.value, signal: controller.signal, onEvent: handleEvent },
+      )
       history.value = result.history
-      if (!result.text) append('system', t('store.noText'))
+      if (!result.text) appendMessage('system', t('store.noText'))
+      if (!save()) appendMessage('warn', t('agent.saveFailed'))
     } catch (err) {
       const e = err as Error
       if (e.name === 'AbortError') {
-        append('system', t('store.cancelled'))
+        appendMessage('system', t('store.cancelled'))
       } else {
-        append('error', t('store.failed', { message: e.message }))
+        appendMessage('error', t('store.failed', { message: e.message }))
       }
       throw err // 交给调用方决定要不要提示
     } finally {

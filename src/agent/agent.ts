@@ -30,8 +30,28 @@ import {
 } from './prompts'
 import { loadConfig } from './config'
 import type { ChatMessage } from '../types/state'
-import type { GameState } from '../game/GameState'
+import type { GameState } from '../game/state'
 import type { ChatReply, ToolCallRequest, ToolSchema } from './llm'
+
+/**
+ * 引擎干活需要的东西：**纯数据** + 几个领域动作。
+ *
+ * ⚠️ 故意不接「类」也不接存储：
+ *   · state 是纯数据（game/state.ts 的 GameState），工具要改它（advanceTime）
+ *   · 三个动作由调用方注入 —— 引擎不知道叙事流怎么存、更不知道存档怎么写
+ * 这样同一个引擎既能在界面里跑（响应式代理 + 真 localStorage），
+ * 也能在脚本里跑（手写数据 + 假存储）。
+ */
+export interface AgentContext {
+  /** 当前这一局的数据（工具会原地改它） */
+  state: GameState
+  /** 记一条日志 */
+  addLog: (kind: 'action' | 'narration' | 'system', text: string) => void
+  /** 回合 +1 */
+  endTurn: () => void
+  /** 世界状态快照，拼提示词用 */
+  snapshot: (history: ChatMessage[]) => string
+}
 
 /** agent 循环里抛给界面的事件（界面据此实时渲染） */
 export type AgentEvent =
@@ -68,8 +88,8 @@ interface TurnOptions {
  * system 消息交给 prompts.buildSystemPrompt —— 因为历法说明是动态的
  * （玩家用哪套历法，说明就不同），不便在这里写死。
  */
-function buildMessages(state: GameState, history: ChatMessage[], userContent: string): ChatMessage[] {
-  const messages: ChatMessage[] = [{ role: 'system', content: buildSystemPrompt(state, history) }]
+function buildMessages(ctx: AgentContext, history: ChatMessage[], userContent: string): ChatMessage[] {
+  const messages: ChatMessage[] = [{ role: 'system', content: buildSystemPrompt(ctx, history) }]
 
   // 最近几轮对话，提供连贯性
   for (const h of history.slice(-6)) {
@@ -105,7 +125,7 @@ type StepOutcome =
 /**
  * 跑一个回合。
  */
-export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise<TurnResult> {
+export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promise<TurnResult> {
   const { action, history = [], signal, onEvent = () => {}, tools = toolSchemas() } = opts
   const cfg = loadConfig()
   const maxSteps = Math.max(1, cfg.maxAgentSteps || 8)
@@ -117,9 +137,9 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
   // 先把玩家的行动记入日志。
   // 必须在拼装消息之前做 —— snapshot() 会读日志，这样模型就能看到
   // 玩家刚说了什么（而不是只看到一堆历史数值）。
-  state.addLog(action ? 'action' : 'system', action || t('agent.newAdventure'))
+  ctx.addLog(action ? 'action' : 'system', action || t('agent.newAdventure'))
 
-  const messages = buildMessages(state, history, userContent)
+  const messages = buildMessages(ctx, history, userContent)
   const toolResults: string[] = []
   const narrations: string[] = []
   let stepCount = 0
@@ -153,7 +173,7 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
     })
 
     for (const call of outcome.calls) {
-      const result = executeToolCall(state, call, onEvent)
+      const result = executeToolCall(ctx.state, call, onEvent)
       toolResults.push(`[${call.name}] ${result}`)
       // 工具结果必须以 role:'tool' + tool_call_id 回传，模型才能对应上
       messages.push({ role: 'tool', tool_call_id: call.id, content: result })
@@ -177,13 +197,10 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
   // 把本回合的叙事写进日志，供刷新后恢复。
   // 没有这一步的话，存档只有数值、没有故事 —— 刷新页面就只剩一个裸的状态栏。
   if (narrations.length) {
-    state.addLog('narration', narrations.join('\n\n'))
+    ctx.addLog('narration', narrations.join('\n\n'))
   }
 
-  state.endTurn()
-  if (!state.save()) {
-    onEvent({ type: 'warn', message: t('agent.saveFailed') })
-  }
+  ctx.endTurn()
 
   // 维护对话历史（供下一回合拼接）
   const appended: ChatMessage[] = [

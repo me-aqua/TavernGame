@@ -23,8 +23,14 @@ export interface StorageLike {
 /** 存档键。不带版本号：格式变了靠形状校验拒绝，不靠键名 */
 export const SAVE_KEY = 'tavernGame.save'
 
-/** 存档的读写；GameState 通过它落盘，测试可以传一个空实现 */
-export interface GameStore {
+/** 落盘的最小接口：领域动作只依赖它，不依赖整个读写器 */
+export interface SaveStore {
+  /** 写存档：返回是否成功（失败必须让玩家看到） */
+  save(data: GameData): boolean
+}
+
+/** 完整的存档读写器（读档 + 落盘） */
+export interface GameStore extends SaveStore {
   /** 读存档：没有返回 null；存在但读不出来抛错（调用方提示玩家） */
   load(): unknown | null
   /** 写存档：返回是否成功（失败必须让玩家看到） */

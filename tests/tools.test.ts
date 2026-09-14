@@ -14,8 +14,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { runTool, TOOLS, toolSchemas } from '../src/agent/tools'
 import { i18n, t } from '../src/i18n'
-import { GameState } from '../src/game/GameState'
-import { createInitialState } from '../src/game/save'
+import * as game from '../src/game/state'
 
 beforeAll(() => {
   i18n.global.locale.value = 'zh-CN'
@@ -23,7 +22,7 @@ beforeAll(() => {
 
 /** 每个用例一个干净状态 */
 function fresh() {
-  return new GameState(createInitialState())
+  return game.initialState()
 }
 
 /** The 'tool missing' message for a given name, built from the locale table */
@@ -91,17 +90,17 @@ describe('runTool', () => {
 
   it('empty arguments are valid (step has a default)', () => {
     const state = fresh()
-    const before = Date.parse(state.iso)
+    const before = Date.parse(game.iso(state))
     // 成功文案带着时钟标记（locale 提供）
     expect(runTool(state, 'advance_time', '{}')).toContain(resultMarker('advanceResult'))
-    expect(Date.parse(state.iso) - before).toBe(4 * 3600000)
+    expect(Date.parse(game.iso(state)) - before).toBe(4 * 3600000)
   })
 
   it('valid JSON arguments execute normally', () => {
     const state = fresh()
-    const before = Date.parse(state.iso)
+    const before = Date.parse(game.iso(state))
     runTool(state, 'advance_time', '{"step":3,"unit":"day","reason":"slept three days"}')
-    expect(Date.parse(state.iso) - before).toBe(3 * 86400000)
+    expect(Date.parse(game.iso(state)) - before).toBe(3 * 86400000)
   })
 
   it('malformed JSON returns an error message for the model to retry (no throw)', () => {
@@ -128,14 +127,14 @@ describe('runTool', () => {
     // *retryable* error rather than silently picking a unit.
     for (const bad of ['lightyear', 'days', 'HOUR']) {
       const state = fresh()
-      const before = state.iso
+      const before = game.iso(state)
       const out = runTool(state, 'advance_time', `{"step":1,"unit":"${bad}"}`)
       // 这条错误文案由 utils/calendar.ts 的 advanceTime 直接拼英文（不走 locale 表：
       // 它是给模型看的结构化提示）。这里断言实际契约：拒绝 + 列出可用单位。
       expect(out, `unit "${bad}" must be rejected`).toContain('Unknown time unit')
       expect(out, `unit "${bad}" must be rejected`).toContain(bad)
       expect(out, `unit "${bad}" must be rejected`).toContain('segment')
-      expect(state.iso, `unit "${bad}" must not change the time`).toBe(before)
+      expect(game.iso(state), `unit "${bad}" must not change the time`).toBe(before)
     }
   })
 
@@ -148,7 +147,7 @@ describe('runTool', () => {
     const out = runTool(state, 'advance_time', '{"step":1}')
     expect(out).toContain(resultMarker('advanceFailed')) // the warning marker
     expect(out).not.toContain(resultMarker('advanceResult')) // no clock means no successful jump
-    expect(state.iso).toBe('not-a-valid-time')
+    expect(game.iso(state)).toBe('not-a-valid-time')
   })
 
   it('the tool table holds only advance_time and no prompt content', () => {

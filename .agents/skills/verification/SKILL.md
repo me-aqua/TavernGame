@@ -28,7 +28,7 @@ whenToUse: 声明任何事「完成 / 通过 / 没问题」之前。
 ### 2b. 类型检查其实没覆盖源码
 
 `vue-tsc --noEmit` 用根 `tsconfig.json`（空的项目引用壳）= **什么都没检查**。
-实测：往 `src/game/GameState.ts` 塞 `const x: number = "字符串"`，它照样退出 0。
+实测：往 `src/game/state.ts` 塞 `const x: number = "字符串"`，它照样退出 0。
 
 **必须写成 `vue-tsc --noEmit -p tsconfig.app.json`。**
 修好之后立刻抓出：缺导入、类型不符、多处未使用的导出。

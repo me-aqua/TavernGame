@@ -8,10 +8,8 @@
  *   - 回合没产出文字时的提示分支
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { effect, reactive } from 'vue'
 import { useGame } from '../src/stores/game'
 import { saveConfig } from '../src/agent/config'
-import { GameState } from '../src/game/GameState'
 import { t } from '../src/i18n'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 
@@ -138,39 +136,13 @@ describe('a notice when the turn produced nothing', () => {
 })
 
 /**
- * 响应式边界：引擎是纯类，追踪由 store 的 reactive 容器提供。
+ * 响应式边界：领域函数原地改数据，追踪由 store 的 reactive 代理提供。
  *
- * ⚠️ 这几条是回归测试。改成 shallowRef + triggerRef 就要求每个改动点都记得
- * 手动触发，漏一处的表现是「界面不更新」—— 那种 bug 没有任何测试会变红，
- * 除非有人专门守住「引擎改数据、界面自己变」这条性质。
+ * ⚠️ 「引擎改数据 → 界面自己变」这条性质由 tests/store.test.ts 的
+ *    reactivity 用例守着（那里经变异测试验证过：把代理换成 toRaw 就会红）。
+ *    这里只留「不需要手动通知就能看到时间线」这一条。
  */
-describe('deep reactivity: the engine mutates, the UI follows', () => {
-  it('a nested mutation through a class method is tracked without triggerRef', () => {
-    const holder = reactive({ game: GameState.open(localStorage) })
-    const seen: number[] = []
-    effect(() => {
-      seen.push(holder.game.turn)
-    })
-
-    // ⚠️ 走 holder.game（代理），因为生产代码里引擎拿到的就是代理：
-    //    store 传给 runTurn 的是 store.game，方法内部的 this 也是代理。
-    //    直接调原对象会绕过代理 —— 那样测的是「Vue 的已知行为」，不是我们的用法。
-    holder.game.endTurn()
-    expect(seen).toEqual([0, 1])
-  })
-
-  it('replacing the whole instance is tracked too (import / reset path)', () => {
-    const holder = reactive({ game: GameState.open(localStorage) })
-    const seen: number[] = []
-    effect(() => {
-      seen.push(holder.game.turn)
-    })
-
-    holder.game.endTurn()
-    holder.game = new GameState() // 换一份新存档（读档 / 重来 / 导入都走这条）
-    expect(seen).toEqual([0, 1, 0])
-  })
-
+describe('the store timeline updates without manual notification', () => {
   it('addLog from the engine shows up in the store timeline without manual notification', async () => {
     fake = installFakeLlm([{ content: WAIT_REPLY, toolCalls: ADVANCE_STEP_REPLY.toolCalls }, DAWN_REPLY])
     const g = useGame()
@@ -178,5 +150,36 @@ describe('deep reactivity: the engine mutates, the UI follows', () => {
     const pending = g.runTurnAction(WAIT_ACTION)
     await vi.waitFor(() => expect(g.timeline.value.length).toBeGreaterThan(0))
     await pending
+  })
+})
+
+describe('a save that fails must be announced (the store owns persistence)', () => {
+  /**
+   * ⚠️ 落盘归组合根（引擎不碰存储），所以这条用例住在 store 而不是 agent：
+   * 回合成功后 store 调 save()，返回 false 时必须让玩家看见 ——
+   * 静默失败会让玩家以为进度已保存，刷新后才发现没了。
+   */
+  it('a failed save appends a warning line to the transcript', async () => {
+    fake = installFakeLlm([DAWN_REPLY])
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError')
+    })
+
+    const g = useGame()
+    await g.runTurnAction(WAIT_ACTION)
+
+    const warns = g.messages.value.filter((l) => l.kind === 'warn')
+    expect(warns.map((w) => w.text)).toContain(t('agent.saveFailed'))
+
+    spy.mockRestore()
+  })
+
+  it('a successful save does not produce that warning', async () => {
+    fake = installFakeLlm([DAWN_REPLY])
+    const g = useGame()
+    await g.runTurnAction(WAIT_ACTION)
+
+    const warns = g.messages.value.filter((l) => l.kind === 'warn')
+    expect(warns.map((w) => w.text)).not.toContain(t('agent.saveFailed'))
   })
 })

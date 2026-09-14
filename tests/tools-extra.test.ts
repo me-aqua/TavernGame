@@ -10,8 +10,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { runTool } from '../src/agent/tools'
-import { GameState } from '../src/game/GameState'
-import { createInitialState } from '../src/game/save'
+import * as game from '../src/game/state'
 import { t } from '../src/i18n'
 
 /** 非法时刻 fixture（存档被手改成这种值时走的就是这条路径） */
@@ -31,9 +30,9 @@ const ADVANCE_OK_MARKER = t('tools.advanceResult', { before: '', after: '' }).sp
 
 describe('advance_time with an invalid time', () => {
   it('returns the advance-failed line (caught inside state.advanceTime, never thrown to runTool)', () => {
-    const state = new GameState(createInitialState())
+    const state = game.initialState()
     state.data.time.iso = INVALID_TIME
-    const current = state.timeLabel
+    const current = game.timeLabel(state)
 
     const out = runTool(state, 'advance_time', '{"step":1}')
     expect(out).toBe(t('tools.advanceFailed', { message: INVALID_TIME_ERROR, current }))
@@ -41,18 +40,18 @@ describe('advance_time with an invalid time', () => {
   })
 
   it('treats an empty arguments string as {} (the tool takes no required params)', () => {
-    const state = new GameState(createInitialState())
-    const before = state.timeLabel
+    const state = game.initialState()
+    const before = game.timeLabel(state)
 
     const out = runTool(state, 'advance_time', '')
-    expect(out).toContain(t('tools.advanceResult', { before, after: state.timeLabel }))
+    expect(out).toContain(t('tools.advanceResult', { before, after: game.timeLabel(state) }))
   })
 
   it('advances successfully from a valid time', () => {
-    const state = new GameState(createInitialState())
-    const before = state.timeLabel
+    const state = game.initialState()
+    const before = game.timeLabel(state)
 
     const out = runTool(state, 'advance_time', '{"step":1}')
-    expect(out).toContain(t('tools.advanceResult', { before, after: state.timeLabel }))
+    expect(out).toContain(t('tools.advanceResult', { before, after: game.timeLabel(state) }))
   })
 })

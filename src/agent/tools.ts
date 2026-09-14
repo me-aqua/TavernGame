@@ -17,7 +17,8 @@
 
 import { t } from '../i18n'
 import { TIME_UNITS } from '../utils/calendar'
-import type { GameState } from '../game/GameState'
+import { advanceTime } from '../game/state'
+import type { GameState } from '../game/state'
 import type { ToolSchema } from './llm'
 
 interface ToolDef {
@@ -27,8 +28,8 @@ interface ToolDef {
 /** 工具的实现。说明文字在 prompts/，参数契约在下面的 toolSchemas()。 */
 export const TOOLS: Record<string, ToolDef> = {
   advance_time: {
-    /** 时间推进；参数把关在 state.advanceTime（系统边界） */
-    run: (state, a) => state.advanceTime(a.step, a.unit, typeof a.reason === 'string' ? a.reason : ''),
+    /** 时间推进；参数把关在 utils/calendar.ts 的 advanceTime（系统边界） */
+    run: (state, a) => advanceTime(state, a.step, a.unit, typeof a.reason === 'string' ? a.reason : ''),
   },
 }
 

@@ -18,9 +18,23 @@ import {
   toolCallsWithoutNarration,
   connectionTestPrompt,
 } from '../src/agent/prompts'
-import { GameState } from '../src/game/GameState'
-import { createInitialState } from '../src/game/save'
+import * as game from '../src/game/state'
+import type { AgentContext } from '../src/agent/agent'
+import type { ChatMessage } from '../src/types/state'
 import { i18n, t } from '../src/i18n'
+
+/**
+ * buildSystemPrompt 现在接的是 AgentContext（state + 三个动作），不再直接接 GameState。
+ * 测试只需要 snapshot 那条路径，其余动作给最小实现 —— 这样提示词装配可以单独测。
+ */
+function testContext(s: game.GameState): AgentContext {
+  return {
+    state: s,
+    addLog: (kind, text) => game.addLog(s, kind, text),
+    endTurn: () => void game.endTurn(s),
+    snapshot: (history: ChatMessage[]) => game.snapshot(s, history),
+  }
+}
 
 // 测试直接读源文件：断言的是**内容本身**（与 src/agent/prompts.ts 取的语言一致）
 // 注意：提示词按语言分目录（prompts/<lang>/），路径必须带语言段。
@@ -101,8 +115,8 @@ describe('renderPrompt', () => {
 
 describe('assembled prompt', () => {
   it('collapses runs of blank lines (what the model sees must be clean)', () => {
-    const state = new GameState(createInitialState())
-    const prompt = buildSystemPrompt(state, [])
+    const state = game.initialState()
+    const prompt = buildSystemPrompt(testContext(state), [])
     expect(prompt).not.toMatch(/\n{3,}/)
     expect(toolsPrompt()).not.toMatch(/\n{3,}/)
   })
@@ -114,21 +128,21 @@ describe('assembled prompt', () => {
   })
 
   it('buildSystemPrompt splices in the tools, the calendar and the world state', () => {
-    const state = new GameState(createInitialState())
-    const prompt = buildSystemPrompt(state, [])
+    const state = game.initialState()
+    const prompt = buildSystemPrompt(testContext(state), [])
     expect(prompt).toContain('advance_time')
     expect(prompt).toContain(calendarMarkdown.trim())
     for (const heading of systemHeadings) {
       expect(prompt).toContain(heading)
     }
     expect(prompt).toContain(t('snapshot.turn', { turn: 0 }))
-    expect(prompt).toContain(state.timeLabel)
+    expect(prompt).toContain(game.timeLabel(state))
     expect(prompt).not.toMatch(/\{\{[A-Z_]+\}\}/)
   })
 
   it('shows recent events in the snapshot when a history is passed in', () => {
-    const state = new GameState(createInitialState())
-    const prompt = buildSystemPrompt(state, [
+    const state = game.initialState()
+    const prompt = buildSystemPrompt(testContext(state), [
       { role: 'user', content: PLAYER_ACTION },
       { role: 'assistant', content: GM_REPLY },
     ])
@@ -178,16 +192,16 @@ describe('model language follows the UI language', () => {
    * 提示词正文其实一直写死 zh-CN。所以这里必须断言**正文本身**。
    */
   it('switches the whole system prompt body when the locale changes', () => {
-    const state = new GameState(createInitialState())
+    const state = game.initialState()
     const set = (v: string) => ((i18n.global.locale as unknown as { value: string }).value = v)
 
     set('zh-CN')
-    const zh = buildSystemPrompt(state)
+    const zh = buildSystemPrompt(testContext(state))
     const zhTools = toolsPrompt()
     const zhSnapshotTurn = t('snapshot.turn', { turn: 0 })
 
     set('en')
-    const en = buildSystemPrompt(state)
+    const en = buildSystemPrompt(testContext(state))
     const enTools = toolsPrompt()
     const enSnapshotTurn = t('snapshot.turn', { turn: 0 })
 

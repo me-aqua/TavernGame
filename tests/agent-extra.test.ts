@@ -1,29 +1,40 @@
 /**
  * agent.ts 补充测试 —— 覆盖未走到的分支。
  *
- * 重点：存档写入失败时玩家必须收到警告（绝不静默）。
+ * 重点：开场分支、催稿分支（tool_call_id 那条）。
+ *（「落盘失败要出声」归组合根 stores/turn.ts，用例在 tests/store-extra.test.ts。）
  *
  * Message assertions go through t('key') so they prove the key is wired and this
  * file stays ASCII-only; fixtures are ASCII constants.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GameState } from '../src/game/GameState'
-import { createInitialState } from '../src/game/save'
-import { runTurn, type AgentEvent } from '../src/agent/agent'
+import { initialState, addLog, endTurn, snapshot, type GameState } from '../src/game/state'
+import { runTurn, type AgentContext, type AgentEvent } from '../src/agent/agent'
 import { saveConfig } from '../src/agent/config'
 import { t } from '../src/i18n'
 import { forcedNarrationInstruction, toolCallsWithoutNarration } from '../src/agent/prompts'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 
 /** ASCII fixtures */
-const REPLY_DONE = 'Done writing.'
 const REPLY_WAKE = 'You wake up in an inn.'
 const REPLY_FORCED = 'The forced narration.'
-const ACTION_SOMETHING = 'do something'
 const ACTION_WAIT = 'wait a bit'
 
-/** The warning the agent must emit when the save cannot be written */
-const SAVE_FAILED = t('agent.saveFailed')
+/** 造一份干净数据 + 引擎要的上下文（引擎接纯数据 + 动作，不接类） */
+function freshGame(): AgentContext {
+  const state = initialState()
+  return {
+    state,
+    addLog: (kind, text) => addLog(state, kind, text),
+    endTurn: () => void endTurn(state),
+    snapshot: (history) => snapshot(state, history),
+  }
+}
+
+/** ctx 里的那一局（断言用） */
+function stateOf(ctx: AgentContext): GameState {
+  return ctx.state
+}
 
 let fake: FakeLlm | null = null
 
@@ -43,45 +54,17 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('a failed save must be announced', () => {
-  it('save() returning false emits a warning event (instead of continuing silently)', async () => {
-    fake = installFakeLlm([REPLY_DONE])
-    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
-      throw new Error('QuotaExceededError')
-    })
-
-    const state = new GameState({ storage: localStorage })
-    const events: AgentEvent[] = []
-    await runTurn(state, { action: ACTION_SOMETHING, onEvent: (e) => events.push(e) })
-
-    const warnings = events.filter((e) => e.type === 'warn')
-    expect(warnings.some((w) => w.type === 'warn' && w.message === SAVE_FAILED)).toBe(true)
-
-    spy.mockRestore()
-  })
-
-  it('a successful save does not emit that warning', async () => {
-    fake = installFakeLlm([REPLY_DONE])
-    const state = new GameState(createInitialState())
-    const events: AgentEvent[] = []
-    await runTurn(state, { action: ACTION_SOMETHING, onEvent: (e) => events.push(e) })
-
-    const warnings = events.filter((e) => e.type === 'warn')
-    expect(warnings.some((w) => w.type === 'warn' && w.message === SAVE_FAILED)).toBe(false)
-  })
-})
-
 describe('opening branch (no action passed)', () => {
   it('logs as system and sends the opening instruction instead of a player action', async () => {
     fake = installFakeLlm([REPLY_WAKE])
-    const state = new GameState(createInitialState())
+    const ctx = freshGame()
     const events: AgentEvent[] = []
 
-    const result = await runTurn(state, { onEvent: (e) => events.push(e) })
+    const result = await runTurn(ctx, { onEvent: (e) => events.push(e) })
 
     expect(result.text).toBe(REPLY_WAKE)
     // 日志的第一条是 system（而非 action）
-    expect(state.data.log[0].kind).toBe('system')
+    expect(stateOf(ctx).data.log[0].kind).toBe('system')
     // 发给模型的第一条 user 消息带开场指令的前缀
     const firstUser = fake.calls[0].body.messages?.find((m) => m.role === 'user')
     const gameStartPrefix = t('agent.gameStart', { instruction: '' }).split('{')[0]
@@ -97,9 +80,9 @@ describe('choosing the forced-narration instruction', () => {
   it('uses the "narration only" nudge when a tool was already called (tool_call_id branch)', async () => {
     const invocation = { toolCalls: [{ name: 'advance_time', arguments: '{"step":1}' }] }
     fake = installFakeLlm([invocation, invocation, invocation, invocation, invocation, REPLY_FORCED])
-    const state = new GameState(createInitialState())
+    const ctx = freshGame()
 
-    const result = await runTurn(state, { action: ACTION_WAIT })
+    const result = await runTurn(ctx, { action: ACTION_WAIT })
 
     expect(result.text).toBe(REPLY_FORCED)
     // 最后一次请求的末尾应是催稿指令，且该次请求**不带 tools**

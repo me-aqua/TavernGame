@@ -11,8 +11,8 @@
  * silence these checks and this file stays ASCII-only.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { GameState } from '../src/game/GameState'
-import { createInitialState } from '../src/game/save'
+import * as game from '../src/game/state'
+import { localStorageStore } from '../src/utils/storage'
 import { SAVE_KEY } from '../src/utils/storage'
 import { realCalendar, segmentName } from '../src/utils/calendar'
 import { t } from '../src/i18n'
@@ -53,22 +53,22 @@ const dayReason = (i: number) => `day ${i}`
 
 /** 每个用例一个干净状态 */
 function fresh() {
-  return new GameState(createInitialState())
+  return game.initialState()
 }
 
 describe('constructor and getters', () => {
   it('falls back to the initial state when no argument is passed (the ?? branch)', () => {
-    const s = new GameState()
-    expect(s.turn).toBe(0)
+    const s = game.initialState()
+    expect(game.turn(s)).toBe(0)
     expect(s.data.player.name).toBe(t('player.defaultName'))
   })
 
   it('scene and the short time label are readable', () => {
     const s = fresh()
     expect(s.data.player).toEqual({ name: t('player.defaultName') })
-    expect(s.scene.name).toBe(t('scene.unknownPlace'))
+    expect(game.sceneOf(s).name).toBe(t('scene.unknownPlace'))
     // 简短时间标签直接用历法格式化：GameState 不再包一层同名 getter（避免两份真值来源）
-    expect(realCalendar.formatShort(s.iso)).toMatch(SHORT_TIME_LABEL)
+    expect(realCalendar.formatShort(game.iso(s))).toMatch(SHORT_TIME_LABEL)
   })
 })
 
@@ -96,7 +96,7 @@ describe('segmentName - the three segment branches', () => {
 describe('addLog - trimming at the limit', () => {
   it('drops from the head past MAX_LOG (80), keeping the last 80 entries', () => {
     const s = fresh()
-    for (let i = 0; i < 100; i += 1) s.addLog('narration', logText(i))
+    for (let i = 0; i < 100; i += 1) game.addLog(s, 'narration', logText(i))
 
     expect(s.data.log).toHaveLength(80)
     // 保留的是最后 80 条：第 20 条在最前，第 99 条在最后
@@ -108,7 +108,7 @@ describe('addLog - trimming at the limit', () => {
 describe('advanceTime - timeline branches', () => {
   it('truncates the timeline from the head past MAX_TIMELINE (40)', () => {
     const s = fresh()
-    for (let i = 0; i < 50; i += 1) s.advanceTime(1, 'day', dayReason(i))
+    for (let i = 0; i < 50; i += 1) game.advanceTime(s, 1, 'day', dayReason(i))
 
     expect(s.data.timeline).toHaveLength(40)
     expect(s.data.timeline.at(-1)?.reason).toBe(dayReason(49))
@@ -116,9 +116,9 @@ describe('advanceTime - timeline branches', () => {
 
   it('a jump beyond 180 days no longer reports the elapsed time', () => {
     const s = fresh()
-    const before = s.timeLabel
-    const out = s.advanceTime(1, 'year', A_YEAR_APART)
-    const after = s.timeLabel
+    const before = game.timeLabel(s)
+    const out = game.advanceTime(s, 1, 'year', A_YEAR_APART)
+    const after = game.timeLabel(s)
     // LONG_JUMP_MS 阈值：超过半年就不显示 elapsed
     expect(out).not.toContain(ELAPSED_PREFIX)
     expect(out).toContain(t('tools.advanceResult', { before, after }))
@@ -127,17 +127,17 @@ describe('advanceTime - timeline branches', () => {
 
   it('omits the reason line when no reason is passed', () => {
     const s = fresh()
-    const out = s.advanceTime(1, 'day')
+    const out = game.advanceTime(s, 1, 'day')
     expect(out).not.toContain(REASON_LABEL)
   })
 
   it('with 3 or more timeline entries, only advances of 4 hours or more are worth recording', () => {
     const s = fresh()
     // 先塞满 3 条（这几条无论跨度多小都会被记，因为 timeline.length < 3）
-    for (let i = 0; i < 3; i += 1) s.advanceTime(1, 'day')
+    for (let i = 0; i < 3; i += 1) game.advanceTime(s, 1, 'day')
     const before = s.data.timeline.length
     // 1 小时 < 4 小时，且已有 >=3 条 → 不值得记
-    s.advanceTime(1, 'hour')
+    game.advanceTime(s, 1, 'hour')
     expect(s.data.timeline).toHaveLength(before)
   })
 })
@@ -145,7 +145,7 @@ describe('advanceTime - timeline branches', () => {
 describe('snapshot - branches', () => {
   it('uses history when present, tagged with the player/GM roles', () => {
     const s = fresh()
-    const snap = s.snapshot([
+    const snap = game.snapshot(s, [
       { role: 'user', content: PLAYER_ACTION },
       { role: 'assistant', content: GM_REPLY },
     ])
@@ -156,16 +156,16 @@ describe('snapshot - branches', () => {
 
   it('falls back to the log when there is no history', () => {
     const s = fresh()
-    s.addLog('narration', LOG_LINE)
-    const snap = s.snapshot([])
+    game.addLog(s, 'narration', LOG_LINE)
+    const snap = game.snapshot(s, [])
     expect(snap).toContain(t('snapshot.recent'))
     expect(snap).toContain(LOG_LINE)
   })
 
   it('collapses long text to one line and truncates it to 160 characters', () => {
     const s = fresh()
-    s.addLog('narration', LONG_TEXT)
-    const snap = s.snapshot([])
+    game.addLog(s, 'narration', LONG_TEXT)
+    const snap = game.snapshot(s, [])
     // 截断到 160 字（替换空白后）
     expect(snap).toContain(LONG_TEXT.slice(0, 160))
     expect(snap).not.toContain(LONG_TEXT.slice(0, 161))
@@ -173,8 +173,8 @@ describe('snapshot - branches', () => {
 
   it('appends the reason in parentheses when the timeline entry has one', () => {
     const s = fresh()
-    s.advanceTime(1, 'week', WAITED_SEVEN_DAYS)
-    const snap = s.snapshot([])
+    game.advanceTime(s, 1, 'week', WAITED_SEVEN_DAYS)
+    const snap = game.snapshot(s, [])
     expect(snap).toContain(t('snapshot.timeline'))
     expect(snap).toContain(
       t('snapshot.timelineLine', { to: s.data.timeline[0].to, reason: WAITED_SEVEN_DAYS }),
@@ -184,12 +184,12 @@ describe('snapshot - branches', () => {
   it('skips timeline entries with an empty to; no heading when every entry is empty', () => {
     const s = fresh()
     s.data.timeline = [{ from: 'a', to: '', reason: '', elapsedMs: 0, at: '' }] as never
-    expect(s.snapshot([])).not.toContain(t('snapshot.timeline'))
+    expect(game.snapshot(s, [])).not.toContain(t('snapshot.timeline'))
   })
 
   it('with no log and no history the snapshot has only turn / time / place', () => {
     const s = fresh()
-    const snap = s.snapshot([])
+    const snap = game.snapshot(s, [])
     expect(snap).not.toContain(t('snapshot.recent'))
     expect(snap).not.toContain(t('snapshot.timeline'))
   })
@@ -199,35 +199,39 @@ describe('import - rejection branches', () => {
   it('rejects non-objects, a missing player, and a player that is not an object', () => {
     const s = fresh()
     for (const bad of ['[]', '"a string"', 'null', '{}', '{"player": 1}', '{"player": null}']) {
-      expect(() => s.importFile(bad), `should reject: ${bad}`).toThrow(t('save.notValid'))
+      expect(() => game.importFile(s, bad, localStorageStore(localStorage)), `should reject: ${bad}`).toThrow(
+        t('save.notValid'),
+      )
     }
   })
 
   it('throws a parse error on broken JSON', () => {
     const s = fresh()
-    expect(() => s.importFile(BROKEN_JSON)).toThrow()
+    expect(() => game.importFile(s, BROKEN_JSON, localStorageStore(localStorage))).toThrow()
   })
 })
 
 describe('save / reset', () => {
   it('save returns false on failure (private mode)', () => {
-    const s = new GameState({ storage: localStorage })
+    const s = game.initialState()
+    const store = localStorageStore(localStorage)
     const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceededError')
     })
-    expect(s.save()).toBe(false)
+    expect(game.save(s, store)).toBe(false)
     spy.mockRestore()
   })
 
   it('reset writes back a fresh initial state', () => {
-    const s = new GameState({ storage: localStorage })
-    s.addLog('narration', OLD_STORY)
-    s.advanceTime(3, 'day')
-    s.reset()
+    const s = game.initialState()
+    const store = localStorageStore(localStorage)
+    game.addLog(s, 'narration', OLD_STORY)
+    game.advanceTime(s, 3, 'day')
+    game.reset(s, store)
 
     expect(s.data.log).toHaveLength(0)
     expect(s.data.timeline).toHaveLength(0)
-    expect(s.turn).toBe(0)
+    expect(game.turn(s)).toBe(0)
     expect(localStorage.getItem(SAVE_KEY)).toBeTruthy()
   })
 })
