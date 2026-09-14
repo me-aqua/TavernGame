@@ -124,13 +124,28 @@ function pickTurn(v: unknown): number {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0
 }
 
-/** 新游戏的初始状态（场景名与描述留空，由界面按当前语言现取） */
-export function createInitialState(): GameData {
+/**
+ * 新游戏第一帧里由调用方给的开局事实（决定 #42）。
+ *
+ * 形状归这里、事实来自卡（`openingOf(card)` 的结果正好是这个形状）；字段缺省时
+ * 回到形状自己的默认值 —— 调用方没给就是这个字段没有来源，不替它猜。
+ */
+export interface OpeningFacts {
+  /** 起始时刻（ISO）；缺省 = 当前时刻 */
+  iso?: string
+  /** 初始场景名；缺省 = 空串（界面按当前语言现取） */
+  sceneName?: string
+  /** 主控名；缺省 = i18n 的默认名 */
+  playerName?: string
+}
+
+/** 新游戏的初始状态：形状在这里，开局事实（时刻 / 场景 / 名字）由调用方给 */
+export function createInitialState(opening: OpeningFacts = {}): GameData {
   return {
     meta: { turn: 0 },
-    player: { name: t('player.defaultName') },
-    scene: { name: '', description: '' },
-    time: { iso: nowIso() },
+    player: { name: opening.playerName || t('player.defaultName') },
+    scene: { name: opening.sceneName ?? '', description: '' },
+    time: { iso: opening.iso ?? nowIso() },
     events: [],
     timeline: [],
   }

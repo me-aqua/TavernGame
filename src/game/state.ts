@@ -25,6 +25,8 @@
 
 import { realCalendar, advanceTime as advanceTimeFor } from '../utils/calendar'
 import { parseSave, createInitialState, normalize, isStoryKind, trimEvents, MAX_TIMELINE } from './save'
+import { openingOf } from './opening'
+import { currentCard } from './current-card'
 import { localStorageStore, backupBrokenSave, type SaveStore, type StorageLike } from '../utils/storage'
 import { t } from '../i18n'
 import type { ChatMessage, EventKind, GameData } from '../types/state'
@@ -41,8 +43,13 @@ export interface GameState {
   loadError: string | null
 }
 
+/** 新游戏的第一帧：形状来自 save.ts，开局事实来自当前卡（决定 #42） */
+function freshGame(): GameData {
+  return createInitialState(openingOf(currentCard))
+}
+
 export function initialState(): GameState {
-  return { data: createInitialState(), loadError: null }
+  return { data: freshGame(), loadError: null }
 }
 
 // ---------- 读 ----------
@@ -250,7 +257,7 @@ export function exportFile(s: GameState): string {
 
 /** 重置为新开局并立刻落盘 */
 export function reset(s: GameState, store: SaveStore): void {
-  s.data = createInitialState()
+  s.data = freshGame()
   save(s, store)
 }
 

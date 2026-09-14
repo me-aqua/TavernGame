@@ -8,6 +8,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { watchEffect } from 'vue'
 import { isDevHost, readStoredDebug, resolveDebug, storeDebug, useGame } from '../src/stores/game'
 import { initialState, hydrateFromSave, turn } from '../src/game/state'
+import { openingOf } from '../src/game/opening'
+import { currentCard } from '../src/game/current-card'
 import { SAVE_KEY } from '../src/utils/storage'
 import { hourToSegment, SEGMENTS } from '../src/utils/calendar'
 import { t } from '../src/i18n'
@@ -68,7 +70,8 @@ describe('derived state (what the sidebar reads)', () => {
       t(`calendar.segment.${SEGMENTS[hourToSegment(at.getHours())]}`)
     expect(g.timeLabel.value).toBe(label)
     expect(g.turn.value).toBe(0)
-    expect(g.scene.value.name).toBe(t('scene.unknownPlace'))
+    // 侧栏显示的场景名来自卡：新游戏的第一帧由卡决定（决定 #42）
+    expect(g.scene.value.name).toBe(openingOf(currentCard).sceneName)
     expect(g.timeline.value).toEqual([])
   })
 

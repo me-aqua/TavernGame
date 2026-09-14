@@ -8,11 +8,19 @@
  */
 import { expect, test, type Page } from '@playwright/test'
 import { CONFIG, DEBUG_KEY, LANG_KEY, NARRATION, openApp, saveWith, translate, watchErrors } from './fixtures'
+// 只读卡的 JSON 与键名常量：不 import 应用模块（那条链会拖进 i18n 的 .json，
+// Playwright 的 ESM 加载器需要 import attribute，而 Vite 构建不需要）
+import cardJson from '../cards/morningwind.json' with { type: 'json' }
+import * as K from '../src/game/card-keys'
 
 /** 浅色主题的页面底色（与 src/styles/main.css 的 token 对应） */
 const LIGHT_BG = 'rgb(242, 244, 247)'
 /** 时间标签的形状由历法决定，这里只看形状，不写死具体日期 */
 const TIME_PATTERN = /^\d{4} 年 \d+ 月 \d+ 日 · 星期[日一二三四五六] · (上午|下午|晚上)$/
+/** 新游戏的场景名来自卡的开局（决定 #42）—— 期望值从卡里现读，不抄一份 */
+const CARD_SCENE = (
+  cardJson as unknown as Record<string, Record<string, Record<string, Record<string, string>>>>
+)[K.KEY_DECL][K.KEY_OPENING][K.KEY_START][K.KEY_SCENE]
 
 const watched = new WeakMap<Page, { runtimeErrors: string[]; badResponses: string[] }>()
 
@@ -38,7 +46,8 @@ test.describe('第一屏', () => {
 
     // 状态浮层：时间、地点、回合都收在一小块里
     const pill = page.locator('aside')
-    await expect(pill.locator('.scene-name')).toContainText(await translate(page, 'scene.unknownPlace'))
+    // 新游戏的场景名来自卡的开局（决定 #42）—— 不再是「未知地点」那句 i18n 兜底
+    await expect(pill.locator('.scene-name')).toContainText(CARD_SCENE)
     await expect(pill.locator('[data-turn]')).toHaveText('0')
     // 侧栏在手机与桌面上是两种排布，:visible 只取当前那一份
     await expect(page.locator('.time-display:visible')).toHaveText(TIME_PATTERN)

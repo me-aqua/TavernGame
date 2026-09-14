@@ -15,6 +15,8 @@ import * as game from '../src/game/state'
 import { localStorageStore } from '../src/utils/storage'
 import { SAVE_KEY } from '../src/utils/storage'
 import { realCalendar, segmentName } from '../src/utils/calendar'
+import { openingOf } from '../src/game/opening'
+import { currentCard } from '../src/game/current-card'
 import { t } from '../src/i18n'
 import { SEGMENT_NAMES, SHORT_TIME_LABEL, ELAPSED_PREFIX, REASON_LABEL } from './support/locale-patterns'
 import { createGame } from './support/game-fixtures'
@@ -44,9 +46,19 @@ describe('constructor and getters', () => {
   it('scene and the short time label are readable', () => {
     const s = createGame()
     expect(s.data.player).toEqual({ name: t('player.defaultName') })
-    expect(game.sceneOf(s).name).toBe(t('scene.unknownPlace'))
+    // 新游戏的场景名来自卡（决定 #42）：有名字就原样用，不再落到 locale 兜底
+    expect(game.sceneOf(s).name).toBe(openingOf(currentCard).sceneName)
     // 简短时间标签直接用历法格式化：GameState 不再包一层同名 getter（避免两份真值来源）
     expect(realCalendar.formatShort(game.iso(s))).toMatch(SHORT_TIME_LABEL)
+  })
+
+  it('sceneOf falls back to the locale when the save carries no scene', () => {
+    const s = createGame()
+    s.data.scene = { name: '', description: '' }
+    expect(game.sceneOf(s)).toEqual({
+      name: t('scene.unknownPlace'),
+      description: t('scene.unknownPlaceDesc'),
+    })
   })
 })
 

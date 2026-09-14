@@ -116,6 +116,9 @@ export const KEY_ORDER = '\u5e8f\u53f7'
 
 // ---------- 开局与位置 ----------
 
+/** 起始时刻（开局就要用；卡里写成 YYYY-MM-DDTHH:mm） */
+export const KEY_START_TIME = '\u8d77\u59cb\u65f6\u523b'
+
 /** {区域, 地点, 场景} */
 export const KEY_START = '\u521d\u59cb\u4f4d\u7f6e'
 
@@ -127,6 +130,12 @@ export const KEY_PLACE = '\u5730\u70b9'
 
 /** 叙事舞台 */
 export const KEY_SCENE = '\u573a\u666f'
+
+/** 可让玩家起名 —— 这一阶段只声明，还没有消费者 */
+export const KEY_CAN_NAME = '\u53ef\u8ba9\u73a9\u5bb6\u8d77\u540d'
+
+/** 默认名 —— 卡没给（空串）时由界面按当前语言兜底 */
+export const KEY_DEFAULT_NAME = '\u9ed8\u8ba4\u540d'
 
 // ---------- 状态 schema ----------
 
@@ -199,6 +208,9 @@ export const CN_ONE = '\u4e00'
 
 /** 汉字数字 2（「两个」的写法） */
 export const CN_TWO = '\u4e24'
+
+/** 汉字数字 2 的另一种写法「二」—— 「十二」「二十」用它（「两」是口语写法） */
+export const CN_TWO_PLAIN = '\u4e8c'
 
 /** 汉字数字 3 */
 export const CN_THREE = '\u4e09'

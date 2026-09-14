@@ -14,10 +14,12 @@ import {
   KEY_AREA,
   KEY_BLOCK,
   KEY_CALENDAR,
+  KEY_CAN_NAME,
   KEY_CARD,
   KEY_CARRY,
   KEY_CONVENTION,
   KEY_DECL,
+  KEY_DEFAULT_NAME,
   KEY_DISPLAY,
   KEY_DUTY,
   KEY_FORMAT,
@@ -47,6 +49,7 @@ import {
   KEY_SIDEBAR,
   KEY_STAGES,
   KEY_START,
+  KEY_START_TIME,
   KEY_STATE,
   KEY_TIER,
   KEY_TOPOLOGY,
@@ -354,10 +357,42 @@ describe('validateCard: world and schema', () => {
     expectRejected(card, KEY_DECL + '.' + KEY_WORLD + '.' + KEY_CALENDAR)
   })
 
+  it('rejects an opening block that is missing a fact the engine reads', () => {
+    for (const key of [KEY_START_TIME, KEY_START, KEY_CAN_NAME, KEY_DEFAULT_NAME]) {
+      const card = fixture()
+      delete decl(card)[KEY_OPENING][key]
+      expectRejected(card, KEY_DECL + '.' + KEY_OPENING)
+    }
+  })
+
+  it('rejects an opening time that is not a YYYY-MM-DDTHH:mm instant', () => {
+    const empty = fixture()
+    decl(empty)[KEY_OPENING][KEY_START_TIME] = ''
+    expectRejected(empty, KEY_DECL + '.' + KEY_OPENING + '.' + KEY_START_TIME)
+    const written = fixture()
+    decl(written)[KEY_OPENING][KEY_START_TIME] = 'tomorrow evening'
+    expectRejected(written, KEY_DECL + '.' + KEY_OPENING + '.' + KEY_START_TIME)
+  })
+
   it('rejects a start position with the wrong key set', () => {
     const card = fixture()
     decl(card)[KEY_OPENING][KEY_START] = { [KEY_AREA]: 'a', [KEY_PLACE]: 'b' }
     expectRejected(card, KEY_DECL + '.' + KEY_OPENING + '.' + KEY_START)
+  })
+
+  it('rejects a non-boolean name prompt or a non-text default name', () => {
+    const asked = fixture()
+    decl(asked)[KEY_OPENING][KEY_CAN_NAME] = 'yes'
+    expectRejected(asked, KEY_DECL + '.' + KEY_OPENING + '.' + KEY_CAN_NAME)
+    const named = fixture()
+    decl(named)[KEY_OPENING][KEY_DEFAULT_NAME] = 7
+    expectRejected(named, KEY_DECL + '.' + KEY_OPENING + '.' + KEY_DEFAULT_NAME)
+  })
+
+  it('accepts an empty default name (the player then gets the locale fallback)', () => {
+    const card = fixture()
+    decl(card)[KEY_OPENING][KEY_DEFAULT_NAME] = ''
+    expect(validateCard(card)).toBeDefined()
   })
 
   it('rejects a player block without a usable profile', () => {

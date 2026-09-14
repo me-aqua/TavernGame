@@ -23,6 +23,17 @@
 import { isRecord } from './save'
 /** 卡格式的键名与标点 —— 源码必须 ASCII，转义都收在 card-keys 里 */
 import * as K from './card-keys'
+import {
+  at,
+  fail,
+  requireRecord,
+  requireArray,
+  requireText,
+  requireTextList,
+  checkKeys,
+  chineseNumber,
+} from './card-read'
+import { checkSettingCount, checkStateNote } from './card-notes'
 
 /** 通过校验的卡数据：顶层 4 键都在，各块按卡格式解释 */
 export type CardData = Record<string, unknown>
@@ -36,37 +47,14 @@ const CARD_ID = /^[a-z0-9-]+\.[a-z0-9-]+$/
 /** 卡版本：semver（主.次.修订，后面可跟 -预发布 / +构建） */
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 
+/** 卡里的起始时刻写法：YYYY-MM-DDTHH:mm（本地时刻，不带时区 —— 决定 #42） */
+const START_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/
+
 /** 引擎认识的历法 —— 日期算法按它选 */
 const CALENDARS = new Set(['real'])
 
 /** 数值字段的类型标记（schema 里「类型」的值） */
 const TYPE_NUMBER = 'number'
-
-/** 汉字数字字符集 —— 解析「五个地点」这类声明 */
-const NUMERALS =
-  K.CN_ONE +
-  K.CN_TWO +
-  K.CN_THREE +
-  K.CN_FOUR +
-  K.CN_FIVE +
-  K.CN_SIX +
-  K.CN_SEVEN +
-  K.CN_EIGHT +
-  K.CN_NINE +
-  K.CN_TEN
-
-/** 单个汉字数字 → 数值（「十」的组合在 chineseNumber 里处理） */
-const DIGITS: Record<string, number> = {
-  [K.CN_ONE]: 1,
-  [K.CN_TWO]: 2,
-  [K.CN_THREE]: 3,
-  [K.CN_FOUR]: 4,
-  [K.CN_FIVE]: 5,
-  [K.CN_SIX]: 6,
-  [K.CN_SEVEN]: 7,
-  [K.CN_EIGHT]: 8,
-  [K.CN_NINE]: 9,
-}
 
 /** 声明必须齐备的六个键 —— 顺序不限，顺序由拓扑说了算 */
 const DECLARATION_KEYS = [
@@ -87,67 +75,8 @@ const NOTE_KEYS = [K.KEY_STATE, K.KEY_SCRIPT, K.KEY_OPENING]
 /** 图里的节点只有这三个键 —— 位置由拓扑定，没有 id，也没有序号 */
 const NODE_KEYS = [K.KEY_NODE_NAME, K.KEY_DUTY, K.KEY_OUTPUT]
 
-/** 路径拼接：父路径 + 一级键名（顶层传空串，于是路径就是键名本身） */
-function at(base: string, key: string): string {
-  return base ? base + '.' + key : key
-}
-
-/** 校验失败：抛错并带上卡里的 JSON 路径 —— 绝不静默纠正 */
-function fail(path: string, reason: string): never {
-  throw new Error(path ? 'card ' + path + ': ' + reason : 'card: ' + reason)
-}
-
-/** 取一个必须是对象的字段 */
-function requireRecord(parent: Record<string, unknown>, key: string, base: string): Record<string, unknown> {
-  const value = parent[key]
-  if (!isRecord(value)) fail(at(base, key), 'must be an object')
-  return value
-}
-
-/** 取一个必须是数组的字段 */
-function requireArray(parent: Record<string, unknown>, key: string, base: string): unknown[] {
-  const value = parent[key]
-  if (!Array.isArray(value)) fail(at(base, key), 'must be an array')
-  return value
-}
-
-/** 取一个非空字符串字段 */
-function requireText(parent: Record<string, unknown>, key: string, base: string): string {
-  const value = parent[key]
-  if (typeof value !== 'string' || value.length === 0) fail(at(base, key), 'must be a non-empty string')
-  return value
-}
-
-/** 取一个非空的字符串数组字段（空行合法 —— 提示词里本来就有空行） */
-function requireTextList(parent: Record<string, unknown>, key: string, base: string): string[] {
-  const value = requireArray(parent, key, base)
-  if (value.length === 0) fail(at(base, key), 'must not be empty')
-  if (!value.every((line) => typeof line === 'string')) fail(at(base, key), 'must be an array of strings')
-  return value
-}
-
-/** 键集必须正好是这些键：少一个、多一个都拒（没人读的键多半是写错了名字） */
-function checkKeys(record: Record<string, unknown>, keys: string[], base: string): void {
-  for (const key of keys) {
-    if (!Object.hasOwn(record, key)) fail(base, 'missing key "' + key + '"')
-  }
-  for (const key of Object.keys(record)) {
-    if (!keys.includes(key)) fail(at(base, key), 'unknown key')
-  }
-}
-
-/** 读出文本里的第一个汉字数字（1–99：一 / 十 / 十二 / 二十）；读不出来返回 null */
-function chineseNumber(text: string): number | null {
-  const match = new RegExp('[' + NUMERALS + ']+').exec(text)
-  if (!match) return null
-  const written = match[0]
-  const ten = written.indexOf(K.CN_TEN)
-  if (ten < 0) return written.length === 1 ? (DIGITS[written] ?? null) : null
-  const tens = ten === 0 ? 1 : (DIGITS[written[ten - 1]] ?? null)
-  const ones = ten === written.length - 1 ? 0 : (DIGITS[written[ten + 1]] ?? null)
-  if (tens === null || ones === null) return null
-  return tens * 10 + ones
-}
+/** 开局块的四个键 —— 引擎读哪几个，这里就守哪几个（决定 #42） */
+const OPENING_KEYS = [K.KEY_START_TIME, K.KEY_START, K.KEY_CAN_NAME, K.KEY_DEFAULT_NAME]
 
 /** 顶层 4 键：一个不少、都是对象，且没有不认识的键（没人读的块多半是写错了名字） */
 function checkTopLevel(card: Record<string, unknown>): void {
@@ -267,16 +196,28 @@ function checkNodePrompts(card: Record<string, unknown>, ids: string[]): void {
   }
 }
 
-/** 声明.开局.初始位置：键集必须正好是 {区域, 地点, 场景} */
+/**
+ * 声明.开局：四样事实齐备、类型对得上，初始位置的键集正好是 {区域, 地点, 场景}。
+ *
+ * 起始时刻只收具体时刻 —— 「now」那种写法（设计里记过）没有消费者，先不开这个口子。
+ */
 function checkOpening(card: Record<string, unknown>): void {
   const decl = requireRecord(card, K.KEY_DECL, '')
   const opening = requireRecord(decl, K.KEY_OPENING, K.KEY_DECL)
   const base = at(K.KEY_DECL, K.KEY_OPENING)
+  checkKeys(opening, OPENING_KEYS, base)
+  const written = requireText(opening, K.KEY_START_TIME, base)
+  if (!START_TIME.test(written)) fail(at(base, K.KEY_START_TIME), 'must look like 2026-09-14T19:30')
   const start = requireRecord(opening, K.KEY_START, base)
   const wanted = [K.KEY_AREA, K.KEY_PLACE, K.KEY_SCENE].sort().join(' ')
   if (Object.keys(start).sort().join(' ') !== wanted) {
     const keys = K.KEY_AREA + ' / ' + K.KEY_PLACE + ' / ' + K.KEY_SCENE
     fail(at(base, K.KEY_START), 'keys must be exactly ' + keys)
+  }
+  if (typeof opening[K.KEY_CAN_NAME] !== 'boolean') fail(at(base, K.KEY_CAN_NAME), 'must be a boolean')
+  // 默认名允许空串：空串 = 卡没给名字，由调用方退回 i18n 兜底（决定 #42）
+  if (typeof opening[K.KEY_DEFAULT_NAME] !== 'string') {
+    fail(at(base, K.KEY_DEFAULT_NAME), 'must be a string (an empty one means "no default name")')
   }
 }
 
@@ -358,22 +299,6 @@ function checkDisplay(card: Record<string, unknown>): void {
   })
 }
 
-/** 节点约定里写死的「N 块设定」必须等于 提示词.设定的块数 */
-function checkSettingCount(lines: string[], count: number, base: string): void {
-  const declared: number[] = []
-  for (const line of lines) {
-    const match = new RegExp('[' + NUMERALS + ']+' + K.KEY_BLOCK).exec(line)
-    if (match) declared.push(chineseNumber(match[0]) ?? -1)
-  }
-  if (declared.length !== 1) {
-    fail(base, 'must declare the number of setting blocks exactly once (found ' + declared.length + ')')
-  }
-  if (declared[0] !== count) {
-    const real = at(K.KEY_PROMPT, K.KEY_SETTING)
-    fail(base, 'declares ' + declared[0] + ' setting blocks but ' + real + ' has ' + count)
-  }
-}
-
 /** 提示词.节点约定：非空的行数组，写死的「N 块设定」必须跟 提示词.设定 对得上 */
 function checkConvention(card: Record<string, unknown>): void {
   const prompts = requireRecord(card, K.KEY_PROMPT, '')
@@ -402,32 +327,6 @@ function checkGeneratorPlaces(card: Record<string, unknown>): void {
   if (declared !== places.length) {
     const real = worldBase + '.' + K.KEY_AREA + '[0].' + K.KEY_PLACES
     fail(where, 'says ' + declared + ' places but ' + real + ' has ' + places.length)
-  }
-}
-
-/** 说明.状态 里声明的「N 段：…」必须跟 声明.状态.角色 的键对得上（说明与 schema 不能各说各话） */
-function checkStateNote(card: Record<string, unknown>): void {
-  const notes = requireRecord(card, K.KEY_NOTES, '')
-  const note = requireText(notes, K.KEY_STATE, K.KEY_NOTES)
-  const where = at(K.KEY_NOTES, K.KEY_STATE)
-  const colon = note.indexOf(K.PUNCT_COLON)
-  if (colon < 0) fail(where, 'must list the segments after a "' + K.PUNCT_COLON + '"')
-  const period = note.indexOf(K.PUNCT_PERIOD, colon + 1)
-  if (period < 0) fail(where, 'the segment list must end with "' + K.PUNCT_PERIOD + '"')
-  const declared = chineseNumber(note.slice(0, colon))
-  if (declared === null) fail(where, 'no chinese numeral to check the segment count against')
-  const names = note
-    .slice(colon + 1, period)
-    .split('/')
-    .map((name) => name.trim())
-  if (declared !== names.length) fail(where, 'says ' + declared + ' segments but lists ' + names.length)
-  const state = requireRecord(requireRecord(card, K.KEY_DECL, ''), K.KEY_STATE, K.KEY_DECL)
-  const role = requireRecord(state, K.KEY_ROLE, at(K.KEY_DECL, K.KEY_STATE))
-  for (const name of names) {
-    if (!Object.hasOwn(role, name)) {
-      const real = at(at(K.KEY_DECL, K.KEY_STATE), K.KEY_ROLE)
-      fail(where, '"' + name + '" is not a key of ' + real)
-    }
   }
 }
 

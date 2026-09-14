@@ -48,6 +48,14 @@ const systemHeadings = systemMarkdown.split('\n').filter((line) => line.startsWi
 // 测试自己编的 fixture（玩家行动、模型回复）
 const PLAYER_ACTION = 'I go to the docks'
 const GM_REPLY = 'The sea wind tastes of salt.'
+/**
+ * 世界状态里的动态数据。
+ *
+ * ⚠️ 场景名由卡声明（决定 #42），卡的语言不一定等于界面语言 —— 「英文提示词是
+ *    ASCII」这条断言测的是**提示词正文**，所以动态数据在这里换成 ASCII 值。
+ */
+const SCENE_NAME = 'The Tavern Hall'
+const SCENE_DESCRIPTION = 'A hearth and a few empty tables.'
 
 describe('prompt files (prompts/)', () => {
   it('has no BOM, no invalid UTF-8 and no CRLF', () => {
@@ -179,6 +187,7 @@ describe('model language follows the UI language', () => {
    */
   it('switches the whole system prompt body when the locale changes', () => {
     const state = game.initialState()
+    state.data.scene = { name: SCENE_NAME, description: SCENE_DESCRIPTION }
     const set = (v: string) => ((i18n.global.locale as unknown as { value: string }).value = v)
 
     set('zh-CN')
@@ -203,8 +212,8 @@ describe('model language follows the UI language', () => {
     expect(en, 'en system must be ASCII English').not.toMatch(/[\u4e00-\u9fff]/)
 
     // 两边都必须带上工具名与世界状态（换语言不能丢掉结构）。
-    // ⚠️ 世界状态的文字本身也跟随语言（时间标签、场景名都走 t()），
-    //    所以这里用「各自语言下该有的那份」来断言，而不是同一个值。
+    // ⚠️ 快照里的**动态数据**不归 locale 管（场景名由卡声明，决定 #42），
+    //    所以这里用「各自语言下该有的那份」标签来断言，而不是同一个值。
     expect(zhTools).toContain('advance_time')
     expect(enTools).toContain('advance_time')
     expect(zh, 'the zh prompt must still carry the world-state heading').toContain(zhSnapshotTurn)

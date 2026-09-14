@@ -44,6 +44,11 @@
 - **回合生命周期显式化（阶段 5）** —— 新 `src/game/lifecycle.ts`：`idle` + 运行中四阶段
   （`prompting` / `executing` / `forcing` / `finishing`）+ 终态 `committed` / `rolled-back`
   是一张迁移表，非法转移当场抛错；状态行与输入禁用都变成这个状态的投影（决定 #41）
+- **开局与初始状态由卡生成（阶段 6a，决定 #42）** —— 新游戏的起始时刻 / 场景名 / 主控默认名
+  来自卡的 `声明.开局`：`src/game/opening.ts` 做字段映射（纯函数），
+  `src/game/current-card.ts` 静态 import 示例卡并在模块加载时校验（坏卡 = 启动即失败）；
+  `createInitialState()` 只保留「形状 + 默认值」职责。读档优先级不变（存档里有就用存档的）；
+  `可让玩家起名` 只声明、暂不消费，`GameData` 形状不变
 
 ### 修复
 - 示例卡《晨风镇》的 `常见物`：新加的【女人家的东西】里有 **7 个词已存在于别的表**
