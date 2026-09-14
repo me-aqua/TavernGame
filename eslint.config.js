@@ -6,7 +6,7 @@ import js from '@eslint/js'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 import pluginVue from 'eslint-plugin-vue'
-import commentStyle from './eslint-plugin-comment-style.js'
+import commentStyle from './tools/eslint-plugin-comment-style.js'
 
 export default tseslint.config(
   // 这些目录不是我们的源码，不该被 lint
