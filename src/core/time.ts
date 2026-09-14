@@ -12,23 +12,43 @@ import { realCalendar, type TimeUnit } from './calendar'
 
 /** 单位别名：模型很爱写复数、中文、大小写混用 */
 const UNIT_ALIASES: Record<string, TimeUnit> = {
-  segment: 'segment', segments: 'segment', 时段: 'segment',
-  hour: 'hour', hours: 'hour', hr: 'hour', hrs: 'hour', 小时: 'hour',
-  day: 'day', days: 'day', 天: 'day',
-  week: 'week', weeks: 'week', 周: 'week', 星期: 'week',
-  month: 'month', months: 'month', 月: 'month', 个月: 'month',
-  year: 'year', years: 'year', yr: 'year', yrs: 'year', 年: 'year',
+  segment: 'segment',
+  segments: 'segment',
+  时段: 'segment',
+  hour: 'hour',
+  hours: 'hour',
+  hr: 'hour',
+  hrs: 'hour',
+  小时: 'hour',
+  day: 'day',
+  days: 'day',
+  天: 'day',
+  week: 'week',
+  weeks: 'week',
+  周: 'week',
+  星期: 'week',
+  month: 'month',
+  months: 'month',
+  月: 'month',
+  个月: 'month',
+  year: 'year',
+  years: 'year',
+  yr: 'year',
+  yrs: 'year',
+  年: 'year',
 }
 
 const MAX_YEARS = 1000
 const YEARS_PER_UNIT: Record<TimeUnit, number> = {
-  segment: 4 / 8760, hour: 1 / 8760, day: 1 / 365,
-  week: 7 / 365, month: 1 / 12, year: 1,
+  segment: 4 / 8760,
+  hour: 1 / 8760,
+  day: 1 / 365,
+  week: 7 / 365,
+  month: 1 / 12,
+  year: 1,
 }
 
-export type AdvanceOutcome =
-  | { ok: true; iso: string; elapsedMs: number }
-  | { ok: false; message: string }
+export type AdvanceOutcome = { ok: true; iso: string; elapsedMs: number } | { ok: false; message: string }
 
 /**
  * 推进时间。
@@ -36,12 +56,7 @@ export type AdvanceOutcome =
  * @param unit 单位（外部输入）
  * @param currentLabel 当前时间标签，只用于错误文案
  */
-export function advanceTime(
-  iso: string,
-  step: unknown,
-  unit: unknown,
-  currentLabel: string,
-): AdvanceOutcome {
+export function advanceTime(iso: string, step: unknown, unit: unknown, currentLabel: string): AdvanceOutcome {
   const key = unit == null ? 'segment' : String(unit).trim().toLowerCase()
   const u = UNIT_ALIASES[key]
   if (!u) {

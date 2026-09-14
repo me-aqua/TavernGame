@@ -14,12 +14,18 @@ import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 let fake: FakeLlm | null = null
 
 beforeEach(() => {
-  saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://example.test/v1', model: 'm', maxAgentSteps: 5 })
+  saveConfig({
+    provider: 'custom',
+    apiKey: 'k',
+    apiBase: 'https://example.test/v1',
+    model: 'm',
+    maxAgentSteps: 5,
+  })
   useGame().重新开始()
 })
 
 /** 造一个已写完一回合的 store */
-async function 跑一回合(文本 = "你在客栈里醒来。") {
+async function 跑一回合(文本 = '你在客栈里醒来。') {
   fake = installFakeLlm([文本])
   const g = useGame()
   await g.执行回合('睁眼')

@@ -4,12 +4,13 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2023"],
-        "strict": true,
+    "strict": true,
     "noEmit": true,
     "isolatedModules": true,
     "moduleDetection": "force",
     "verbatimModuleSyntax": true,
     "skipLibCheck": true
   },
-  "include": ["vite.config.ts"]
+  // 所有构建/配置文件都要包含：否则类型感知 linting 找不到它们
+  "include": ["vite.config.ts", "vitest.config.ts", "eslint.config.js", "commitlint.config.js"]
 }

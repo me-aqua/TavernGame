@@ -58,8 +58,7 @@ export function installFakeLlm(replies: string[]): FakeLlm {
 /** 造一个非 2xx 的假响应（测错误分支） */
 export function installFakeLlmError(status: number, body: string): () => void {
   const original = globalThis.fetch
-  globalThis.fetch = (async () =>
-    new Response(body, { status, statusText: 'Error' })) as typeof fetch
+  globalThis.fetch = (async () => new Response(body, { status, statusText: 'Error' })) as typeof fetch
   return () => {
     globalThis.fetch = original
   }

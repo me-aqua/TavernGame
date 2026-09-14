@@ -53,14 +53,8 @@ export interface TurnOptions {
  * system 消息交给 prompts.buildSystemPrompt —— 因为历法说明是动态的
  * （玩家用哪套历法，说明就不同），不便在这里写死。
  */
-function buildMessages(
-  state: GameState,
-  history: ChatMessage[],
-  userContent: string,
-): ChatMessage[] {
-  const messages: ChatMessage[] = [
-    { role: 'system', content: buildSystemPrompt(state, history) },
-  ]
+function buildMessages(state: GameState, history: ChatMessage[], userContent: string): ChatMessage[] {
+  const messages: ChatMessage[] = [{ role: 'system', content: buildSystemPrompt(state, history) }]
 
   // 最近几轮对话，提供连贯性
   for (const h of history.slice(-6)) {
@@ -108,9 +102,7 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
   const cfg = loadConfig()
   const maxSteps = Math.max(1, cfg.maxAgentSteps || 8)
 
-  const userContent = action
-    ? `玩家的行动：${action}`
-    : `【游戏开始】\n${OPENING_INSTRUCTION}`
+  const userContent = action ? `玩家的行动：${action}` : `【游戏开始】\n${OPENING_INSTRUCTION}`
 
   // 先把玩家的行动记入日志。
   // 必须在拼装消息之前做 —— snapshot() 会读日志，这样模型就能看到
@@ -212,7 +204,10 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
   // 记录回合数并落盘
   state.endTurn()
   if (!state.save()) {
-    onEvent({ type: 'warn', message: '存档写入失败（可能是隐私模式或空间已满）—— 这一回合的进度重启后会丢失' })
+    onEvent({
+      type: 'warn',
+      message: '存档写入失败（可能是隐私模式或空间已满）—— 这一回合的进度重启后会丢失',
+    })
   }
 
   // 维护对话历史（供下一回合拼接）

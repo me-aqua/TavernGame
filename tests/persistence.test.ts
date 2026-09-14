@@ -6,8 +6,15 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  createInitialState, normalize, migrateLegacy, loadState, parseSave,
-  readSave, writeSave, SAVE_KEY, LEGACY_KEYS,
+  createInitialState,
+  normalize,
+  migrateLegacy,
+  loadState,
+  parseSave,
+  readSave,
+  writeSave,
+  SAVE_KEY,
+  LEGACY_KEYS,
 } from '../src/core/persistence'
 
 beforeEach(() => {
@@ -48,7 +55,11 @@ describe('readSave', () => {
 
 describe('migrateLegacy', () => {
   it('保留场景与回合数，时间从今天重新开始', () => {
-    const old = { meta: { turn: 7 }, scene: { name: '旧场景', description: '旧描述' }, log: [{ kind: 'narration', text: '旧的叙事' }] }
+    const old = {
+      meta: { turn: 7 },
+      scene: { name: '旧场景', description: '旧描述' },
+      log: [{ kind: 'narration', text: '旧的叙事' }],
+    }
     const migrated = migrateLegacy(old)
     expect(migrated.meta.turn).toBe(7)
     expect(migrated.scene.name).toBe('旧场景')

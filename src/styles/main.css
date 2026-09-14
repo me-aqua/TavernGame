@@ -7,28 +7,31 @@
  * ============================================================ */
 
 :root {
-  --bg:      #0d0f1a;
-  --panel:   #141828;
+  --bg: #0d0f1a;
+  --panel: #141828;
   --panel-2: #1b2035;
-  --accent:  #6ee7b7;
+  --accent: #6ee7b7;
   --accent2: #7dd3fc;
-  --warn:    #fbbf24;
-  --danger:  #f87171;
-  --text:    #e8ecf5;
-  --dim:     #8b95b0;
-  --faint:   #555e78;
-  --border:  rgba(110, 231, 183, 0.18);
-  --radius:  12px;
+  --warn: #fbbf24;
+  --danger: #f87171;
+  --text: #e8ecf5;
+  --dim: #8b95b0;
+  --faint: #555e78;
+  --border: rgba(110, 231, 183, 0.18);
+  --radius: 12px;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
-html, body {
+html,
+body {
   margin: 0;
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   /* 防止拖选文字影响操作（-webkit- 前缀兼容 Safari） */
   user-select: none;
@@ -36,12 +39,26 @@ html, body {
 }
 
 /* 输入框必须允许选中，否则没法编辑 */
-textarea, input { user-select: text; -webkit-user-select: text; }
+textarea,
+input {
+  user-select: text;
+  -webkit-user-select: text;
+}
 
 /* 用 100% 而不是 100vh：手机浏览器地址栏伸缩时 vh 会算错，导致底部被裁 */
-body { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
 
-#app { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
 
 /* ---------- 通用按钮 ---------- */
 button {
@@ -53,33 +70,75 @@ button {
   font-family: inherit;
   font-size: 13px;
   cursor: pointer;
-  transition: background 0.18s, transform 0.12s;
+  transition:
+    background 0.18s,
+    transform 0.12s;
   white-space: nowrap;
 }
-button:hover:not(:disabled) { background: rgba(110, 231, 183, 0.16); }
-button:active:not(:disabled) { transform: scale(0.97); }
-button:disabled { opacity: 0.4; cursor: not-allowed; }
+button:hover:not(:disabled) {
+  background: rgba(110, 231, 183, 0.16);
+}
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 button.primary {
   background: linear-gradient(180deg, rgba(110, 231, 183, 0.22), rgba(110, 231, 183, 0.08));
   font-weight: 600;
 }
-button.ghost { background: transparent; border-color: transparent; color: var(--dim); }
-button.ghost:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+button.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--dim);
+}
+button.ghost:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
 
 /* ---------- 通用布局 ---------- */
-.layout { display: grid; grid-template-columns: 1fr 280px; flex: 1; min-height: 0; }
-.main { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); }
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  flex: 1;
+  min-height: 0;
+}
+.main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+}
 
 /* ---------- 卡片 ---------- */
-.card { border: 1px solid var(--border); border-radius: var(--radius); padding: 13px; background: var(--panel-2); }
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 13px;
+  background: var(--panel-2);
+}
 .card h2 {
-  margin: 0 0 10px; font-size: 10.5px; font-weight: 600;
-  letter-spacing: 0.14em; color: var(--faint); text-transform: uppercase;
+  margin: 0 0 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--faint);
+  text-transform: uppercase;
 }
 
 /* ---------- 窄屏 ---------- */
 @media (max-width: 780px) {
-  .layout { grid-template-columns: 1fr; }
-  .main { border-right: none; }
-  .sidebar { max-height: 40vh; border-top: 1px solid var(--border); }
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  .main {
+    border-right: none;
+  }
+  .sidebar {
+    max-height: 40vh;
+    border-top: 1px solid var(--border);
+  }
 }

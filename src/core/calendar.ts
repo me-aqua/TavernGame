@@ -67,8 +67,10 @@ export const realCalendar: Calendar = {
 
   format(iso: string): string {
     const d = new Date(iso)
-    return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日 · ` +
+    return (
+      `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日 · ` +
       `${WEEKDAY_CN[d.getDay()]} · ${SEGMENTS[hourToSegment(d.getHours())]}`
+    )
   },
 
   formatShort(iso: string): string {

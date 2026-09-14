@@ -17,7 +17,7 @@
  * ## ⚠️ 读存档一律当 unknown
  *
  * 存档是外部数据：用户能手改、能从文件导入、可能是旧版本写的。
- * 所以 normalize() 的入参类型是 unknown，逐项校验后才敢当 GameData 用 —— 
+ * 所以 normalize() 的入参类型是 unknown，逐项校验后才敢当 GameData 用 ——
  * 类型标注在这里**不能当验证手段**，它只描述「校验通过之后」的形状。
  */
 
@@ -163,9 +163,11 @@ export class GameState {
 
     const elapsed = outcome.elapsedMs < LONG_JUMP_MS ? cal.describeElapsed(outcome.elapsedMs) : ''
 
-    return `🕐 时间推进：${before}\n           → ${after}` +
+    return (
+      `🕐 时间推进：${before}\n           → ${after}` +
       (elapsed ? `\n   （${elapsed}）` : '') +
       (reason ? `\n   原因：${reason}` : '')
+    )
   }
 
   endTurn(): string {
@@ -204,7 +206,9 @@ export class GameState {
       lines.push('', '### 最近发生的事')
       for (const entry of logs.slice(-4)) {
         if (!entry || typeof entry !== 'object') continue
-        const text = String(entry.text ?? '').replace(/\s+/g, ' ').slice(0, 160)
+        const text = String(entry.text ?? '')
+          .replace(/\s+/g, ' ')
+          .slice(0, 160)
         lines.push(`- ${text}`)
       }
     }

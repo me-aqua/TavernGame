@@ -21,7 +21,12 @@ afterEach(() => {
 
 describe('chat —— 请求拼装', () => {
   it('走 OpenAI 兼容路径，带 Authorization 与 model', async () => {
-    saveConfig({ provider: 'custom', apiKey: 'sk-test', apiBase: 'https://api.example.test/v1', model: 'my-model' })
+    saveConfig({
+      provider: 'custom',
+      apiKey: 'sk-test',
+      apiBase: 'https://api.example.test/v1',
+      model: 'my-model',
+    })
     const fake = installFakeLlm(['回复'])
     restore = fake.restore
 
@@ -35,7 +40,12 @@ describe('chat —— 请求拼装', () => {
   })
 
   it('接口地址已经以 /chat/completions 结尾时不再重复拼', async () => {
-    saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1/chat/completions', model: 'm' })
+    saveConfig({
+      provider: 'custom',
+      apiKey: 'k',
+      apiBase: 'https://api.example.test/v1/chat/completions',
+      model: 'm',
+    })
     const fake = installFakeLlm(['ok'])
     restore = fake.restore
     await chat(消息)
@@ -89,7 +99,8 @@ describe('chat —— 错误分支', () => {
   it('回复结构看不懂时报出原文片段', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
     const original = globalThis.fetch
-    globalThis.fetch = (async () => new Response(JSON.stringify({ weird: true }), { status: 200 })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ weird: true }), { status: 200 })) as typeof fetch
     restore = () => {
       globalThis.fetch = original
     }

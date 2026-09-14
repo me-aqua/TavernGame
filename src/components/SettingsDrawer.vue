@@ -128,7 +128,13 @@ function 清除密钥() {
 
       <div class="field">
         <label>API Key</label>
-        <input v-model="密钥" type="password" placeholder="sk-..." autocomplete="off" :disabled="当前预设?.noKey" />
+        <input
+          v-model="密钥"
+          type="password"
+          placeholder="sk-..."
+          autocomplete="off"
+          :disabled="当前预设?.noKey"
+        />
         <div class="note">
           <template v-if="当前预设?.noKey">这个服务不需要 key</template>
           <template v-else>
@@ -172,35 +178,100 @@ function 清除密钥() {
 
 <style scoped>
 .drawer {
-  position: fixed; inset: 0; z-index: 100;
-  background: rgba(5, 7, 14, 0.72); backdrop-filter: blur(4px);
-  display: flex; align-items: center; justify-content: center; padding: 20px;
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(5, 7, 14, 0.72);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
 }
 
 .sheet {
-  width: 100%; max-width: 520px; max-height: 88vh; overflow-y: auto;
-  border: 1px solid var(--border); border-radius: 16px;
-  background: var(--panel); padding: 24px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 88vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+  padding: 24px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
 }
-.sheet h2 { margin: 0 0 6px; font-size: 17px; }
-.sheet .sub { margin: 0 0 20px; font-size: 13px; color: var(--dim); line-height: 1.7; }
-
-.field { margin-bottom: 15px; }
-.field label { display: block; margin-bottom: 6px; font-size: 12.5px; color: var(--dim); }
-.field input, .field select {
-  width: 100%; padding: 9px 12px; border: 1px solid var(--border);
-  border-radius: 9px; background: var(--panel-2); color: var(--text);
-  font-family: inherit; font-size: 13.5px; outline: none;
+.sheet h2 {
+  margin: 0 0 6px;
+  font-size: 17px;
 }
-.field input:focus, .field select:focus { border-color: rgba(110, 231, 183, 0.5); }
-.field .note { margin-top: 5px; font-size: 11.5px; color: var(--faint); line-height: 1.6; }
-.field .note a { color: var(--accent2); }
+.sheet .sub {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--dim);
+  line-height: 1.7;
+}
 
-.sheet-actions { display: flex; gap: 9px; margin-top: 20px; flex-wrap: wrap; }
-.sheet-actions .right { margin-left: auto; }
+.field {
+  margin-bottom: 15px;
+}
+.field label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.field input,
+.field select {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13.5px;
+  outline: none;
+}
+.field input:focus,
+.field select:focus {
+  border-color: rgba(110, 231, 183, 0.5);
+}
+.field .note {
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--faint);
+  line-height: 1.6;
+}
+.field .note a {
+  color: var(--accent2);
+}
 
-.result { margin-top: 14px; padding: 11px 13px; border-radius: 9px; font-size: 13px; line-height: 1.7; }
-.result.ok  { background: rgba(110, 231, 183, 0.1); border: 1px solid rgba(110, 231, 183, 0.3); color: var(--accent); }
-.result.bad { background: rgba(248, 113, 113, 0.1); border: 1px solid rgba(248, 113, 113, 0.3); color: #f0a5a5; white-space: pre-wrap; }
+.sheet-actions {
+  display: flex;
+  gap: 9px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+.sheet-actions .right {
+  margin-left: auto;
+}
+
+.result {
+  margin-top: 14px;
+  padding: 11px 13px;
+  border-radius: 9px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.result.ok {
+  background: rgba(110, 231, 183, 0.1);
+  border: 1px solid rgba(110, 231, 183, 0.3);
+  color: var(--accent);
+}
+.result.bad {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: #f0a5a5;
+  white-space: pre-wrap;
+}
 </style>

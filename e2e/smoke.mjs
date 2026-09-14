@@ -34,17 +34,30 @@ const preview = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--stri
 const chrome = spawn(
   CHROME,
   [
-    '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+    '--headless=new',
+    '--disable-gpu',
+    '--no-first-run',
+    '--no-default-browser-check',
     // 每次运行用独立 profile：复用 profile 会让「备份键数量」这类断言被历史状态污染
-    `--user-data-dir=/tmp/taverngame-e2e-${process.pid}`, '--remote-debugging-port=9444', 'about:blank',
+    `--user-data-dir=/tmp/taverngame-e2e-${process.pid}`,
+    '--remote-debugging-port=9444',
+    'about:blank',
   ],
   { stdio: 'ignore', detached: true },
 )
 
 function 清理() {
   // 进程可能已经自己退了，杀不到不是错误
-  try { chrome.kill('SIGKILL') } catch { /* 成功路径：进程已退出 */ }
-  try { preview.kill('SIGKILL') } catch { /* 成功路径：进程已退出 */ }
+  try {
+    chrome.kill('SIGKILL')
+  } catch {
+    /* 成功路径：进程已退出 */
+  }
+  try {
+    preview.kill('SIGKILL')
+  } catch {
+    /* 成功路径：进程已退出 */
+  }
 }
 process.on('exit', 清理)
 
@@ -67,30 +80,42 @@ if (!wsUrl) {
 }
 
 const ws = new WebSocket(wsUrl)
-await new Promise((r) => { ws.onopen = r })
+await new Promise((r) => {
+  ws.onopen = r
+})
 let id = 0
 const pending = new Map()
 const 异常 = []
 const 坏请求 = []
 ws.onmessage = (e) => {
   const m = JSON.parse(e.data)
-  if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id) }
-  if (m.method === 'Runtime.exceptionThrown') {
-    异常.push((m.params.exceptionDetails.exception?.description ?? m.params.exceptionDetails.text).slice(0, 160))
+  if (m.id && pending.has(m.id)) {
+    pending.get(m.id)(m)
+    pending.delete(m.id)
   }
-  if (m.method === 'Network.responseReceived' && m.params.response.status >= 400
-      && !m.params.response.url.includes('favicon')) {
+  if (m.method === 'Runtime.exceptionThrown') {
+    异常.push(
+      (m.params.exceptionDetails.exception?.description ?? m.params.exceptionDetails.text).slice(0, 160),
+    )
+  }
+  if (
+    m.method === 'Network.responseReceived' &&
+    m.params.response.status >= 400 &&
+    !m.params.response.url.includes('favicon')
+  ) {
     坏请求.push(`${m.params.response.status} ${m.params.response.url}`)
   }
 }
-const send = (method, params = {}) => new Promise((res) => {
-  const i = ++id
-  pending.set(i, res)
-  ws.send(JSON.stringify({ id: i, method, params }))
-})
+const send = (method, params = {}) =>
+  new Promise((res) => {
+    const i = ++id
+    pending.set(i, res)
+    ws.send(JSON.stringify({ id: i, method, params }))
+  })
 const 求值 = async (expr) => {
   const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true })
-  if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description ?? '求值失败')
+  if (r.result?.exceptionDetails)
+    throw new Error(r.result.exceptionDetails.exception?.description ?? '求值失败')
   return r.result?.result?.value
 }
 
@@ -116,14 +141,24 @@ const 首屏 = await 求值(`(() => {
 })()`)
 
 检查('页面挂载成功', 首屏.挂载 === true)
-检查('侧栏是时间/地点/回合', JSON.stringify(首屏.侧栏) === JSON.stringify(['时间', '地点', '回合']), JSON.stringify(首屏.侧栏))
-检查('时间显示为公历格式', /^\d{4} 年 \d+ 月 \d+ 日 · 星期[日一二三四五六] · (上午|下午|晚上)$/.test(首屏.时间 ?? ''), 首屏.时间)
+检查(
+  '侧栏是时间/地点/回合',
+  JSON.stringify(首屏.侧栏) === JSON.stringify(['时间', '地点', '回合']),
+  JSON.stringify(首屏.侧栏),
+)
+检查(
+  '时间显示为公历格式',
+  /^\d{4} 年 \d+ 月 \d+ 日 · 星期[日一二三四五六] · (上午|下午|晚上)$/.test(首屏.时间 ?? ''),
+  首屏.时间,
+)
 检查('未配置时状态栏提示未配置', 首屏.状态 === '未配置', 首屏.状态)
 检查('四个存档/设置按钮都在', 首屏.按钮.length === 4, JSON.stringify(首屏.按钮))
 检查('首屏有欢迎提示', 首屏.故事行 >= 1, `${首屏.故事行} 行`)
 
 // ---------- 用例 2：设置面板 ----------
-await 求值(`[...document.querySelectorAll('header button')].find((b) => b.textContent.includes('设置'))?.click()`)
+await 求值(
+  `[...document.querySelectorAll('header button')].find((b) => b.textContent.includes('设置'))?.click()`,
+)
 await sleep(500)
 const 面板 = await 求值(`(() => {
   const d = document.querySelector('.drawer')
@@ -165,6 +200,7 @@ const 损坏 = await 求值(`(() => ({
 // ---------- 汇总 ----------
 清理()
 const 失败 = 结果.filter((r) => !r.ok)
-for (const r of 结果) console.log(`${r.ok ? '✓' : '✖'} ${r.name}${r.detail && !r.ok ? ' —— ' + r.detail : ''}`)
+for (const r of 结果)
+  console.log(`${r.ok ? '✓' : '✖'} ${r.name}${r.detail && !r.ok ? ' —— ' + r.detail : ''}`)
 console.log(`\n${结果.length - 失败.length}/${结果.length} 通过`)
 process.exit(失败.length ? 1 : 0)

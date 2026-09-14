@@ -44,30 +44,66 @@ defineProps<{
 
     <div class="card">
       <h2>回合</h2>
-      <div class="stat"><span>已进行</span><span>{{ turn }}</span></div>
+      <div class="stat">
+        <span>已进行</span><span>{{ turn }}</span>
+      </div>
     </div>
   </aside>
 </template>
 
 <style scoped>
 .sidebar {
-  display: flex; flex-direction: column; gap: 12px;
-  padding: 16px 14px; overflow-y: auto; background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 14px;
+  overflow-y: auto;
+  background: var(--panel);
 }
 
 /* 时间显示：这是唯一的结构化状态，给它视觉分量 */
 .time-display {
-  font-size: 17px; font-weight: 600; color: var(--accent);
-  letter-spacing: 0.04em; font-variant-numeric: tabular-nums;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
 }
 
-.timeline { margin-top: 10px; font-size: 11.5px; color: var(--faint); line-height: 1.9; }
-.reason { color: #4a5270; }
+.timeline {
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--faint);
+  line-height: 1.9;
+}
+.reason {
+  color: #4a5270;
+}
 
-.scene-name { font-size: 13px; color: var(--accent); margin-bottom: 5px; }
-.scene-desc { font-size: 12.5px; color: var(--dim); line-height: 1.7; }
+.scene-name {
+  font-size: 13px;
+  color: var(--accent);
+  margin-bottom: 5px;
+}
+.scene-desc {
+  font-size: 12.5px;
+  color: var(--dim);
+  line-height: 1.7;
+}
 
-.stat { display: flex; justify-content: space-between; align-items: baseline; padding: 3px 0; font-size: 13px; }
-.stat span:first-child { color: var(--dim); }
-.stat span:last-child { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 3px 0;
+  font-size: 13px;
+}
+.stat span:first-child {
+  color: var(--dim);
+}
+.stat span:last-child {
+  color: var(--accent);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
 </style>
