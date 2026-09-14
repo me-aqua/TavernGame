@@ -87,6 +87,29 @@ export function installFakeLlm(replies: FakeReply[]): FakeLlm {
   }
 }
 
+/**
+ * 假模型：前 replies.length 次调用按 replies 返回，之后交给 after。
+ *
+ * 用来制造「第一步已经改了状态、第二步才失败 / 挂起」——事务的中途失败与取消
+ * 只有在这种局面下才走得到（replies 列表本身给不出「按序失败」与「挂住」）。
+ *
+ * @param after 第 replies.length + 1 次调用起由它接管：要么抛错，要么挂到被 abort
+ * @returns 与 installFakeLlm 相同的句柄；restore() 会把整条链一起还原
+ */
+export function installFakeLlmThen(
+  replies: FakeReply[],
+  after: (init?: RequestInit) => Promise<Response>,
+): FakeLlm {
+  const fake = installFakeLlm(replies)
+  const first = globalThis.fetch
+  let used = 0
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+    used += 1
+    return used <= replies.length ? first(input, init) : after(init)
+  }) as typeof fetch
+  return fake
+}
+
 /** 造一个非 2xx 的假响应（测错误分支） */
 export function installFakeLlmError(status: number, body: string): () => void {
   const original = globalThis.fetch

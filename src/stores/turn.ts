@@ -15,15 +15,25 @@
  * 点「重来」/「导入」，会同时跑两个回合 —— 旧回合的日志/时间/落盘
  * 全作用在**新游戏**上，于是新存档里混进旧剧情、回合数对不上。
  *
- * ⚠️ 落盘在回合**成功之后**由这里调用，引擎（agent.ts）不碰存储：数据不该知道
- * 怎么落盘。取消/失败时内存里的改动不落盘 —— 落盘只发生在成功之后。
+ * ⚠️ 一轮是一个事务（决定 #27/#39）：开跑前把权威数据深拷成**工作副本**，引擎、工具、
+ * 调试痕迹全都只写副本；跑到终点的成功回合才把副本一次性写回权威状态
+ * （一次赋值 → 响应式一次触发）并落盘。失败与取消丢弃副本 —— 内存与存档都不留痕，
+ * 下一次成功回合的 save() 也就没有「半个回合」可以持久化。
+ *
+ * ⚠️ 副本必须从 toRaw 上克隆：state.data 是 reactive 代理，而 structuredClone
+ * 遇到 Proxy 会抛 DataCloneError。
+ *
+ * ⚠️ 写回发生在提交时，所以叙事是**整轮一起**出现在故事区的，不是每一步实时出现：
+ * 实时写等于把未提交的改动先给玩家看 —— 那正是事务要挡住的东西（决定 #39）。
+ *
+ * ⚠️ 落盘由这里在提交之后调用，引擎（agent.ts）不碰存储：数据不该知道怎么落盘。
  */
 
+import { toRaw, type Ref } from 'vue'
 import { t } from '../i18n'
 import { runTurn, type AgentEvent } from '../agent/agent'
 import type { ChatMessage, EventKind } from '../types/state'
 import type { GameState } from '../game/state'
-import type { Ref } from 'vue'
 
 /** 回合阶段：null = 空闲。界面据此决定状态行写「正在生成开场…」还是「思考中…」 */
 export type Phase = 'opening' | 'turn' | null
@@ -32,23 +42,33 @@ export type Phase = 'opening' | 'turn' | null
 export type NoticeLevel = 'info' | 'error'
 
 interface TurnDeps {
-  /** 当前这一局的数据（引擎与工具会原地改它） */
+  /** 权威状态：回合只从它拷副本，成功提交时才写回它的 data */
   state: GameState
-  /** 写一条事件：故事与调试痕迹共用这一个数组，顺序即发生顺序 */
-  addEvent: (kind: EventKind, text: string, detail?: string) => void
+  /** 往**目标状态**写一条事件：跑的时候传工作副本，故事与调试痕迹仍共用一个数组 */
+  addEvent: (target: GameState, kind: EventKind, text: string, detail?: string) => void
   /** 报一条通知；传 null 清空。单槽 —— 后一条覆盖前一条 */
   notify: (text: string | null, level?: NoticeLevel) => void
-  /** 回合 +1 */
-  endTurn: () => void
-  /** 世界状态快照（拼提示词用） */
-  snapshot: (history: ChatMessage[]) => string
-  /** 落盘；失败必须让玩家看到 */
+  /** 目标状态的回合 +1 */
+  endTurn: (target: GameState) => void
+  /** 目标状态的世界状态快照（拼提示词用） */
+  snapshot: (target: GameState, history: ChatMessage[]) => string
+  /** 落盘；失败必须让玩家看到。它读的是权威状态，所以提交必须先于它 */
   save: () => boolean
   /** 对话历史（回合间共享） */
   history: Ref<ChatMessage[]>
   phase: Ref<Phase>
   /** 调试模式：记录模型输入输出与工具调用 */
   debugMode: Ref<boolean>
+}
+
+/**
+ * 拷一份工作副本：引擎、工具与调试痕迹都只改它，跑到终点才写回权威状态。
+ *
+ * ⚠️ 必须 toRaw 之后再 structuredClone：state.data 是 reactive 代理，
+ * structuredClone 不能克隆 Proxy（抛 DataCloneError）。
+ */
+function draftOf(source: GameState): GameState {
+  return { ...source, data: structuredClone(toRaw(source.data)) }
 }
 
 /** 造一组回合动作（闭包持有中止用的 controller） */
@@ -67,26 +87,28 @@ export function createTurnRunner(deps: TurnDeps): {
   }
 
   /**
-   * 把 agent 循环抛出的事件翻译成调试痕迹，写进同一个事件流。
+   * 把 agent 循环抛出的事件翻译成调试痕迹，写进**目标状态**（本轮是工作副本）。
    *
-   * 叙事不在这里处理 —— 引擎已经把它写进事件流了（界面渲染的就是它）。
+   * 叙事不在这里处理 —— 引擎已经把它写进目标状态的事件流了（界面渲染的就是它）。
    * 调试关掉时一条痕迹都不产生：玩家不该在故事里看到工具调用与原始 JSON。
    */
-  function handleEvent(evt: AgentEvent) {
+  function handleEvent(target: GameState, evt: AgentEvent) {
     if (!debugMode.value) return
     switch (evt.type) {
       case 'node':
         // 图执行器的进度：每进一个节点一行，位置就在它发生的地方（本轮第一个事件）
-        addEvent('node', t('store.nodeLine', { node: evt.id }))
+        addEvent(target, 'node', t('store.nodeLine', { node: evt.id }))
         break
       case 'model':
         // 输入与输出成对写：先请求体，再响应体 —— 顺序就是这次调用的顺序
         addEvent(
+          target,
           'request',
           t('store.rawRequest', { count: evt.reply.request.messages.length }),
           JSON.stringify(evt.reply.request, null, 2),
         )
         addEvent(
+          target,
           'reply',
           t('store.rawReply', { count: evt.reply.toolCalls.length }),
           JSON.stringify(evt.reply.raw, null, 2),
@@ -94,13 +116,13 @@ export function createTurnRunner(deps: TurnDeps): {
         break
       case 'tool':
         // args 是协议原样给的 JSON 字符串，直接展示（它就是模型实际发出的内容）
-        addEvent('tool', t('toolbar.toolCall', { tool: evt.tool, args: evt.args }))
+        addEvent(target, 'tool', t('toolbar.toolCall', { tool: evt.tool, args: evt.args }))
         break
       case 'toolResult':
-        addEvent('toolResult', t('store.toolResultLine', { result: evt.result }))
+        addEvent(target, 'toolResult', t('store.toolResultLine', { result: evt.result }))
         break
       case 'warn':
-        addEvent('warn', t('store.warnLine', { message: evt.message }))
+        addEvent(target, 'warn', t('store.warnLine', { message: evt.message }))
         break
       default:
         break
@@ -108,7 +130,7 @@ export function createTurnRunner(deps: TurnDeps): {
   }
 
   /**
-   * 跑一个回合：把玩家输入交给引擎。
+   * 跑一个回合：把玩家输入交给引擎 —— 引擎只改工作副本，跑到终点才提交。
    * @param action 玩家输入；不传表示开新游戏（开场）
    */
   async function runTurnAction(action?: string): Promise<void> {
@@ -119,19 +141,29 @@ export function createTurnRunner(deps: TurnDeps): {
 
     controller = new AbortController()
     try {
+      // 事务开始：这一轮的一切写入都落在副本上，权威状态在提交前一个字节都不动
+      const draft = draftOf(state)
       const result = await runTurn(
-        { state, addEvent, endTurn, snapshot },
+        {
+          state: draft,
+          addEvent: (kind, text) => addEvent(draft, kind, text),
+          endTurn: () => endTurn(draft),
+          snapshot: (h) => snapshot(draft, h),
+        },
         {
           action,
           history: history.value,
           signal: controller.signal,
-          onEvent: handleEvent,
+          onEvent: (evt) => handleEvent(draft, evt),
         },
       )
+      // 提交：一次赋值 → 响应式一次触发；随后的 save() 读到的就是刚写回的副本
+      state.data = draft.data
       history.value = result.history
       if (!result.text) notify(t('store.noText'))
       if (!save()) notify(t('agent.saveFailed'), 'error')
     } catch (err) {
+      // 失败与取消都在这里丢弃副本：不写回也不落盘，内存与存档一个字节都不变
       const e = err as Error
       if (e.name === 'AbortError') {
         notify(t('store.cancelled'))

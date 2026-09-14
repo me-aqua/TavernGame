@@ -48,7 +48,7 @@ export interface AgentContext {
   snapshot: (history: ChatMessage[]) => string
 }
 
-/** agent 循环里抛给界面的事件（界面据此实时渲染） */
+/** agent 循环回传给调用方的事件（叙事、调试痕迹、节点进度）—— 何时可见由调用方决定 */
 export type AgentEvent =
   /** 图执行器进入了哪个节点（进度的来源；写不写成痕迹由界面侧决定，见决定 #38） */
   | { type: 'node'; id: string }
@@ -140,9 +140,9 @@ export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promis
   /**
    * 收下一段叙事。
    *
-   * ⚠️ 写日志与「通知界面」是同一件事的两面：界面渲染的故事就是日志的投影，
-   *    所以叙事一产生就得进日志（不然要等回合结束才看得见），
-   *    也没有第二个数组需要同步。
+   * ⚠️ 写日志与界面显示是同一件事的两面：界面渲染的故事就是日志的投影，
+   *    所以叙事一产生就得进日志，也没有第二个数组需要同步；
+   *    至于它什么时候出现在故事区，由调用方按回合决定。
    */
   function record(text: string) {
     narrations.push(text)

@@ -6,12 +6,14 @@
  *   - 取消路径（AbortError）与失败路径的区分
  *   - handleEvent 的 tool / toolResult / warn / raw 分支（调试痕迹，不是故事）
  *   - 回合没产出文字、存档写不进去时的通知分支
+ *   - 一轮 = 一次事务：失败的回合一字节都不写回、不落盘
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useGame } from '../src/stores/game'
 import { t } from '../src/i18n'
+import { SAVE_KEY } from '../src/utils/storage'
 import { configureFakeProvider } from './support/game-fixtures'
-import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
+import { installFakeLlm, installFakeLlmThen, type FakeLlm } from './support/fakeLlm'
 
 /** 测试自造的 fixture（模型回复与玩家行动），不是产品文案 */
 const MAX_STEPS = 5
@@ -29,6 +31,7 @@ const RAW_BODY_REPLY = 'raw response body'
 const LOOK_ACTION = 'look around'
 const BLANK_REPLY = '   '
 const IDLE_ACTION = 'idle'
+const NETWORK_ERROR = 'network down'
 
 let fake: FakeLlm | null = null
 
@@ -155,7 +158,7 @@ describe('the store timeline updates without manual notification', () => {
   it('addEvent from the engine shows up in the store timeline without manual notification', async () => {
     fake = installFakeLlm([{ content: WAIT_REPLY, toolCalls: ADVANCE_STEP_REPLY.toolCalls }, DAWN_REPLY])
     const g = useGame()
-    // 一步工具调用之后时间线就应有记录，不必等整个回合结束
+    // 提交之后时间线自己就更新了：没有第二次「刷新界面」的动作
     const pending = g.runTurnAction(WAIT_ACTION)
     await vi.waitFor(() => expect(g.timeline.value.length).toBeGreaterThan(0))
     await pending
@@ -188,5 +191,81 @@ describe('a save that fails must be announced (the store owns persistence)', () 
     await g.runTurnAction(WAIT_ACTION)
 
     expect(g.status.value).toBeNull()
+  })
+})
+
+describe('one turn = one transaction (the composition root commits)', () => {
+  /**
+   * ⚠️ 失败点必须在「已经改过数据」之后：第一步返回叙事 + 推时间，第二步请求失败 ——
+   * 这正是审查报的那个形状：时间跳了、行动在内存里，而落盘在末尾。
+   */
+  it('a failed turn leaves memory and storage untouched, and the next save holds only itself', async () => {
+    fake = installFakeLlmThen([{ content: WAIT_REPLY, toolCalls: ADVANCE_STEP_REPLY.toolCalls }], () => {
+      throw new Error(NETWORK_ERROR)
+    })
+
+    const g = useGame()
+    const before = g.exportSave()
+    const setItem = vi.spyOn(localStorage, 'setItem')
+
+    await expect(g.runTurnAction(WAIT_ACTION)).rejects.toThrow(NETWORK_ERROR)
+
+    // 时间 / 日志 / 时间线 / 回合数逐字节相同，localStorage 一次都没写
+    expect(g.exportSave()).toBe(before)
+    expect(setItem).not.toHaveBeenCalled()
+    expect(g.turn.value).toBe(0)
+    expect(storyRows(g)).toEqual([])
+    setItem.mockRestore()
+
+    // 下一次成功回合只持久化它自己：没有「被取消的行动 + 已推进的时间 + 没有对应剧情」
+    fake.restore()
+    fake = installFakeLlm([DAWN_REPLY])
+    await g.runTurnAction(KEEP_WAITING_ACTION)
+
+    const saved = JSON.parse(localStorage.getItem(SAVE_KEY) as string) as {
+      events: Array<{ kind: string; text: string }>
+      time: { iso: string }
+      meta: { turn: number }
+    }
+    expect(saved.events.map((e) => e.kind)).toEqual(['action', 'narration'])
+    expect(saved.events[0].text).toBe(KEEP_WAITING_ACTION)
+    expect(saved.time.iso).toBe((JSON.parse(before) as { time: { iso: string } }).time.iso)
+    expect(saved.meta.turn).toBe(1)
+  })
+
+  /**
+   * 用户可见的变化：叙事在**提交时**整轮一起出现，不再是每一步实时出现。
+   * 实时写就等于把未提交的改动先摆给玩家看 —— 事务与「边跑边显示」不可兼得（决定 #39）。
+   */
+  it('while a turn is in flight, the draft is not visible in the store', async () => {
+    let secondStep = () => {}
+    const reachedSecondStep = new Promise<void>((resolve) => {
+      secondStep = () => resolve()
+    })
+    fake = installFakeLlmThen([{ content: WAIT_REPLY, toolCalls: ADVANCE_STEP_REPLY.toolCalls }], (init) => {
+      secondStep()
+      // 挂住第二步，让「在飞」这个状态可以被断言
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+      })
+    })
+
+    const g = useGame()
+    const startTime = g.timeLabel.value
+    const pending = g.runTurnAction(WAIT_ACTION)
+    await reachedSecondStep
+
+    // 第一步已经写过副本（叙事 + 推时间），但界面这一侧一个字节都看不到
+    expect(storyRows(g)).toEqual([])
+    expect(g.timeline.value).toEqual([])
+    expect(g.timeLabel.value).toBe(startTime)
+    expect(g.turn.value).toBe(0)
+
+    g.resetGame() // 公开的中止路径：换局前先 abort
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+
+    // 被中止的那一轮在存档里也没留下东西：换上的是一局干净的新游戏
+    const saved = JSON.parse(localStorage.getItem(SAVE_KEY) as string) as { events: unknown[] }
+    expect(saved.events).toEqual([])
   })
 })

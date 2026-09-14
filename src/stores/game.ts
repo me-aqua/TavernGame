@@ -5,11 +5,11 @@
  *   1. 把纯数据包成 reactive（响应式边界在界面侧）
  *   2. 把事件流**投影**成界面要渲染的行 —— 显示是派生值，不是状态
  *   3. 持有两样瞬态：对话历史、通知（单槽）
- *   4. 编排动作：把代理交给领域函数、决定什么时候落盘
+ *   4. 编排动作：把权威数据交给回合事务（stores/turn.ts：拷副本 → 跑 → 提交 → 落盘）
  *
- * ⚠️ 传出去的必须是**这个代理**：领域函数原地改它，Vue 才能建立依赖。传原对象
- *    （toRaw）不会报错，但界面不会更新 —— 这类静默失败由 tests/store.test.ts 的
- *    「改数据 → DOM 更新」用例守着。
+ * ⚠️ 界面更新来自**提交时的一次整体赋值**（回合把工作副本写回 `state.data`，
+ *    见 stores/turn.ts），不是来自引擎的原地修改：引擎拿到的是副本（纯数据），
+ *    它在哪儿改都与依赖无关。这条性质由 tests/store.test.ts 的「改数据 → DOM 更新」守着。
  *
  * ⚠️ 这里**没有**「叙事流数组」：界面渲染的是 `data.events` 的投影（rows）。故事与
  *    调试痕迹在**同一个数组**里，顺序天然正确（痕迹就插在它发生的那段叙事之间）；
@@ -189,10 +189,10 @@ export function useGame() {
   // ---------- 回合（编排在 stores/turn.ts） ----------
   const { runTurnAction, abortRunningTurn } = createTurnRunner({
     state,
-    addEvent: (kind, text, detail) => game.addEvent(state, kind, text, detail),
+    addEvent: (target, kind, text, detail) => game.addEvent(target, kind, text, detail),
     notify,
-    endTurn: () => void game.endTurn(state),
-    snapshot: (h) => game.snapshot(state, h),
+    endTurn: (target) => void game.endTurn(target),
+    snapshot: (target, h) => game.snapshot(target, h),
     save: () => game.save(state, saveStore),
     history,
     phase,
