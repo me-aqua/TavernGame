@@ -1,8 +1,8 @@
 /**
- * 视觉巡检 —— 把「每个状态 × 每种屏幕」的真实渲染拍下来，顺手做结构检查。
+ * 整页截图检查 —— 把「每个状态 × 每种屏幕」的真实渲染拍下来，顺手做页面结构检查。
  *
  * 两条判据：
- *   1. **结构断言**（无基线，最可靠）：横向溢出、元素伸出视口、点按目标 < 24px
+ *   1. **结构检查**（不需要基线，最可靠）：横向溢出、元素伸出视口、点按目标 < 24px
  *   2. **像素基线**（少量、稳定、高价值的画面）：变了就红，防止悄悄改坏
  * 剩下的（间距、层次、可读性）由人看 artifacts/screenshots/index.html 总览页。
  *
@@ -141,7 +141,7 @@ const STATES: State[] = [
   },
 ]
 
-/** 一行巡检结果（最后汇总成总览页） */
+/** 一张截图的结果（最后汇总成总览页） */
 interface Shot {
   state: string
   viewport: string
@@ -228,12 +228,12 @@ test.afterAll(() => {
     byState.set(shot.state, list)
   }
   const html = [
-    '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>截图巡检</title>',
+    '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>整页截图</title>',
     '<style>body{font:14px/1.6 system-ui,sans-serif;background:#111;color:#eee;margin:0;padding:24px}',
     'h2{margin:28px 0 8px;font-size:15px;color:#9ad}section{display:flex;gap:16px;flex-wrap:wrap}',
     'figure{margin:0;background:#1c1c1c;border:1px solid #333;border-radius:8px;padding:8px;max-width:360px}',
     'img{width:100%;display:block;border-radius:4px;background:#000}figcaption{font-size:12px;color:#aaa;margin-top:6px}</style>',
-    '</head><body><h1>截图巡检</h1>',
+    '</head><body><h1>整页截图</h1>',
     '<p>每个状态 × 每种屏幕。带 ⭐ 的另有像素基线（npm run visual 会自动比对）。</p>',
   ]
   for (const [state, list] of byState) {

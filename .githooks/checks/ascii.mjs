@@ -42,10 +42,25 @@ const LOCALES = /^src\/locales\//
  * translated by a tool that should not be rewriting the author's text.
  */
 const STATIC_CONTENT = /^public\/.*\.html$/
+/**
+ * Test and workbench code: e2e specs and Storybook stories.
+ *
+ * Their Chinese is **fake data and failure messages**, never product copy
+ * (product copy can only come from src/locales/ through t()). User 2026-09-14:
+ * 「用正常的中文在新写的 e2e 里」—— 所以这两个地方不按源码那套 ASCII 规则查。
+ */
+const TEST_TOOL = /^e2e\/|\.stories\.ts$/
 
 const files = process.argv
   .slice(2)
-  .filter((f) => FILE_EXT.test(f) && !SKIP.test(f) && !LOCALES.test(f) && !STATIC_CONTENT.test(f))
+  .filter(
+    (f) =>
+      FILE_EXT.test(f) &&
+      !SKIP.test(f) &&
+      !LOCALES.test(f) &&
+      !STATIC_CONTENT.test(f) &&
+      !TEST_TOOL.test(f),
+  )
 const hits = []
 
 for (const file of files) {

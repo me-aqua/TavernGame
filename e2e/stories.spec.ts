@@ -1,9 +1,9 @@
 /**
- * 组件故事巡检 —— 每个故事 × 主题（浅/深）× 语言（中/英）。
+ * 组件故事的截图检查 —— 每个故事 × 主题（浅/深）× 语言（中/英）。
  *
  * 做三件事：
  *   1. 在真实浏览器里打开 Storybook 的 iframe（就是开发者看到的那个画面）
- *   2. 跑结构探针（横向溢出 / 元素出界 / 点按目标过小）—— 与整页巡检同一套判据
+ *   2. 跑页面结构检查（横向溢出 / 元素出界 / 点按目标过小）—— 与整页检查同一套判据
  *   3. 每个组合拍一张 PNG，最后生成总览页供人看
  *
  * ⚠️ 组件故事这一层**不建像素基线**：组件改动频繁，基线会变成天天刷新的噪音。
@@ -75,7 +75,7 @@ function writeContactSheet(): void {
     'h2{margin:28px 0 8px;font-size:15px;color:#9ad}section{display:flex;gap:14px;flex-wrap:wrap}',
     'figure{margin:0;background:#1c1c1c;border:1px solid #333;border-radius:8px;padding:8px;max-width:420px}',
     'img{width:100%;display:block;border-radius:4px}figcaption{font-size:12px;color:#aaa;margin-top:6px}</style>',
-    '</head><body><h1>组件故事</h1><p>每个故事 × 主题 × 语言。结构检查与整页巡检同一套判据。</p>',
+    '</head><body><h1>组件故事</h1><p>每个故事 × 主题 × 语言。结构检查与整页检查同一套判据。</p>',
   ]
   for (const [title, list] of byTitle) {
     html.push(`<h2>${title}</h2><section>`)

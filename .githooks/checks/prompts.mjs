@@ -24,7 +24,10 @@ import { readFileSync } from 'node:fs'
 /** Max Chinese characters allowed in one inline string literal */
 const MAX_CJK = 30
 
-const files = process.argv.slice(2)
+/** e2e 与 Storybook 故事里的中文是假数据，不是内联提示词（与 ascii.mjs 同一范围） */
+const TEST_TOOL = /^e2e\/|\.stories\.ts$/
+
+const files = process.argv.slice(2).filter((f) => !TEST_TOOL.test(f))
 const hits = []
 
 for (const file of files) {

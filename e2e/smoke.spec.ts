@@ -1,7 +1,7 @@
 /**
  * 功能冒烟 —— 在真实浏览器里跑构建产物，覆盖「玩家点得出来」的那些路径。
  *
- * 判据和以前一样：**读运行时 DOM**，不读源码；每个用例结束都断言
+ * 判据和以前一样：**读运行时 DOM**，不读源码；每个用例结束都检查
  * 「没有页面异常、没有 4xx/5xx」（见文件末尾的 afterEach）。
  *
  * 与 dsh 里的旧版本相比，这里换成了 Playwright 的自动等待：
@@ -12,7 +12,7 @@ import { CONFIG, DEBUG_KEY, LANG_KEY, NARRATION, openApp, saveWith, translate, w
 
 /** 浅色主题的页面底色（与 src/styles/main.css 的 token 对应） */
 const LIGHT_BG = 'rgb(242, 244, 247)'
-/** 时间标签的形状由历法决定，这里断言形状而不是具体日期 */
+/** 时间标签的形状由历法决定，这里只看形状，不写死具体日期 */
 const TIME_PATTERN = /^\d{4} 年 \d+ 月 \d+ 日 · 星期[日一二三四五六] · (上午|下午|晚上)$/
 
 const watched = new WeakMap<Page, { runtimeErrors: string[]; badResponses: string[] }>()

@@ -1,5 +1,5 @@
 /**
- * 结构探针 —— 在截图前后跑的那几条客观检查。
+ * 页面结构检查 —— 在截图前后跑的那几条客观检查。
  *
  * visual.spec.ts（整页）与 stories.spec.ts（单组件）共用：
  * 判定标准只写一份，两边才不会各有一套阈值。
@@ -7,7 +7,7 @@
  */
 import { expect } from '@playwright/test'
 
-/** 在页面里求值的探针（返回的结构见 Probe） */
+/** 在页面里求值的检查脚本（返回的结构见 Probe） */
 export const PROBE = `(() => {
   const vw = window.innerWidth
   const visible = (r) => r.width > 0.5 && r.height > 0.5

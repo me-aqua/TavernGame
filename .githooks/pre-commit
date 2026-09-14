@@ -157,7 +157,7 @@ for (const file of textFiles.filter((f) => /\.(ts|vue)$/.test(f) && !BOUNDARY.te
   lines.forEach((line, i) => {
     if (/typeof\s+\w+\s*===\s*'(string|object|number)'/.test(line) && !/unknown/.test(line)) {
       problems.push(
-        `[防御性校验] ${file}:${i + 1} —— 内部代码在做 typeof 校验；边界校验只属于系统边界（存档校验、存储适配、模型接口）`,
+        `[防御性校验] ${file}:${i + 1} —— 内部代码在做 typeof 校验；边界校验只属于系统边界`,
       )
     }
   })
@@ -179,7 +179,8 @@ const testsContent = (() => {
   }
 })()
 
-for (const file of textFiles.filter((f) => SRC.test(f))) {
+// *.stories.ts 不是源码模块（只在 Storybook 里跑），它的检查是 e2e/stories.spec.ts
+for (const file of textFiles.filter((f) => SRC.test(f) && !f.endsWith('.stories.ts'))) {
   const moduleName = file
     .replace(/^src\//, '')
     .replace(/\.(ts|vue)$/, '')

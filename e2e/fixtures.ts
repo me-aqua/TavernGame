@@ -1,10 +1,10 @@
 /**
- * e2e 共用的夹具。
+ * e2e 共用的测试数据与帮手。
  *
  * 三件事集中在这里，避免每个 spec 各写一份：
  *   · 种子数据：localStorage 必须在应用脚本之前写好（语言 / 主题 / 存档 / 配置）
  *   · 假模型：用 page.route 拦住 chat/completions —— 不注入脚本、不改全局 fetch
- *   · 取词：断言用的界面文案走应用自己的 i18n 表（window.__dshE2E），不抄第二份
+ *   · 取词：检查界面文案时走应用自己的 i18n 表（window.__dshE2E），不抄第二份
  */
 import { expect, type Page } from '@playwright/test'
 
