@@ -18,7 +18,7 @@ export interface LogEntry {
   at: string
 }
 
-/** 时间线条目：记录一次「值得记」的时间推进 */
+/** timelineLines：记录一次「值得记」的时间推进 */
 export interface TimelineEntry {
   /** 推进**前**的时刻（简短格式）。⚠️ 必须是起点，不能是终点 */
   from: string

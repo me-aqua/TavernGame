@@ -4,17 +4,17 @@
  * core/state.ts 要用 localStorage，Node 里没有 —— 用一个最小的内存实现顶上。
  * 每个测试文件开始前清空，避免测试之间互相影响。
  */
-const 存储 = new Map<string, string>()
+const storage = new Map<string, string>()
 
 const localStorageShim: Storage = {
   get length() {
-    return 存储.size
+    return storage.size
   },
-  clear: () => 存储.clear(),
-  getItem: (k: string) => (存储.has(k) ? (存储.get(k) as string) : null),
-  key: (i: number) => [...存储.keys()][i] ?? null,
-  removeItem: (k: string) => void 存储.delete(k),
-  setItem: (k: string, v: string) => void 存储.set(k, String(v)),
+  clear: () => storage.clear(),
+  getItem: (k: string) => (storage.has(k) ? (storage.get(k) as string) : null),
+  key: (i: number) => [...storage.keys()][i] ?? null,
+  removeItem: (k: string) => void storage.delete(k),
+  setItem: (k: string, v: string) => void storage.set(k, String(v)),
 }
 
 // ⚠️ Node 22+ 有**原生 localStorage**（不给 --localstorage-file 时取值是 undefined，
@@ -32,5 +32,5 @@ try {
 }
 
 beforeEach(() => {
-  存储.clear()
+  storage.clear()
 })

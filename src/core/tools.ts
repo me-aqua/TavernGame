@@ -100,7 +100,7 @@ export function parseToolCalls(text: string): ParseResult {
     try {
       const parsed: unknown = JSON.parse(raw)
       const items = Array.isArray(parsed) ? parsed : [parsed]
-      let 收到工具 = false
+      let gotTool = false
       for (const item of items) {
         const it = item as { tool?: unknown; args?: unknown }
         if (it && typeof it.tool === 'string') {
@@ -108,11 +108,11 @@ export function parseToolCalls(text: string): ParseResult {
             tool: it.tool,
             args: (it.args && typeof it.args === 'object' ? it.args : {}) as Record<string, unknown>,
           })
-          收到工具 = true
+          gotTool = true
         }
       }
       // 解析成功且是工具块 → 从正文里删掉；否则（普通 json 数据块）**保留**
-      if (收到工具) ranges.push([start, end])
+      if (gotTool) ranges.push([start, end])
       else if (lang === 'tool') {
         errors.push(`工具块里没有 "tool" 字段，已忽略：${raw.slice(0, 120)}`)
         ranges.push([start, end])

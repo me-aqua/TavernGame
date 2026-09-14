@@ -151,9 +151,9 @@ describe('SettingsDrawer', () => {
   it('打开时列出全部服务商与字段', () => {
     const w = mount(SettingsDrawer, { props: { open: true } })
     expect(w.find('.drawer').exists()).toBe(true)
-    const 选项 = w.findAll('select option').map((o) => o.text())
-    expect(选项).toContain('DeepSeek 官方')
-    expect(选项).toContain('本地 Ollama（零成本）')
+    const options = w.findAll('select option').map((o) => o.text())
+    expect(options).toContain('DeepSeek 官方')
+    expect(options).toContain('本地 Ollama（零成本）')
     expect(w.text()).toContain('API Key')
     expect(w.text()).toContain('每回合最多思考步数')
   })

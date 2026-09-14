@@ -8,7 +8,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { PRESETS, loadConfig, saveConfig, clearConfig, maskKey } from '../core/config'
-import { testConnection } from '../core/llm'
+import { testConnection as testApiConnection } from '../core/llm'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [v: boolean]; saved: [] }>()
@@ -19,9 +19,9 @@ const 地址 = ref('')
 const 模型 = ref('')
 const 步数 = ref(8)
 
-const 测试结果 = ref('')
-const 测试状态 = ref<'' | 'ok' | 'bad'>('')
-const 测试中 = ref(false)
+const testResult = ref('')
+const testStatus = ref<'' | 'ok' | 'bad'>('')
+const testing = ref(false)
 
 /** 当前服务商预设。服务商可能被配置填成不存在的值，所以这里要能返回 undefined */
 const 当前预设 = computed(() => PRESETS[服务商.value])
@@ -37,24 +37,24 @@ watch(
     地址.value = cfg.apiBase
     模型.value = cfg.model
     步数.value = cfg.maxAgentSteps
-    测试结果.value = ''
-    测试状态.value = ''
-    同步服务商字段()
+    testResult.value = ''
+    testStatus.value = ''
+    syncProviderFields()
   },
   { immediate: true },
 )
 
 /** 接口地址 / 模型如果还是**任何**一个预设的默认值，切换服务商时就自动替换 */
-function 同步服务商字段() {
+function syncProviderFields() {
   const p = 当前预设.value
   if (!p) return
-  const 是旧默认 = (v: string) => Object.values(PRESETS).some((x) => x.apiBase === v)
-  const 是旧模型 = (v: string) => Object.values(PRESETS).some((x) => x.models?.includes(v))
-  if (!地址.value.trim() || 是旧默认(地址.value.trim())) 地址.value = p.apiBase
-  if (!模型.value.trim() || 是旧模型(模型.value.trim())) 模型.value = p.models?.[0] ?? ''
+  const isOldBase = (v: string) => Object.values(PRESETS).some((x) => x.apiBase === v)
+  const isOldModel = (v: string) => Object.values(PRESETS).some((x) => x.models?.includes(v))
+  if (!地址.value.trim() || isOldBase(地址.value.trim())) 地址.value = p.apiBase
+  if (!模型.value.trim() || isOldModel(模型.value.trim())) 模型.value = p.models?.[0] ?? ''
 }
 
-const 直连说明 = computed(() => {
+const corsHint = computed(() => {
   const c = 当前预设.value?.corsOk
   if (c === false) return '⚠️ 该服务商实测不允许浏览器直连（CORS），用不了'
   if (c === true) return '✅ 实测支持浏览器直连'
@@ -73,7 +73,7 @@ function 保存() {
   emit('saved')
 }
 
-async function 测试连接() {
+async function testConnection() {
   // 先用表单里的值试，不必先保存
   saveConfig({
     provider: 服务商.value,
@@ -81,19 +81,19 @@ async function 测试连接() {
     apiBase: 地址.value.trim(),
     model: 模型.value.trim(),
   })
-  测试中.value = true
-  测试状态.value = ''
-  测试结果.value = '测试中…'
+  testing.value = true
+  testStatus.value = ''
+  testResult.value = '测试中…' // 允许：给玩家看的 UI 文案
   try {
-    const r = await testConnection()
-    测试状态.value = 'ok'
-    测试结果.value = `✅ 连接成功（${r.ms}ms）· 回复：${r.reply}`
+    const r = await testApiConnection()
+    testStatus.value = 'ok'
+    testResult.value = `✅ 连接成功（${r.ms}ms）· 回复：${r.reply}`
   } catch (err) {
     // 边界：这是「测试连接」按钮，失败本身就是结果 —— 显示给用户，不是吞掉
-    测试状态.value = 'bad'
-    测试结果.value = `❌ 失败\n${(err as Error).message}`
+    testStatus.value = 'bad'
+    testResult.value = `❌ 失败\n${(err as Error).message}`
   } finally {
-    测试中.value = false
+    testing.value = false
     // 测试连接会把配置写进 localStorage，顶栏状态要跟着刷新
     emit('saved')
   }
@@ -103,8 +103,8 @@ function 清除密钥() {
   if (!confirm('清除浏览器里保存的 API key？')) return
   clearConfig()
   密钥.value = ''
-  测试状态.value = ''
-  测试结果.value = '已清除'
+  testStatus.value = ''
+  testResult.value = '已清除'
   emit('saved')
 }
 </script>
@@ -120,10 +120,10 @@ function 清除密钥() {
 
       <div class="field">
         <label>服务商</label>
-        <select v-model="服务商" @change="同步服务商字段">
+        <select v-model="服务商" @change="syncProviderFields">
           <option v-for="(v, k) in PRESETS" :key="k" :value="k">{{ v.label }}</option>
         </select>
-        <div class="note">{{ 直连说明 }}</div>
+        <div class="note">{{ corsHint }}</div>
       </div>
 
       <div class="field">
@@ -166,12 +166,12 @@ function 清除密钥() {
       </div>
 
       <div class="sheet-actions">
-        <button :disabled="测试中" @click="测试连接">测试连接</button>
+        <button :disabled="testing" @click="testConnection">testConnection</button>
         <button class="primary" @click="保存">保存</button>
         <button class="ghost right" @click="清除密钥">清除密钥</button>
       </div>
 
-      <div v-if="测试结果" class="result" :class="测试状态">{{ 测试结果 }}</div>
+      <div v-if="testResult" class="result" :class="testStatus">{{ testResult }}</div>
     </div>
   </div>
 </template>

@@ -9,7 +9,7 @@
  * 早期版本有属性、背包、NPC、剧情标记等一堆字段，逼着模型每回合
  * 输出大量 JSON 去维护它们，反而挤掉了「写故事」的注意力。
  *
- * ## 存档
+ * ## save
  *
  * - 主存 localStorage（自动保存，刷新不丢）
  * - 备份：导出 JSON 文件 / 从文件导入
@@ -39,10 +39,10 @@ export class GameState {
     this.data = data ?? createInitialState()
   }
 
-  // ---------- 存档 ----------
+  // ---------- save ----------
 
   /**
-   * 存档。
+   * save。
    * ⚠️ 失败返回 false，**调用方必须让玩家看到** —— 静默失败会让玩家以为
    * 进度已保存，刷新后才发现没了。
    */
@@ -215,12 +215,12 @@ export class GameState {
 
     // 先筛出有效记录再决定要不要打印标题：
     // 存档被手改后可能出现 to 为空的记录，那样会留下一个空标题，误导模型
-    const 时间线条目 = timeline
+    const timelineLines = timeline
       .slice(-5)
       .filter((t) => t && typeof t === 'object' && String(t.to ?? ''))
       .map((t) => `- ${t.to}${t.reason ? `（${t.reason}）` : ''}`)
-    if (时间线条目.length) {
-      lines.push('', '### 时间线', ...时间线条目)
+    if (timelineLines.length) {
+      lines.push('', '### 时间线', ...timelineLines)
     }
 
     return lines.join('\n')

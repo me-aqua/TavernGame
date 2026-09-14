@@ -26,8 +26,8 @@ const {
   消息流,
   正在跑,
   调试模式,
-  追加,
-  恢复日志,
+  append,
+  restoreLog,
   执行回合,
   重新开始,
   导入存档,
@@ -39,10 +39,10 @@ const 配置状态 = ref(isConfigured())
 const 状态灯 = ref<'ok' | 'warn' | 'err'>('warn')
 const 状态文字 = ref('检查配置…')
 
-const 已配置 = computed(() => 配置状态.value)
+const configured = computed(() => 配置状态.value)
 
 /** 刷新顶栏状态灯。成功的回合要把报错时的红灯恢复回来 */
-function 刷新配置状态() {
+function refreshConfigStatus() {
   const cfg = loadConfig()
   配置状态.value = isConfigured()
   if (!配置状态.value) {
@@ -56,7 +56,7 @@ function 刷新配置状态() {
 
 // 调试模式：在控制台执行 __DEBUG = true 即可打开（刷新后失效）
 watch(调试模式, (on) => {
-  追加('system', on ? '🔧 调试模式已开启 —— 之后会显示模型的原始输出' : '🔧 调试模式已关闭')
+  append('system', on ? '🔧 调试模式已开启 —— 之后会显示模型的原始输出' : '🔧 调试模式已关闭')
   window.__DEBUG = on
 })
 Object.defineProperty(window, '__DEBUG', {
@@ -91,21 +91,21 @@ async function 提交行动(text: string) {
  * 玩家完全不知道发生了什么。
  */
 async function 开新游戏() {
-  追加('system', '（正在生成开场…）')
+  append('system', '（正在生成开场…）')
   try {
     await 执行回合()
   } catch (err) {
     // 边界：这是开场生成，失败要显示给玩家 —— 不是吞掉
     if ((err as Error).name === 'AbortError') return
     状态灯.value = 'err'
-    追加('error', `生成开场失败：${(err as Error).message}`)
+    append('error', `生成开场失败：${(err as Error).message}`)
   }
 }
 
 function 导出() {
   const 日期 = new Date().toISOString().slice(0, 10)
-  downloadText(`taverngame-存档-${日期}.json`, 导出存档())
-  追加('system', '存档已导出为文件')
+  downloadText(`taverngame-save-${日期}.json`, 导出存档())
+  append('system', '存档已导出为文件')
 }
 
 async function 导入() {
@@ -113,11 +113,11 @@ async function 导入() {
   if (!file) return
   try {
     导入存档(await file.text())
-    追加('system', '存档已导入 ✓')
-    恢复日志(12)
+    append('system', '存档已导入 ✓')
+    restoreLog(12)
   } catch (err) {
     // 边界：导入的文件来自用户，坏了要告诉他哪里坏了 —— 不是吞掉
-    追加('error', `导入失败：${(err as Error).message}`)
+    append('error', `导入失败：${(err as Error).message}`)
   }
 }
 
@@ -128,8 +128,8 @@ function 重来() {
 }
 
 function 设置已保存() {
-  刷新配置状态()
-  追加('system', '设置已保存 ✓')
+  refreshConfigStatus()
+  append('system', '设置已保存 ✓')
   // 全新的游戏（没回合、没历史）时，保存配置后顺手把开场跑出来
   if (回合数.value === 0 && 消息流.value.length === 0 && !正在跑.value) void 开新游戏()
 }
@@ -137,11 +137,11 @@ function 设置已保存() {
 // ---------- 启动 ----------
 
 onMounted(() => {
-  刷新配置状态()
+  refreshConfigStatus()
 
   // 存档坏了要说清楚，不能装作无事发生（坏数据已另存一份备份）
   if (启动错误) {
-    追加(
+    append(
       'error',
       // 允许：这是给**玩家看的错误说明**，不是给模型的提示词
       `本地存档已损坏，本次从空白开始：\n${启动错误}\n\n原存档已备份到浏览器存储中（key 以 .broken- 开头），可在控制台导出。`,
@@ -152,16 +152,16 @@ onMounted(() => {
   // 恢复上次的叙事日志：叙事与玩家行动都按日志顺序原样输出。
   // 刷新时界面是空的，所以不存在重复问题 —— 日志里每条都是唯一的。
   // system 类不恢复（本次加载会重新生成提示）。
-  if (!启动错误) 恢复日志()
+  if (!启动错误) restoreLog()
 
   if (isConfigured()) {
     if (回合数.value === 0) {
       void 开新游戏()
     } else {
-      追加('system', `继续游戏（第 ${回合数.value} 回合）`)
+      append('system', `继续游戏（第 ${回合数.value} 回合）`)
     }
   } else {
-    追加('system', '欢迎。请先点右上角「⚙ 设置」填入 API key。')
+    append('system', '欢迎。请先点右上角「⚙ 设置」填入 API key。')
   }
 })
 </script>
@@ -179,7 +179,7 @@ onMounted(() => {
   <div class="layout">
     <section class="main">
       <StoryPanel :lines="消息流" :thinking="正在跑" />
-      <GameComposer :disabled="正在跑" :configured="已配置" @submit="提交行动" />
+      <GameComposer :disabled="正在跑" :configured="configured" @submit="提交行动" />
     </section>
 
     <AppSidebar :time-label="时间标签" :timeline="时间线" :scene="场景" :turn="回合数" />

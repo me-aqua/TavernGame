@@ -9,7 +9,7 @@ import { GameState } from '../src/core/state'
 import { createInitialState, normalize, loadState, SAVE_KEY } from '../src/core/persistence'
 
 /** 数一数有几个 .broken- 备份键（垫片是普通对象，只能用它的 key()） */
-function 备份键数量(): number {
+function countBackupKeys(): number {
   let n = 0
   for (let i = 0; ; i += 1) {
     const k = localStorage.key(i)
@@ -42,7 +42,7 @@ describe('load —— 存档读写', () => {
     expect(data).toBeNull()
     expect(error).toContain('本地存档已损坏')
     // 坏数据必须留一份，否则玩家连导出抢救的机会都没有
-    expect(备份键数量()).toBe(1)
+    expect(countBackupKeys()).toBe(1)
   })
 
   it('save 失败返回 false 而不是假装成功', () => {

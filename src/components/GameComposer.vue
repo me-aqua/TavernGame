@@ -19,21 +19,21 @@ const emit = defineEmits<{ submit: [text: string] }>()
 const 文本 = ref('')
 const 输入框 = ref<HTMLTextAreaElement | null>(null)
 
-function 自适应高度() {
+function autoResize() {
   const el = 输入框.value
   if (!el) return
   el.style.height = 'auto'
   el.style.height = `${Math.min(el.scrollHeight, 130)}px`
 }
 
-watch(文本, () => void nextTick(自适应高度))
+watch(文本, () => void nextTick(autoResize))
 
 function 提交() {
   const t = 文本.value.trim()
   if (!t) return
   文本.value = ''
   // 有意不等待：高度调整是纯视觉的，下一帧做就行
-  void nextTick(自适应高度)
+  void nextTick(autoResize)
   emit('submit', t)
 }
 </script>
