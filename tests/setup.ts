@@ -1,9 +1,8 @@
 /**
- * Test environment shims.
+ * 测试环境垫片。
  *
- * The store and utils/storage.ts use localStorage, which Node does not have — a minimal
- * in-memory implementation stands in. Cleared before every test so cases
- * cannot leak state into each other.
+ * store 与 utils/storage.ts 都用 localStorage，Node 没有 —— 这里放一个最小的内存
+ * 实现顶上，每个用例前清空，避免用例之间串状态。
  */
 import { config } from '@vue/test-utils'
 import { i18n } from '../src/i18n'
@@ -15,22 +14,16 @@ const localStorageShim: Storage = {
   get length() {
     return storage.size
   },
-  /** 清空全部 */
   clear: () => storage.clear(),
-  /** 取值；没有这个键返回 null（与浏览器一致） */
   getItem: (k: string) => (storage.has(k) ? (storage.get(k) as string) : null),
-  /** 按下标取键名 */
   key: (i: number) => [...storage.keys()][i] ?? null,
-  /** 删键 */
   removeItem: (k: string) => void storage.delete(k),
-  /** 写值；一律转成字符串（同浏览器） */
   setItem: (k: string, v: string) => void storage.set(k, String(v)),
 }
 
-// ⚠️ Node 22+ has a **native localStorage** (its value is undefined unless
-//    --localstorage-file is given, so using it throws "Cannot read properties
-//    of undefined"). Vitest's node environment inherits that broken native
-//    implementation, so it must be overridden with defineProperty.
+// ⚠️ Node 22+ 有**原生 localStorage**（不给 --localstorage-file 时它的值是 undefined，
+//    一用就抛 "Cannot read properties of undefined"）。Vitest 的 node 环境会继承这个
+//    坏掉的实现，所以必须用 defineProperty 覆盖掉。
 try {
   localStorage.setItem('__probe', '1')
   localStorage.removeItem('__probe')
@@ -43,20 +36,17 @@ try {
 }
 
 /*
- * Every component calls useI18n(), so mounting without the plugin throws
- * "Need to install with app.use". Installing it once globally keeps that
- * boilerplate out of every test file.
+ * 每个组件都会调 useI18n()，不装插件直接挂载会抛 "Need to install with app.use"。
+ * 全局装一次，省掉每个测试文件里的样板。
  */
 config.global.plugins = [i18n]
 
 /*
- * Pin the locale for every test. The app starts at 'en' and useLanguage() applies
- * the real choice on mount, but tests evaluate core modules directly, so the
- * locale must be explicit or assertions would depend on the host machine.
+ * 把每个测试的 locale 钉死。应用从 'en' 启动、真实选择由 useLanguage() 在挂载时应用，
+ * 而测试直接求值核心模块，所以 locale 必须显式设置，否则断言会取决于跑测试的机器。
  *
- * zh-CN is pinned because it is the reference language: English falls back to
- * printing the key name, which would let a missing key pass a "not Chinese" check.
- * Chinese literals in test files are checked by .githooks/checks/ascii.mjs.
+ * 钉在 zh-CN 是因为它是参考语言：英文会退化成打印 key 名，那样「缺 key」也能通过
+ * 「不是中文」这类检查。测试文件里的中文字面量由 .githooks/checks/ascii.mjs 检查。
  */
 ;(i18n.global.locale as unknown as { value: string }).value = 'zh-CN'
 

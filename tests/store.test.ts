@@ -1,5 +1,5 @@
 /**
- * store 测试 —— 界面与游戏之间唯一的桥梁，此前 0% 覆盖。
+ * store 测试 —— 界面与游戏之间唯一的桥梁。
  *
  * 只通过公开 API 驱动：store 的实例是模块级的，
  * 所以每个用例开头都「resetGame」清空（数据、事件流、历史、通知一起清）。
@@ -39,10 +39,8 @@ beforeEach(() => {
   useGame().resetGame()
 })
 
-/** 界面上的故事行（rows 里 debug=false 的那些） */
 const storyRows = (g: ReturnType<typeof useGame>) => g.rows.value.filter((row) => !row.debug)
 
-/** 界面上的调试行（只有打开调试模式才会出现） */
 const debugRows = (g: ReturnType<typeof useGame>) => g.rows.value.filter((row) => row.debug)
 
 /** 造一个已写完一回合的 store */

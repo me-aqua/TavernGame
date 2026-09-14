@@ -1,60 +1,52 @@
 /**
- * Vite plugin: prompts as base64 virtual modules.
+ * Vite 插件：把提示词变成 base64 虚拟模块。
  *
- * Source of truth: `prompts/<lang>/<name>.md` (hand-written, committed).
- * Each file becomes a **virtual module** whose default export is its base64
- * payload — no generated file ever touches the working tree, so there is
- * nothing to regenerate and nothing to forget to commit.
+ * 真值来源：`prompts/<lang>/<name>.md`（手写、进仓库）。每个文件变成一个**虚拟模块**，
+ * default 导出是它的 base64 内容 —— 不产生中间文件，所以没有「忘了重新生成」这种事。
  *
- * Why base64: prompts contain newlines, quotes, backticks, Markdown fences and
- * non-ASCII text. Inlining raw Markdown into a JS string literal risks a stray
- * backtick truncating the literal, and leaves every newline escaped and
- * unreadable in the bundle. Base64 sidesteps escaping entirely.
+ * 为什么用 base64：提示词里有换行、引号、反引号、Markdown 围栏与非 ASCII 文本。
+ * 把原始 Markdown 内联进 JS 字符串，一个野反引号就能截断字面量，而且换行全被转义、
+ * 在产物里没法读。base64 彻底绕开转义。
  *
- * ⚠️ Encoding, not encryption: base64 is reversible and any client-side string
- *    is obtainable. Never put anything truly secret in a prompt.
+ * ⚠️ 是编码不是加密：base64 可逆，客户端字符串谁都拿得到。别往提示词里放真机密。
  *
- * ## Module id convention
+ * ## 模块 id 约定
  *
- *   virtual:prompt/<lang>/<name>     e.g. virtual:prompt/zh-CN/system
- *                                    virtual:prompt/en/tools
- *   virtual:prompt/<lang>/<name>.md  a trailing ".md" is tolerated
+ *   virtual:prompt/<lang>/<name>     例如 virtual:prompt/zh-CN/system
+ *   virtual:prompt/<lang>/<name>.md  末尾的 ".md" 允许存在
  *
- * The <lang> segment is **required** — it comes from the directory name, so a
- * prompt with no language folder has no addressable id (warned about at scan).
+ * <lang> 段是**必需的**：它来自目录名，所以没有语言目录的提示词没有可寻址的 id
+ * （扫描时告警）。
  *
  * ## HMR
  *
- * Editing a .md triggers a full reload in dev. Rewriting the importer chain for
- * a virtual module needs moduleGraph surgery that is easy to get subtly wrong;
- * a full reload here is instant and impossible to break.
+ * 改 .md 会触发整页刷新。为虚拟模块重写 importer 链要动 moduleGraph，很容易错得
+ * 很微妙；整页刷新是瞬时的，而且不可能坏。
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite'
 
-/** Virtual module namespace */
+/** 虚拟模块命名空间 */
 const NS = 'virtual:prompt/'
-/** Marker so Vite never tries to resolve these ids as real files */
+/** 标记位：让 Vite 不把这些 id 当成真实文件去解析 */
 const RESOLVED_PREFIX = '\0' + NS
 
 interface PromptEntry {
-  /** Language segment, e.g. "zh-CN" or "en" */
+  /** 语言段，例如 "zh-CN" 或 "en" */
   lang: string
-  /** File name without extension, e.g. "system" */
+  /** 不带扩展名的文件名，例如 "system" */
   name: string
-  /** Absolute path on disk */
   file: string
 }
 
 /**
- * Recursively collect prompts/<lang>/<name>.md
+ * 递归收集 prompts/<lang>/<name>.md
  *
  *   prompts/zh-CN/system.md  ->  { lang: "zh-CN", name: "system" }
- *   prompts/en/tools.md      ->  { lang: "en",    name: "tools" }
  *
- * A .md directly under prompts/ (only README.md should be) is skipped with a
- * warning: it has no addressable id because every id carries a language.
+ * 直接放在 prompts/ 下的 .md（只该有 README.md）跳过并告警：每个 id 都带语言段，
+ * 它没有可寻址的 id。
  */
 function collectPrompts(root: string): PromptEntry[] {
   const entries: PromptEntry[] = []
@@ -97,9 +89,9 @@ function collectPrompts(root: string): PromptEntry[] {
 export function promptsPlugin(): Plugin {
   let root = process.cwd()
 
-  /** "lang/name" -> on-disk file */
+  /** "lang/name" -> 磁盘文件 */
   const byKey = new Map<string, string>()
-  /** Known language folders, for error messages */
+  /** 已知的语言目录，用于报错信息 */
   let locales: string[] = []
 
   /** 重新扫描提示词目录（启动时与文件变更时各一次） */
@@ -110,7 +102,7 @@ export function promptsPlugin(): Plugin {
     locales = [...new Set(entries.map((e) => e.lang))].sort()
   }
 
-  /** Parse "virtual:prompt/zh-CN/system[.md]"; lang is required */
+  /** 解析 "virtual:prompt/zh-CN/system[.md]"；lang 必须有 */
   function parseId(id: string): { lang?: string; name?: string } {
     const rest = id.slice(NS.length).replace(/\.md$/, '')
     const parts = rest.split('/')
@@ -158,7 +150,7 @@ export function promptsPlugin(): Plugin {
 
       const text = readFileSync(file, 'utf8')
       const b64 = Buffer.from(text, 'utf8').toString('base64')
-      // JSON.stringify handles escaping; base64 contains no quotes, so this is safe
+      // JSON.stringify 负责转义；base64 里没有引号，这样拼是安全的
       return (
         'export default ' +
         JSON.stringify(b64) +
@@ -169,7 +161,7 @@ export function promptsPlugin(): Plugin {
 
     /** 开发时监听提示词目录，改 .md 立刻生效 */
     configureServer(server: ViteDevServer) {
-      // Watch the prompts tree; see the HMR note in the file header
+      // 监听提示词目录，理由见文件头的 HMR 说明
       server.watcher.add(join(root, 'prompts'))
     },
 

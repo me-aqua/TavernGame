@@ -1,14 +1,13 @@
 /**
  * agent 循环测试 —— 项目的灵魂。
  *
- * ⚠️ 2026-09-14 起走**原生 tool calling**：模型在协议层声明工具调用，
- * 我们不再解析文本。所以这里断言的重点是：
+ * ⚠️ 走**原生 tool calling**：模型在协议层声明工具调用，没有文本解析。
+ * 所以这里断言的重点是：
  *   - 循环是否正确处理 tool_calls / 工具结果回传（role:'tool' + tool_call_id）
  *   - 出错时是否把结构化错误回传给模型（而不是自己纠正）
  *   - 补写那一步是否**不给工具**（协议层保证它写不了工具调用）
  *
- * Message assertions go through t('key') so they keep proving the right locale key
- * is wired; fixtures are ASCII constants so this file stays ASCII-only.
+ * 文案断言都走 t('key')（证明 key 接对了）；夹具是 ASCII 常量，本文件保持 ASCII。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initialState, save, hydrateFromSave, turn, iso } from '../src/game/state'
@@ -19,7 +18,7 @@ import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 import { configureFakeProvider, createAgentContext } from './support/game-fixtures'
 import { ADVANCE_OK_MARKER } from './support/locale-patterns'
 
-/** ASCII fixtures: what the fake model "writes" and what the player "types" */
+/** ASCII 夹具：假模型「写」的与玩家「敲」的内容 */
 const REPLY_PLAIN = 'The rain has stopped.'
 const REPLY_AFTER_WAIT = 'The wind finally died down.'
 const REPLY_WAITING = 'You wait for a long while.'
@@ -240,7 +239,7 @@ describe('runTurn -- fallbacks and boundaries', () => {
     const controller = new AbortController()
     controller.abort()
 
-    // The message is protocol-level ('aborted'); assert the name, not the text.
+    // 消息是协议层的（'aborted'）：断言 name，不比文案
     await expect(runTurn(ctx, { action: ACTION_LATE, signal: controller.signal })).rejects.toMatchObject({
       name: 'AbortError',
     })

@@ -1,22 +1,15 @@
 /**
- * src/agent/agent.ts —— agent 循环（项目的灵魂）
- *
- * 一次「回合」的完整流程：
- *
- *   玩家输入 → 拼装提示词 → 问模型（带 tools 声明）
- *          → 模型要么写故事收尾，要么**在协议层**要求调用工具
- *          → 引擎执行工具、改状态 → 把**结构化结果**回传
- *          → 模型据此继续 → 重复直到它不再调工具，或达到步数上限 → 回合结束
+ * src/agent/agent.ts —— agent 循环：玩家输入 → 拼装提示词 → 问模型（带 tools 声明）→
+ * 模型写故事收尾，或在协议层要求调用工具 → 引擎执行工具改状态 → 把结构化结果回传 →
+ * 重复直到模型不再调工具，或达到步数上限。
  *
  * 关键点：
  *   - **引擎持有一切事实**。模型只能申请，不能直接改。
- *   - **禁止解析模型输出**（用户 2026-09-14 明确要求）：工具调用走
- *     OpenAI 兼容的原生 `tools` 协议，我们不猜它写在文字里的 JSON。
- *   - **出错就回传，让模型自己改**：参数不合法、单位不认识、时间倒退 ——
- *     这些都作为工具结果回传，模型有契约可依、可以重试正确的一次。
- *     引擎只拦「绝不能发生」的事，不做静默纠正。
+ *   - **禁止解析模型输出**（用户 2026-09-14 明确要求）：工具调用走 OpenAI 兼容的
+ *     原生 `tools` 协议，我们不猜它写在文字里的 JSON。
+ *   - **出错就回传，让模型自己改**：参数不合法、单位不认识、时间倒退都作为工具结果
+ *     回传，引擎只拦「绝不能发生」的事，不做静默纠正。
  *   - **步数有上限**，防止模型陷入死循环把 API 额度烧光。
- *   - **可以中途取消**，玩家点了停止就真的停下。
  */
 
 import { t } from '../i18n'
@@ -43,7 +36,6 @@ import type { ChatReply, ToolCallRequest, ToolSchema } from './llm'
  * 也能在脚本里跑（手写数据 + 假存储）。
  */
 export interface AgentContext {
-  /** 当前这一局的数据（工具会原地改它） */
   state: GameState
   /** 把故事写进事件流（引擎只写故事类；调试痕迹由界面侧写） */
   addEvent: (kind: StoryKind, text: string) => void
@@ -63,7 +55,6 @@ export type AgentEvent =
   | { type: 'toolResult'; tool: string; result: string }
   | { type: 'warn'; message: string }
 
-/** 一次回合的产物 */
 interface TurnResult {
   /** 本回合的全部叙事（多步之间用空行连接） */
   text: string
@@ -86,8 +77,7 @@ interface TurnOptions {
 
 /**
  * 拼装发给模型的消息列表。
- * system 消息交给 prompts.buildSystemPrompt —— 因为历法说明是动态的
- * （玩家用哪套历法，说明就不同），不便在这里写死。
+ * system 消息交给 prompts.buildSystemPrompt —— 历法说明是动态的，不便在这里写死。
  */
 function buildMessages(ctx: AgentContext, history: ChatMessage[], userContent: string): ChatMessage[] {
   const messages: ChatMessage[] = [{ role: 'system', content: buildSystemPrompt(ctx, history) }]
@@ -117,15 +107,12 @@ function executeToolCall(
 }
 
 /**
- * 模型一步返回后的处理结果。
  * 用带 type 的联合而不是布尔，避免「有没有工具调用」这类模糊判断。
  */
 type StepOutcome =
   { kind: 'done'; narration: string } | { kind: 'tools'; narration: string; calls: ToolCallRequest[] }
 
-/**
- * 跑一个回合。
- */
+/** 跑一个回合：循环到模型不再调工具，或步数用尽 */
 export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promise<TurnResult> {
   const { action, history = [], signal, onEvent = () => {}, tools = toolSchemas() } = opts
   const cfg = loadConfig()
@@ -191,7 +178,6 @@ export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promis
     }
   }
 
-  // 步数用尽
   if (stepCount >= maxSteps && toolResults.length > 0) {
     onEvent({ type: 'warn', message: t('agent.stepLimit', { max: maxSteps }) })
   }
@@ -207,7 +193,6 @@ export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promis
 
   ctx.endTurn()
 
-  // 维护对话历史（供下一回合拼接）
   const appended: ChatMessage[] = [
     { role: 'user', content: userContent },
     { role: 'assistant', content: narrations.join('\n\n') },
@@ -217,7 +202,7 @@ export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promis
   return { text: narrations.join('\n\n'), toolResults, steps: stepCount, history: newHistory }
 }
 
-/** 判断模型这一步是「说完了」还是「要调工具」，并顺手处理异常情况 */
+/** 判断模型这一步是「说完了」还是要调工具 */
 function classifyStep(reply: ChatReply, onEvent: (evt: AgentEvent) => void, stepCount: number): StepOutcome {
   const narration = reply.content.trim()
 

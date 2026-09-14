@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Pre-push checks: the heavy jobs that do not fit in a sub-second pre-commit.
+// pre-push 检查：塞不进亚秒级 pre-commit 的重活。
 //
-// Why layered:
-//   pre-commit runs on every commit  → syntax / format / lint / types / unit tests
-//   pre-push   runs on every push    → coverage gate / build / end-to-end
-// This keeps "never push something broken" without making every commit wait.
+// 为什么分层：
+//   pre-commit 每次提交都跑 → 语法 / 格式 / lint / 类型 / 单元测试
+//   pre-push   每次推送都跑 → 覆盖率门槛 / 构建 / 端到端
+// 这样「绝不推送坏东西」不必让每次提交都等。
 import { execSync } from 'node:child_process'
 
 if (process.env.SKIP_DISCIPLINE === '1') {

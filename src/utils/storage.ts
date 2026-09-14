@@ -29,11 +29,9 @@ export interface SaveStore {
   save(data: GameData): boolean
 }
 
-/** 完整的存档读写器（读档 + 落盘） */
 export interface GameStore extends SaveStore {
   /** 读存档：没有返回 null；存在但读不出来抛错（调用方提示玩家） */
   load(): unknown | null
-  /** 写存档：返回是否成功（失败必须让玩家看到） */
   save(data: GameData): boolean
 }
 

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { createInitialState, normalize, parseSave } from '../src/game/save'
 import { t } from '../src/i18n'
 
-// Fixtures: a player name and the garbage values the system boundary has to reject.
+// 夹具：玩家名，以及系统边界必须拒绝的垃圾值
 const TRUNCATED_JSON = '{ broken'
 const JSON_STRING = '"a string"'
 

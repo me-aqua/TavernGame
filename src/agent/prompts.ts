@@ -1,14 +1,13 @@
 /**
  * src/agent/prompts.ts —— 提示词装配器
  *
- * ⚠️ **这里不放任何提示词内容。** 内容全部在 `prompts/<lang>/*.md`。
- * 这个文件的职责只有三件：
+ * ⚠️ **这里不放任何提示词内容**，内容全部在 `prompts/<lang>/*.md`。本文件的职责只有三件：
  *   1. 把构建期编码的提示词（虚拟模块）解码成字符串
  *   2. **按当前界面语言选那一套**（模型语言跟随界面语言，见 doc/DESIGN.md 决定 #19）
  *   3. 把占位符填上，并**确认没有漏填**
  *
- * 为什么提示词单独放文件：它是这个项目的"游戏逻辑"，
- * 改动的频率与重要性不低于代码；混在字符串里没法评审、没法 diff。
+ * 提示词单独放文件是因为它就是本项目的「游戏逻辑」，改动频率不低于代码；
+ * 混在字符串里没法评审、没法 diff。
  */
 
 // 提示词以 base64 随包发布：源文件 prompts/<lang>/*.md，由 vite-plugins/prompts.ts
@@ -37,7 +36,6 @@ import type { AgentContext } from './agent'
 /**
  * 解码提示词：虚拟模块导出的就是**纯 base64 字符串**（无注释、无包装）。
  *
- * 浏览器与 Node 18+ 都有 atob / TextDecoder，所以不需要任何 Node 专用 API。
  * base64 → bytes → UTF-8：中文必须走这一步，直接 atob 得到的是乱码。
  */
 function decodePrompt(b64: string): string {
@@ -95,8 +93,8 @@ export function toolsPrompt(): string {
 /**
  * 拼装完整的 system 提示词。
  *
- * 历法与工具说明都是动态的（换历法、加工具时不一样），
- * 所以在这里装配，而不是写死在提示词文件里。
+ * 历法与工具说明都是动态的（换历法、加工具时不一样），所以在这里装配，
+ * 而不是写死在提示词文件里。
  */
 export function buildSystemPrompt(world: AgentContext, history: ChatMessage[] = []): string {
   const lang = locale()
@@ -107,7 +105,7 @@ export function buildSystemPrompt(world: AgentContext, history: ChatMessage[] = 
   })
 }
 
-/** 开场指令（内容是 prompts/<lang>/opening.md） */
+/** 开场指令 */
 export function openingInstruction(): string {
   return renderPrompt(TEMPLATES.opening[locale()])
 }

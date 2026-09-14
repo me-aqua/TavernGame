@@ -1,8 +1,7 @@
 /**
  * 状态与存档测试。
  *
- * 重点：**坏存档不能让游戏卡死**。
- * 这些断言全部对应 v0.5.4 那次独立审查修掉的缺陷，是防回归用的。
+ * 重点：**坏存档不能让游戏卡死**。这些断言对应 v0.5.4 独立审查修掉的缺陷，是防回归用的。
  */
 import { describe, expect, it, vi } from 'vitest'
 import * as game from '../src/game/state'
@@ -11,29 +10,23 @@ import { localStorageStore, SAVE_KEY } from '../src/utils/storage'
 import { createGame, countBackupKeys } from './support/game-fixtures'
 import { i18n, t } from '../src/i18n'
 
-/** 坏存档内容：JSON.parse 必然失败（测试自己编的 fixture） */
+/** 坏存档内容：JSON.parse 必然失败 */
 const CORRUPT_SAVE_RAW = '{not valid JSON'
 
-/** Date.parse 不接受的时刻（测试 fixture） */
 const INVALID_TIME = 'not-a-valid-time'
 
-/** 一条正常日志的文本（测试 fixture） */
 const NORMAL_LOG_TEXT = 'a normal log entry'
 
-/** 灌满日志用的填充文本（只验证条数，不关心内容） */
+/** 灌满日志用（只验证条数） */
 const FILLER_LOG_TEXT = 'filler'
 
-/** 非规范时间单位：未收录 / 复数 / 全大写 / 另一个未收录 / 首字母大写 / 空串 */
 const NON_CANONICAL_UNITS = ['lightyear', 'days', 'DAY', 'fortnight', 'Segment', '']
 
-/** 推进时间时给出的原因（测试 fixture） */
 const WAITED_A_WEEK = 'waited a week'
 
-/** 玩家行动与模型回复（测试 fixture） */
 const PLAYER_ACTION = 'I take a look'
 const GM_REPLY = 'You push the door open.'
 
-/** 日志与时间线里用的叙事文本（测试 fixture） */
 const STORY_LOG_TEXT = 'a bit of story'
 const SLEPT_THROUGH_THE_NIGHT = 'slept through the night'
 
@@ -138,8 +131,7 @@ describe('advanceTime - rejecting invalid input', () => {
   })
 
   it('rejects non-canonical units and leaves the time untouched (no tolerance guessing left)', () => {
-    // 旧版本靠一张别名表把「days / 天 / DAY」猜成 day；原生 tool calling 之后
-    // 协议层用 enum 挡住了这些，引擎只认 6 个规范值。
+    // 单位只认 6 个规范值：别名（days / 天 / DAY）由协议层的 enum 挡住，引擎不做猜测
     for (const bad of NON_CANONICAL_UNITS) {
       const s = createGame()
       const before = game.iso(s)

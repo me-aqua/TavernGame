@@ -3,9 +3,9 @@
  *
  * 提示词是这个项目的「游戏逻辑」（doc/DESIGN.md：提示词 = 作者控制 AI 的代码）。
  *
- * ⚠️ 原生 tool calling 之后，提示词里**不再**教模型怎么写工具块 ——
- *    格式由 API 的 tools schema 约束。所以这里断言的重点变成：
- *    何时该调用工具（这部分仍在提示词里）、装配不会漏参数、内容编码干净。
+ * ⚠️ 提示词里**不教**模型怎么写工具块 —— 格式由 API 的 tools schema 约束。
+ *    所以这里断言的重点是：何时该调用工具（这部分仍在提示词里）、
+ *    装配不会漏参数、内容编码干净。
  */
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -68,7 +68,7 @@ describe('prompt files (prompts/)', () => {
   })
 
   it('no longer teaches a text tool-block format (that is the schema job)', () => {
-    // 协议时代提示词里不该再出现「工具块」这类文本协议概念：没有代码围栏，
+    // 提示词里不该出现「工具块」这类文本协议概念：没有代码围栏，
     // 英文版也没有对应的说法（中文短语不写进代码，直接查协议标记本身）
     for (const text of [toolsMarkdown, toolsMarkdownEn]) {
       expect(text).not.toContain('```')

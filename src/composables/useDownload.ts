@@ -1,11 +1,8 @@
 /**
- * src/composables/useDownload.ts —— 浏览器原生下载
- *
- * 浏览器不允许脚本直接「保存文件」，所以办法是：
- * 造一个隐藏的 <a download>，让它替你去点一下。
+ * src/composables/useDownload.ts —— 文件下载与选择的浏览器原生实现。
  */
 
-/** 用隐藏的 <a download> 触发一次文件下载 */
+/** 触发一次文本文件下载 */
 export function downloadText(filename: string, text: string): void {
   const blob = new Blob([text], { type: 'application/json' })
   const url = URL.createObjectURL(blob)

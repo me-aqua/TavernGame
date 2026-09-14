@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-// Enforced at commit time. Violations fail the commit — discipline is not a
-// request written in a doc, it is a check that runs.
-// Escape hatch: SKIP_DISCIPLINE=1 git commit ... (explain the reason in the message)
+// 提交时强制执行：违规就拦下提交 —— 纪律不是写在文档里的请求，而是一条真会跑的检查。
+// 逃生口：SKIP_DISCIPLINE=1 git commit ...（并在提交信息里说明理由）
 import { execSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 
@@ -15,12 +14,11 @@ if (process.env.SKIP_DISCIPLINE === '1') {
 }
 
 /**
- * Read the output of a failed execSync as text.
+ * 把失败的 execSync 输出读成文本。
  *
- * ⚠️ Lesson learned: err.stdout / err.stderr are **Buffers**, and an **empty
- * Buffer is truthy**, so `String(err.stdout || err.stderr)` can pick an empty
- * Buffer and swallow the real message (a secret-scan failure once showed up as
- * an empty entry). Decode first, then pick by length.
+ * ⚠️ 踩过的坑：err.stdout / err.stderr 是 **Buffer**，而**空 Buffer 为真** ——
+ *    `String(err.stdout || err.stderr)` 可能挑中一个空 Buffer，把真正的信息吞掉
+ *    （密钥扫描失败曾以一条空记录的形式出现）。先解码，再按长度挑。
  */
 const readOutput = (err) => {
   const decode = (v) => (Buffer.isBuffer(v) ? v.toString('utf8') : String(v ?? ''))
@@ -68,12 +66,11 @@ function remindVisualCheck(files) {
 
 const problems = []
 const allStaged = git('diff --cached --name-only --diff-filter=ACM').split('\n').filter(Boolean)
-// Dev tooling (hooks, e2e, tests) never ships, so it is exempt from the
-// source-discipline checks: they are tool code, and applying the same
-// line-count / defensiveness rules to them only creates noise
+// 开发工具（钩子、e2e、测试）不进产物，豁免源码纪律检查：它们是工具代码，
+// 套同样的行数 / 防御性规则只会制造噪音
 const staged = allStaged.filter((f) => !/^(\.githooks|e2e|tests|scripts)\//.test(f))
 
-// Text files only (skip images and other binaries)
+// 只看文本文件（跳过图片等二进制）
 const textFiles = staged.filter((f) => /\.(ts|vue|js|mjs|css|html|json|md|bat|yml|yaml)$/.test(f))
 const contentOf = (file) => {
   try {
@@ -83,9 +80,8 @@ const contentOf = (file) => {
   }
 }
 
-// ---------- check 1: secret scan (the most important one) ----------
-// Client-side project: API keys live with the player, so a real key can easily
-// end up in the repo; once committed it stays in history.
+// ---------- 检查 1：密钥扫描（最重要的一条）----------
+// 纯前端项目：API key 在玩家手里，真 key 很容易进仓库；一旦提交就留在历史里。
 try {
   execSync('node .githooks/checks/secrets.mjs ' + staged.map((f) => '"' + f + '"').join(' '), {
     stdio: 'pipe',
@@ -94,7 +90,7 @@ try {
   problems.push(readOutput(err))
 }
 
-// ---------- check 2: debug leftovers ----------
+// ---------- 检查 2：调试残留 ----------
 for (const file of textFiles) {
   const lines = contentOf(file).split('\n')
   lines.forEach((line, i) => {
@@ -107,14 +103,14 @@ for (const file of textFiles) {
   })
 }
 
-// ---------- check 3: swallowed errors ----------
-// Rule: never swallow an error (no bare catch / no silent default).
-// A catch body that neither throws/returns nor carries a comment is swallowing.
+// ---------- 检查 3：吞掉的错误 ----------
+// 规则：绝不吞错误（没有裸 catch、没有静默默认值）。
+// catch 体既不抛/不返回、也没有注释，就算吞。
 for (const file of textFiles.filter((f) => /\.(ts|vue|js|mjs)$/.test(f))) {
   const lines = contentOf(file).split('\n')
   lines.forEach((line, i) => {
-    // Needs brace matching to isolate the catch body — otherwise a return
-    // *after* the catch gets mistaken for an exit (verified: it did).
+    // 需要配对大括号来隔离 catch 体 —— 否则 catch 之后的一个 return
+    // 会被误判成出口（实测发生过）。
     const catchAt = line.indexOf('catch')
     if (catchAt < 0) return
     const fromCatch = lines.slice(i).join('\n').slice(catchAt)
@@ -140,15 +136,15 @@ for (const file of textFiles.filter((f) => /\.(ts|vue|js|mjs)$/.test(f))) {
   })
 }
 
-// ---------- check 4: one-off abstractions ----------
+// ---------- 检查 4：一次性抽象 ----------
 const ABSTRACTION_NAMES = /\b(safeGet|safeSet|withFallback|tryOr|maybeNull|ensureDefined|nullSafe)\b/
 for (const file of staged.filter((f) => /composables\/|utils?\/|helpers?\//.test(f))) {
   const m = contentOf(file).match(ABSTRACTION_NAMES)
   if (m) problems.push(`[多余抽象] ${file} —— ${m[0]}()，请确认它真有两个以上调用点`)
 }
 
-// ---------- check 5: defensive validation outside boundaries ----------
-// Rule: validate only at system boundaries (user input, external API, network).
+// ---------- 检查 5：边界之外的防御性校验 ----------
+// 规则：只在校验边界（用户输入、外部 API、网络）做校验。
 // ⚠️ 豁免范围跟着目录结构走：改目录时必须同步这里，否则规则会**悄悄失效**
 //    （src/core 消失后，这条曾对外层代码全部放行过一阵）。
 const BOUNDARY = /^src\/(game\/save|utils\/storage|utils\/calendar|agent\/llm|agent\/config)\.ts$/
@@ -163,9 +159,9 @@ for (const file of textFiles.filter((f) => /\.(ts|vue)$/.test(f) && !BOUNDARY.te
   })
 }
 
-// ---------- check 6: new source modules must ship with tests ----------
-// Rule: every new feature must come with tests.
-// Criterion: every src module must be mentioned somewhere under tests/.
+// ---------- 检查 6：新源码模块必须带测试 ----------
+// 规则：每个新功能都必须带测试。
+// 判据：每个 src 模块都要在 tests/ 下被提到。
 const SRC = /^src\/(?!types\/|main\.ts$).*\.(ts|vue)$/
 const testsContent = (() => {
   try {
@@ -191,21 +187,21 @@ for (const file of textFiles.filter((f) => SRC.test(f) && !f.endsWith('.stories.
   }
 }
 
-// ---------- check 7: size (keep it minimal) ----------
-// Threshold calibration (2026-09-14): Prettier splits template attributes, so
-// the same semantics take more lines (SettingsDrawer.vue 201 → 278).
-// That is the formatter's style, not bloated code, so the limit follows the new baseline.
+// ---------- 检查 7：体积（保持精简）----------
+// 阈值校准（2026-09-14）：Prettier 会拆开模板属性，同样的语义占更多行
+//（SettingsDrawer.vue 201 → 278）。那是格式器的风格，不是代码膨胀，
+// 所以上限跟着新基线走。
 const SIZE = { file: 400, func: 150, net: 500 }
 const countLines = (s) => s.split('\n').length
-// Generated files are not "code I wrote": lockfiles
+// 生成物不算「我写的代码」：lockfile
 const generated = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/
-// Docs are not bound by code line limits: DESIGN.md is a design derivation, long by nature
+// 文档不受代码行数限制：DESIGN.md 是设计推导，本来就长
 const notDocs = (f) => !/^doc\//.test(f) && !/^(README|AGENTS)\.md$/.test(f)
 for (const file of textFiles.filter((f) => !generated.test(f) && notDocs(f))) {
   const n = countLines(contentOf(file))
   if (n > SIZE.file) problems.push(`[体积] ${file} —— ${n} 行（上限 ${SIZE.file}）`)
 }
-// Function length: count brace depth — crude but good enough
+// 函数长度：数大括号深度 —— 粗糙但够用
 for (const file of textFiles.filter((f) => /\.(ts|vue)$/.test(f))) {
   const lines = contentOf(file).split('\n')
   lines.forEach((line, i) => {
@@ -221,17 +217,17 @@ for (const file of textFiles.filter((f) => /\.(ts|vue)$/.test(f))) {
     if (len > SIZE.func) problems.push(`[体积] ${file}:${i + 1} —— 函数 ${len} 行（上限 ${SIZE.func}）`)
   })
 }
-// Net additions exclude generated files
+// 净增行数排除生成物
 const stat = git('diff --cached --shortstat -- . ":(exclude)package-lock.json"')
 const net = Number(stat.match(/(\d+) insertion/)?.[1] ?? 0)
 if (net > SIZE.net) {
   problems.push(`[体积] 本次改动 +${net} 行（上限 ${SIZE.net}）—— 拆成多次提交，或解释为什么必须一次改这么多`)
 }
 
-// ---------- check 8: line endings / BOM / encoding (three platforms at once) ----------
-// Rules: index is always LF; .bat/.cmd must be CRLF in the working tree; no BOM.
-// Source of truth is .gitattributes, read via `git ls-files --eol` — git's own
-// verdict, never counted by hand (git add normalizes, which hides violations).
+// ---------- 检查 8：行尾 / BOM / 编码（一次管三个平台）----------
+// 规则：索引里一律 LF；.bat/.cmd 在工作区必须 CRLF；不许有 BOM。
+// 判据来自 .gitattributes，用 `git ls-files --eol` 读 —— 以 git 自己的结论为准，
+// 绝不手工数（git add 会做归一化，手工数看不到违规）。
 for (const file of allStaged) {
   const attr = git('check-attr eol text -- "' + file + '"')
   const eol = attr.match(/eol: (\S+)/)?.[1] ?? 'unspecified'
@@ -262,7 +258,7 @@ for (const file of allStaged) {
   }
 }
 
-// ---------- check 9: syntax (TypeScript compiler API, sub-second) ----------
+// ---------- 检查 9：语法（TypeScript 编译器 API，亚秒级）----------
 const syntaxTargets = staged.filter((f) => /\.(ts|vue)$/.test(f))
 if (syntaxTargets.length) {
   try {
@@ -274,13 +270,11 @@ if (syntaxTargets.length) {
   }
 }
 
-// ---------- check 10: code is ASCII (Chinese only in locales/docs) ----------
-// Rule: outside src/locales/*.json and doc/, everything is ASCII — identifiers,
-// object keys and string literals included. UI text goes through t('key').
-// Comments are exempt (the scanner strips them before looking).
-// ⚠️ Uses allStaged, not staged: tests/ and e2e/ are tool code exempt from the
-// "source hygiene" checks, but ASCII is not hygiene — a Chinese assertion in a
-// test is the same fixture-drift hazard as one in src/.
+// ---------- 检查 10：代码是 ASCII（中文只在 locales/docs）----------
+// 规则：src/locales/*.json 与 doc/ 之外一切都是 ASCII —— 标识符、对象键、
+// 字符串字面量都算。UI 文案走 t('key')。注释豁免（扫描前会剥掉注释）。
+// ⚠️ 用 allStaged 而不是 staged：tests/ 与 e2e/ 是工具代码，豁免「源码卫生」检查，
+//    但 ASCII 不是卫生问题 —— 测试里的中文断言和 src 里的一样会漂移。
 const asciiTargets = allStaged.filter((f) => /\.(ts|vue|css|html|mjs|js)$/.test(f))
 if (asciiTargets.length) {
   try {
@@ -292,9 +286,9 @@ if (asciiTargets.length) {
   }
 }
 
-// ---------- check 11: identifiers are English ----------
-// Rule (user decision, 2026-09-14): every identifier is English, no domain
-// exceptions. Works on the code skeleton, so a Chinese string cannot hide one.
+// ---------- 检查 11：标识符是英文 ----------
+// 规则（用户 2026-09-14 决定）：每个标识符都是英文，没有领域概念例外。
+// 在代码骨架上做，所以中文字符串藏不住标识符。
 const identifierTargets = allStaged.filter((f) => /\.(ts|vue|mjs|js)$/.test(f))
 if (identifierTargets.length) {
   try {
@@ -307,7 +301,7 @@ if (identifierTargets.length) {
   }
 }
 
-// ---------- check 12: prompts must not be inlined ----------
+// ---------- 检查 12：提示词不许内联 ----------
 const promptTargets = staged.filter((f) => /^src\/.*\.(ts|vue)$/.test(f))
 if (promptTargets.length) {
   try {
@@ -319,7 +313,7 @@ if (promptTargets.length) {
   }
 }
 
-// ---------- check 13: ESLint (typed rules catch real bugs like floating promises) ----------
+// ---------- 检查 13：ESLint（类型感知规则能抓浮空 Promise 这类真 bug）----------
 const lintTargets = staged.filter((f) => /\.(ts|vue|js|mjs)$/.test(f))
 let lintPromise = null
 if (lintTargets.length) {
@@ -333,7 +327,7 @@ if (lintTargets.length) {
   })
 }
 
-// ---------- check 14: typecheck + unit tests (in parallel, to cut wait time) ----------
+// ---------- 检查 14：类型检查 + 单元测试（并行跑，缩短等待）----------
 const needsHeavy = staged.some((f) => /\.(ts|vue)$/.test(f)) || /package\.json|tsconfig/.test(staged.join(' '))
 const heavyTasks = []
 if (needsHeavy) {
@@ -347,7 +341,7 @@ if (needsHeavy) {
       }
     }),
   )
-  // Unit tests are fast (<1s) — catching breakage here is better than at push time
+  // 单元测试很快（<1s）—— 在这里抓到坏掉，比留到推送时更好
   heavyTasks.push(
     new Promise((resolve) => {
       try {
@@ -372,9 +366,8 @@ if (lintPromise || heavyTasks.length) {
   }
 }
 
-// ⚠️ If anything is already wrong, report and stop BEFORE the formatter below:
-// Prettier exits with "re-commit" which would otherwise mask the real reason
-// (a secret-scan failure once got hidden behind "Prettier 已格式化" — verified).
+// ⚠️ 已经出错就先报告并停下，不要走到下面的格式化：Prettier 会以「请重新提交」退出，
+//    把真正的原因盖掉（密钥扫描失败曾被「Prettier 已格式化」挡住 —— 实测）。
 if (problems.length) {
   console.error('\n✖ 纪律检查未通过：\n')
   for (const p of problems) console.error('  ' + p)
@@ -382,7 +375,7 @@ if (problems.length) {
   process.exit(1)
 }
 
-// ---------- check 15: formatting (Prettier fixes in place and re-stages) ----------
+// ---------- 检查 15：格式化（Prettier 就地修好并重新暂存）----------
 const formatTargets = staged.filter((f) => /\.(ts|vue|js|mjs|json|css|html|md|yml|yaml)$/.test(f))
 if (formatTargets.length && !process.env.SKIP_FORMAT) {
   try {
@@ -391,7 +384,7 @@ if (formatTargets.length && !process.env.SKIP_FORMAT) {
       encoding: 'utf8',
     })
     if (/ms$|ms\b/m.test(out) && !/unchanged/.test(out)) {
-      // Re-stage the fixed content, otherwise the unformatted version is committed
+      // 把修好的内容重新暂存，否则提交的还是没格式化的版本
       execSync('git add ' + formatTargets.map((f) => '"' + f + '"').join(' '), { stdio: 'pipe' })
       console.log('⟳ Prettier 已格式化并重新暂存；请再执行一次 git commit')
       process.exit(1)

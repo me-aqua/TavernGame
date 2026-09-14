@@ -1,26 +1,20 @@
 /**
- * Identifiers must be ASCII (runs on pre-commit).
+ * 标识符必须是 ASCII（pre-commit 跑）。
  *
- * Rule (explicit user requirement, 2026-09-14): **every identifier is English** —
- * variables, functions, parameters, constants, types, properties. No exceptions
- * for "domain concepts": a Chinese identifier is not more readable, it is a
- * consistency and toolchain hazard (no word boundaries, awkward for grep,
- * unreadable for anyone who does not read Chinese).
+ * 规则（用户 2026-09-14 明确要求）：**每个标识符都是英文** —— 变量、函数、参数、
+ * 常量、类型、属性，没有「领域概念」例外：中文标识符既不好读，又是一致性与工具链
+ * 隐患（没有词边界、grep 别扭、不读中文的人看不懂）。
  *
- * Chinese stays only in:
- *   - prompt content (prompts/*.md)
- *   - user-facing strings and tool descriptions (the i18n step handles those)
- *   - comments
+ * 中文只留在：提示词内容（prompts/*.md）、面向用户的字符串与工具描述（i18n 那步处理）、
+ * 注释。
  *
- * Detection works on code with comments and string literals stripped, so
- * Chinese text can never trigger a false positive and Chinese identifiers can
- * never hide behind a string.
+ * 检测在去掉注释与字符串的代码上做：中文文本不会误报，中文标识符也藏不到字符串里。
  */
 import { readFileSync } from 'node:fs'
 
-/** Non-ASCII identifier characters (CJK ranges; extend if other scripts appear) */
+/** 非 ASCII 标识符字符（CJK 区；出现别的文字时再扩） */
 const NON_ASCII_ID = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/
-/** A non-ASCII identifier actually being declared or assigned */
+/** 真的在声明或赋值的非 ASCII 标识符 */
 const DECLARATION = /(?:const|let|var|function|class|interface|type)\s+([^\s(=:]+)/
 const ASSIGNMENT = /(?:^|[,{(\s])([^\s,(){}:=]+)\s*[=:]/
 
@@ -37,8 +31,8 @@ for (const file of files) {
 
   const stripped = stripCommentsAndStrings(source)
   stripped.split('\n').forEach((line, i) => {
-    // 对象字面量的键是**字符串**，不是标识符 —— 中文键是合法的（例如单位别名表
-    // { 天: 'day', 小时: 'hour' }，模型就是会写中文单位，那些键必须保留）
+    // 对象字面量的键是**字符串**不是标识符 —— 中文键合法（例如单位别名表
+    // { 天: 'day' }，模型就是会写中文单位，那些键必须保留）
     const insideObjectLiteral = line.includes('{')
     for (const [label, re] of [
       ['声明', DECLARATION],

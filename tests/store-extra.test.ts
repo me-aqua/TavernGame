@@ -32,10 +32,8 @@ const IDLE_ACTION = 'idle'
 
 let fake: FakeLlm | null = null
 
-/** 界面上的故事行（rows 里 debug=false 的那些） */
 const storyRows = (g: ReturnType<typeof useGame>) => g.rows.value.filter((row) => !row.debug)
 
-/** 界面上的调试行（只有打开调试模式才会出现） */
 const debugRows = (g: ReturnType<typeof useGame>) => g.rows.value.filter((row) => row.debug)
 
 beforeEach(() => {

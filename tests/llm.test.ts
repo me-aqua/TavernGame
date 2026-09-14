@@ -13,12 +13,10 @@ import { i18n, t } from '../src/i18n'
 import { installFakeLlm, installFakeLlmError } from './support/fakeLlm'
 import type { ChatMessage } from '../src/types/state'
 
-// Pin the locale: engine messages go through i18n, so assertions must know
-// which language to expect. English is the reference language here.
+// 钉住 locale：引擎文案走 i18n，断言必须知道期望哪种语言 —— 这里用英文
 i18n.global.locale.value = 'en'
 
-// Fixtures: the message we send, the replies the fake model gives back, and the
-// error bodies the network layer must surface to the player.
+// 夹具：发出去的消息、假模型的回复，以及网络层必须暴露给玩家的错误体
 const messages: ChatMessage[] = [{ role: 'user', content: 'hello' }]
 const TEXT_REPLY = 'a reply'
 const TIME_REPLY = 'I want to advance time.'

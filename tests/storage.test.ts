@@ -12,7 +12,6 @@ import { t } from '../src/i18n'
 function throwingStorage(): Storage {
   return {
     ...localStorage,
-    /** 没有存档 */
     getItem: () => null,
     /** 写入永远失败（模拟配额满 / 隐私模式） */
     setItem: () => {
@@ -22,7 +21,6 @@ function throwingStorage(): Storage {
     removeItem: () => {},
     /** 不需要清空 */
     clear: () => {},
-    /** 没有键可枚举 */
     key: () => null,
     length: 0,
   } as Storage

@@ -4,8 +4,7 @@
  * 重点：开场分支、催稿分支（tool_call_id 那条）。
  *（「落盘失败要出声」归组合根 stores/turn.ts，用例在 tests/store-extra.test.ts。）
  *
- * Message assertions go through t('key') so they prove the key is wired and this
- * file stays ASCII-only; fixtures are ASCII constants.
+ * 文案断言都走 t('key')（证明 key 接对了，本文件也保持 ASCII）；夹具是 ASCII 常量。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runTurn, type AgentEvent } from '../src/agent/agent'
@@ -14,7 +13,7 @@ import { forcedNarrationInstruction, toolCallsWithoutNarration } from '../src/ag
 import { configureFakeProvider, createAgentContext } from './support/game-fixtures'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 
-/** ASCII fixtures */
+/** ASCII 夹具 */
 const REPLY_WAKE = 'You wake up in an inn.'
 const REPLY_FORCED = 'The forced narration.'
 const ACTION_WAIT = 'wait a bit'

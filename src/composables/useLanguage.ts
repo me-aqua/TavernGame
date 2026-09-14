@@ -1,10 +1,10 @@
 /**
- * UI language, mirroring useTheme.
+ * 界面语言，与 useTheme 同构。
  *
- * Three states: 'system' (follow the browser) / 'zh-CN' / 'en'.
+ * 三态：'system'（跟随浏览器）/ 'zh-CN' / 'en'。
  *
- * ⚠️ The model language follows this (user decision, 2026-09-14): switching to
- * English makes the GM write in English, prompts included.
+ * ⚠️ **模型语言跟随它**（用户 2026-09-14 决定）：界面切到英文，GM 就用英文写故事，
+ *    提示词也跟着换。
  */
 import { ref, watch } from 'vue'
 import { i18n, readStoredLanguage, resolveLocale, storeLanguage, type LanguageMode } from '../i18n'
@@ -12,7 +12,7 @@ import { i18n, readStoredLanguage, resolveLocale, storeLanguage, type LanguageMo
 const mode = ref<LanguageMode>('system')
 let initialized = false
 
-/** Apply the mode to vue-i18n and the <html lang> attribute */
+/** 把语言模式落到 vue-i18n 与 <html lang> 上 */
 function apply(next: LanguageMode): void {
   const locale = resolveLocale(next, navigator.language)
   ;(i18n.global.locale as unknown as { value: string }).value = locale
@@ -32,12 +32,12 @@ export function useLanguage() {
     })
   }
 
-  /** Cycle: system -> zh-CN -> en -> system */
+  /** 三态循环：system → zh-CN → en */
   function cycle(): void {
     mode.value = mode.value === 'system' ? 'zh-CN' : mode.value === 'zh-CN' ? 'en' : 'system'
   }
 
-  /** Pick a language directly (settings drawer), instead of cycling */
+  /** 直接选（设置面板用），与 useTheme 的 select 同构 */
   function select(next: LanguageMode): void {
     mode.value = next
   }

@@ -1,15 +1,12 @@
 /**
- * Tool tests.
+ * 工具测试：协议契约 + 参数边界。
  *
- * Since 2026-09-14 tools use **native tool calling**, so the old text parser is
- * gone. These tests cover the protocol contract and the parameter boundary:
- *   - toolSchemas() is valid (the model calls through it; a typo makes the tool uncallable)
- *   - runTool handles JSON arguments (a boundary: arguments come from the model)
- *   - names from Object.prototype must never resolve to a real tool (regression guard)
+ *   - toolSchemas() 必须合法（模型照着它调用；一个 typo 就让工具调不动）
+ *   - runTool 要处理 JSON 参数（边界：arguments 来自模型）
+ *   - Object.prototype 上的名字绝不能解析成真工具（回归网）
  *
- * Assertions anchor on the tool name and on markers taken from the locale table at
- * runtime (never written into this file, which stays ASCII), so a locale switch
- * cannot make a test pass or fail for the wrong reason.
+ * 断言锚在工具名与「运行时从 locale 表取的标记」上（不写进本文件，保持 ASCII），
+ * locale 切换不会让用例因为错误的原因通过或失败。
  */
 import { beforeAll, describe, expect, it } from 'vitest'
 import { runTool, TOOLS, toolSchemas } from '../src/agent/tools'
@@ -21,14 +18,14 @@ beforeAll(() => {
   i18n.global.locale.value = 'zh-CN'
 })
 
-/** The 'tool missing' message for a given name, built from the locale table */
+/** 取某个名字对应的「没有这个工具」文案（来自 locale 表） */
 function unknownToolMessage(name: string): string {
   return t('tools.unknown', { name, available: Object.keys(TOOLS).join(', ') })
 }
 
 /**
- * The leading marker of a result message (everything before its first placeholder).
- * Read from the locale table so the success/failure markers never appear in this file.
+ * 结果文案的前导标记（第一个占位符之前的部分）。
+ * 从 locale 表读，成功/失败标记就不会出现在本文件里。
  */
 function resultMarker(key: 'advanceResult' | 'advanceFailed'): string {
   const messages = i18n.global.getLocaleMessage(i18n.global.locale.value) as {
@@ -75,9 +72,9 @@ describe('runTool', () => {
   })
 
   it('names from Object.prototype must not resolve to a real tool', () => {
-    // This used to be written as TOOLS[name], so constructor / toString resolved to a
-    // truthy value on Object.prototype, skipped the "no such tool" branch and threw a
-    // TypeError that escaped runTurn -- narrative was never persisted while time had moved.
+    // ⚠️ 不能写成 TOOLS[name]：constructor / toString 会从 Object.prototype 上取到真值，
+    // 绕过「没有这个工具」的分支并抛 TypeError，异常穿出 runTurn ——
+    // 时间推进了，叙事却没落盘。
     for (const bad of ['constructor', 'toString', 'valueOf', '__proto__', 'hasOwnProperty']) {
       expect(() => runTool(createGame(), bad, '{}')).not.toThrow()
       expect(runTool(createGame(), bad, '{}')).toBe(unknownToolMessage(bad))
@@ -118,9 +115,8 @@ describe('runTool', () => {
   })
 
   it('a unit outside the enum becomes a structured error (the engine never guesses)', () => {
-    // The schema has an enum, but the client can still receive an out-of-range value
-    // (lenient provider, hand-edited payload), so the engine must return a
-    // *retryable* error rather than silently picking a unit.
+    // schema 里有 enum，但客户端仍可能收到越界值（服务商宽松、载荷被手改），
+    // 引擎必须返回**可重试**的错误，而不是静默挑一个单位
     for (const bad of ['lightyear', 'days', 'HOUR']) {
       const state = createGame()
       const before = game.iso(state)
@@ -135,8 +131,8 @@ describe('runTool', () => {
   })
 
   it('an invalid stored timestamp surfaces as an advance failure, not a time jump', () => {
-    // runTool has no try/catch, so a thrown tool error is NOT converted here; the only
-    // tool, advance_time, turns the failure into a warning inside game/state.ts.
+    // runTool 没有 try/catch：工具抛的错不会被它转成结果。唯一的工具 advance_time
+    // 在 game/state.ts 内部就把失败转成告警文案了。
     const state = createGame()
     state.data.time.iso = 'not-a-valid-time'
     const out = runTool(state, 'advance_time', '{"step":1}')
@@ -147,7 +143,7 @@ describe('runTool', () => {
 
   it('the tool table holds only advance_time and no prompt content', () => {
     expect(Object.keys(TOOLS)).toEqual(['advance_time'])
-    // The prose lives in prompts/<lang>/tools.md -- code keeps only the implementation
+    // 说明文字在 prompts/<lang>/tools.md —— 代码里只留实现
     expect(Object.keys(TOOLS.advance_time)).toEqual(['run'])
   })
 })

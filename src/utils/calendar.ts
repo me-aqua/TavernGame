@@ -1,9 +1,8 @@
 /**
- * src/utils/calendar.ts —— 历法
+ * src/utils/calendar.ts —— 历法。
  *
- * ## 参数把关（原来单独一个文件，现已折进来）
+ * ## 参数把关（模型给的是**外部输入**，检查只有三类，别再加）
  *
- * 模型给的是**外部输入**，检查只有三类，别再加：
  *   1. 单位必须是协议枚举里的 6 个规范值之一（见 agent/tools.ts 的 toolSchemas()）
  *   2. step 必须 >= 1（时间是单向的）
  *   3. 防呆：一次推 1000 年以上视为手滑
@@ -11,19 +10,14 @@
  *
  * ## 当前只有一种：现实日历
  *
- * 游戏从**玩家开始玩的那一刻**的真实时间开始，之后按真实公历走。
- *
- * ## 为什么日期运算交给 Date
- *
- * 全部用 JavaScript 的 Date 做加减，不手写除法。
- * 手写估算会在这两个地方翻车：
- *   - 「1 月 31 日 + 1 个月」—— 2 月没有 31 日
- *   - 「闰年 2 月 28 日 + 1 天」—— 到底是不是 2 月 29 日
+ * 游戏从**玩家开始玩的那一刻**的真实时间开始，之后按真实公历走。日期加减全部交给
+ * JavaScript 的 Date，不手写除法：手写估算会在「1 月 31 日 + 1 个月」与
+ * 「闰年 2 月 28 日 + 1 天」这类边界上翻车。
  *
  * ## 内部统一用 ISO 时刻
  *
- * 状态里存的是一个绝对时刻（ISO 字符串），显示成什么样由这里决定。
- * 这样以后真要换历法，同一时刻能直接换个显示方式，不用迁移存档。
+ * 状态里存的是一个绝对时刻（ISO 字符串），显示成什么样由这里决定 —— 以后真要换历法，
+ * 同一时刻换个显示方式即可，不用迁移存档。
  */
 
 import { t } from '../i18n'
@@ -34,10 +28,8 @@ export const SEGMENTS = ['morning', 'afternoon', 'evening'] as const
 /** 唯一的单位表：类型与运行时校验都从它派生（agent/tools.ts 的 schema enum 也从这里取） */
 export const TIME_UNITS = ['segment', 'hour', 'day', 'week', 'month', 'year'] as const
 
-/** 时间单位（历法只认这些） */
 type TimeUnit = (typeof TIME_UNITS)[number]
 
-/** 一次时间推进的结果 */
 interface AdvanceResult {
   iso: string
   elapsedMs: number
@@ -64,15 +56,14 @@ export function hourToSegment(hour: number): number {
   return 2 // evening
 }
 
-/** Localized segment label for an hour */
+/** 取某个小时对应的时段显示名 */
 export function segmentName(hour: number): string {
   const key = SEGMENTS[hourToSegment(hour)]
   return t(`calendar.segment.${key}`)
 }
 
-/** 日历预设：现实公历 */
 export const realCalendar: Calendar = {
-  /** 完整时间标签：「2026 年 9 月 10 日 · 星期四 · 晚上」 */
+  /** 完整时间标签 */
   format(iso: string): string {
     const d = new Date(iso)
     const date = t('calendar.yearMonthDay', {
@@ -91,7 +82,7 @@ export const realCalendar: Calendar = {
     return `${date}${t('calendar.dateSeparator')}${segmentName(d.getHours())}`
   },
 
-  /** 按单位推进时刻；日期运算全部交给 Date，不手写除法 */
+  /** 按单位推进时刻 */
   advance(iso: string, step: number, unit: TimeUnit): AdvanceResult {
     const d = new Date(iso)
     const before = d.getTime()
@@ -120,8 +111,7 @@ export const realCalendar: Calendar = {
         d.setFullYear(d.getFullYear() + step)
         break
       default: {
-        // Exhaustiveness check: if the TimeUnit union ever grows without a case here,
-        // `unit` stops being assignable to never and this line fails the build.
+        // 穷尽性检查：TimeUnit 以后加了成员却漏了 case 时，这行会因 unit 不再是 never 而编译失败
         const impossible: never = unit
         throw new Error(`Unknown time unit: ${String(impossible)}`)
       }

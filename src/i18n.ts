@@ -1,15 +1,13 @@
 /**
- * i18n setup.
+ * src/i18n.ts —— i18n 初始化。
  *
- * ⚠️ `src/locales/*.json` is the **only** place Chinese is allowed in code.
- * Everything else — identifiers, object keys, string literals — must be ASCII.
- * That rule is enforced by .githooks/checks/ascii.mjs.
+ * ⚠️ `src/locales/*.json` 是代码里**唯一**允许出现中文的地方；其余标识符、对象键、
+ *    字符串字面量必须是 ASCII，这条由 .githooks/checks/ascii.mjs 强制。
  *
- * Language has three states, mirroring the theme:
- *   'system' (follow the browser) / 'zh-CN' / 'en'
+ * 语言三态（与主题一致）：'system'（跟随浏览器）/ 'zh-CN' / 'en'。
  *
- * ⚠️ The **model language follows the UI language** (user decision, 2026-09-14):
- * switching the UI to English makes the GM write in English, prompts included.
+ * ⚠️ **模型语言跟随界面语言**（用户 2026-09-14 决定）：界面切到英文，
+ *    GM 就用英文写故事，提示词也跟着换。
  */
 import { createI18n } from 'vue-i18n'
 import zhCN from './locales/zh-CN.json'
@@ -21,12 +19,11 @@ export type Locale = 'zh-CN' | 'en'
 const STORAGE_KEY = 'tavernGame.lang'
 
 /**
- * Resolve 'system' to a concrete locale.
+ * 把 'system' 解析成具体语言。
  *
- * ⚠️ Takes the language tag as an **argument** instead of reading navigator:
- * the initial locale is evaluated at module load, and tests import this module
- * long before jsdom/navigator is set up. Reading navigator here made the locale
- * depend on the machine running the tests.
+ * ⚠️ 语言标签作为**参数**传入，不在这里读 navigator：初始 locale 在模块加载时求值，
+ *    而测试 import 这个模块远早于 jsdom/navigator 就绪 —— 在这里读会让 locale
+ *    取决于跑测试的机器。
  */
 export function resolveLocale(mode: LanguageMode, systemLanguage: string): Locale {
   if (mode === 'zh-CN' || mode === 'en') return mode
@@ -45,22 +42,20 @@ export function storeLanguage(mode: LanguageMode): void {
 }
 
 /**
- * ⚠️ Loading this module must have **no side effects**: it must not touch
- * localStorage. Otherwise importing anything that transitively pulls in i18n
- * (every core module does, via the `t` helper) would explode in Node tests,
- * where the localStorage shim is installed after the import graph is evaluated.
- * The stored preference is applied later by useLanguage().
+ * ⚠️ 加载本模块必须**没有副作用**：不许碰 localStorage。否则任何间接引入 i18n 的
+ *    模块（几乎所有核心模块都经由 `t`）在 Node 测试里会直接炸 —— 那里的
+ *    localStorage shim 是在 import 图求值之后才装的。存量偏好在 useLanguage() 里应用。
  */
 export const i18n = createI18n({
   legacy: false,
-  // Starts at the fallback; useLanguage() applies 'system'/the stored choice on
-  // mount. Nothing observable happens before then (App mounts the composable).
+  // 先落在兜底语言；'system' 与存过的选择由 useLanguage() 在挂载时应用。
+  // 在那之前没有可观察的行为（App 挂载时才会调用这个 composable）。
   locale: 'en' satisfies Locale,
   fallbackLocale: 'en',
   messages: { 'zh-CN': zhCN, en },
 })
 
-/** Translate outside components (stores, core modules) */
+/** 在组件外翻译（stores、核心模块） */
 export function t(key: string, named?: Record<string, unknown>): string {
   return i18n.global.t(key, named ?? {})
 }

@@ -1,19 +1,15 @@
 /**
- * src/agent/llm.ts —— 模型调用的**唯一入口**
+ * src/agent/llm.ts —— 模型调用的**唯一入口**。
  *
  * 规则（用户 2026-09-14 明确要求）：
  *   1. **所有模型调用都经过这里的 chat()** —— 别处不允许直接 fetch
- *   2. **禁止解析模型输出**。工具调用走 OpenAI 兼容的原生 `tools` 协议，
- *      由模型在协议层声明「我要调哪个工具、参数是什么」，
- *      我们不再用正则去猜它写在文本里的 JSON。
+ *   2. **禁止解析模型输出**：工具调用走 OpenAI 兼容的原生 `tools` 协议，由模型在
+ *      协议层声明要调哪个工具、参数是什么，不去猜它写在文本里的 JSON
  *
- * 为什么这条很重要：文本协议时代，模型格式一飘（少个反引号、参数写中文、
- * 把工具块单独发一条消息）就会静默失败；当时要靠「防呆」去兜。
- * 原生 tool calling 把这些交给协议，模型有契约可依，出错时我们能把
- * 结构化错误回传，让它自己改。
+ * 在文本里写 JSON 的调用方式一飘（少个反引号、参数写中文）就静默失败；
+ * 原生 tool calling 把格式交给协议，出错时能把结构化错误回传，让它自己改。
  *
- * 纯前端意味着：请求直接从浏览器发往服务商。已实测主要服务商都返回
- * CORS 允许头，所以浏览器不会拦截。
+ * 纯前端意味着请求直接从浏览器发往服务商；已实测主要服务商都返回 CORS 允许头。
  */
 
 import { loadConfig, PRESETS } from './config'
@@ -31,7 +27,6 @@ export interface ToolSchema {
   }
 }
 
-/** 模型要求调用某个工具 */
 export interface ToolCallRequest {
   id: string
   name: string
@@ -60,14 +55,12 @@ export interface ChatReply {
   content: string
   /** 模型要求的工具调用（可能为空数组） */
   toolCalls: ToolCallRequest[]
-  /** 发给模型的请求体（调试模式展示「模型输入」用） */
   request: ChatRequest
   /** 原始响应，供调试模式查看 */
   raw: unknown
 }
 
 interface ChatOptions {
-  /** 用于中途取消 */
   signal?: AbortSignal
   /** 声明可用工具；不传则模型不会调用任何工具 */
   tools?: ToolSchema[]
@@ -75,7 +68,6 @@ interface ChatOptions {
   toolChoice?: 'auto' | 'none' | 'required'
 }
 
-/** 接口返回的错误体形状（OpenAI 兼容） */
 interface ApiErrorBody {
   error?: { message?: string }
   message?: string
@@ -88,9 +80,8 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
   const cfg = loadConfig()
   const preset = PRESETS[cfg.provider]
 
-  // 配置校验：给出「该去做什么」而不是一句 undefined 报错
-  // Field names are localized for the player: "Missing configuration: base URL",
-  // never the raw key "apiBase".
+  // 配置校验：给出「该去做什么」而不是一句 undefined 报错。
+  // 字段名用玩家看得懂的说法（"Missing configuration: base URL"），不用 apiBase 这类原始 key
   const missing: string[] = []
   if (!cfg.apiKey && !preset?.noKey) missing.push(t('llm.field.apiKey'))
   if (!cfg.apiBase || !String(cfg.apiBase).trim()) missing.push(t('llm.field.apiBase'))

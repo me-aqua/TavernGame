@@ -8,9 +8,8 @@
     // node：测试里用 node:fs 读提示词源文件做断言；vitest/globals：describe/it 等全局
     "types": ["vitest/globals", "node"],
 
-    /* 严格模式：这是转 TS 的主要收益来源。
-       本项目的状态字段以前靠注释和防御性代码维持，
-       现在由编译器保证「字段名写错」在构建期就报出来。 */
+    /* 严格模式：这是转 TS 的主要收益来源 ——
+       状态字段写错名字会在构建期报出来，不必再靠注释和防御性代码维持。 */
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
@@ -28,6 +27,6 @@
     // paths 用相对本配置文件的路径，三个版本都认。
     "paths": { "@/*": ["./src/*"] }
   },
-  // env.d.ts 已收进 src/，被 src/**/*.ts 覆盖，不必单列
+  // env.d.ts 在 src/ 下，已被 src/**/*.ts 覆盖，不必单列
   "include": ["src/**/*.ts", "src/**/*.vue", "tests/**/*.ts"]
 }

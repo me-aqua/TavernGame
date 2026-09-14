@@ -1,53 +1,44 @@
 /**
- * Code is ASCII (runs on pre-commit).
+ * 代码必须 ASCII（pre-commit 跑）。
  *
- * Rule (explicit user requirement, 2026-09-14): outside the locale files and the
- * docs, **everything is ASCII**. Identifiers, object keys, string literals —
- * Chinese lives in src/locales/*.json (and doc/*.md), nowhere else.
+ * 规则（用户 2026-09-14 明确要求）：除 locale 文件与 doc/ 之外，**一切都是 ASCII** ——
+ * 标识符、对象键、字符串字面量。中文住在 src/locales/*.json 与 doc/*.md，别处没有。
  *
- * Why it is worth a hook: mixed-script source is a toolchain hazard. It breaks
- * grep for people who type the term differently, it makes diffs unreadable for
- * anyone who does not read Chinese, and every copy-paste of a Chinese literal
- * into code is a translation that will be forgotten.
+ * 为什么值得一个钩子：混排源码是工具链隐患 —— 换个说法的人 grep 不到，
+ * 每次把中文文案复制进代码都是一次注定被遗忘的翻译。
  *
- * Chinese **comments** pass: a comment is not shipped, the reasoning in this
- * project is written in Chinese, and translating comments would lose nuance.
- * Prompt content passes: it lives in prompts/*.md, not in code.
- *
- * The check runs on the code skeleton (comments and string literals removed),
- * so it catches non-ASCII in strings and identifiers while ignoring comments.
+ * 中文**注释**放行（注释不进产物，本项目的论证就是用中文写的）；
+ * 提示词内容也放行（它在 prompts/*.md 里）。检查前只去掉注释：
+ * 字符串字面量保留，因为代码里的中文字面量正是要抓的东西。
  */
 import { readFileSync } from 'node:fs'
 
 /**
- * Non-ASCII detector.
+ * 非 ASCII 检测器。
  *
- * ⚠️ The two ends are built at runtime. Writing them literally trips ESLint's
- * no-control-regex, and a clever one-liner that avoids the \x00 instead (an
- * ASCII string plus indexOf) is worse: on a multi-character string indexOf can
- * never return 0, so every line gets reported as non-ASCII — a check that
- * silently stops working looks exactly like a check that passes.
+ * ⚠️ 两端都在运行时构造。直接写字面量会踩 ESLint 的 no-control-regex；
+ *    换成「ASCII 串 + indexOf」的取巧写法更糟：多字符串上 indexOf 永远不为 0，
+ *    于是每一行都被报成非 ASCII —— 静默失效的检查和通过的检查长得一模一样。
  */
 const RANGE_START = String.fromCharCode(0)
 const RANGE_END = String.fromCharCode(0x7f)
 const NON_ASCII = new RegExp('[^' + RANGE_START + '-' + RANGE_END + ']')
 const FILE_EXT = /\.(ts|tsx|vue|css|html)$/
-/** Generated or vendored files that are not ours to fix */
+/** 生成物与第三方目录，不该我们修 */
 const SKIP = /(^|\/)(node_modules|dist|coverage)\//
-/** The locale tables are the one place Chinese is allowed to live */
+/** locale 表是唯一允许中文常住的地方 */
 const LOCALES = /^src\/locales\//
 /**
- * Pre-Vue static page, still served next to the app. It is content, not code,
- * and is written in Chinese like doc/. Kept out of the check rather than
- * translated by a tool that should not be rewriting the author's text.
+ * 转 Vue 之前的静态页，仍与应用一起发布。它是内容不是代码，和 doc/ 一样用中文写；
+ * 与其让工具去改作者的文本，不如排除在检查外。
  */
 const STATIC_CONTENT = /^public\/.*\.html$/
 /**
- * Test and workbench code: e2e specs and Storybook stories.
+ * 测试与工作台代码：e2e spec 与 Storybook 故事。
  *
- * Their Chinese is **fake data and failure messages**, never product copy
- * (product copy can only come from src/locales/ through t()). User 2026-09-14:
- * 「用正常的中文在新写的 e2e 里」—— 所以这两个地方不按源码那套 ASCII 规则查。
+ * 它们里面的中文是**假数据与失败信息**，不是产品文案（产品文案只能由 src/locales/
+ * 经 t() 给出）。用户 2026-09-14：「用正常的中文在新写的 e2e 里」——
+ * 所以这两处不按源码那套 ASCII 规则查。
  */
 const TEST_TOOL = /^e2e\/|\.stories\.ts$/
 
@@ -90,11 +81,9 @@ if (hits.length) {
 console.log(`✓ 代码均为 ASCII（${files.length} 个文件）`)
 
 /**
- * Remove comments only — string literals are kept, because a Chinese literal
- * inside code is exactly what this check is for.
+ * 只去掉注释 —— 字符串字面量保留，因为代码里的中文字面量正是这条检查要抓的。
  *
- * A line comment is replaced by a space (not deleted) so the line structure,
- * and therefore the reported line numbers, stay correct.
+ * 行注释替换成一个空格（不是删掉），这样行结构与报错行号保持正确。
  */
 function stripComments(src) {
   let out = ''
@@ -108,8 +97,8 @@ function stripComments(src) {
       out += ' '
       continue
     }
-    // HTML comments (Vue templates). Without this the `-->` terminator gets
-    // read as code and can re-anchor a later block comment, shifting line numbers.
+    // HTML 注释（Vue 模板）：不处理的话 `-->` 会被当成代码，
+    // 让后面的块注释重新锚定，行号就全偏了
     if (c === '<' && src.startsWith('<!--', i)) {
       while (i < src.length && !src.startsWith('-->', i)) {
         out += src[i] === '\n' ? '\n' : ' '
@@ -130,8 +119,7 @@ function stripComments(src) {
       i += 2
       continue
     }
-    // A string that contains '//' must not be mistaken for a comment, and the
-    // literal itself must survive into the output so it gets checked.
+    // 含 '//' 的字符串不能被当成注释，而且字面量本身要留在输出里等着被检查
     if (c === '"' || c === "'" || c === "'") {
       const quote = c
       out += c
@@ -147,8 +135,7 @@ function stripComments(src) {
           i += 1
           break
         }
-        // Unterminated template literal: keep scanning, the syntax check will
-        // report the real error.
+        // 模板字面量没闭合：继续扫，真正的错误由语法检查报
         i += 1
       }
       continue

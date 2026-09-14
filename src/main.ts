@@ -1,11 +1,5 @@
 /**
- * Application entry point.
- *
- * Vite starts bundling here: install i18n, mount the root component,
- * pull in global styles.
- *
- * ⚠️ `src/locales/*.json` is the only place Chinese is allowed in code;
- * everything else is ASCII (enforced by .githooks/checks/ascii.mjs).
+ * src/main.ts —— 应用入口：装 i18n、挂载根组件、引入全局样式。
  */
 import { createApp } from 'vue'
 import App from './App.vue'
@@ -14,12 +8,11 @@ import { isDevHost, readStoredDebug, resolveDebug, useGame } from './stores/game
 import './styles/main.css'
 
 /**
- * Apply the player's language *before* mounting.
+ * 挂载**之前**先把语言定下来。
  *
- * ⚠️ The store builds the initial save while the module graph is evaluated (App's
- * setup calls useGame), which happens before useLanguage() can run on mount.
- * Without this, a first-run game is written in the fallback language and stored
- * that way — the sidebar showed "Unknown place" under a Chinese UI.
+ * ⚠️ store 在模块图求值时就会建初始存档（App 的 setup 调 useGame），这早于
+ *    useLanguage() 在挂载时运行。少了这一步，首局会以兜底语言写进存档 ——
+ *    中文界面下侧栏会显示 "Unknown place"。
  */
 const locale: Locale = resolveLocale(readStoredLanguage(), navigator.language)
 ;(i18n.global.locale as unknown as { value: Locale }).value = locale
@@ -33,7 +26,6 @@ game.debugMode.value = resolveDebug(readStoredDebug(), game.devHost.value)
 
 createApp(App).use(i18n).mount('#app')
 
-// Exposed for the e2e run (and for poking at translations in the console). The
-// e2e asserts app messages through this table instead of hard-coding a copy of
-// the text, so a wording change cannot make the suite assert stale text.
+// 暴露给 e2e（也方便在控制台查文案）：e2e 通过它取文案而不是抄一份字符串，
+// 改文案时断言不会对着过期文本继续通过。
 window.__dshE2E = { i18n }

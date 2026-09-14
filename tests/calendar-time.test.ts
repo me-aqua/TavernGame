@@ -1,8 +1,7 @@
 /**
  * advanceTime 测试 —— 模型参数进引擎前的那道关。
  *
- * 它原来住在 src/core/time.ts（整个文件只有这一个函数），现在折进 utils/calendar.ts。
- * 这里**直接**测它，不经过 GameState —— 之前它只被间接覆盖，几条分支是碰巧走到的。
+ * 这里**直接**测它，不经过 GameState —— 只被间接覆盖时，几条分支是碰巧走到的。
  *
  * 契约（读源码确认）：
  *   - unit 不传（undefined / null）按 segment；传了就必须是 6 个规范值之一

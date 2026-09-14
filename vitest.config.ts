@@ -30,11 +30,9 @@ export default defineConfig({
       // ⚠️ 改了 src 目录结构就必须同步这里：漏改 = 搬出去的代码静默脱离门禁
       include: ['src/game/**/*.ts', 'src/agent/**/*.ts', 'src/utils/**/*.ts', 'src/stores/**/*.ts'],
       exclude: ['src/types/**'],
-      // Coverage gate: fail below these numbers.
-      // Calibrated from measured values (99.57 / 93.46 / 100 / 99.53 after the
-      // i18n round), with a small margin so the gate flags real regressions
-      // rather than normal refactoring noise. Its purpose is to stop "new
-      // feature, no tests" from getting through.
+      // 覆盖率门槛：低于这些数就失败。按实测值校准（99.57 / 93.46 / 100 / 99.53），
+      // 留一点余量，让门槛抓的是真回归而不是正常重构的噪声。
+      // 它的用途是拦住「加了功能没加测试」。
       thresholds: {
         statements: 99,
         branches: 94,

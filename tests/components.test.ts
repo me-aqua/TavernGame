@@ -1,8 +1,6 @@
 // @vitest-environment jsdom
 /**
- * 组件测试 —— 覆盖 Vue 那层（此前只有浏览器验证，没有回归网）。
- *
- * 只测**契约**（渲染出什么、点击后 emit 什么），不测样式。
+ * 组件测试：只测**契约**（渲染出什么、点击后 emit 什么），不测样式。
  */
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
@@ -17,8 +15,7 @@ import { realCalendar } from '../src/utils/calendar'
 /** 组件要 t()，所以统一装上 i18n 插件；断言按中文写，固定用 zh-CN */
 i18n.global.locale.value = 'zh-CN'
 
-// Fixtures live here as named consts (code stays ASCII), and anything the
-// product really emits is built with t() so its exact wording is never copied.
+// 夹具写成具名常量（代码保持 ASCII）；产品真会输出的文案用 t() 构造，绝不抄一份字符串
 const DEFAULT_LINE_TEXT = 'body text'
 const NARRATION_TEXT = 'You are in the inn.'
 const ACTION_TEXT = 'I push the door open and step outside'
@@ -30,7 +27,7 @@ const RAW_SUMMARY = t('store.rawReply', { count: RAW_BLOCKS })
 const XSS_TEXT = '<img src=x onerror=alert(1)>'
 const SCENE_NAME = 'Riverside Inn'
 const SCENE_DESCRIPTION = 'Voices downstairs.'
-// Local-time construction keeps the label timezone independent.
+// 用本地时间构造，标签不受时区影响
 const TIME_LABEL = realCalendar.format(new Date(2026, 8, 14, 14, 0, 0).toISOString())
 const NOW_LABEL = 'now'
 const TIMELINE_FROM = realCalendar.formatShort(new Date(2026, 8, 12, 9, 0, 0).toISOString())
@@ -39,10 +36,9 @@ const TIMELINE_REASON = 'slept through the night'
 const PLAYER_INPUT = 'I head to the docks'
 
 /**
- * Mount a component with the real i18n instance attached.
+ * 挂载组件并接上真实 i18n 实例。
  *
- * Typed loosely on purpose: components have different prop shapes, and
- * spelling out the generic per call site would be noise.
+ * 类型故意放宽：各组件的 props 形状不同，逐处写出泛型只是噪音。
  */
 function render<C>(component: C, options: Record<string, unknown> = {}) {
   return mount(
@@ -212,7 +208,7 @@ describe('SettingsDrawer', () => {
     expect(options).toContain(t('provider.deepseek'))
     expect(options).toContain(t('provider.ollama'))
     expect(w.text()).toContain(t('settings.apiKey'))
-    // The step-limit label interpolates the slider value, so read it back first.
+    // 步数上限文案会插值滑块的值，所以先把它读回来
     const steps = Number((w.find('input[type="range"]').element as HTMLInputElement).value)
     expect(w.text()).toContain(t('settings.stepsLimit', { count: steps }))
   })

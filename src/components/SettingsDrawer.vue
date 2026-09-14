@@ -20,7 +20,7 @@ const emit = defineEmits<{
   saved: []
   language: [mode: LanguageMode]
   theme: [mode: ThemeMode]
-  /** Save-file actions live in the drawer on small screens (no room in the header) */
+  /** 存档动作放在面板里：小屏顶栏没地方 */
   action: [name: 'export' | 'import' | 'reset']
 }>()
 
@@ -46,7 +46,7 @@ const testResult = ref('')
 const testStatus = ref<'' | 'ok' | 'bad'>('')
 const testing = ref(false)
 
-/** 当前服务商预设。配置可能被填成不存在的值，所以这里要能返回 undefined */
+/** 当前服务商预设（配置里可能存着已不存在的值，故可为 undefined） */
 const currentPreset = computed(() => PRESETS[provider.value])
 
 /** 面板打开时，从 localStorage 读一次最新配置填进表单 */
@@ -71,9 +71,7 @@ watch(
 function syncProviderFields() {
   const p = currentPreset.value
   if (!p) return
-  // 表单里的地址/模型还是「任何预设的默认值」时，换服务商就顺手替换
   const isPresetBase = (v: string) => Object.values(PRESETS).some((x) => x.apiBase === v)
-  // 同上，判断模型名是不是某个预设的默认值
   const isPresetModel = (v: string) => Object.values(PRESETS).some((x) => x.models?.includes(v))
   if (!apiBase.value.trim() || isPresetBase(apiBase.value.trim())) apiBase.value = p.apiBase
   if (!modelName.value.trim() || isPresetModel(modelName.value.trim())) modelName.value = p.models?.[0] ?? ''

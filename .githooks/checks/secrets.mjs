@@ -1,12 +1,11 @@
 /**
- * Secret scan (runs on pre-commit).
+ * 密钥扫描（pre-commit 跑）。
  *
- * Why this must be automated: the project is **client-side with the player's own
- * API key**, so a real key can easily end up in the repo (pasted while debugging,
- * used as an example in docs). Once committed it stays in history — even if
- * deleted the next second (see the v0.5.3 AGENIA.md lesson).
+ * 为什么必须自动化：项目是**纯前端 + 玩家自己的 API key**，真 key 很容易进仓库
+ * （调试时粘贴、写进文档当例子）。一旦提交就留在历史里 —— 哪怕下一秒删掉
+ *（见 v0.5.3 的 AGENIA.md 教训）。
  *
- * Detection is based on **known token formats**, not guesswork:
+ * 检测基于**已知 token 格式**，不靠猜：
  *   sk-…             OpenAI / DeepSeek / SiliconFlow …
  *   sk-or-v1-…       OpenRouter
  *   sk-ant-…         Anthropic
@@ -16,12 +15,9 @@
  *   private key headers
  *   long random string assigned to a key-ish variable name
  *
- * Note: the prefixes above are **rules**, not real keys; this file skips itself.
+ * 注：上面的前缀是**规则**不是真 key；本文件跳过自己。
  */
 import { readFileSync } from 'node:fs'
-
-// 注：提示词编码已改由 Vite 插件在构建期完成，不再有 .b64 生成物，
-// 所以这里曾经那段「先确认编码与源文件同步」的检查也随之删除。
 
 const RULES = [
   { label: 'OpenAI / DeepSeek 风格', re: /\bsk-[A-Za-z0-9_-]{20,}/, hint: 'sk-' },
@@ -48,13 +44,13 @@ for (const file of files) {
   try {
     text = readFileSync(file, 'utf8')
   } catch {
-    // success path: file already deleted or changed mid-read (common with git staging)
+    // 成功路径：文件已被删除或读取途中被改（git staging 时常见）
     continue
   }
   text.split('\n').forEach((line, i) => {
     for (const rule of RULES) {
       if (rule.re.test(line)) {
-        // Report location and kind only — never echo the value into logs/terminal
+        // 只报位置与种类 —— 绝不把值回显到日志/终端
         hits.push(`${file}:${i + 1} —— 疑似 ${rule.label}（命中特征：${rule.hint}）`)
       }
     }

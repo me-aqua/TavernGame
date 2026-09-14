@@ -1,12 +1,10 @@
 /**
- * TypeScript / Vue syntax check (runs on pre-commit, sub-second).
+ * TypeScript / Vue 语法检查（pre-commit 跑，亚秒级）。
  *
- * Parses with the TypeScript compiler API and reports **syntax errors only**
- * (type errors are the job of `typecheck`).
+ * 用 TypeScript 编译器 API 解析，**只报语法错误**（类型错误归 `typecheck`）。
  *
- * Why not shell out to `node --check`: that is JavaScript's checker, it cannot
- * parse TypeScript, and cross-platform quote escaping is error-prone
- * (this project has been bitten by that).
+ * 为什么不 shell 出 `node --check`：那是 JavaScript 的检查器，解析不了 TypeScript，
+ * 而且跨平台引号转义很容易出错（本项目被坑过）。
  */
 import { readFileSync } from 'node:fs'
 import ts from 'typescript'

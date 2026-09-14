@@ -8,13 +8,11 @@ import { i18n, t } from '../src/i18n'
 import { installFakeLlm } from './support/fakeLlm'
 import type { ChatMessage } from '../src/types/state'
 
-// Engine messages go through i18n; pin the locale so assertions are deterministic
+// 引擎文案走 i18n；钉住 locale，断言才稳定
 i18n.global.locale.value = 'en'
 
-/** 假玩家消息（fixture） */
 const messages: ChatMessage[] = [{ role: 'user', content: 'Hello there' }]
 
-/** 假模型回复的文字部分（fixture） */
 const NARRATION = 'The tavern is quiet tonight.'
 
 /** 假模型回复：第一条 tool_call 缺 function.name，应被过滤掉 */
@@ -54,7 +52,7 @@ afterEach(() => {
 describe('config validation - missing base URL', () => {
   it('asks for the missing field when apiBase is blank', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: '   ', model: 'm' })
-    // Field names are localized for the player - never the raw config key
+    // 字段名用玩家看得懂的说法，不用原始配置 key
     await expect(chat(messages)).rejects.toThrow(t('llm.missingConfig', { items: t('llm.field.apiBase') }))
   })
 })

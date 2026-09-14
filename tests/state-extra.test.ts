@@ -7,8 +7,8 @@
  *   - advanceTime 的长时间跳（elapsed 文案被省略）、时间线超长截断、时间线不上限时的分支
  *   - import 的拒绝分支、各 getter
  *
- * All user-visible text is asserted through t('key'), so a locale change cannot
- * silence these checks and this file stays ASCII-only.
+ * 所有用户可见文案都通过 t('key') 断言：改 locale 不会让这些检查静默通过，
+ * 文件本身也保持 ASCII。
  */
 import { describe, expect, it, vi } from 'vitest'
 import * as game from '../src/game/state'
@@ -30,10 +30,8 @@ const WAITED_SEVEN_DAYS = 'waited seven days'
 const OLD_STORY = 'the old story'
 const BROKEN_JSON = '{broken'
 
-/** 第 i 条日志的文本 */
 const logText = (i: number) => `entry ${i}`
 
-/** 第 i 天的推进原因 */
 const dayReason = (i: number) => `day ${i}`
 
 describe('constructor and getters', () => {

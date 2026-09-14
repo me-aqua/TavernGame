@@ -1,13 +1,8 @@
 /**
- * src/agent/config.ts —— 配置管理
+ * src/agent/config.ts —— 配置管理：纯前端方案，API key 存在浏览器 localStorage，不经过服务器。
  *
- * 纯前端方案下，API key 存在**浏览器本地**（localStorage），不经过任何服务器。
- *
- * ⚠️ 但要理解两件事：
- *   1. localStorage 按「域名」隔离。GitHub Pages 上的 key 和
- *      本地 localhost 上的 key 是两份，互不影响。
- *   2. 同一台电脑上，能读你浏览器数据的程序/扩展也能读到这个 key。
- *      所以别在公用电脑上填。
+ * ⚠️ localStorage 按域名隔离（GitHub Pages 与 localhost 上的 key 是两份）；
+ *    同一台电脑上能读浏览器数据的程序/扩展也能读到这个 key，别在公用电脑上填。
  */
 
 import { isRecord } from '../game/save'
@@ -15,7 +10,7 @@ import { t } from '../i18n'
 
 const STORAGE_KEY = 'tavernGame.config'
 
-/** A provider preset (label text lives in src/locales) */
+/** 服务商预设（label 文案在 src/locales） */
 interface ProviderPreset {
   apiBase: string
   models: string[]
@@ -26,14 +21,12 @@ interface ProviderPreset {
   noKey?: boolean
 }
 
-/** 用户可配置的项 */
 export interface GameConfig {
   provider: string
   apiKey: string
   apiBase: string
   model: string
   temperature: number
-  /** 一个回合内最多思考几步 */
   maxAgentSteps: number
 }
 

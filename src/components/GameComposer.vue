@@ -1,10 +1,8 @@
 <script setup lang="ts">
 /**
- * 输入区：玩家输入行动（浮在故事上）。
- *
- * 它**浮在故事之上**（半透明 + 毛玻璃），不是页脚的一部分 ——
+ * 输入区：玩家输入行动。它**浮在故事之上**（半透明 + 毛玻璃），不是页脚的一部分 ——
  * 这样文字可以从它下面滚过去，视线始终留在故事上。
- * 输入框随字数长高 —— 用 scrollHeight 算，再夹一个 max-height。
+ *
  * 提示文字用模板条件渲染，**不用 v-html** —— 这样连转义都不需要。
  */
 import { useI18n } from 'vue-i18n'
@@ -15,7 +13,6 @@ const { t } = useI18n()
 defineProps<{
   /** 正在跑回合时禁用 */
   disabled: boolean
-  /** 是否已完成 API 配置 */
   configured: boolean
 }>()
 
@@ -34,7 +31,7 @@ function autoResize() {
 
 watch(draft, () => void nextTick(autoResize))
 
-/** 提交当前草稿并清空输入框（空内容不提交） */
+/** 提交草稿：空内容直接忽略 */
 function submit() {
   const t = draft.value.trim()
   if (!t) return

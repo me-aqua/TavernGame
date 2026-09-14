@@ -1,6 +1,5 @@
 /**
- * 配置测试 —— 此前 0% 覆盖。
- * 配置是系统边界（用户手改 localStorage），所以脏数据必须被兜住。
+ * 配置测试：配置是系统边界（用户手改 localStorage），所以脏数据必须被兜住。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadConfig, saveConfig, clearConfig, isConfigured, maskKey, PRESETS } from '../src/agent/config'

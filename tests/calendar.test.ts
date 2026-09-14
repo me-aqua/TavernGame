@@ -136,7 +136,7 @@ describe('Extra branches', () => {
     expect(realCalendar.formatShort(iso)).toBe(expected)
   })
 
-  // 历法说明是提示词，已移到 prompts/calendar.md（那里的断言在 tests/prompts.test.ts）
+  // 历法说明是提示词，在 prompts/calendar.md 里（断言在 tests/prompts.test.ts）
 })
 
 describe('Calendar registry', () => {

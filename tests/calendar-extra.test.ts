@@ -1,8 +1,8 @@
 /**
  * calendar.ts 补充测试 —— 覆盖未走到的单位分支与时长文案分支。
  *
- * All user-visible text is asserted through t('key'), so a locale change cannot
- * silence these checks and this file stays ASCII-only.
+ * 所有用户可见文案都通过 t('key') 断言：改 locale 不会让这些检查静默通过，
+ * 文件本身也保持 ASCII。
  */
 import { describe, expect, it } from 'vitest'
 import { realCalendar, hourToSegment } from '../src/utils/calendar'
@@ -17,7 +17,7 @@ describe('advance -- units not covered elsewhere', () => {
 
   it('year: advances by years (leap years handled by Date)', () => {
     const { iso } = realCalendar.advance('2024-02-29T10:00:00.000Z', 1, 'year')
-    // 2024-02-29 + 1 year -> 2025-02-28/03-01 (2025 is not a leap year)
+    // 2024-02-29 加 1 年 → 2025-02-28/03-01（2025 不是闰年）
     const d = new Date(iso)
     expect(d.getFullYear()).toBe(2025)
     expect([1, 2]).toContain(d.getMonth())

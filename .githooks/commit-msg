@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-// Commit message check: conventional-commit prefix.
-// Not formalism — CHANGELOG and semantic versioning depend on that prefix
-// (see doc/CHANGELOG.md).
+// 提交信息检查：约定式前缀。
+// 这不是洁癖 —— CHANGELOG 与语义化版本号都依赖这个前缀（见 doc/CHANGELOG.md）。
 import { execSync } from 'node:child_process'
 
 const messageFile = process.argv[2]
