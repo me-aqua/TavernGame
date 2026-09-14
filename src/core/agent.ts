@@ -19,8 +19,9 @@
  *   - **可以中途取消**，玩家点了停止就真的停下。
  */
 
+import { t } from '../i18n'
 import { chat } from './llm'
-import { runTool, TOOL_SCHEMAS } from './tools'
+import { runTool, toolSchemas } from './tools'
 import {
   buildSystemPrompt,
   OPENING_INSTRUCTION,
@@ -105,16 +106,18 @@ type StepOutcome =
  * 跑一个回合。
  */
 export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise<TurnResult> {
-  const { action, history = [], signal, onEvent = () => {}, tools = TOOL_SCHEMAS } = opts
+  const { action, history = [], signal, onEvent = () => {}, tools = toolSchemas() } = opts
   const cfg = loadConfig()
   const maxSteps = Math.max(1, cfg.maxAgentSteps || 8)
 
-  const userContent = action ? `玩家的行动：${action}` : `【游戏开始】\n${OPENING_INSTRUCTION}`
+  const userContent = action
+    ? t('agent.playerAction', { action })
+    : t('agent.gameStart', { instruction: OPENING_INSTRUCTION })
 
   // 先把玩家的行动记入日志。
   // 必须在拼装消息之前做 —— snapshot() 会读日志，这样模型就能看到
   // 玩家刚说了什么（而不是只看到一堆历史数值）。
-  state.addLog(action ? 'action' : 'system', action || '（新的冒险开始了）')
+  state.addLog(action ? 'action' : 'system', action || t('agent.newAdventure'))
 
   const messages = buildMessages(state, history, userContent)
   const toolResults: string[] = []
@@ -122,7 +125,7 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
   let stepCount = 0
 
   while (stepCount < maxSteps) {
-    if (signal?.aborted) throw new DOMException('已取消', 'AbortError')
+    if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
     stepCount += 1
     onEvent({ type: 'thinking', step: stepCount })
 
@@ -159,7 +162,7 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
 
   // 步数用尽
   if (stepCount >= maxSteps && toolResults.length > 0) {
-    onEvent({ type: 'warn', message: `达到步数上限（${maxSteps}），本回合结束` })
+    onEvent({ type: 'warn', message: t('agent.stepLimit', { max: maxSteps }) })
   }
 
   // ---------- 兜底：一整个回合一个字都没写 ----------
@@ -179,11 +182,7 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
 
   state.endTurn()
   if (!state.save()) {
-    // 允许：给玩家看的状态提示，不是给模型的提示词
-    onEvent({
-      type: 'warn',
-      message: '存档写入失败（可能是隐私模式或空间已满）—— 这一回合的进度重启后会丢失',
-    })
+    onEvent({ type: 'warn', message: t('agent.saveFailed') })
   }
 
   // 维护对话历史（供下一回合拼接）
@@ -205,7 +204,7 @@ function classifyStep(reply: ChatReply, onEvent: (evt: AgentEvent) => void, step
   }
   // 只调工具、不写叙事时提示一句（提示词要求先叙事，模型有时会偷懒）
   if (!narration) {
-    onEvent({ type: 'warn', message: `模型这一步只调用了工具，没有写叙事文字（第 ${stepCount} 步）` })
+    onEvent({ type: 'warn', message: t('agent.toolsOnly', { step: stepCount }) })
   }
   return { kind: 'tools', narration, calls: reply.toolCalls }
 }
@@ -221,7 +220,7 @@ async function forceNarration(
   signal: AbortSignal | undefined,
   onEvent: (evt: AgentEvent) => void,
 ): Promise<string | null> {
-  onEvent({ type: 'warn', message: '这一回合没有产生叙事文字，正在要求 GM 补写…' })
+  onEvent({ type: 'warn', message: t('agent.forcingNarration') })
   messages.push({
     role: 'user',
     content: messages.some((m) => m.tool_call_id)
@@ -232,7 +231,7 @@ async function forceNarration(
   const reply = await chat(messages, { signal }) // 不传 tools
   const text = reply.content.trim()
   if (!text) {
-    onEvent({ type: 'warn', message: 'GM 依然没有输出文字' })
+    onEvent({ type: 'warn', message: t('agent.stillNoText') })
     return null
   }
   onEvent({ type: 'narration', text })

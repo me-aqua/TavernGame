@@ -3,6 +3,12 @@
 /** 调试开关：在浏览器控制台执行 __DEBUG = true 打开（见 composables/useTurn.ts） */
 interface Window {
   __DEBUG?: boolean
+  /**
+   * i18n 实例，由 main.ts 挂到 window 上。
+   * e2e 通过它取文案（t('key')）而不是复制一份字符串 —— 否则改文案时
+   * 断言会对着过期的字符串继续通过。
+   */
+  __dshE2E?: { i18n: typeof import('./src/i18n').i18n }
 }
 
 /**

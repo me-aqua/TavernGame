@@ -80,8 +80,15 @@ export class GameState {
     return this.data.player
   }
 
-  get scene(): GameData['scene'] {
-    return this.data.scene
+  /**
+   * 场景。名字与描述为空时给一个**当前语言**的默认值 —— 存档里存的是空串，
+   * 所以切换语言时它跟着变（存成字符串的话会永远停在创建时那门语言）。
+   */
+  get scene(): { name: string; description: string } {
+    return {
+      name: this.data.scene.name || t('scene.unknownPlace'),
+      description: this.data.scene.description || t('scene.unknownPlaceDesc'),
+    }
   }
 
   get turn(): number {
@@ -135,7 +142,7 @@ export class GameState {
       // 边界：this.data.time.iso 来自 localStorage，可能被手改成非法时刻，
       // 此时日历的 advance 会抛 RangeError。快速失败会连累整个回合，
       // 所以在这里转成给模型看的文案。
-      return `⚠ 推进失败：${(err as Error).message}（当前：${before}）`
+      return t('tools.advanceFailed', { message: (err as Error).message, current: before })
     }
     if (!outcome.ok) return outcome.message
 
@@ -164,15 +171,15 @@ export class GameState {
     const elapsed = outcome.elapsedMs < LONG_JUMP_MS ? cal.describeElapsed(outcome.elapsedMs) : ''
 
     return (
-      `🕐 时间推进：${before}\n           → ${after}` +
-      (elapsed ? `\n   （${elapsed}）` : '') +
-      (reason ? `\n   原因：${reason}` : '')
+      t('tools.advanceResult', { before, after }) +
+      (elapsed ? t('tools.advanceElapsed', { elapsed }) : '') +
+      (reason ? t('tools.advanceReason', { reason }) : '')
     )
   }
 
   endTurn(): string {
     this.data.meta.turn += 1
-    return `回合 +1（当前第 ${this.data.meta.turn} 回合）`
+    return t('agent.turnAdvanced', { turn: this.data.meta.turn })
   }
 
   // ---------- 给模型看的快照 ----------
@@ -185,8 +192,8 @@ export class GameState {
     const lines = [
       t('snapshot.turn', { turn: this.turn }),
       t('snapshot.time', { time: this.timeLabel }),
-      t('snapshot.place', { name: this.data.scene.name }),
-      `　　${this.data.scene.description}`,
+      t('snapshot.place', { name: this.scene.name }),
+      t('snapshot.sceneDescription', { text: this.scene.description }),
     ]
 
     // ⚠️ 防御性读取：这里的字段可能是脏的（存档被手改、或旧版本格式）。
@@ -200,10 +207,10 @@ export class GameState {
       lines.push('', t('snapshot.recent'))
       for (const h of recent) {
         const who = h.role === 'user' ? t('snapshot.player') : t('snapshot.gm')
-        lines.push(`- ${who}：${h.content.replace(/\s+/g, ' ').slice(0, 160)}`)
+        lines.push(t('snapshot.recentLine', { who, text: h.content.replace(/\s+/g, ' ').slice(0, 160) }))
       }
     } else if (logs.length) {
-      lines.push('', '### 最近发生的事')
+      lines.push('', t('snapshot.recentLog'))
       for (const entry of logs.slice(-4)) {
         if (!entry || typeof entry !== 'object') continue
         const text = String(entry.text ?? '')
@@ -217,8 +224,12 @@ export class GameState {
     // 存档被手改后可能出现 to 为空的记录，那样会留下一个空标题，误导模型
     const timelineLines = timeline
       .slice(-5)
-      .filter((t) => t && typeof t === 'object' && String(t.to ?? ''))
-      .map((t) => `- ${t.to}${t.reason ? `（${t.reason}）` : ''}`)
+      .filter((entry) => entry && typeof entry === 'object' && String(entry.to ?? ''))
+      .map((entry) =>
+        entry.reason
+          ? t('snapshot.timelineLine', { to: entry.to, reason: entry.reason })
+          : t('snapshot.timelineLineNoReason', { to: entry.to }),
+      )
     if (timelineLines.length) {
       lines.push('', t('snapshot.timeline'), ...timelineLines)
     }

@@ -9,12 +9,25 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { PRESETS, loadConfig, saveConfig, clearConfig, maskKey } from '../core/config'
+import type { LanguageMode } from '../i18n'
 import { testConnection as testApiConnection } from '../core/llm'
 
 const { t } = useI18n()
 
-const props = defineProps<{ open: boolean }>()
-const emit = defineEmits<{ 'update:open': [v: boolean]; saved: [] }>()
+const props = defineProps<{ open: boolean; language: LanguageMode }>()
+const emit = defineEmits<{
+  'update:open': [v: boolean]
+  saved: []
+  language: [mode: LanguageMode]
+  /** Save-file actions live in the drawer on small screens (no room in the header) */
+  action: [name: 'export' | 'import' | 'reset']
+}>()
+
+const LANGUAGES: { mode: LanguageMode; label: string }[] = [
+  { mode: 'system', label: 'settings.languageSystem' },
+  { mode: 'zh-CN', label: 'header.languageIconZh' },
+  { mode: 'en', label: 'header.languageIconEn' },
+]
 
 const provider = ref('deepseek')
 const apiKey = ref('')
@@ -127,13 +140,32 @@ const hintText = 'mt-1.5 text-[11.5px] leading-relaxed text-faint'
       class="sheet max-h-[88vh] w-full max-w-[540px] overflow-y-auto rounded-2xl border border-line bg-surface p-6 shadow-2xl"
     >
       <h2 class="text-[17px] font-semibold text-text">{{ t('settings.title') }}</h2>
+
+      <div class="mt-4 flex flex-wrap items-center gap-2">
+        <span :class="fieldLabel + ' mb-0'">{{ t('settings.language') }}</span>
+        <button
+          v-for="entry in LANGUAGES"
+          :key="entry.mode"
+          data-language-option
+          class="rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors"
+          :class="
+            language === entry.mode
+              ? 'border-accent-line bg-accent-soft text-accent'
+              : 'border-line bg-surface-2 text-muted hover:text-text'
+          "
+          @click="emit('language', entry.mode)"
+        >
+          {{ t(entry.label) }}
+        </button>
+        <span class="w-full text-[11.5px] text-faint">{{ t('settings.languageNote') }}</span>
+      </div>
       <p class="mt-1.5 mb-5 text-[13px] leading-relaxed text-muted">
         {{ t('settings.introBefore') }}<b class="text-text">{{ t('settings.appName') }}</b
         >{{ t('settings.introAfter') }}
       </p>
 
       <div class="mb-4">
-        <label :class="fieldLabel">provider</label>
+        <label :class="fieldLabel">{{ t('settings.providerLabel') }}</label>
         <select v-model="provider" :class="textareaRef" @change="syncProviderFields">
           <option v-for="(_preset, k) in PRESETS" :key="k" :value="k">{{ t(`provider.${k}`) }}</option>
         </select>
@@ -179,7 +211,7 @@ const hintText = 'mt-1.5 text-[11.5px] leading-relaxed text-faint'
       </div>
 
       <div class="mb-4">
-        <label :class="fieldLabel">modelName</label>
+        <label :class="fieldLabel">{{ t('settings.modelLabel') }}</label>
         <input v-model="modelName" type="text" list="model-list" autocomplete="off" :class="textareaRef" />
         <datalist id="model-list">
           <option v-for="m in currentPreset?.models ?? []" :key="m" :value="m"></option>
@@ -192,10 +224,42 @@ const hintText = 'mt-1.5 text-[11.5px] leading-relaxed text-faint'
         <p :class="hintText">{{ t('settings.stepsNote') }}</p>
       </div>
 
-      <div class="mt-5 flex flex-wrap gap-2">
+      <div class="mt-5 border-t border-line pt-4">
+        <h3 :class="fieldLabel">{{ t('settings.saveSection') }}</h3>
+        <div class="flex flex-wrap gap-2">
+          <button
+            data-export
+            class="rounded-lg border border-line bg-surface-2 px-3.5 py-2 text-[13px] text-text transition-colors hover:border-accent-line"
+            @click="emit('action', 'export')"
+          >
+            {{ t('settings.exportSave') }}
+          </button>
+          <button
+            data-import
+            class="rounded-lg border border-line bg-surface-2 px-3.5 py-2 text-[13px] text-text transition-colors hover:border-accent-line"
+            @click="emit('action', 'import')"
+          >
+            {{ t('settings.importSave') }}
+          </button>
+          <button
+            data-reset
+            class="rounded-lg border border-line bg-surface-2 px-3.5 py-2 text-[13px] text-muted transition-colors hover:border-danger/50 hover:text-danger"
+            @click="emit('action', 'reset')"
+          >
+            {{ t('settings.resetGame') }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Duplicated from the header, which is why this row can disappear on phones.
+           The drawer itself is already tight there (it scrolls) and space is worth
+           more to the fields above than to a second copy of these buttons. -->
+      <div class="mt-5 hidden flex-wrap gap-2 sm:flex">
         <button
+          data-test-connection
           class="rounded-lg border border-line bg-surface-2 px-3.5 py-2 text-[13px] text-text transition-colors hover:border-accent-line disabled:opacity-40"
           :disabled="testing"
+          :aria-label="t('settings.test')"
           @click="testConnectionAction"
         >
           {{ t('settings.test') }}

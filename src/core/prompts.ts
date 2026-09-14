@@ -19,6 +19,7 @@
 //
 // 模块 id 约定：virtual:prompt/<lang>/<name>（语言段来自 prompts/<lang>/ 目录名）。
 // 当前固定取 zh-CN；i18n 那一步会按玩家语言在 zh-CN / en 之间选。
+import { t } from '../i18n'
 import systemTemplateB64 from 'virtual:prompt/zh-CN/system'
 import toolsTemplateB64 from 'virtual:prompt/zh-CN/tools'
 import openingInstructionB64 from 'virtual:prompt/zh-CN/opening'
@@ -35,7 +36,7 @@ import calendarNoteB64 from 'virtual:prompt/zh-CN/calendar'
  */
 function decodePrompt(b64: string): string {
   if (!/^[A-Za-z0-9+/]*={0,2}$/.test(b64)) {
-    throw new Error('提示词模块不是合法 base64 —— 检查 vite-plugins/prompts.ts 的输出')
+    throw new Error(t('prompts.badBase64'))
   }
   const binary = atob(b64)
   const bytes = new Uint8Array(binary.length)
@@ -74,7 +75,7 @@ export function renderPrompt(template: string, values: Record<string, string>): 
   // 匹配任意 {{...}}：占位符名字不该有格式限制，漏填才是要拦的事
   const unfilled = filled.match(/\{\{[^{}]+\}\}/g)
   if (unfilled) {
-    throw new Error(`提示词有未填的占位符：${[...new Set(unfilled)].join('、')}`)
+    throw new Error(t('prompts.unfilled', { names: [...new Set(unfilled)].join(', ') }))
   }
   // 折叠连续空行：各提示词文件自带末尾换行，拼接后会留下 \n\n\n 这类空隙。
   // 发给模型的东西要干净（也省 token）—— 这是装配层的职责，不必要求每个文件都精确收尾。
@@ -83,7 +84,7 @@ export function renderPrompt(template: string, values: Record<string, string>): 
 
 /** 工具说明（含调用格式与示例） */
 export function toolsPrompt(): string {
-  return renderPrompt(toolsTemplate, { SEGMENTS: SEGMENTS.join(' → ') })
+  return renderPrompt(toolsTemplate, { SEGMENTS: SEGMENTS.join(t('tools.segmentListSeparator')) })
 }
 
 /**

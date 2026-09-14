@@ -84,7 +84,9 @@ function collectPrompts(root: string): PromptEntry[] {
 
   if (skipped.length) {
     console.warn(
-      '[prompts] 跳过没有语言目录的提示词：' + skipped.join('、') + '（应放在 prompts/<lang>/ 下）',
+      '[prompts] skipped prompts without a language directory: ' +
+        skipped.join(', ') +
+        ' (they belong in prompts/<lang>/)',
     )
   }
   return entries
@@ -126,16 +128,18 @@ export function promptsPlugin(): Plugin {
       const { lang, name } = parseId(id)
       if (!lang || !name) {
         throw new Error(
-          '[prompts] 模块 id 必须带语言：' +
+          '[prompts] module id must include a language: ' +
             id +
-            '。正确写法如 virtual:prompt/zh-CN/system（已有语言：' +
-            (locales.join('、') || '（未发现）') +
-            '）',
+            '. Correct form: virtual:prompt/zh-CN/system (known languages: ' +
+            (locales.join(', ') || 'none found') +
+            ')',
         )
       }
       const key = lang + '/' + name
       if (!byKey.has(key)) {
-        throw new Error('[prompts] 找不到提示词「' + key + '」。可用：' + [...byKey.keys()].sort().join('、'))
+        throw new Error(
+          '[prompts] no prompt named "' + key + '". Available: ' + [...byKey.keys()].sort().join(', '),
+        )
       }
       return RESOLVED_PREFIX + key
     },
@@ -144,7 +148,7 @@ export function promptsPlugin(): Plugin {
       if (!id.startsWith(RESOLVED_PREFIX)) return null
       const key = id.slice(RESOLVED_PREFIX.length)
       const file = byKey.get(key)
-      if (!file) throw new Error('[prompts] 虚拟模块「' + key + '」没有对应文件')
+      if (!file) throw new Error('[prompts] virtual module "' + key + '" has no backing file')
 
       const text = readFileSync(file, 'utf8')
       const b64 = Buffer.from(text, 'utf8').toString('base64')

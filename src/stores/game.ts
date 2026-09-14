@@ -61,7 +61,9 @@ export function useGame() {
   // ---------- 只读派生 ----------
   const timeLabel = computed(() => (state.value, state.value.timeLabel))
   const timeline = computed(() => (state.value, state.value.data.timeline.slice(-4)))
-  const scene = computed(() => (state.value, state.value.data.scene))
+  // ⚠️ state.scene（getter）而不是 state.data.scene：默认场景名/描述来自 locale，
+  //    空值时由 getter 现取，所以切换语言时侧栏会跟着变。
+  const scene = computed(() => (state.value, state.value.scene))
   const turn = computed(() => (state.value, state.value.turn))
 
   // ---------- messages ----------
@@ -113,10 +115,10 @@ export function useGame() {
         append('tool', t('toolbar.toolCall', { tool: evt.tool, args: evt.args }))
         break
       case 'toolResult':
-        append('tool', `   → ${evt.result}`)
+        append('tool', t('store.toolResultLine', { result: evt.result }))
         break
       case 'warn':
-        append('warn', `⚠ ${evt.message}`)
+        append('warn', t('store.warnLine', { message: evt.message }))
         break
       case 'thinking':
         break
