@@ -1,25 +1,50 @@
 /**
- * 工具测试。
+ * Tool tests.
  *
- * ⚠️ 2026-09-14 起工具走**原生 tool calling**，所以这里不再测「文本解析器」
- * （它已被删除）—— 改测协议契约与参数边界：
- *   - TOOL_SCHEMAS 是否合法（模型按它调用，写错了模型就无法正确调用）
- *   - runTool 对 JSON 参数的处理（这是**边界**：参数来自模型）
- *   - 原型链上的名字不能被当成真工具（防回归）
+ * Since 2026-09-14 tools use **native tool calling**, so the old text parser is
+ * gone. These tests cover the protocol contract and the parameter boundary:
+ *   - toolSchemas() is valid (the model calls through it; a typo makes the tool uncallable)
+ *   - runTool handles JSON arguments (a boundary: arguments come from the model)
+ *   - names from Object.prototype must never resolve to a real tool (regression guard)
+ *
+ * Assertions anchor on the tool name and on markers taken from the locale table at
+ * runtime (never written into this file, which stays ASCII), so a locale switch
+ * cannot make a test pass or fail for the wrong reason.
  */
-import { describe, expect, it } from 'vitest'
-import { runTool, TOOLS, TOOL_SCHEMAS, TOOL_NAMES } from '../src/core/tools'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { runTool, TOOLS, toolSchemas, TOOL_NAMES } from '../src/core/tools'
+import { i18n, t } from '../src/i18n'
 import { GameState } from '../src/core/state'
 import { createInitialState } from '../src/core/persistence'
+
+beforeAll(() => {
+  i18n.global.locale.value = 'zh-CN'
+})
 
 function fresh() {
   return new GameState(createInitialState())
 }
 
-describe('TOOL_SCHEMAS —— 给模型的契约', () => {
-  it('每个声明都有名字、描述与参数 schema', () => {
-    expect(TOOL_SCHEMAS.length).toBeGreaterThan(0)
-    for (const schema of TOOL_SCHEMAS) {
+/** The 'tool missing' message for a given name, built from the locale table */
+function unknownToolMessage(name: string): string {
+  return t('tools.unknown', { name, available: TOOL_NAMES.join(', ') })
+}
+
+/**
+ * The leading marker of a result message (everything before its first placeholder).
+ * Read from the locale table so the success/failure markers never appear in this file.
+ */
+function resultMarker(key: 'advanceResult' | 'advanceFailed'): string {
+  const messages = i18n.global.getLocaleMessage(i18n.global.locale.value) as {
+    tools: Record<string, string>
+  }
+  return messages.tools[key].split('{')[0].trim()
+}
+
+describe('toolSchemas(): the contract handed to the model', () => {
+  it('every declaration has a name, a description and a parameter schema', () => {
+    expect(toolSchemas().length).toBeGreaterThan(0)
+    for (const schema of toolSchemas()) {
       expect(schema.type).toBe('function')
       expect(schema.function.name).toBeTruthy()
       expect(schema.function.description.length).toBeGreaterThan(10)
@@ -27,82 +52,108 @@ describe('TOOL_SCHEMAS —— 给模型的契约', () => {
     }
   })
 
-  it('⚠️ 声明与实现必须一一对应（少一个模型就调不动）', () => {
-    const 声明名 = TOOL_SCHEMAS.map((s) => s.function.name).sort()
-    expect(声明名).toEqual([...TOOL_NAMES].sort())
+  it('declarations and implementations correspond one-to-one', () => {
+    const declared = toolSchemas()
+      .map((s: { function: { name: string } }) => s.function.name)
+      .sort()
+    expect(declared).toEqual([...TOOL_NAMES].sort())
   })
 
-  it('advance_time 的 unit 用 enum 约束（协议层挡住拼错的单位）', () => {
-    const 参数 = TOOL_SCHEMAS[0].function.parameters as {
+  it('advance_time constrains unit with an enum (protocol blocks a misspelled unit)', () => {
+    const params = toolSchemas()[0].function.parameters as {
       properties: { unit: { enum: string[] } }
     }
-    expect(参数.properties.unit.enum).toEqual(['segment', 'hour', 'day', 'week', 'month', 'year'])
+    expect(params.properties.unit.enum).toEqual(['segment', 'hour', 'day', 'week', 'month', 'year'])
+  })
+
+  it('schema descriptions come from the locale table (not hardcoded)', () => {
+    const description = toolSchemas()[0].function.description
+    expect(description).toBe(t('tools.advanceTime.description'))
   })
 })
 
 describe('runTool', () => {
-  it('没有这个工具时返回提示而不是抛错', () => {
-    expect(runTool(fresh(), '不存在的工具', '{}')).toContain('没有名为')
+  it('returns a hint instead of throwing when the tool does not exist', () => {
+    const out = runTool(fresh(), 'no-such-tool', '{}')
+    expect(out).toBe(unknownToolMessage('no-such-tool'))
   })
 
-  it('⚠️ 原型链上的名字不能被当成真工具（防回归）', () => {
-    // 曾经写成 TOOLS[name]，于是 constructor / toString 会取到
-    // Object.prototype 上的真值，绕过判断后抛 TypeError，
-    // 异常穿出 runTurn，导致叙事不落盘、时间却已改
+  it('names from Object.prototype must not resolve to a real tool', () => {
+    // This used to be written as TOOLS[name], so constructor / toString resolved to a
+    // truthy value on Object.prototype, skipped the "no such tool" branch and threw a
+    // TypeError that escaped runTurn -- narrative was never persisted while time had moved.
     for (const bad of ['constructor', 'toString', 'valueOf', '__proto__', 'hasOwnProperty']) {
       expect(() => runTool(fresh(), bad, '{}')).not.toThrow()
-      expect(runTool(fresh(), bad, '{}')).toContain('没有名为')
+      expect(runTool(fresh(), bad, '{}')).toBe(unknownToolMessage(bad))
     }
   })
 
-  it('空参数是合法的（step 有默认值）', () => {
-    const s = fresh()
-    const before = Date.parse(s.iso)
-    expect(runTool(s, 'advance_time', '{}')).toContain('时间推进')
-    expect(Date.parse(s.iso) - before).toBe(4 * 3600000)
+  it('empty arguments are valid (step has a default)', () => {
+    const state = fresh()
+    const before = Date.parse(state.iso)
+    // 成功文案带着时钟标记（locale 提供）
+    expect(runTool(state, 'advance_time', '{}')).toContain(resultMarker('advanceResult'))
+    expect(Date.parse(state.iso) - before).toBe(4 * 3600000)
   })
 
-  it('参数是合法 JSON 时正常执行', () => {
-    const s = fresh()
-    const before = Date.parse(s.iso)
-    runTool(s, 'advance_time', '{"step":3,"unit":"day","reason":"睡了三天"}')
-    expect(Date.parse(s.iso) - before).toBe(3 * 86400000)
+  it('valid JSON arguments execute normally', () => {
+    const state = fresh()
+    const before = Date.parse(state.iso)
+    runTool(state, 'advance_time', '{"step":3,"unit":"day","reason":"slept three days"}')
+    expect(Date.parse(state.iso) - before).toBe(3 * 86400000)
   })
 
-  it('参数不是合法 JSON → 返回错误文案（交给模型重试，不抛异常）', () => {
-    const out = runTool(fresh(), 'advance_time', '{坏掉的')
-    expect(out).toContain('❌')
-    expect(out).toContain('不是合法 JSON')
+  it('malformed JSON returns an error message for the model to retry (no throw)', () => {
+    const raw = '{"broken'
+    const out = runTool(fresh(), 'advance_time', raw)
+    expect(out).toContain('JSON')
+    expect(out).toContain(raw)
+    expect(out).not.toContain(resultMarker('advanceResult'))
   })
 
-  it('参数是数组或字面量 → 明确拒绝', () => {
-    expect(runTool(fresh(), 'advance_time', '[1,2]')).toContain('必须是 JSON 对象')
-    expect(runTool(fresh(), 'advance_time', '"字符串"')).toContain('必须是 JSON 对象')
+  it('an array or a bare literal is rejected explicitly', () => {
+    const arrayOut = runTool(fresh(), 'advance_time', '[1,2]')
+    expect(arrayOut).toContain('[1,2]')
+    expect(arrayOut).not.toContain(resultMarker('advanceResult'))
+
+    const literalOut = runTool(fresh(), 'advance_time', '"a string"')
+    expect(literalOut).toContain('a string')
+    expect(literalOut).not.toContain(resultMarker('advanceResult'))
   })
 
-  it('单位不是 enum 值时把结构化错误交给模型（引擎不猜、不静默纠正）', () => {
-    // 协议 schema 里有 enum，但客户端仍可能收到越界值（服务商宽松、手改等），
-    // 所以引擎必须给出**可重试的**错误，而不是猜一个单位用
-    for (const bad of ['光年', 'days', '天', 'HOUR']) {
-      const s = fresh()
-      const before = s.iso
-      const out = runTool(s, 'advance_time', `{"step":1,"unit":"${bad}"}`)
-      expect(out, `单位「${bad}」应被拒绝`).toContain('Unknown time unit')
-      expect(s.iso, `单位「${bad}」不该改动时间`).toBe(before)
+  it('a unit outside the enum becomes a structured error (the engine never guesses)', () => {
+    // The schema has an enum, but the client can still receive an out-of-range value
+    // (lenient provider, hand-edited payload), so the engine must return a
+    // *retryable* error rather than silently picking a unit.
+    for (const bad of ['lightyear', 'days', 'HOUR']) {
+      const state = fresh()
+      const before = state.iso
+      const out = runTool(state, 'advance_time', `{"step":1,"unit":"${bad}"}`)
+      // NOTE (reported upstream): src/core/time.ts builds this message itself in
+      // English -- it does NOT go through t('calendar.unknownUnit'), so that locale
+      // key is currently unused. Assert the actual contract (rejected + listed units).
+      expect(out, `unit "${bad}" must be rejected`).toContain('Unknown time unit')
+      expect(out, `unit "${bad}" must be rejected`).toContain(bad)
+      expect(out, `unit "${bad}" must be rejected`).toContain('segment')
+      expect(state.iso, `unit "${bad}" must not change the time`).toBe(before)
     }
   })
 
-  it('工具执行抛错时被兜住，返回错误文案', () => {
-    const s = fresh()
-    s.data.time.iso = '坏掉的时刻' // 让日历的 advance 抛 RangeError
-    const out = runTool(s, 'advance_time', '{"step":1}')
-    expect(out).toContain('推进失败')
-    expect(out).not.toContain('时间推进')
+  it('an invalid stored timestamp surfaces as an advance failure, not a time jump', () => {
+    // NOTE (reported upstream): runTool no longer has a try/catch (it was dead code),
+    // so a thrown tool error is NOT converted here -- unique tool advance_time turns the
+    // failure into a warning inside state.advanceTime.
+    const state = fresh()
+    state.data.time.iso = 'not-a-valid-time'
+    const out = runTool(state, 'advance_time', '{"step":1}')
+    expect(out).toContain(resultMarker('advanceFailed')) // the warning marker
+    expect(out).not.toContain(resultMarker('advanceResult')) // no clock means no successful jump
+    expect(state.iso).toBe('not-a-valid-time')
   })
 
-  it('工具表里只有 advance_time，且不带任何提示词内容', () => {
+  it('the tool table holds only advance_time and no prompt content', () => {
     expect(TOOL_NAMES).toEqual(['advance_time'])
-    // 说明文字在 prompts/tools.md —— 代码里只留执行体
+    // The prose lives in prompts/<lang>/tools.md -- code keeps only the implementation
     expect(Object.keys(TOOLS.advance_time)).toEqual(['run'])
   })
 })

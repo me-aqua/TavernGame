@@ -20,111 +20,143 @@ import {
 } from '../src/core/prompts'
 import { GameState } from '../src/core/state'
 import { createInitialState } from '../src/core/persistence'
+import { t } from '../src/i18n'
 
 // 测试直接读源文件：断言的是**内容本身**（中文版，与 src/core/prompts.ts 当前取的语言一致）
-// 注意：提示词按语言分目录（prompts/<lang>/），路径必须带语言段
-const systemMarkdown = readFileSync('prompts/zh-CN/system.md', 'utf8')
-const toolsMarkdown = readFileSync('prompts/zh-CN/tools.md', 'utf8')
+// 注意：提示词按语言分目录（prompts/<lang>/），路径必须带语言段。
+// en/ 与 zh-CN/ 文件同名：正文语义用 ASCII 的英文版断言，
+// 中文版用来核对 src 导出的常量（常量就是文件原文）。
+const readPrompt = (lang: string, name: string): string => readFileSync(`prompts/${lang}/${name}.md`, 'utf8')
 
-describe('提示词文件（prompts/）', () => {
-  it('不含 BOM、不含非法 UTF-8、不含 CRLF', () => {
+const systemMarkdown = readPrompt('zh-CN', 'system')
+const toolsMarkdown = readPrompt('zh-CN', 'tools')
+const toolsMarkdownEn = readPrompt('en', 'tools')
+const calendarMarkdown = readPrompt('zh-CN', 'calendar')
+const openingMarkdown = readPrompt('zh-CN', 'opening')
+const openingMarkdownEn = readPrompt('en', 'opening')
+const forcedNarrationMarkdown = readPrompt('zh-CN', 'forced-narration')
+const forcedNarrationMarkdownEn = readPrompt('en', 'forced-narration')
+const toolCallsWithoutNarrationMarkdown = readPrompt('zh-CN', 'tool-calls-without-narration')
+const toolCallsWithoutNarrationMarkdownEn = readPrompt('en', 'tool-calls-without-narration')
+
+// system.md 的二级标题（正文不在 locale 表里，只能从模板文件本身取）
+const systemHeadings = systemMarkdown.split('\n').filter((line) => line.startsWith('## '))
+
+// 测试自己编的 fixture（玩家行动、模型回复）
+const PLAYER_ACTION = 'I go to the docks'
+const GM_REPLY = 'The sea wind tastes of salt.'
+
+describe('prompt files (prompts/)', () => {
+  it('has no BOM, no invalid UTF-8 and no CRLF', () => {
     for (const [name, text] of [
       ['system.md', systemMarkdown],
       ['tools.md', toolsMarkdown],
     ] as const) {
-      expect(text.charCodeAt(0), `${name} 带 BOM`).not.toBe(0xfeff)
-      expect(text.includes('\uFFFD'), `${name} 有非法字节`).toBe(false)
-      expect(text.includes('\r'), `${name} 含 CRLF`).toBe(false)
+      expect(text.charCodeAt(0), `${name} has a BOM`).not.toBe(0xfeff)
+      expect(text.includes('\uFFFD'), `${name} has invalid bytes`).toBe(false)
+      expect(text.includes('\r'), `${name} contains CRLF`).toBe(false)
     }
   })
 
-  it('system.md 的占位符都已声明（TOOLS / CALENDAR / SNAPSHOT）', () => {
+  it('system.md declares every placeholder it uses (TOOLS / CALENDAR / SNAPSHOT)', () => {
     for (const key of ['TOOLS', 'CALENDAR', 'SNAPSHOT']) {
       expect(systemMarkdown).toContain(`{{${key}}}`)
     }
   })
 
-  it('⚠️ 不再教模型写工具块的格式（那是 schema 的职责）', () => {
-    // 协议时代提示词里不该再出现「工具块」这类文本协议概念
-    expect(toolsMarkdown).not.toContain('工具块')
-    expect(toolsMarkdown).not.toContain('```tool')
-    expect(toolsMarkdown).not.toContain('工具调用格式')
+  it('no longer teaches a text tool-block format (that is the schema job)', () => {
+    // 协议时代提示词里不该再出现「工具块」这类文本协议概念：没有代码围栏，
+    // 英文版也没有对应的说法（中文短语不写进代码，直接查协议标记本身）
+    for (const text of [toolsMarkdown, toolsMarkdownEn]) {
+      expect(text).not.toContain('```')
+    }
+    expect(toolsMarkdownEn).not.toContain('tool block')
+    expect(toolsMarkdownEn).not.toContain('tool call format')
   })
 
-  it('明确写了「时间过去了就必须调用工具」', () => {
-    expect(toolsMarkdown).toContain('必须调用')
-    expect(toolsMarkdown).toMatch(/不是可选项/)
+  it('says that crossing time requires calling the tool', () => {
+    expect(toolsMarkdownEn).toContain('you must call it')
+    expect(toolsMarkdownEn).toMatch(/not optional/)
   })
 })
 
 describe('renderPrompt', () => {
-  it('替换占位符', () => {
-    expect(renderPrompt('你好 {{名字}}！', { 名字: '世界' })).toBe('你好 世界！')
+  it('fills placeholders', () => {
+    expect(renderPrompt('Hello {{name}}!', { name: 'world' })).toBe('Hello world!')
   })
 
-  it('同一个占位符出现多次也会全替换', () => {
-    expect(renderPrompt('{{X}} 和 {{X}}', { X: 'a' })).toBe('a 和 a')
+  it('replaces every occurrence of the same placeholder', () => {
+    expect(renderPrompt('{{X}} and {{X}}', { X: 'a' })).toBe('a and a')
   })
 
-  it('⚠️ 有占位符没填就抛错（绝不把 {{X}} 发给模型）', () => {
-    expect(() => renderPrompt('你好 {{漏掉的}}', { 别的不相关: 'x' })).toThrow(/未填的占位符/)
+  it('throws when a placeholder is left unfilled (never send {{X}} to the model)', () => {
+    expect(() => renderPrompt('Hello {{missing}}', { unrelated: 'x' })).toThrow(
+      t('prompts.unfilled', { names: '{{missing}}' }),
+    )
   })
 })
 
-describe('装配结果', () => {
-  it('⚠️ 折叠了连续空行（发给模型的东西要干净）', () => {
+describe('assembled prompt', () => {
+  it('collapses runs of blank lines (what the model sees must be clean)', () => {
     const state = new GameState(createInitialState())
     const prompt = buildSystemPrompt(state, [])
     expect(prompt).not.toMatch(/\n{3,}/)
     expect(toolsPrompt()).not.toMatch(/\n{3,}/)
   })
 
-  it('toolsPrompt 填好了占位符，且提到唯一的工具名', () => {
+  it('toolsPrompt fills its placeholders and names the only tool', () => {
     const result = toolsPrompt()
     expect(result).toContain('advance_time')
     expect(result).not.toMatch(/\{\{[A-Z_]+\}\}/)
   })
 
-  it('buildSystemPrompt 拼进工具、历法、世界状态', () => {
+  it('buildSystemPrompt splices in the tools, the calendar and the world state', () => {
     const state = new GameState(createInitialState())
     const prompt = buildSystemPrompt(state, [])
     expect(prompt).toContain('advance_time')
-    expect(prompt).toContain('## 时间设定')
-    expect(prompt).toContain('## 当前世界状态')
-    expect(prompt).toContain('【第 0 回合】')
+    expect(prompt).toContain(calendarMarkdown.trim())
+    for (const heading of systemHeadings) {
+      expect(prompt).toContain(heading)
+    }
+    expect(prompt).toContain(t('snapshot.turn', { turn: 0 }))
     expect(prompt).toContain(state.timeLabel)
     expect(prompt).not.toMatch(/\{\{[A-Z_]+\}\}/)
   })
 
-  it('传入历史时，快照里能看到最近发生的事', () => {
+  it('shows recent events in the snapshot when a history is passed in', () => {
     const state = new GameState(createInitialState())
     const prompt = buildSystemPrompt(state, [
-      { role: 'user', content: '我去码头' },
-      { role: 'assistant', content: '海风很咸。' },
+      { role: 'user', content: PLAYER_ACTION },
+      { role: 'assistant', content: GM_REPLY },
     ])
-    expect(prompt).toContain('最近发生的事')
-    expect(prompt).toContain('玩家：我去码头')
+    expect(prompt).toContain(t('snapshot.recent'))
+    expect(prompt).toContain(t('snapshot.recentLine', { who: t('snapshot.player'), text: PLAYER_ACTION }))
   })
 })
 
-describe('独立提示词', () => {
-  it('开场指令要求直接开始故事，不问元问题', () => {
-    expect(OPENING_INSTRUCTION).toContain('不要问')
-    expect(OPENING_INSTRUCTION).toContain('直接开始故事')
+describe('standalone instructions', () => {
+  it('the opening instruction starts the story directly, without meta questions', () => {
+    expect(OPENING_INSTRUCTION).toBe(openingMarkdown)
+    expect(openingMarkdownEn).toContain('Do not ask meta questions')
+    expect(openingMarkdownEn).toContain('just start the story')
   })
 
-  it('两条补写指令都要求只写叙事', () => {
-    for (const text of [FORCED_NARRATION_INSTRUCTION, TOOL_CALLS_WITHOUT_NARRATION]) {
-      expect(text).toContain('只写叙事')
-      expect(text).toContain('不要再调用')
+  it('both narration-repair instructions ask for narration only', () => {
+    for (const [instruction, markdown, markdownEn] of [
+      [FORCED_NARRATION_INSTRUCTION, forcedNarrationMarkdown, forcedNarrationMarkdownEn],
+      [TOOL_CALLS_WITHOUT_NARRATION, toolCallsWithoutNarrationMarkdown, toolCallsWithoutNarrationMarkdownEn],
+    ] as const) {
+      expect(instruction).toBe(markdown)
+      expect(markdownEn).toContain('narration only')
+      expect(markdownEn).toContain('do not call any more tools')
     }
   })
 
-  it('连接测试提示词很短（省 token）', () => {
+  it('keeps the connection test prompt short (token budget)', () => {
     expect(CONNECTION_TEST_PROMPT.length).toBeLessThan(60)
   })
 
-  it('独立提示词都不含占位符（它们没有可填的参数）', () => {
+  it('standalone instructions contain no placeholders (they take no arguments)', () => {
     for (const text of [
       OPENING_INSTRUCTION,
       FORCED_NARRATION_INSTRUCTION,

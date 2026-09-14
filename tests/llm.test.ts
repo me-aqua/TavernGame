@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { chat } from '../src/core/llm'
 import { saveConfig, clearConfig } from '../src/core/config'
-import { i18n } from '../src/i18n'
+import { i18n, t } from '../src/i18n'
 import { installFakeLlm, installFakeLlmError } from './support/fakeLlm'
 import type { ChatMessage } from '../src/types/state'
 
@@ -17,7 +17,14 @@ import type { ChatMessage } from '../src/types/state'
 // which language to expect. English is the reference language here.
 i18n.global.locale.value = 'en'
 
-const messages: ChatMessage[] = [{ role: 'user', content: '你好' }]
+// Fixtures: the message we send, the replies the fake model gives back, and the
+// error bodies the network layer must surface to the player.
+const messages: ChatMessage[] = [{ role: 'user', content: 'hello' }]
+const TEXT_REPLY = 'a reply'
+const TIME_REPLY = 'I want to advance time.'
+const GATEWAY_HTML = '<html><body>Bad Gateway</body></html>'
+const PROVIDER_MESSAGE = 'Invalid API key'
+
 let restore: (() => void) | null = null
 
 afterEach(() => {
@@ -26,27 +33,27 @@ afterEach(() => {
   clearConfig()
 })
 
-describe('chat —— 请求拼装', () => {
-  it('走 OpenAI 兼容路径，带 Authorization 与 model', async () => {
+describe('chat - request assembly', () => {
+  it('uses the OpenAI-compatible path with Authorization and model', async () => {
     saveConfig({
       provider: 'custom',
       apiKey: 'sk-test',
       apiBase: 'https://api.example.test/v1',
       model: 'my-model',
     })
-    const fake = installFakeLlm(['回复'])
+    const fake = installFakeLlm([TEXT_REPLY])
     restore = fake.restore
 
     const reply = await chat(messages)
 
-    expect(reply.content).toBe('回复')
+    expect(reply.content).toBe(TEXT_REPLY)
     expect(reply.toolCalls).toEqual([])
     expect(fake.calls[0].url).toBe('https://api.example.test/v1/chat/completions')
     expect(fake.calls[0].headers['Authorization']).toBe('Bearer sk-test')
     expect(fake.calls[0].body.model).toBe('my-model')
   })
 
-  it('不传 tools 时请求里没有 tools 字段', async () => {
+  it('omits the tools field when no tools are passed', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
     const fake = installFakeLlm(['ok'])
     restore = fake.restore
@@ -54,7 +61,7 @@ describe('chat —— 请求拼装', () => {
     expect(fake.calls[0].body.tools).toBeUndefined()
   })
 
-  it('传了 tools 就带上声明与 tool_choice', async () => {
+  it('sends the tool declarations and tool_choice when tools are passed', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
     const fake = installFakeLlm(['ok'])
     restore = fake.restore
@@ -65,7 +72,7 @@ describe('chat —— 请求拼装', () => {
     expect(fake.calls[0].body.tool_choice).toBe('auto')
   })
 
-  it('接口地址已经以 /chat/completions 结尾时不再重复拼', async () => {
+  it('does not append /chat/completions when the base URL already ends with it', async () => {
     saveConfig({
       provider: 'custom',
       apiKey: 'k',
@@ -78,7 +85,7 @@ describe('chat —— 请求拼装', () => {
     expect(fake.calls[0].url).toBe('https://api.example.test/v1/chat/completions')
   })
 
-  it('地址末尾带斜杠也能正确拼接', async () => {
+  it('joins the URL correctly when the base URL ends with a slash', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1/', model: 'm' })
     const fake = installFakeLlm(['ok'])
     restore = fake.restore
@@ -87,12 +94,12 @@ describe('chat —— 请求拼装', () => {
   })
 })
 
-describe('chat —— 回复解析（协议结构）', () => {
-  it('解析出 tool_calls：id / name / arguments 原样保留', async () => {
+describe('chat - reply parsing (protocol shape)', () => {
+  it('preserves id / name / arguments from tool_calls', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
     const fake = installFakeLlm([
       {
-        content: '想推进时间。',
+        content: TIME_REPLY,
         toolCalls: [{ id: 'call_abc', name: 'advance_time', arguments: '{"step":2}' }],
       },
     ])
@@ -100,11 +107,11 @@ describe('chat —— 回复解析（协议结构）', () => {
 
     const reply = await chat(messages)
 
-    expect(reply.content).toBe('想推进时间。')
+    expect(reply.content).toBe(TIME_REPLY)
     expect(reply.toolCalls).toEqual([{ id: 'call_abc', name: 'advance_time', arguments: '{"step":2}' }])
   })
 
-  it('只有工具调用、没有文字也合法（content 为空串）', async () => {
+  it('accepts a reply with only tool calls and no text (empty content)', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
     const fake = installFakeLlm([{ toolCalls: [{ name: 'advance_time' }] }])
     restore = fake.restore
@@ -114,7 +121,7 @@ describe('chat —— 回复解析（协议结构）', () => {
     expect(reply.toolCalls).toHaveLength(1)
   })
 
-  it('缺 id 时自动补一个（下游要用它关联结果）', async () => {
+  it('generates a missing id (downstream uses it to correlate results)', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
     const fake = installFakeLlm([{ toolCalls: [{ name: 'advance_time' }] }])
     restore = fake.restore
@@ -122,14 +129,14 @@ describe('chat —— 回复解析（协议结构）', () => {
     expect(reply.toolCalls[0].id).toMatch(/^call_/)
   })
 
-  it('既没文字也没工具调用 → 报错（避免静默的空回合）', async () => {
+  it('throws when there is neither text nor a tool call (no silent empty turn)', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
     const fake = installFakeLlm([{ content: '', toolCalls: [] }])
     restore = fake.restore
-    await expect(chat(messages)).rejects.toThrow(/neither text nor tool calls/)
+    await expect(chat(messages)).rejects.toThrow(t('llm.emptyResponse', { body: '' }).trimEnd())
   })
 
-  it('缺少 choices 时报出原文片段', async () => {
+  it('reports a fragment of the raw body when choices is missing', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
     const original = globalThis.fetch
     globalThis.fetch = (async () =>
@@ -137,42 +144,50 @@ describe('chat —— 回复解析（协议结构）', () => {
     restore = () => {
       globalThis.fetch = original
     }
-    await expect(chat(messages)).rejects.toThrow(/Unrecognized response shape/)
+    await expect(chat(messages)).rejects.toThrow(
+      t('llm.badResponse', { body: JSON.stringify({ weird: true }) }),
+    )
   })
 })
 
-describe('chat —— 配置校验', () => {
-  it('缺 key 时给出「去设置里补」的提示，而不是 undefined', async () => {
+describe('chat - config validation', () => {
+  it('points at Settings when the key is missing instead of saying undefined', async () => {
     saveConfig({ provider: 'custom', apiKey: '', apiBase: 'https://api.example.test/v1', model: 'm' })
-    await expect(chat(messages)).rejects.toThrow(/Missing configuration: API Key/)
-    await expect(chat(messages)).rejects.toThrow(/Settings/)
+    await expect(chat(messages)).rejects.toThrow(t('llm.missingConfig', { items: t('llm.field.apiKey') }))
+    await expect(chat(messages)).rejects.toThrow(t('settings.title'))
   })
 
-  it('缺模型名也会被拦下', async () => {
+  it('rejects a missing model name too', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: '' })
-    await expect(chat(messages)).rejects.toThrow(/model/)
+    await expect(chat(messages)).rejects.toThrow(t('llm.missingConfig', { items: t('llm.field.model') }))
   })
 })
 
-describe('chat —— 错误分支', () => {
-  it('非 JSON 的错误页（网关 HTML 502）也要把正文带出来', async () => {
+describe('chat - error branches', () => {
+  it('includes the body of a non-JSON error page (gateway HTML 502)', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
-    restore = installFakeLlmError(502, '<html><body>Bad Gateway</body></html>')
-    await expect(chat(messages)).rejects.toThrow(/HTTP 502/)
+    restore = installFakeLlmError(502, GATEWAY_HTML)
+    await expect(chat(messages)).rejects.toThrow(
+      t('llm.httpError', { status: 502, statusText: 'Error', detail: GATEWAY_HTML }),
+    )
     await expect(chat(messages)).rejects.toThrow(/Bad Gateway/)
   })
 
-  it('JSON 格式的错误体优先展示服务商给的 message', async () => {
+  it('prefers the provider message from a JSON error body', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
-    restore = installFakeLlmError(401, JSON.stringify({ error: { message: 'Invalid API key' } }))
-    await expect(chat(messages)).rejects.toThrow(/Invalid API key/)
+    restore = installFakeLlmError(401, JSON.stringify({ error: { message: PROVIDER_MESSAGE } }))
+    await expect(chat(messages)).rejects.toThrow(
+      t('llm.httpError', { status: 401, statusText: 'Error', detail: PROVIDER_MESSAGE }),
+    )
   })
 
-  it('CORS / 网络层失败给出可行动的提示，并带上原始错误', async () => {
+  it('gives an actionable hint on a CORS / network failure', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
     const fake = installFakeLlm(['unused'])
     restore = fake.restore
     fake.failNextWith(new TypeError('Failed to fetch'))
-    await expect(chat(messages)).rejects.toThrow(/CORS/)
+    await expect(chat(messages)).rejects.toThrow(
+      t('llm.requestFailed', { url: 'https://api.example.test/v1/chat/completions' }),
+    )
   })
 })

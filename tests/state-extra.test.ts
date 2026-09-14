@@ -6,32 +6,72 @@
  *   - addLog 的 MAX_LOG 截断
  *   - advanceTime 的长时间跳（elapsed 文案被省略）、时间线超长截断、时间线不上限时的分支
  *   - import 的拒绝分支、各 getter
+ *
+ * All user-visible text is asserted through t('key'), so a locale change cannot
+ * silence these checks and this file stays ASCII-only.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { GameState } from '../src/core/state'
 import { createInitialState, SAVE_KEY } from '../src/core/persistence'
+import { t } from '../src/i18n'
+
+/** 时段显示名（产品文案，只能从 locale 表取） */
+const MORNING = t('calendar.segment.morning')
+const AFTERNOON = t('calendar.segment.afternoon')
+const EVENING = t('calendar.segment.evening')
+const SEGMENT_NAMES = [MORNING, AFTERNOON, EVENING]
+
+/** timeLabelShort 的形状：`{month} 月 {day} 日 · 时段`，月日部分用 \d+ 占位 */
+const SHORT_TIME_LABEL = new RegExp(
+  `^${t('calendar.monthDay', { month: '\\d+', day: '\\d+' })}${t('calendar.dateSeparator')}(${SEGMENT_NAMES.join('|')})$`,
+)
+
+/** elapsed 文案的前缀（产品文案）；出现即说明推进结果回传了「过去了多久」 */
+const ELAPSED_PREFIX = t('calendar.elapsed', { parts: '' }).trim()
+
+/** 原因那一行的前缀（产品文案）；出现即说明 reason 被追加了 */
+const REASON_LABEL = t('tools.advanceReason', { reason: '' }).trim()
+
+/* ---- 以下都是测试自己编的 fixture（非产品文案） ---- */
+
+const PLAYER_ACTION = 'I head to the docks'
+const GM_REPLY = 'The sea air is salty.'
+const LOG_LINE = 'a line from the log'
+const VALID_ENTRY = 'a valid entry'
+const LONG_TEXT = 'x'.repeat(300)
+const A_YEAR_APART = 'a year apart'
+const WAITED_SEVEN_DAYS = 'waited seven days'
+const OLD_STORY = 'the old story'
+const PLAIN_STRING = 'a plain string'
+const BROKEN_JSON = '{broken'
+
+/** 第 i 条日志的文本 */
+const logText = (i: number) => `entry ${i}`
+
+/** 第 i 天的推进原因 */
+const dayReason = (i: number) => `day ${i}`
 
 function fresh() {
   return new GameState(createInitialState())
 }
 
-describe('构造函数与各 getter', () => {
-  it('不传参数时用初始状态（构造函数的 ?? 分支）', () => {
+describe('constructor and getters', () => {
+  it('falls back to the initial state when no argument is passed (the ?? branch)', () => {
     const s = new GameState()
     expect(s.turn).toBe(0)
-    expect(s.player.name).toBe('无名者')
+    expect(s.player.name).toBe(t('player.defaultName'))
   })
 
-  it('player / scene / timeLabelShort / segmentName 都能读', () => {
+  it('player / scene / timeLabelShort / segmentName are all readable', () => {
     const s = fresh()
-    expect(s.player).toEqual({ name: '无名者' })
-    expect(s.scene.name).toBe('未知之地')
-    expect(s.timeLabelShort).toMatch(/^\d+ 月 \d+ 日 · (上午|下午|晚上)$/)
-    expect(['上午', '下午', '晚上']).toContain(s.segmentName)
+    expect(s.player).toEqual({ name: t('player.defaultName') })
+    expect(s.scene.name).toBe(t('scene.unknownPlace'))
+    expect(s.timeLabelShort).toMatch(SHORT_TIME_LABEL)
+    expect(SEGMENT_NAMES).toContain(s.segmentName)
   })
 })
 
-describe('segmentName —— 三个时段分支', () => {
+describe('segmentName - the three segment branches', () => {
   /** 把时刻设成当天的某个小时（用本地时间构造，getHours 才一致） */
   function atHour(hour: number) {
     const s = fresh()
@@ -41,59 +81,61 @@ describe('segmentName —— 三个时段分支', () => {
     return s
   }
 
-  it('凌晨到上午 → 上午', () => {
-    expect(atHour(0).segmentName).toBe('上午')
-    expect(atHour(11).segmentName).toBe('上午')
+  it('before noon -> morning', () => {
+    expect(atHour(0).segmentName).toBe(MORNING)
+    expect(atHour(11).segmentName).toBe(MORNING)
   })
 
-  it('中午到傍晚 → 下午', () => {
-    expect(atHour(12).segmentName).toBe('下午')
-    expect(atHour(17).segmentName).toBe('下午')
+  it('noon to early evening -> afternoon', () => {
+    expect(atHour(12).segmentName).toBe(AFTERNOON)
+    expect(atHour(17).segmentName).toBe(AFTERNOON)
   })
 
-  it('晚上 → 晚上', () => {
-    expect(atHour(18).segmentName).toBe('晚上')
-    expect(atHour(23).segmentName).toBe('晚上')
+  it('late evening -> evening', () => {
+    expect(atHour(18).segmentName).toBe(EVENING)
+    expect(atHour(23).segmentName).toBe(EVENING)
   })
 })
 
-describe('addLog —— 上限截断', () => {
-  it('超过 MAX_LOG(80) 时从头部丢弃，保留最后 80 条', () => {
+describe('addLog - trimming at the limit', () => {
+  it('drops from the head past MAX_LOG (80), keeping the last 80 entries', () => {
     const s = fresh()
-    for (let i = 0; i < 100; i += 1) s.addLog('narration', `第 ${i} 条`)
+    for (let i = 0; i < 100; i += 1) s.addLog('narration', logText(i))
 
     expect(s.data.log).toHaveLength(80)
     // 保留的是最后 80 条：第 20 条在最前，第 99 条在最后
-    expect(s.data.log[0].text).toBe('第 20 条')
-    expect(s.data.log.at(-1)?.text).toBe('第 99 条')
+    expect(s.data.log[0].text).toBe(logText(20))
+    expect(s.data.log.at(-1)?.text).toBe(logText(99))
   })
 })
 
-describe('advanceTime —— 时间线分支', () => {
-  it('时间线超过 MAX_TIMELINE(40) 时从头部截断', () => {
+describe('advanceTime - timeline branches', () => {
+  it('truncates the timeline from the head past MAX_TIMELINE (40)', () => {
     const s = fresh()
-    for (let i = 0; i < 50; i += 1) s.advanceTime(1, 'day', `第 ${i} 天`)
+    for (let i = 0; i < 50; i += 1) s.advanceTime(1, 'day', dayReason(i))
 
     expect(s.data.timeline).toHaveLength(40)
-    expect(s.data.timeline.at(-1)?.reason).toBe('第 49 天')
+    expect(s.data.timeline.at(-1)?.reason).toBe(dayReason(49))
   })
 
-  it('大跨度跳跃（>180 天）不再回传「过去了多久」', () => {
+  it('a jump beyond 180 days no longer reports the elapsed time', () => {
     const s = fresh()
-    const out = s.advanceTime(1, 'year', '一别一年')
+    const before = s.timeLabel
+    const out = s.advanceTime(1, 'year', A_YEAR_APART)
+    const after = s.timeLabel
     // LONG_JUMP_MS 阈值：超过半年就不显示 elapsed
-    expect(out).not.toContain('过去了')
-    expect(out).toContain('时间推进')
-    expect(out).toContain('一别一年')
+    expect(out).not.toContain(ELAPSED_PREFIX)
+    expect(out).toContain(t('tools.advanceResult', { before, after }))
+    expect(out).toContain(t('tools.advanceReason', { reason: A_YEAR_APART }))
   })
 
-  it('不传 reason 时不追加「原因」那一行', () => {
+  it('omits the reason line when no reason is passed', () => {
     const s = fresh()
     const out = s.advanceTime(1, 'day')
-    expect(out).not.toContain('原因：')
+    expect(out).not.toContain(REASON_LABEL)
   })
 
-  it('时间线已有 3 条以上时，只有 >=4 小时的推进才值得记（短推进不记）', () => {
+  it('with 3 or more timeline entries, only advances of 4 hours or more are worth recording', () => {
     const s = fresh()
     // 先塞满 3 条（这几条无论跨度多小都会被记，因为 timeline.length < 3）
     for (let i = 0; i < 3; i += 1) s.advanceTime(1, 'day')
@@ -104,81 +146,82 @@ describe('advanceTime —— 时间线分支', () => {
   })
 })
 
-describe('snapshot —— 分支', () => {
-  it('有历史时用历史，且带玩家/GM 的角色标记', () => {
+describe('snapshot - branches', () => {
+  it('uses history when present, tagged with the player/GM roles', () => {
     const s = fresh()
     const snap = s.snapshot([
-      { role: 'user', content: '我去码头' },
-      { role: 'assistant', content: '海风很咸。' },
+      { role: 'user', content: PLAYER_ACTION },
+      { role: 'assistant', content: GM_REPLY },
     ])
-    expect(snap).toContain('### 最近发生的事')
-    expect(snap).toContain('玩家：我去码头')
-    expect(snap).toContain('你(GM)：海风很咸。')
+    expect(snap).toContain(t('snapshot.recent'))
+    expect(snap).toContain(t('snapshot.recentLine', { who: t('snapshot.player'), text: PLAYER_ACTION }))
+    expect(snap).toContain(t('snapshot.recentLine', { who: t('snapshot.gm'), text: GM_REPLY }))
   })
 
-  it('没有历史时回退到日志', () => {
+  it('falls back to the log when there is no history', () => {
     const s = fresh()
-    s.addLog('narration', '日志里的一条')
+    s.addLog('narration', LOG_LINE)
     const snap = s.snapshot([])
-    expect(snap).toContain('### 最近发生的事')
-    expect(snap).toContain('日志里的一条')
+    expect(snap).toContain(t('snapshot.recent'))
+    expect(snap).toContain(LOG_LINE)
   })
 
-  it('日志里的脏条目被跳过（不是对象就 continue）', () => {
+  it('skips dirty log entries (a non-object is skipped)', () => {
     const s = fresh()
-    s.data.log = [null, '字符串', { kind: 'narration', text: '正常条目', at: '' }] as never
+    s.data.log = [null, PLAIN_STRING, { kind: 'narration', text: VALID_ENTRY, at: '' }] as never
     expect(() => s.snapshot([])).not.toThrow()
-    expect(s.snapshot([])).toContain('正常条目')
+    expect(s.snapshot([])).toContain(VALID_ENTRY)
   })
 
-  it('时间线把长文本压成一行并截到 160 字', () => {
+  it('collapses long text to one line and truncates it to 160 characters', () => {
     const s = fresh()
-    const 长文本 = '啊'.repeat(300)
-    s.addLog('narration', 长文本)
+    s.addLog('narration', LONG_TEXT)
     const snap = s.snapshot([])
     // 截断到 160 字（替换空白后）
-    expect(snap).toContain('啊'.repeat(160))
-    expect(snap).not.toContain('啊'.repeat(161))
+    expect(snap).toContain(LONG_TEXT.slice(0, 160))
+    expect(snap).not.toContain(LONG_TEXT.slice(0, 161))
   })
 
-  it('时间线带 reason 时用括号附上', () => {
+  it('appends the reason in parentheses when the timeline entry has one', () => {
     const s = fresh()
-    s.advanceTime(1, 'week', '等了七天')
+    s.advanceTime(1, 'week', WAITED_SEVEN_DAYS)
     const snap = s.snapshot([])
-    expect(snap).toContain('### 时间线')
-    expect(snap).toContain('（等了七天）')
+    expect(snap).toContain(t('snapshot.timeline'))
+    expect(snap).toContain(
+      t('snapshot.timelineLine', { to: s.data.timeline[0].to, reason: WAITED_SEVEN_DAYS }),
+    )
   })
 
-  it('时间线里 to 为空的记录被跳过；全是空记录时不打标题', () => {
+  it('skips timeline entries with an empty to; no heading when every entry is empty', () => {
     const s = fresh()
     s.data.timeline = [{ from: 'a', to: '', reason: '', elapsedMs: 0, at: '' }] as never
-    expect(s.snapshot([])).not.toContain('### 时间线')
+    expect(s.snapshot([])).not.toContain(t('snapshot.timeline'))
   })
 
-  it('日志与历史都为空时，快照只有回合/时间/地点', () => {
+  it('with no log and no history the snapshot has only turn / time / place', () => {
     const s = fresh()
     const snap = s.snapshot([])
-    expect(snap).not.toContain('### 最近发生的事')
-    expect(snap).not.toContain('### 时间线')
+    expect(snap).not.toContain(t('snapshot.recent'))
+    expect(snap).not.toContain(t('snapshot.timeline'))
   })
 })
 
-describe('import —— 拒绝分支', () => {
-  it('不是对象、缺 player、player 不是对象都会被拒', () => {
+describe('import - rejection branches', () => {
+  it('rejects non-objects, a missing player, and a player that is not an object', () => {
     const s = fresh()
-    for (const bad of ['[]', '"字符串"', 'null', '{}', '{"player": 1}', '{"player": null}']) {
-      expect(() => s.import(bad), `应拒绝：${bad}`).toThrow('这不是有效的存档文件')
+    for (const bad of ['[]', '"a string"', 'null', '{}', '{"player": 1}', '{"player": null}']) {
+      expect(() => s.import(bad), `should reject: ${bad}`).toThrow(t('save.notValid'))
     }
   })
 
-  it('坏 JSON 抛出解析错误', () => {
+  it('throws a parse error on broken JSON', () => {
     const s = fresh()
-    expect(() => s.import('{坏掉的')).toThrow()
+    expect(() => s.import(BROKEN_JSON)).toThrow()
   })
 })
 
 describe('save / reset', () => {
-  it('save 失败返回 false（隐私模式）', () => {
+  it('save returns false on failure (private mode)', () => {
     const s = fresh()
     const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceededError')
@@ -187,9 +230,9 @@ describe('save / reset', () => {
     spy.mockRestore()
   })
 
-  it('reset 会写回一份全新的初始状态', () => {
+  it('reset writes back a fresh initial state', () => {
     const s = fresh()
-    s.addLog('narration', '旧故事')
+    s.addLog('narration', OLD_STORY)
     s.advanceTime(3, 'day')
     s.reset()
 

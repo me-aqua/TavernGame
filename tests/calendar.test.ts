@@ -2,10 +2,11 @@
  * 历法测试 —— 重点盯「手写日期运算一定会算错」的那些边界。
  */
 import { describe, expect, it } from 'vitest'
-import { realCalendar, hourToSegment, getCalendar, nowIso } from '../src/core/calendar'
+import { realCalendar, hourToSegment, getCalendar, nowIso, segmentName } from '../src/core/calendar'
+import { t } from '../src/i18n'
 
-describe('时段映射', () => {
-  it('按小时分上午 / 下午 / 晚上', () => {
+describe('Hour to segment mapping', () => {
+  it('splits the day into morning, afternoon and evening by hour', () => {
     expect(hourToSegment(0)).toBe(0)
     expect(hourToSegment(11)).toBe(0)
     expect(hourToSegment(12)).toBe(1)
@@ -15,8 +16,8 @@ describe('时段映射', () => {
   })
 })
 
-describe('advance —— 日期边界', () => {
-  it('加一个月遇到月末：向上溢出（Date 的既定行为，不是 bug）', () => {
+describe('advance - date boundaries', () => {
+  it('overflows upward when the target month has no such day (Date behaviour, not a bug)', () => {
     // 1 月 31 日 + 1 个月：2 月没有 31 日 → 溢出到 3 月 3 日（平年）
     const { iso } = realCalendar.advance('2026-01-31T10:00:00.000Z', 1, 'month')
     const d = new Date(iso)
@@ -25,103 +26,126 @@ describe('advance —— 日期边界', () => {
     expect(d.getDate()).toBe(3)
   })
 
-  it('闰年 2 月 28 日 + 1 天 = 2 月 29 日', () => {
+  it('in a leap year, Feb 28 plus one day is Feb 29', () => {
     const { iso } = realCalendar.advance('2024-02-28T10:00:00.000Z', 1, 'day')
     const d = new Date(iso)
     expect(d.getMonth()).toBe(1)
     expect(d.getDate()).toBe(29)
   })
 
-  it('平年 2 月 28 日 + 1 天 = 3 月 1 日', () => {
+  it('in a common year, Feb 28 plus one day is Mar 1', () => {
     const { iso } = realCalendar.advance('2026-02-28T10:00:00.000Z', 1, 'day')
     const d = new Date(iso)
     expect(d.getMonth()).toBe(2)
     expect(d.getDate()).toBe(1)
   })
 
-  it('跨年', () => {
+  it('crosses the year boundary', () => {
     const { iso } = realCalendar.advance('2026-12-31T10:00:00.000Z', 1, 'day')
     expect(new Date(iso).getFullYear()).toBe(2027)
   })
 
-  it('一个 segment = 4 小时', () => {
+  it('treats one segment as four hours', () => {
     const { elapsedMs } = realCalendar.advance('2026-09-10T02:00:00.000Z', 1, 'segment')
     expect(elapsedMs).toBe(4 * 3600000)
   })
 
-  it('周 = 7 天', () => {
+  it('treats one week as seven days', () => {
     const { elapsedMs } = realCalendar.advance('2026-09-10T02:00:00.000Z', 2, 'week')
     expect(elapsedMs).toBe(14 * 86400000)
   })
 
-  it('elapsedMs 是正数且等于 iso 之差', () => {
+  it('reports an elapsedMs equal to the difference between the two ISO instants', () => {
     const from = '2026-09-10T02:00:00.000Z'
     const { iso, elapsedMs } = realCalendar.advance(from, 3, 'day')
     expect(elapsedMs).toBe(Date.parse(iso) - Date.parse(from))
   })
 })
 
-describe('describeElapsed —— 时长换算', () => {
-  it('不足一小时按分钟', () => {
-    expect(realCalendar.describeElapsed(30 * 60000)).toBe('过去了 30 分钟')
+describe('describeElapsed - duration conversion', () => {
+  it('reports minutes below one hour', () => {
+    expect(realCalendar.describeElapsed(30 * 60000)).toBe(t('calendar.elapsedMinutes', { minutes: 30 }))
   })
 
-  it('不足一天按小时', () => {
-    expect(realCalendar.describeElapsed(5 * 3600000)).toBe('过去了 5 小时')
+  it('reports hours below one day', () => {
+    expect(realCalendar.describeElapsed(5 * 3600000)).toBe(t('calendar.elapsedHours', { hours: 5 }))
   })
 
-  it('整 47 小时 → 只报天数（已知取舍：丢掉小时）', () => {
+  it('reports days only at exactly 47 hours (known trade-off: hours are dropped)', () => {
     // 这是 AGENTS.md 记录的未修问题 #3，断言当前行为以便将来改的时候有提示
-    expect(realCalendar.describeElapsed(47 * 3600000)).toBe('过去了 1 天')
+    expect(realCalendar.describeElapsed(47 * 3600000)).toBe(
+      t('calendar.elapsed', { parts: t('calendar.days', { days: 1 }) }),
+    )
   })
 
-  it('365 天 = 1 年（不会凭空多出 5 天）', () => {
-    expect(realCalendar.describeElapsed(365 * 86400000)).toBe('过去了 1 年')
+  it('turns 365 days into one year (no phantom extra days)', () => {
+    expect(realCalendar.describeElapsed(365 * 86400000)).toBe(
+      t('calendar.elapsed', { parts: t('calendar.years', { years: 1 }) }),
+    )
   })
 
-  it('400 天 = 1 年 1 个月 5 天', () => {
+  it('turns 400 days into 1 year 1 month 5 days', () => {
     // 防回归：以前写成 days % 365 / 30 配 days % 30，
     // 两个取模都从「年」里吃天数，每满一年就凭空多 5 天
-    expect(realCalendar.describeElapsed(400 * 86400000)).toBe('过去了 1 年 1 个月 5 天')
+    expect(realCalendar.describeElapsed(400 * 86400000)).toBe(
+      t('calendar.elapsed', {
+        parts: [
+          t('calendar.years', { years: 1 }),
+          t('calendar.months', { months: 1 }),
+          t('calendar.days', { days: 5 }),
+        ].join(' '),
+      }),
+    )
   })
 
-  it('730 天 = 2 年（不是 2 年 10 天）', () => {
-    expect(realCalendar.describeElapsed(730 * 86400000)).toBe('过去了 2 年')
+  it('turns 730 days into 2 years (not 2 years and 10 days)', () => {
+    expect(realCalendar.describeElapsed(730 * 86400000)).toBe(
+      t('calendar.elapsed', { parts: t('calendar.years', { years: 2 }) }),
+    )
   })
 
-  it('0 或负数返回空串', () => {
+  it('returns an empty string for zero or a negative value', () => {
     expect(realCalendar.describeElapsed(0)).toBe('')
     expect(realCalendar.describeElapsed(-1000)).toBe('')
   })
 })
 
-describe('未覆盖分支补测', () => {
-  it('advance 遇到不认识的时间单位会抛错（联合类型之外的输入）', () => {
-    expect(() => realCalendar.advance('2026-09-10T02:00:00.000Z', 1, '光年' as never)).toThrow(
+describe('Extra branches', () => {
+  it('throws on an unknown time unit (input outside the union type)', () => {
+    expect(() => realCalendar.advance('2026-09-10T02:00:00.000Z', 1, 'light-year' as never)).toThrow(
       /Unknown time unit/,
     )
   })
 
-  it('describeElapsed 在 1 个月以上仍要带天数', () => {
+  it('still reports days once there is at least one month', () => {
     // 45 天 = 1 个月 15 天
-    expect(realCalendar.describeElapsed(45 * 86400000)).toBe('过去了 1 个月 15 天')
+    expect(realCalendar.describeElapsed(45 * 86400000)).toBe(
+      t('calendar.elapsed', {
+        parts: [t('calendar.months', { months: 1 }), t('calendar.days', { days: 15 })].join(' '),
+      }),
+    )
   })
 
-  it('formatShort 是简短格式（不含年份）', () => {
-    const s = realCalendar.formatShort('2026-09-10T02:00:00.000Z')
-    expect(s).toMatch(/^\d+ 月 \d+ 日 · (上午|下午|晚上)$/)
+  it('formatShort is the short format (no year)', () => {
+    const iso = '2026-09-10T02:00:00.000Z'
+    const d = new Date(iso)
+    const expected =
+      t('calendar.monthDay', { month: d.getMonth() + 1, day: d.getDate() }) +
+      t('calendar.dateSeparator') +
+      segmentName(d.getHours())
+    expect(realCalendar.formatShort(iso)).toBe(expected)
   })
 
   // 历法说明是提示词，已移到 prompts/calendar.md（那里的断言在 tests/prompts.test.ts）
 })
 
-describe('历法注册表', () => {
-  it('未知历法回退到默认而不是抛错', () => {
-    expect(getCalendar('不存在的历法').id).toBe('real')
+describe('Calendar registry', () => {
+  it('falls back to the default calendar instead of throwing on an unknown id', () => {
+    expect(getCalendar('no-such-calendar').id).toBe('real')
     expect(getCalendar(undefined).id).toBe('real')
   })
 
-  it('nowIso 返回可解析的 ISO 字符串', () => {
+  it('nowIso returns a parseable ISO string', () => {
     expect(Number.isNaN(Date.parse(nowIso()))).toBe(false)
   })
 })

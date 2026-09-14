@@ -227,7 +227,40 @@ if (syntaxTargets.length) {
   }
 }
 
-// ---------- check 10: prompts must not be inlined ----------
+// ---------- check 10: code is ASCII (Chinese only in locales/docs) ----------
+// Rule: outside src/locales/*.json and doc/, everything is ASCII — identifiers,
+// object keys and string literals included. UI text goes through t('key').
+// Comments are exempt (the scanner strips them before looking).
+// ⚠️ Uses allStaged, not staged: tests/ and e2e/ are tool code exempt from the
+// "source hygiene" checks, but ASCII is not hygiene — a Chinese assertion in a
+// test is the same fixture-drift hazard as one in src/.
+const asciiTargets = allStaged.filter((f) => /\.(ts|vue|css|html|mjs|js)$/.test(f))
+if (asciiTargets.length) {
+  try {
+    execSync('node .githooks/checks/ascii.mjs ' + asciiTargets.map((f) => '"' + f + '"').join(' '), {
+      stdio: 'pipe',
+    })
+  } catch (err) {
+    problems.push(readOutput(err))
+  }
+}
+
+// ---------- check 11: identifiers are English ----------
+// Rule (user decision, 2026-09-14): every identifier is English, no domain
+// exceptions. Works on the code skeleton, so a Chinese string cannot hide one.
+const identifierTargets = allStaged.filter((f) => /\.(ts|vue|mjs|js)$/.test(f))
+if (identifierTargets.length) {
+  try {
+    execSync(
+      'node .githooks/checks/identifiers.mjs ' + identifierTargets.map((f) => '"' + f + '"').join(' '),
+      { stdio: 'pipe' },
+    )
+  } catch (err) {
+    problems.push(readOutput(err))
+  }
+}
+
+// ---------- check 12: prompts must not be inlined ----------
 const promptTargets = staged.filter((f) => /^src\/.*\.(ts|vue)$/.test(f))
 if (promptTargets.length) {
   try {
@@ -239,7 +272,7 @@ if (promptTargets.length) {
   }
 }
 
-// ---------- check 11: ESLint (typed rules catch real bugs like floating promises) ----------
+// ---------- check 13: ESLint (typed rules catch real bugs like floating promises) ----------
 const lintTargets = staged.filter((f) => /\.(ts|vue|js|mjs)$/.test(f))
 let lintPromise = null
 if (lintTargets.length) {
@@ -253,7 +286,7 @@ if (lintTargets.length) {
   })
 }
 
-// ---------- check 12: typecheck + unit tests (in parallel, to cut wait time) ----------
+// ---------- check 14: typecheck + unit tests (in parallel, to cut wait time) ----------
 const needsHeavy = staged.some((f) => /\.(ts|vue)$/.test(f)) || /package\.json|tsconfig/.test(staged.join(' '))
 const heavyTasks = []
 if (needsHeavy) {
@@ -302,7 +335,7 @@ if (problems.length) {
   process.exit(1)
 }
 
-// ---------- check 13: formatting (Prettier fixes in place and re-stages) ----------
+// ---------- check 15: formatting (Prettier fixes in place and re-stages) ----------
 const formatTargets = staged.filter((f) => /\.(ts|vue|js|mjs|json|css|html|md|yml|yaml)$/.test(f))
 if (formatTargets.length && !process.env.SKIP_FORMAT) {
   try {

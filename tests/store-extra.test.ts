@@ -10,7 +10,25 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useGame } from '../src/stores/game'
 import { saveConfig } from '../src/core/config'
+import { t } from '../src/i18n'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
+
+/** 测试自造的 fixture（模型回复与玩家行动），不是产品文案 */
+const MAX_STEPS = 5
+const TOOL_NAME = 'advance_time'
+const TOOL_ARGS = '{"step":1}'
+const ADVANCE_STEP_REPLY = { toolCalls: [{ name: TOOL_NAME, arguments: TOOL_ARGS }] }
+/** 用满步数上限的一串纯工具回复（一步叙事都没写） */
+const STEP_LIMIT_REPLIES = Array.from({ length: MAX_STEPS }, () => ADVANCE_STEP_REPLY)
+const WAIT_ACTION = 'wait'
+const WAIT_REPLY = 'A long wait went by.'
+const DAWN_REPLY = 'Dawn breaks.'
+const PATCHED_REPLY = 'A patched-up narration.'
+const KEEP_WAITING_ACTION = 'keep waiting'
+const RAW_BODY_REPLY = 'raw response body'
+const LOOK_ACTION = 'look around'
+const BLANK_REPLY = '   '
+const IDLE_ACTION = 'idle'
 
 let fake: FakeLlm | null = null
 
@@ -20,7 +38,7 @@ beforeEach(() => {
     apiKey: 'k',
     apiBase: 'https://example.test/v1',
     model: 'm',
-    maxAgentSteps: 5,
+    maxAgentSteps: MAX_STEPS,
   })
   useGame().resetGame()
 })
@@ -30,21 +48,21 @@ afterEach(() => {
   fake = null
 })
 
-describe('中止在飞的回合（store 内部 abortRunningTurn）', () => {
+describe('aborting an in-flight turn (store-internal abortRunningTurn)', () => {
   /**
    * abortRunningTurn 不是公开 API，但**取消路径是可测的**：
    * resetGame() 与 importSave() 都会先调它。回合在飞时调 resetGame 即可。
    */
-  it('回合进行中触发中止 → 走「已取消本回合」分支，running 复位', async () => {
+  it('resetting while a turn is running takes the cancelled branch and clears running', async () => {
     const original = globalThis.fetch
     globalThis.fetch = (async (_input: unknown, init?: RequestInit) =>
       new Promise<Response>((_resolve, reject) => {
         // 请求挂住不返回；只有被 abort 时才结束 —— 这才是真实的取消语义
-        init?.signal?.addEventListener('abort', () => reject(new DOMException('已取消', 'AbortError')))
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
       })) as typeof fetch
 
     const g = useGame()
-    const pending = g.runTurnAction('等着')
+    const pending = g.runTurnAction(WAIT_ACTION)
     // 等 store 建好 controller 并进入 fetch
     await new Promise((r) => setTimeout(r, 20))
     expect(g.running.value).toBe(true)
@@ -57,44 +75,43 @@ describe('中止在飞的回合（store 内部 abortRunningTurn）', () => {
     globalThis.fetch = original
   })
 
-  it('没有在跑的回合时触发中止是安全的空操作', () => {
+  it('aborting with no turn running is a safe no-op', () => {
     const g = useGame()
     expect(() => g.resetGame()).not.toThrow()
     expect(g.running.value).toBe(false)
   })
 })
 
-describe('handleEvent —— 各事件分支', () => {
-  it('工具调用与工具结果各追加一行（tool / toolResult 分支）', async () => {
-    fake = installFakeLlm([
-      { content: '等了很久。', toolCalls: [{ name: 'advance_time', arguments: '{"step":1}' }] },
-      '天亮了。',
-    ])
+describe('handleEvent - each event branch', () => {
+  it('a tool call and its result each append one line (tool / toolResult branches)', async () => {
+    fake = installFakeLlm([{ content: WAIT_REPLY, toolCalls: ADVANCE_STEP_REPLY.toolCalls }, DAWN_REPLY])
     const g = useGame()
-    await g.runTurnAction('等一等')
+    await g.runTurnAction(WAIT_ACTION)
 
     const texts = g.messages.value.map((l) => l.text)
-    expect(texts.some((t) => t.includes('⚙ 调用 advance_time'))).toBe(true)
-    expect(texts.some((t) => t.includes('→') && t.includes('时间推进'))).toBe(true)
+    expect(texts).toContain(t('toolbar.toolCall', { tool: TOOL_NAME, args: TOOL_ARGS }))
+    const resultPrefix = t('store.toolResultLine', { result: '' })
+    const advanceHead = t('tools.advanceResult', { before: '', after: '' }).split('\n')[0].trim()
+    expect(texts.some((line) => line.startsWith(resultPrefix) && line.includes(advanceHead))).toBe(true)
   })
 
-  it('步数耗尽的警告会以 warn 行出现（warn 分支）', async () => {
-    const invocation = { toolCalls: [{ name: 'advance_time', arguments: '{"step":1}' }] }
-    fake = installFakeLlm([invocation, invocation, invocation, invocation, invocation, '补写的文字。'])
+  it('exhausting the step budget shows up as a warn line (warn branch)', async () => {
+    fake = installFakeLlm([...STEP_LIMIT_REPLIES, PATCHED_REPLY])
     const g = useGame()
-    await g.runTurnAction('一直等')
+    await g.runTurnAction(KEEP_WAITING_ACTION)
 
     const warns = g.messages.value.filter((l) => l.kind === 'warn')
     expect(warns.length).toBeGreaterThan(0)
-    expect(warns.some((w) => w.text.includes('步数上限'))).toBe(true)
+    const stepLimit = t('store.warnLine', { message: t('agent.stepLimit', { max: MAX_STEPS }) })
+    expect(warns.map((w) => w.text)).toContain(stepLimit)
   })
 
-  it('调试模式打开时 raw 分支记录原始响应 JSON', async () => {
+  it('with debug mode on, the raw branch records the response JSON', async () => {
     const g = useGame()
     g.debugMode.value = true
-    fake = installFakeLlm(['原始响应的正文'])
+    fake = installFakeLlm([RAW_BODY_REPLY])
 
-    await g.runTurnAction('看看')
+    await g.runTurnAction(LOOK_ACTION)
     fake.restore()
     fake = null
 
@@ -106,21 +123,20 @@ describe('handleEvent —— 各事件分支', () => {
   })
 })
 
-describe('回合产物为空时的提示', () => {
-  it('模型一个字都没写时追加系统提示（!result.text 分支）', async () => {
+describe('a notice when the turn produced nothing', () => {
+  it('a system notice is appended when the model wrote nothing (!result.text branch)', async () => {
     // 五步全调工具、补写也空 → result.text 为空
-    const invocation = { toolCalls: [{ name: 'advance_time', arguments: '{"step":1}' }] }
-    fake = installFakeLlm([invocation, invocation, invocation, invocation, invocation, '   '])
+    fake = installFakeLlm([...STEP_LIMIT_REPLIES, BLANK_REPLY])
     const g = useGame()
-    await g.runTurnAction('空转')
+    await g.runTurnAction(IDLE_ACTION)
 
     const texts = g.messages.value.map((l) => l.text)
-    expect(texts.some((t) => t.includes('没有返回文字'))).toBe(true)
+    expect(texts).toContain(t('store.noText'))
   })
 })
 
-describe('useGameState —— 界面初始化入口', () => {
-  it('返回与 useGame 同一套 API（模块级单例）', async () => {
+describe('useGameState - the UI init entry point', () => {
+  it('returns the same API as useGame (module-level singleton)', async () => {
     const mod = await import('../src/stores/game')
     const fromHook = mod.useGameState()
     const fromUseGame = mod.useGame()

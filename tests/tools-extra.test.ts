@@ -12,24 +12,47 @@ import { describe, expect, it } from 'vitest'
 import { runTool } from '../src/core/tools'
 import { GameState } from '../src/core/state'
 import { createInitialState } from '../src/core/persistence'
+import { t } from '../src/i18n'
 
-describe('advance_time 遇到非法时刻', () => {
-  it('返回 ⚠ 推进失败文案（由 state.advanceTime 兜住，不抛到 runTool）', () => {
+/** 非法时刻 fixture（存档被手改成这种值时走的就是这条路径） */
+const INVALID_TIME = 'not-a-valid-time'
+
+/**
+ * 引擎对非法日期调用 Date#toISOString 抛出的 RangeError 文本 —— 引擎文案，不是产品文案；
+ * 产品只把它套进 tools.advanceFailed。
+ */
+const INVALID_TIME_ERROR = 'Invalid time value'
+
+/**
+ * 成功文案的固定开头（首行，占位符之外的部分）。
+ * t() 不带具名参数时占位符会被替换成空串，所以传空串取模板、再截首行。
+ */
+const ADVANCE_OK_MARKER = t('tools.advanceResult', { before: '', after: '' }).split('\n')[0].trim()
+
+describe('advance_time with an invalid time', () => {
+  it('returns the advance-failed line (caught inside state.advanceTime, never thrown to runTool)', () => {
     const state = new GameState(createInitialState())
-    state.data.time.iso = '坏掉的时刻'
+    state.data.time.iso = INVALID_TIME
+    const current = state.timeLabel
 
     const out = runTool(state, 'advance_time', '{"step":1}')
-    expect(out).toContain('推进失败')
-    expect(out).not.toContain('时间推进')
+    expect(out).toBe(t('tools.advanceFailed', { message: INVALID_TIME_ERROR, current }))
+    expect(out).not.toContain(ADVANCE_OK_MARKER)
   })
 
-  it('空参数字符串被当作 {}（可空参数的工具）', () => {
+  it('treats an empty arguments string as {} (the tool takes no required params)', () => {
     const state = new GameState(createInitialState())
-    expect(runTool(state, 'advance_time', '')).toContain('时间推进')
+    const before = state.timeLabel
+
+    const out = runTool(state, 'advance_time', '')
+    expect(out).toContain(t('tools.advanceResult', { before, after: state.timeLabel }))
   })
 
-  it('正常时刻推进成功', () => {
+  it('advances successfully from a valid time', () => {
     const state = new GameState(createInitialState())
-    expect(runTool(state, 'advance_time', '{"step":1}')).toContain('时间推进')
+    const before = state.timeLabel
+
+    const out = runTool(state, 'advance_time', '{"step":1}')
+    expect(out).toContain(t('tools.advanceResult', { before, after: state.timeLabel }))
   })
 })

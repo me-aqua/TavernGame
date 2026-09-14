@@ -8,6 +8,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
+/** 一个不是合法主题模式的存储值（fixture，不是产品文案） */
+const JUNK_THEME = 'rainbow'
+
 /** 造一个可控的 matchMedia（jsdom 默认没有） */
 function mockMatchMedia(prefersDark: boolean) {
   const listeners: Array<() => void> = []
@@ -36,40 +39,40 @@ beforeEach(() => {
   mockMatchMedia(false)
 })
 
-describe('useTheme —— 初始状态', () => {
-  it('没有存储值时默认跟随系统', async () => {
+describe('useTheme - initial state', () => {
+  it('defaults to following the system when nothing is stored', async () => {
     const { mode } = await freshUseTheme()
     expect(mode.value).toBe('system')
   })
 
-  it('跟随系统时，系统偏好深色就加 .dark', async () => {
+  it('adds .dark when following the system and the system prefers dark', async () => {
     mockMatchMedia(true)
     await freshUseTheme()
     expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 
-  it('跟随系统时，系统偏好浅色就不加 .dark', async () => {
+  it('omits .dark when following the system and the system prefers light', async () => {
     mockMatchMedia(false)
     await freshUseTheme()
     expect(document.documentElement.classList.contains('dark')).toBe(false)
   })
 
-  it('读取 localStorage 里存过的偏好', async () => {
+  it('reads a preference that was stored in localStorage', async () => {
     localStorage.setItem('tavernGame.theme', 'dark')
     const { mode } = await freshUseTheme()
     expect(mode.value).toBe('dark')
     expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 
-  it('localStorage 里是垃圾值时回退到 system', async () => {
-    localStorage.setItem('tavernGame.theme', '彩虹色')
+  it('falls back to system when localStorage holds junk', async () => {
+    localStorage.setItem('tavernGame.theme', JUNK_THEME)
     const { mode } = await freshUseTheme()
     expect(mode.value).toBe('system')
   })
 })
 
-describe('useTheme —— 循环切换', () => {
-  it('system → light → dark → system', async () => {
+describe('useTheme - cycling', () => {
+  it('system -> light -> dark -> system', async () => {
     const { mode, cycle } = await freshUseTheme()
     expect(mode.value).toBe('system')
     cycle()
@@ -80,7 +83,7 @@ describe('useTheme —— 循环切换', () => {
     expect(mode.value).toBe('system')
   })
 
-  it('切到深色时 DOM 上加 .dark，切回浅色时去掉', async () => {
+  it('adds .dark to the DOM when switching to dark and removes it when switching back to light', async () => {
     const { cycle } = await freshUseTheme()
     cycle() // light
     await nextTick() // watcher 是异步刷新的，等它落到 DOM
@@ -93,7 +96,7 @@ describe('useTheme —— 循环切换', () => {
     expect(document.documentElement.classList.contains('dark')).toBe(false)
   })
 
-  it('手动选择会写进 localStorage（下次开页面还记得）', async () => {
+  it('writes a manual choice to localStorage so the next page load remembers it', async () => {
     const { cycle } = await freshUseTheme()
     cycle() // light
     await new Promise((r) => setTimeout(r, 0)) // 等 watcher 落盘
@@ -104,15 +107,15 @@ describe('useTheme —— 循环切换', () => {
   })
 })
 
-describe('useTheme —— 系统主题变化', () => {
-  it('跟随系统模式下，系统换主题会跟着换', async () => {
+describe('useTheme - system theme changes', () => {
+  it('follows the system theme while in system mode', async () => {
     mockMatchMedia(false)
     const { mode } = await freshUseTheme()
     expect(mode.value).toBe('system')
     expect(document.documentElement.classList.contains('dark')).toBe(false)
   })
 
-  it('重复调用 useTheme 不会重复注册监听（幂等）', async () => {
+  it('does not register the listener twice when useTheme is called again (idempotent)', async () => {
     const mod = await import('../src/composables/useTheme')
     const first = mod.useTheme()
     const second = mod.useTheme()

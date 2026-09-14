@@ -11,6 +11,11 @@
  * "long Chinese string" rule is simple, deterministic, and this codebase
  * should not have any (user-facing UI text is short, prompts live in prompts/).
  *
+ * ⚠️ ascii.mjs is the stricter rule that now covers the same ground from the
+ * other side: no non-ASCII string literal belongs in src/ at all. This check
+ * stays because it names the failure ("that looks like a prompt") instead of
+ * just "that is not ASCII", which is what a future contributor needs to read.
+ *
  * Escape hatch: for a genuine one-line Chinese UI string, add
  * `// allow: reason` on the line or within the previous few lines.
  */

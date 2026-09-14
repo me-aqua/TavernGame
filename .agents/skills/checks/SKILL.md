@@ -10,7 +10,7 @@ whenToUse: 改动钩子、配置 lint/format、或提交被拦下来需要判断
 
 | 钩子 | 时机 | 耗时 | 内容 |
 | --- | --- | --- | --- |
-| `pre-commit` | 每次提交 | ~4s | 密钥 → 换行/编码 → 语法 → ESLint → 类型 + 单测（并行）→ Prettier |
+| `pre-commit` | 每次提交 | ~5s | 密钥 → 换行/编码/BOM → 语法 → ASCII → 英文标识符 → 提示词未内联 → ESLint → 类型 + 单测（并行）→ Prettier |
 | `pre-push` | 每次推送 | ~12s | 覆盖率门禁 → 构建 → e2e |
 | `commit-msg` | 每次提交 | <1s | 约定式提交前缀 |
 
@@ -26,7 +26,7 @@ whenToUse: 改动钩子、配置 lint/format、或提交被拦下来需要判断
 | ESLint 10 | 抓真 bug（floating promise、未使用变量、类型感知规则） | `eslint.config.js` |
 | Prettier 3 | 统一排版，**自动修好并重新暂存** | `.prettierrc.json` / `.prettierignore` |
 | commitlint | 提交信息前缀 | `commitlint.config.js` |
-| 自定义脚本 | 密钥扫描 `checks/secrets.mjs`、语法 `checks/syntax.mjs` | `.githooks/checks/` |
+| 自定义脚本 | `checks/` 下六个：密钥 `secrets.mjs`、语法 `syntax.mjs`、ASCII `ascii.mjs`、标识符 `identifiers.mjs`、提示词 `prompts.mjs` | `.githooks/checks/` |
 
 一条命令：`npm run check`（typecheck + lint + format + 单测）；全量 `npm run verify`。
 
@@ -50,19 +50,29 @@ const 读输出 = (err) => {
 }
 ```
 
-### 3. 体积阈值要跟着格式化器校准
+### 3. 「检查代码」的脚本要区分注释与字符串
+
+`ascii.mjs` 要求代码骨架全 ASCII，但注释里的中文必须放过 —— 于是它扫描的是
+「去掉注释、保留字符串」的骨架。两个实测过的坑：
+
+- **块注释必须保留偏移**：直接把整个 `/* … */` 吃掉会让后面的行号整体前移，
+  报出来的位置是错的。现在是把注释内容替换成等量空格/换行。
+- **`.vue` 里的 HTML 注释要单独处理**：`-->` 里的 `--` 会被后续扫描当成代码，
+  甚至让一个 `/* */` 错误配对，把很远的行也算进注释（实测报错行号偏了 12 行）。
+
+### 4. 体积阈值要跟着格式化器校准
 
 Prettier 会把模板属性拆行，同语义代码行数上升
 （`SettingsDrawer.vue` 201 → 278）。**这不是代码变臃肿**，上限按新基线调整即可，
 但要在提交信息里说明，别偷偷放宽。
 
-### 4. 全角空格是故意的
+### 5. 全角空格是故意的
 
 中文排版里的 U+3000 首行缩进不是脏字符，所以 `no-irregular-whitespace` 关掉了。
 但**别在自己写的注释里混入 U+3000** —— 我的配置文件就被自己这条规则抓过一次
 （后来关规则才不报）。
 
-### 5. 钩子自己也要能被 lint
+### 6. 钩子自己也要能被 lint
 
 `.githooks/**` 需要 node 全局变量（`process`/`console`/`Buffer`），
 已在 `eslint.config.js` 里配好；`.githooks/commit-msg` 等无扩展名脚本
