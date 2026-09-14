@@ -6,6 +6,13 @@ import { existsSync, readFileSync } from 'node:fs'
 
 const git = (cmd) => execSync('git ' + cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 
+// 视觉提醒要用的两条正则：放在最前面，因为 SKIP_DISCIPLINE 的分支也要用它
+// （曾经放在文件后半段，于是 `SKIP_DISCIPLINE=1 git commit` 直接 ReferenceError）
+/** 整页层面：布局、样式 token、文案（会影响所有组件） */
+const UI_PAGE = /^(src\/App\.vue|src\/styles\/|src\/locales\/)/
+/** 单个组件：src/components/<Name>.vue */
+const UI_COMPONENT = /^src\/components\/([A-Za-z0-9]+)\.vue$/
+
 // 跳过检查时也要提醒视觉检验 —— 它不是检查，是「别忘了看图」
 if (process.env.SKIP_DISCIPLINE === '1') {
   console.log('⚠ SKIP_DISCIPLINE=1 —— 纪律检查已跳过')
@@ -25,10 +32,6 @@ const readOutput = (err) => {
   return (decode(err.stdout) || decode(err.stderr) || decode(err.message)).trim()
 }
 
-/** 整页层面的改动：布局、样式 token、文案（会影响所有组件） */
-const UI_PAGE = /^(src\/App\.vue|src\/styles\/|src\/locales\/)/
-/** 单个组件：src/components/<Name>.vue */
-const UI_COMPONENT = /^src\/components\/([A-Za-z0-9]+)\.vue$/
 
 /**
  * 视觉提醒（**不阻塞**，而且**只在动过界面时**才打印）。
