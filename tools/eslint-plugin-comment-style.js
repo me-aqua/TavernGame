@@ -94,6 +94,10 @@ export default {
             fn.loc.start.line === fn.loc.end.line &&
             fn.body.type !== 'BlockStatement'
           if (oneLiner) return
+          // 函数体不超过 3 行的小函数一眼能看出来，不必再复述一遍名字
+          // （用户 2026-09-14：仅保留一眼看不出来的逻辑；特别简单的不要乱加注释）
+          const bodyLines = fn?.body?.loc ? fn.body.loc.end.line - fn.body.loc.start.line + 1 : 99
+          if (bodyLines <= 3) return
           // 测试文件里的行内回调：用例标题已经说明了它在干什么
           // （tests/ = 单元与组件测试，e2e/ = Playwright 的用例）
           const inTest = context.filename.includes('/tests/') || context.filename.includes('/e2e/')
