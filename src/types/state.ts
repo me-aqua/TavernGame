@@ -1,0 +1,63 @@
+/**
+ * src/types/state.ts —— 世界状态的数据形状
+ *
+ * 转 TypeScript 最大的收益就在这里：
+ * 以前「存档里有哪些字段」只存在于注释和防御性代码里，
+ * 现在编译器知道，写错字段名会在构建期直接报错。
+ *
+ * ⚠️ 存档是**外部数据**（用户能手改、能从文件导入、可能是旧版本），
+ *    所以读存档时必须当 unknown 校验，不能信任类型标注 —— 见 core/state.ts。
+ */
+
+/** 日志条目：叙事流里的每一行 */
+export interface LogEntry {
+  /** narration = GM 写的正文；action = 玩家输入；system = 系统提示 */
+  kind: 'narration' | 'action' | 'system'
+  text: string
+  /** 写入时刻（ISO 字符串） */
+  at: string
+}
+
+/** 时间线条目：记录一次「值得记」的时间推进 */
+export interface TimelineEntry {
+  /** 推进**前**的时刻（简短格式）。⚠️ 必须是起点，不能是终点 */
+  from: string
+  /** 推进**后**的时刻（简短格式） */
+  to: string
+  /** 为什么会流逝，例如「连夜赶路」 */
+  reason: string
+  elapsedMs: number
+  at: string
+}
+
+/** 世界状态的全部字段 */
+export interface GameData {
+  meta: {
+    version: number
+    createdAt: string
+    turn: number
+  }
+  player: {
+    name: string
+  }
+  scene: {
+    name: string
+    description: string
+  }
+  /**
+   * 唯一的引擎状态：一个绝对时刻 + 用哪个历法。
+   * 不存「第几天第几段」——那样跨月跨年全靠手算，边界必错。
+   */
+  time: {
+    iso: string
+    calendar: string
+  }
+  log: LogEntry[]
+  timeline: TimelineEntry[]
+}
+
+/** 对话消息（发给模型的历史） */
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}

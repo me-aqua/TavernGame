@@ -5,9 +5,10 @@
 ## 🎯 项目现状
 
 - **TavernGame** —— 一个用 **agent 循环**驱动的文字游戏，既能做卡也能玩卡
-- 形态：**纯前端**。没有服务器、没有构建步骤、没有 npm 依赖
+- 形态：**纯前端**。没有服务器；但有构建步骤（Vite），源码是 **TypeScript**
+- 技术栈：**Vue 3.5 + Vite 8 + TypeScript 5.9**（2026-09-14 从「原生 JS 单文件」迁移）
 - 与酒馆的区别：酒馆是**轮次对话**，本项目是**回合制 agent 循环**
-- 当前版本：**v0.5.5**（极简取向：全部工具砍到只剩时间引擎）
+- 当前版本：**v0.6.0**（架构重构：Vue + TS，游戏行为零变更）
 - 游戏地址：https://me-aqua.github.io/TavernGame/
 
 ### 开发路线
@@ -50,11 +51,11 @@
 
 | # | 位置 | 问题 | 备注 |
 | --- | --- | --- | --- |
-| 1 | `core/agent.js` + `index.html` | **失败/取消路径的内存与存档分叉**：回合开头就 `addLog(action)`、工具直接改 `time.iso`，但 `save()` 在末尾。点「停止」或接口报错时侧栏时间已跳、行动已进内存 log，F5 又回退；之后下一次成功回合的 `save()` 会把「被取消的行动 + 已推进的时间 + 无对应剧情」一起持久化 | 修法需要回滚机制，要设计，不是一行 |
-| 2 | `core/agent.js:143` | 步数上限误报：`steps >= maxSteps && toolResults.length` —— 恰好用完步数但自然结束时，玩家仍看到「⚠ 达到步数上限」 | 需要一个「因耗尽而退出」的标志位 |
-| 3 | `core/calendar.js` | `describeElapsed` 在 ≥1 天时**丢掉小时**（47 小时 →「过去了 1 天」）；跨夏令时地区还会更怪（`+1 day` 跨 DST 只有 23 小时 → 说成「23 小时」） | 中国无 DST，属地区相关 |
-| 4 | `core/calendar.js` | `month` 单位**月末溢出**：1 月 31 日 + 1 个月 = 3 月 3 日（整个 2 月被跳过），而回传文案写「过去了 1 个月 1 天」。文件头的注释还把这条列为「Date 永远精确」的例子 | 属**语义/注释**问题：要么注释改成"向上溢出"，要么在 `advance` 里对月末做 clamp |
-| 6 | `index.html` | `URL.revokeObjectURL` 紧跟 `a.click()` —— Chromium 正常，但部分浏览器可能在下载启动前释放 blob | 惯例是放进 `setTimeout`；**不确定**是否真会出问题 |
+| 1 | `src/core/agent.ts` + `src/stores/game.ts` | **失败/取消路径的内存与存档分叉**：回合开头就 `addLog(action)`、工具直接改 `time.iso`，但 `save()` 在末尾。点「停止」或接口报错时侧栏时间已跳、行动已进内存 log，F5 又回退；之后下一次成功回合的 `save()` 会把「被取消的行动 + 已推进的时间 + 无对应剧情」一起持久化 | 修法需要回滚机制，要设计，不是一行 |
+| 2 | `src/core/agent.ts` | 步数上限误报：`steps >= maxSteps && toolResults.length` —— 恰好用完步数但自然结束时，玩家仍看到「⚠ 达到步数上限」 | 需要一个「因耗尽而退出」的标志位 |
+| 3 | `src/core/calendar.ts` | `describeElapsed` 在 ≥1 天时**丢掉小时**（47 小时 →「过去了 1 天」）；跨夏令时地区还会更怪（`+1 day` 跨 DST 只有 23 小时 → 说成「23 小时」） | 中国无 DST，属地区相关 |
+| 4 | `src/core/calendar.ts` | `month` 单位**月末溢出**：1 月 31 日 + 1 个月 = 3 月 3 日（整个 2 月被跳过），而回传文案写「过去了 1 个月 1 天」。文件头的注释还把这条列为「Date 永远精确」的例子 | 属**语义/注释**问题：要么注释改成"向上溢出"，要么在 `advance` 里对月末做 clamp |
+| 6 | ~~`index.html`~~ **已修** | `URL.revokeObjectURL` 紧跟 `a.click()` —— Chromium 正常，但部分浏览器可能在下载启动前释放 blob | 惯例是放进 `setTimeout`；**不确定**是否真会出问题 |
 
 ### ⚖️ 设计决定（**不要当 bug 改掉**）
 
@@ -69,7 +70,7 @@
   只有自己填含 `<` / `"` 的 key 才触发，属自伤型。
 - **资源泄漏**：无 `setInterval`、无 `MutationObserver`；
   事件监听都在模块加载时一次性注册；`AbortController` 无外部订阅。
-- **`core/prompts.js`**：示例与文字说明一致，「叙事正文 + 末尾工具块」的完整形态给对了。
+- **`src/core/prompts.ts`**：示例与文字说明一致，「叙事正文 + 末尾工具块」的完整形态给对了。
 
 ## 🧠 核心设计（改动前必读）
 
@@ -105,12 +106,12 @@
 > 曾经写过一个 12 月 × 30 天的奇幻历，理由是「以后可能要用」，
 > 结果没人会用、还多一份要维护的东西，已全部删除。
 > 以后真要做自定义历法，那时再加 —— 不要提前预留。
-> `calendar.js` 是独立模块，届时加一个预设对象即可，引擎不用改。
+> `src/core/calendar.ts` 是独立模块，届时加一个预设对象即可，引擎不用改。
 
 ### 引擎持有事实（仍然成立）
 
-模型不能直接改数据，只能输出工具调用块（JSON），由 `core/tools.js` 执行。
-`core/state.js` 里的 `advanceTime()` 会拦住非法推进。
+模型不能直接改数据，只能输出工具调用块（JSON），由 `src/core/tools.ts` 执行。
+`src/core/state.ts` 里的 `advanceTime()` 会拦住非法推进。
 
 ### 叙事与成败由模型自己把握
 
@@ -162,13 +163,23 @@ git config --global https.proxy   # = http://127.0.0.1:7897
 
 ## 🚀 发布方式
 
-GitHub Pages，从 `main` 分支**根目录**发布。入口是根目录的 `index.html`。
+**GitHub Pages + Actions 自动构建。**
+
+⚠️ **仓库设置必须改成**：Settings → Pages → Source = **GitHub Actions**
+（不再是 "Deploy from a branch"）。原因：重构后仓库根目录是**源码**
+（Vue + TypeScript），浏览器不能直接跑，必须先由 Vite 构建出 `dist/`。
+
+工作流见 `.github/workflows/deploy.yml`：push 到 `main` → `npm ci` → `npm run build`
+→ 发布 `dist/`。所以**对使用者来说还是只要 push**：
 
 ```bash
 git add -A && git commit -m "..." && git push
-# 约 30 秒后自动构建
-gh api repos/me-aqua/TavernGame/pages/builds/latest --jq '.status'
+gh run list --limit 3                                  # 看构建结果
+gh api repos/me-aqua/TavernGame/pages --jq '.html_url'
 ```
+
+> 本地预览线上效果：`npm run build && npm run preview`
+> （preview 也在 `/TavernGame/` 子路径下，不是根路径）
 
 ## ⚠️ 必须记住的坑
 
@@ -177,9 +188,12 @@ gh api repos/me-aqua/TavernGame/pages/builds/latest --jq '.status'
 GitHub Pages 部署在 **`/TavernGame/` 子目录**下。
 
 ```html
-✅ src="assets/mea-avatar.jpg"
-❌ src="/assets/mea-avatar.jpg"     <!-- 会解析到域名根，404 -->
+✅ src="mea-avatar.jpg"          <!-- public/ 里的资源，相对同级 -->
+❌ src="/assets/mea-avatar.jpg"  <!-- 会解析到域名根，404 -->
 ```
+
+构建产物里的 JS/CSS **由 Vite 按 `base` 自动加前缀**，不用手写；
+这条规则只对 `public/` 里手写的 HTML（就一个 `about.html`）有效。
 
 ### 2. `.bat` 文件必须 CRLF
 
@@ -201,18 +215,24 @@ GitHub Pages 部署在 **`/TavernGame/` 子目录**下。
 这类「看起来通过、其实测错了」的结果比不测更危险。
 
 
-### 5. 本地调试用 dev-server.js，不要拿线上页面调
+### 5. 本地调试用 Vite dev server（dev-server.js 已删除）
 
 ```bash
 npm run dev        # 或双击 start.bat
-# http://localhost:3000/
+# ⚠️ 地址是 http://localhost:3000/TavernGame/  不是根路径！
 ```
 
-它有两点比 `npx serve` 强：
+三点必须记住：
 
-- **禁用缓存**（`Cache-Control: no-store`）—— 改完刷新即生效，
-  不会出现「代码改了但浏览器还在跑旧 JS」这种排查半天的假象
-- 零依赖，不用等 npx 下载
+- **URL 带 base 前缀**：`vite.config.ts` 里设了 `base: '/TavernGame/'`（为 GitHub Pages
+  子目录部署），所以**开发地址也是** `/TavernGame/`。访问 `http://localhost:3000/` 会 404。
+- **Vite 8 默认只绑 IPv6**：实测 `lsof` 显示监听在 `[::1]:3000`，
+  于是 `curl http://127.0.0.1:3000` 返回 **000**（看起来像服务没起来，其实是绑定了 IPv6）。
+  已在配置里固定 `host: 'localhost'`，IPv4 / IPv6 都能访问。
+- **热更新（HMR）**：改源码保存后浏览器自动更新，比手动刷新更快。
+
+> `public/` 下的文件（`about.html`、`mea-avatar.jpg`）**不受 HMR 管理** ——
+> 它们是原样拷贝的静态资源，改了要手动刷新。
 
 > ⚠️ localStorage 按域名隔离：`localhost` 与 `me-aqua.github.io`
 > 各存一份 API key，首次在本地调试要重新填一次。
@@ -343,7 +363,7 @@ npm run dev        # 或双击 start.bat
 **另外：Shell 的安全检查模式别写太宽。**
 已经踩了两次：
 - `data/` 撞上 `data/.gitkeep`（那是要提交的占位文件）
-- `*tools*` 撞上 `core/tools.js`（那是游戏源码）
+- `*tools*` 撞上 `src/core/tools.ts`（那是游戏源码）
 
 要匹配目录就写 `.tools/*`，要匹配文件就写全名。
 
@@ -406,40 +426,114 @@ git config --local credential."https://github.com".helper "E:\Github\GitHubCLI\g
   （`HKCU:\...\Internet Settings` 里 `ProxyEnable=1`），curl/git 不读，得显式 `-x`。
   所以**线上页面的内容验证不要依赖 curl**。
 
+### 12. macOS 上的 CDP 调试（2026-09-14 迁移到 Mac 后实测）
+
+**本机是 macOS，有 Google Chrome**（不是 Windows 的 Edge）：
+
+```bash
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --headless=new --disable-gpu --user-data-dir=/tmp/cdp-x \
+  --remote-debugging-port=9333 about:blank
+```
+
+用 Node 自带 WebSocket 连 CDP 即可（**不需要 puppeteer**）：
+
+1. `fetch('http://127.0.0.1:9333/json/list')` 拿 `webSocketDebuggerUrl`
+2. 连上后发 `Page.navigate`，再 `Runtime.evaluate` 读 DOM
+
+**两个踩过的坑（都会让你误判「页面是坏的」）：**
+
+| 现象 | 真实原因 |
+| --- | --- |
+| 读到的卡片数 / 故事行数跟源文件一样，像没渲染 | 你连的是启动时的 **`about:blank` 标签页**，不是目标页。必须显式 `Page.navigate` |
+| 页面报 `chrome-error://chromewebdata/` | CDP 已连上，但导航失败（地址错、服务没起来）。**先 curl 确认地址可达** |
+
+另外：`--dump-dom` 不能用来验 Vue 页面 —— 它在脚本执行前就把 HTML 打出来了，
+看到的是**未挂载的模板**（`{{ }}` 原样在），会误判成「Vue 没工作」。
+
+> 而 `--input-type=module -e` 里 `import` 行会被**静态提升**、先于其他语句执行，
+> 所以「先写文件、再 import 它」的写法在同一段里不成立。要用 CDP 走这条路。
+
 ## 📁 目录结构
 
 ```
 TavernGame/
-├── index.html        游戏界面 —— 本体，Pages 入口就是它
-├── about.html        项目介绍页（介绍定位与用法）
-├── core/
-│   ├── agent.js      agent 循环（灵魂）
-│   ├── tools.js      工具定义、执行、解析
-│   ├── state.js      世界状态、存档、导出导入
-│   ├── calendar.js   历法（目前只有现实公历）
-│   ├── llm.js        LLM 调用（含 CORS 失败提示）
-│   ├── config.js     配置与服务商预设
-│   └── prompts.js    提示词（改玩法主要改这里）
-├── start.bat         Windows 本地启动脚本（调用 dev-server.js）
-├── dev-server.js     本地调试服务器（禁用缓存，零依赖）
-├── assets/           静态素材
-├── package.json      仅用于本地开发（npm run dev）
-├── README.md / CHANGELOG.md / AGENTS.md
-└── ME-AQUA.md        所有者档案与协作偏好（git 忽略，不公开）
+├── index.html            Vite 入口（只有 #app 与一行 script，别往里写东西）
+├── package.json / package-lock.json
+├── vite.config.ts        base /TavernGame/、别名 @、dev host+port
+├── tsconfig.json         → 引用下面两个
+├── tsconfig.app.json     应用代码（strict 全开）
+├── tsconfig.node.json    构建脚本（vite.config.ts）
+├── vitest.config.ts      测试配置
+├── env.d.ts              全局类型（window.__DEBUG 等）
+├── .github/workflows/
+│   └── deploy.yml        push 到 main → 构建 → 发布 Pages
+├── src/
+│   ├── main.ts           入口：createApp(App).mount('#app')
+│   ├── App.vue           外壳 + 事件编排（存档/导入/重来/启动逻辑）
+│   ├── components/       UI 组件（每个都是独立 .vue，样式 scoped）
+│   │   ├── AppHeader.vue       顶栏：状态灯 + 存档按钮
+│   │   ├── StoryPanel.vue      叙事流（v-for 消息数组）
+│   │   ├── GameComposer.vue    输入框
+│   │   ├── AppSidebar.vue      侧栏：时间/地点/回合
+│   │   └── SettingsDrawer.vue  设置面板
+│   ├── stores/
+│   │   └── game.ts       界面与游戏之间的唯一桥梁（原 index.html 的 script）
+│   ├── composables/      useDownload（下载/选文件）等
+│   ├── core/             游戏逻辑（框架无关，仍是纯 TS 模块）
+│   │   ├── agent.ts      agent 循环（灵魂）
+│   │   ├── tools.ts      工具定义、执行、解析
+│   │   ├── state.ts      世界状态、存档、导出导入
+│   │   ├── calendar.ts   历法（目前只有现实公历）
+│   │   ├── llm.ts        LLM 调用（含 CORS 失败提示）
+│   │   ├── config.ts     配置与服务商预设
+│   │   └── prompts.ts    提示词（改玩法主要改这里）
+│   ├── types/state.ts    状态的数据形状（存档字段的唯一真相）
+│   └── styles/main.css   全局设计系统（CSS 变量、按钮、卡片）
+├── tests/                vitest 单元测试（29 项）
+│   ├── setup.ts          localStorage 垫片
+│   ├── calendar.test.ts  日期边界 / 时长文案
+│   ├── state.test.ts     脏存档净化 / 推进把关 / 快照
+│   └── tools.test.ts     工具执行 / 解析器
+├── public/               ⚠️ 原样拷贝到站点根，不经过构建
+│   ├── about.html        项目介绍页 → 线上 /TavernGame/about.html
+│   └── mea-avatar.jpg    头像素材（about.html 里以相对路径引用）
+├── doc/
+│   ├── AGENTS.md         本文件
+│   ├── DESIGN.md         目标架构设计备忘
+│   └── CHANGELOG.md      更新日志
+├── README.md             面向玩家
+└── ME-AQUA.md            所有者档案（git 忽略，不公开）
 ```
+
+**迁移前后的对照（v0.6.0）**：
+
+| 原来 | 现在 |
+| --- | --- |
+| `core/*.js`（原生 JS） | `src/core/*.ts`（TypeScript，strict） |
+| `index.html`（714 行，HTML+CSS+JS 混在一起） | `index.html`（12 行）+ `src/` 下的组件与 store |
+| `about.html` / `assets/` 在根目录 | `public/`（构建时原样拷贝） |
+| `dev-server.js`（自写无缓存服务器） | 删除 —— Vite dev server 自带 HMR |
+| 根目录散着 4 个 .md | 文档统一进 `doc/` |
+| 零测试 | `tests/` + `npm test`（29 项） |
 
 ## 📌 实测过的事实（别重新踩）
 
 - **CORS 实测结果**：DeepSeek 官方、硅基流动、OpenRouter、Mistral
   都返回 CORS 允许头，浏览器可直连；**Groq 不允许**。
-- **agent 循环离线测试**：可以用 Node 伪造 `localStorage` + `fetch`
-  来测试 `core/` 里的逻辑，不需要浏览器。测试脚本放 `.tools/`（已被忽略）。
-  - 注意：伪造回复里含代码块时，**用数组拼字符串**，
-    不要在模板字符串里写反引号（会截断字符串）。
+- **离线测试已经在仓库里了**（`tests/`，`npm test`）：vitest + `tests/setup.ts` 里的
+  localStorage 垫片，不需要浏览器。**别再把它放到 `.tools/`（会被忽略）** —— v0.5.x
+  的 82 项测试就是这样丢的，全历史零测试文件。
+- **测试代码里写 markdown 围栏要小心**：模板字符串里的裸反引号会把字符串截断
+  （本项目实测踩过，报错是 `Unexpected identifier 'tool'`）。
+  用 `String.fromCharCode(96)` 拼出反引号，或改用数组 `join`。
+- **Vue 无构建步骤也能用**（`vue.esm-browser.prod.js` + importmap），
+  但**不要**因为这点动摇：项目已选 Vite 构建，因为要做类型检查和 SFC 静态样式。
+  记这条只是为了：将来若要做「单文件演示版」，这条路是通的。
 
 ## ⚠️ 素材版权提醒
 
-`assets/mea-avatar.jpg` 来自神楽めあ官方 YouTube 频道（@KaguraMea），
+`public/mea-avatar.jpg` 来自神楽めあ官方 YouTube 频道（@KaguraMea），
 仅作个人练习与非商业用途。若将来公开商业化，需替换为自有或已授权素材。
 
 ## 🤝 协作约定

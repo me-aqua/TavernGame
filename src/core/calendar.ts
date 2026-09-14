@@ -1,0 +1,195 @@
+/**
+ * src/core/calendar.ts —— 历法
+ *
+ * ## 当前只有一种：现实日历
+ *
+ * 游戏从**玩家开始玩的那一刻**的真实时间开始，之后按真实公历走。
+ *
+ * ## 为什么日期运算交给 Date
+ *
+ * 全部用 JavaScript 的 Date 做加减，不手写除法。
+ * 手写估算会在这两个地方翻车：
+ *   - 「1 月 31 日 + 1 个月」—— 2 月没有 31 日
+ *   - 「闰年 2 月 28 日 + 1 天」—— 到底是不是 2 月 29 日
+ *
+ * ## 内部统一用 ISO 时刻
+ *
+ * 状态里存的是一个绝对时刻（ISO 字符串），显示成什么样由这里决定。
+ * 这样以后真要换历法，同一时刻能直接换个显示方式，不用迁移存档。
+ */
+
+/** 一天的时段 */
+export const SEGMENTS = ['上午', '下午', '晚上'] as const
+
+/** 时段名 */
+export type SegmentName = (typeof SEGMENTS)[number]
+
+/** 时间单位（历法只认这些） */
+export type TimeUnit = 'segment' | 'hour' | 'day' | 'week' | 'month' | 'year'
+
+/** 一次时间推进的结果 */
+export interface AdvanceResult {
+  iso: string
+  elapsedMs: number
+}
+
+/** 历法接口 —— 以后要加别的历法，实现这几个方法即可 */
+export interface Calendar {
+  id: string
+  label: string
+  description: string
+  /** 「2026 年 9 月 10 日 · 星期四 · 晚上」 */
+  format(iso: string): string
+  /** 「9 月 10 日 · 晚上」 */
+  formatShort(iso: string): string
+  /** 推进时间 */
+  advance(iso: string, step: number, unit: TimeUnit): AdvanceResult
+  /** 把毫秒差说成人话 */
+  describeElapsed(ms: number): string
+  /** 给模型看的历法说明 */
+  prompt(): string
+}
+
+/** 把小时数映射到时段索引 */
+export function hourToSegment(hour: number): number {
+  if (hour < 12) return 0 // 上午
+  if (hour < 18) return 1 // 下午
+  return 2 // 晚上
+}
+
+const WEEKDAY_CN = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
+
+/** 日历预设：现实公历 */
+export const realCalendar: Calendar = {
+  id: 'real',
+  label: '现实日历',
+  description: '按真实世界的公历走，从你开始玩的那一刻算起。',
+
+  format(iso: string): string {
+    const d = new Date(iso)
+    return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日 · ` +
+      `${WEEKDAY_CN[d.getDay()]} · ${SEGMENTS[hourToSegment(d.getHours())]}`
+  },
+
+  formatShort(iso: string): string {
+    const d = new Date(iso)
+    return `${d.getMonth() + 1} 月 ${d.getDate()} 日 · ${SEGMENTS[hourToSegment(d.getHours())]}`
+  },
+
+  advance(iso: string, step: number, unit: TimeUnit = 'segment'): AdvanceResult {
+    const d = new Date(iso)
+    const before = d.getTime()
+
+    switch (unit) {
+      case 'segment':
+        // 一个时段 ≈ 4 小时。不是精确的「上午→下午」，但足够表达叙事节奏。
+        d.setHours(d.getHours() + step * 4)
+        break
+      case 'hour':
+        d.setHours(d.getHours() + step)
+        break
+      case 'day':
+        d.setDate(d.getDate() + step)
+        break
+      case 'week':
+        d.setDate(d.getDate() + step * 7)
+        break
+      case 'month':
+        // ⚠️ 已知语义：月末会**向上溢出**。1 月 31 日 + 1 个月 = 3 月 3 日
+        //    （整个 2 月被跳过），因为 Date 按天数溢出而非 clamp 到月末。
+        //    这是 JavaScript Date 的既定行为，见 AGENTS.md 待办 #4。
+        d.setMonth(d.getMonth() + step)
+        break
+      case 'year':
+        d.setFullYear(d.getFullYear() + step)
+        break
+      default: {
+        // 联合类型让这里理论上不可达；真被绕过（比如从 as any 调进来）时也要出声
+        const bad: never = unit
+        throw new Error(`不认识的时间单位「${String(bad)}」`)
+      }
+    }
+
+    return { iso: d.toISOString(), elapsedMs: d.getTime() - before }
+  },
+
+  /**
+   * 把毫秒差说成人话。
+   *
+   * ⚠️ 这是**时长换算**，不是日历跨度：1 年按 365 天、1 个月按 30 天折算，
+   *   所以「1 个月」不等于日历上的任何一个月。要精确表达日期差，
+   *   得同时知道起止两个时刻（本函数只拿到差值，做不到）。
+   *
+   * 逐级剥离：先年、再月、最后天。不能用 `days % 365 / 30` 配 `days % 30` ——
+   * 365 = 12×30 + 5，那样两个取模都从"年"里吃天数，每满一年就凭空多出 5 天。
+   */
+  describeElapsed(ms: number): string {
+    if (ms <= 0) return ''
+    const totalMinutes = Math.round(ms / 60000)
+    const days = Math.floor(totalMinutes / 1440)
+    const hours = Math.floor((totalMinutes % 1440) / 60)
+
+    if (days === 0) {
+      if (hours > 0) return `过去了 ${hours} 小时`
+      return totalMinutes > 0 ? `过去了 ${totalMinutes} 分钟` : ''
+    }
+
+    // 不足一年：按月 + 天
+    if (days < 365) {
+      const months = Math.floor(days / 30)
+      const remDays = days % 30
+      const parts: string[] = []
+      if (months) parts.push(`${months} 个月`)
+      if (remDays) parts.push(`${remDays} 天`)
+      return `过去了 ${parts.join(' ')}`
+    }
+
+    // 一年以上：年 + 月 + 天，逐级从余数里剥，谁都不重复吃
+    const years = Math.floor(days / 365)
+    const afterYears = days % 365
+    const months = Math.floor(afterYears / 30)
+    const remDays = afterYears % 30
+    const parts: string[] = [`${years} 年`]
+    if (months) parts.push(`${months} 个月`)
+    if (remDays) parts.push(`${remDays} 天`)
+    return `过去了 ${parts.join(' ')}`
+  },
+
+  prompt(): string {
+    return [
+      '## 时间设定',
+      '',
+      '- 这个世界使用**现实世界的公历**（12 个月，每月 28–31 天，有闰年）',
+      '- 一天分三段：上午 / 下午 / 晚上',
+      '- 需要提到日期、星期、季节时，**以状态里的时间为准**，不要自己编造',
+      '',
+    ].join('\n')
+  },
+}
+
+/** 全部可用历法。目前只有现实历 —— 加新历法时往这里加一项，引擎其余部分不用动。 */
+export const CALENDARS: Record<string, Calendar> = {
+  [realCalendar.id]: realCalendar,
+}
+
+/** 默认历法 */
+export const DEFAULT_CALENDAR_ID = realCalendar.id
+
+/** 按 id 取历法。找不到就回退到默认。 */
+export function getCalendar(id?: string): Calendar {
+  if (!id) return CALENDARS[DEFAULT_CALENDAR_ID]
+  const found = CALENDARS[id]
+  if (!found) {
+    console.warn(`未知历法「${id}」，已回退到「${DEFAULT_CALENDAR_ID}」`)
+    return CALENDARS[DEFAULT_CALENDAR_ID]
+  }
+  return found
+}
+
+/**
+ * 当前时刻的 ISO 字符串。
+ * 新游戏的起点就是**调用它的那一刻** —— 也就是玩家点「开始」的时候。
+ */
+export function nowIso(): string {
+  return new Date().toISOString()
+}

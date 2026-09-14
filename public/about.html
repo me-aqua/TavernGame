@@ -212,7 +212,7 @@
     <div class="hero">
       <!-- ⚠️ 必须用相对路径：GitHub Pages 部署在 /TavernGame/ 子目录下，
            写成 /assets/... 会被解析到域名根目录，导致 404 -->
-      <img class="avatar" src="assets/mea-avatar.jpg" alt="神楽めあ" width="128" height="128" />
+      <img class="avatar" src="mea-avatar.jpg" alt="神楽めあ" width="128" height="128" />
       <h1>TavernGame</h1>
       <p class="tagline">
         一个用 <strong>agent 循环</strong>驱动的文字游戏。<br />
@@ -279,8 +279,11 @@
 git clone https://github.com/me-aqua/TavernGame.git
 cd TavernGame
 
-<span class="comment"># 启动本地静态服务器</span>
-npm start
+<span class="comment"># 装依赖（只有第一次需要）</span>
+npm install
+
+<span class="comment"># 启动开发服务器（改代码自动热更新）</span>
+npm run dev
 
 <span class="comment"># 浏览器打开</span>
 http://localhost:3000/</code></pre>
@@ -290,7 +293,7 @@ http://localhost:3000/</code></pre>
       </p>
 
       <p style="margin-top:14px;font-size:13px">
-        ⚠️ 前置条件：需要 <strong>Node.js 18 或更高版本</strong>
+        ⚠️ 前置条件：需要 <strong>Node.js 20 或更高版本</strong>
         （<a href="https://nodejs.org/" style="color:var(--accent2)">nodejs.org</a>）。
       </p>
     </div>

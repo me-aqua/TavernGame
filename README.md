@@ -57,20 +57,21 @@ TavernGame 是**回合制**：
 git clone https://github.com/me-aqua/TavernGame.git
 cd TavernGame
 
-npm run dev        # 需要 Node.js 18+，零依赖，不用 npm install
-# 打开 http://localhost:3000/
+npm install        # 需要 Node.js 20+
+npm run dev
+# 打开 http://localhost:3000/TavernGame/
 ```
 
-Windows 用户也可以直接双击 `start.bat`。
+Windows 用户也可以直接双击 `start.bat`（它会自动装依赖并打开浏览器）。
 
-> 本地调试服务器**禁用了缓存**，改完代码刷新即生效。
+> 开发服务器带**热更新**：改完代码保存，浏览器自己就更新了。
 >
 > ⚠️ localStorage 按域名隔离：`localhost` 与线上各存一份 API key，
 > 首次在本地调试要重新填一次。
 
 ## 更新日志
 
-见 [CHANGELOG.md](CHANGELOG.md)。
+见 [doc/CHANGELOG.md](doc/CHANGELOG.md)。
 
 ## 许可证
 
