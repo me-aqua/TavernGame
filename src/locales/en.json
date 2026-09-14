@@ -128,7 +128,6 @@
     "days": "{days} days",
     "years": "{years} years",
     "elapsed": "{parts} passed",
-    "unknownCalendar": "Unknown calendar {id}; falling back to {fallback}",
     "dateSeparator": " · "
   },
   "llm": {
@@ -175,7 +174,6 @@
   },
   "save": {
     "missingPlayer": "Save is missing the player field",
-    "migrating": "Legacy save detected ({key}); migrating…",
     "notValid": "Not a valid save file",
     "corrupted": "Corrupted local save: {message}"
   },

@@ -80,7 +80,7 @@ describe('StoryPanel', () => {
   it('folds raw debug output into details, out of the story text', () => {
     const w = render(StoryPanel, {
       props: {
-        lines: [makeLine({ raw: RAW_REPLY, rawBlocks: RAW_BLOCKS, text: RAW_SUMMARY })],
+        lines: [makeLine({ raw: RAW_REPLY, text: RAW_SUMMARY })],
         thinking: false,
       },
     })

@@ -10,6 +10,7 @@
  *      所以别在公用电脑上填。
  */
 
+import { isRecord } from './persistence'
 import { t } from '../i18n'
 
 const STORAGE_KEY = 'tavernGame.config'
@@ -101,10 +102,12 @@ export function loadConfig(): GameConfig {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     const parsed: unknown = raw ? JSON.parse(raw) : {}
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    if (isRecord(parsed)) {
       stored = parsed as Partial<GameConfig>
     }
   } catch {
+    // 配置读不出来就当没配过：这里失败只影响「用哪个服务商」，
+    // 而且马上会被 DEFAULTS 覆盖，没有需要玩家知道的信息
     stored = {}
   }
 
@@ -118,6 +121,8 @@ export function saveConfig(patch: Partial<GameConfig>): GameConfig {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cache))
   } catch (err) {
+    // 隐私模式/配额满：本次会话仍能用（cache 已更新），只是刷新后要重填。
+    // 保留 warn 让排查看得见，不弹给玩家
     console.warn('[config] save failed (private mode?)', err)
   }
   return cache

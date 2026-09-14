@@ -25,7 +25,6 @@ import { t } from '../i18n'
 export const SEGMENTS = ['morning', 'afternoon', 'evening'] as const
 
 /** 时段名 */
-export type SegmentName = (typeof SEGMENTS)[number]
 
 /** 时间单位（历法只认这些） */
 export type TimeUnit = 'segment' | 'hour' | 'day' | 'week' | 'month' | 'year'
@@ -36,7 +35,7 @@ export interface AdvanceResult {
   elapsedMs: number
 }
 
-/** 历法接口 —— 以后要加别的历法，实现这几个方法即可 */
+/** 现实公历的形状（只有一种历法，接口留着是为了给 realCalendar 定型） */
 export interface Calendar {
   id: string
   label: string
@@ -171,25 +170,6 @@ export const realCalendar: Calendar = {
     if (remDays) parts.push(t('calendar.days', { days: remDays }))
     return t('calendar.elapsed', { parts: parts.join(' ') })
   },
-}
-
-/** 全部可用历法。目前只有现实历 —— 加新历法时往这里加一项，引擎其余部分不用动。 */
-export const CALENDARS: Record<string, Calendar> = {
-  [realCalendar.id]: realCalendar,
-}
-
-/** 默认历法 */
-export const DEFAULT_CALENDAR_ID = realCalendar.id
-
-/** 按 id 取历法。找不到就回退到默认。 */
-export function getCalendar(id?: string): Calendar {
-  if (!id) return CALENDARS[DEFAULT_CALENDAR_ID]
-  const found = CALENDARS[id]
-  if (!found) {
-    console.warn(t('calendar.unknownCalendar', { id, fallback: DEFAULT_CALENDAR_ID }))
-    return CALENDARS[DEFAULT_CALENDAR_ID]
-  }
-  return found
 }
 
 /**

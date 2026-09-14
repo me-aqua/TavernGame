@@ -44,8 +44,3 @@ export function useLanguage() {
 
   return { mode, cycle, select }
 }
-
-/** Current concrete locale — core modules use it to pick prompts and tool schemas */
-export function currentLocale(): 'zh-CN' | 'en' {
-  return i18n.global.locale.value as 'zh-CN' | 'en'
-}

@@ -33,7 +33,6 @@ export interface TimelineEntry {
 /** 世界状态的全部字段 */
 export interface GameData {
   meta: {
-    version: number
     createdAt: string
     turn: number
   }
@@ -45,12 +44,11 @@ export interface GameData {
     description: string
   }
   /**
-   * 唯一的引擎状态：一个绝对时刻 + 用哪个历法。
+   * 唯一的引擎状态：一个绝对时刻。
    * 不存「第几天第几段」——那样跨月跨年全靠手算，边界必错。
    */
   time: {
     iso: string
-    calendar: string
   }
   log: LogEntry[]
   timeline: TimelineEntry[]

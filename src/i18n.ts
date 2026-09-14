@@ -60,11 +60,6 @@ export const i18n = createI18n({
   messages: { 'zh-CN': zhCN, en },
 })
 
-/** Current locale, e.g. for choosing prompts and tool schemas */
-export function currentLocale(): Locale {
-  return (i18n.global.locale as unknown as { value: Locale }).value
-}
-
 /** Translate outside components (stores, core modules) */
 export function t(key: string, named?: Record<string, unknown>): string {
   return i18n.global.t(key, named ?? {})

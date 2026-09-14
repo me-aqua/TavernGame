@@ -167,7 +167,7 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
   return { content, toolCalls, raw: data }
 }
 
-export interface TestResult {
+interface TestResult {
   ok: true
   ms: number
   reply: string

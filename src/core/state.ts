@@ -21,17 +21,14 @@
  * 类型标注在这里**不能当验证手段**，它只描述「校验通过之后」的形状。
  */
 
-import { getCalendar, segmentName, type Calendar } from './calendar'
+import { realCalendar, segmentName } from './calendar'
 import { advanceTime } from './time'
-import { writeSave, parseSave, createInitialState } from './persistence'
+import { writeSave, parseSave, createInitialState, MAX_LOG, MAX_TIMELINE } from './persistence'
 import { t } from '../i18n'
 import type { ChatMessage, GameData, LogEntry } from '../types/state'
 
 /** 最后一次「大跨度跳跃」的显示阈值：超过半年就不显示「过去了多久」 */
 const LONG_JUMP_MS = 180 * 86400000
-
-const MAX_LOG = 80
-const MAX_TIMELINE = 40
 
 export class GameState {
   data: GameData
@@ -100,9 +97,9 @@ export class GameState {
     return this.data.meta.turn
   }
 
-  /** 当前使用的历法（对象） */
-  get calendar(): Calendar {
-    return getCalendar(this.data.time.calendar)
+  /** 当前使用的历法（目前只有现实公历一种） */
+  get calendar(): typeof realCalendar {
+    return realCalendar
   }
 
   /** 当前时刻（ISO） */

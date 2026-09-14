@@ -138,16 +138,6 @@ describe('a notice when the turn produced nothing', () => {
   })
 })
 
-describe('useGameState - the UI init entry point', () => {
-  it('returns the same API as useGame (module-level singleton)', async () => {
-    const mod = await import('../src/stores/game')
-    const fromHook = mod.useGameState()
-    const fromUseGame = mod.useGame()
-    expect(fromHook.running).toBe(fromUseGame.running)
-    expect(fromHook.messages).toBe(fromUseGame.messages)
-  })
-})
-
 /**
  * 响应式边界：引擎是纯类，追踪由 store 的 reactive 容器提供。
  *

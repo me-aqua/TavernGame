@@ -12,7 +12,7 @@
  * cannot make a test pass or fail for the wrong reason.
  */
 import { beforeAll, describe, expect, it } from 'vitest'
-import { runTool, TOOLS, toolSchemas, TOOL_NAMES } from '../src/core/tools'
+import { runTool, TOOLS, toolSchemas } from '../src/core/tools'
 import { i18n, t } from '../src/i18n'
 import { GameState } from '../src/core/state'
 import { createInitialState } from '../src/core/persistence'
@@ -28,7 +28,7 @@ function fresh() {
 
 /** The 'tool missing' message for a given name, built from the locale table */
 function unknownToolMessage(name: string): string {
-  return t('tools.unknown', { name, available: TOOL_NAMES.join(', ') })
+  return t('tools.unknown', { name, available: Object.keys(TOOLS).join(', ') })
 }
 
 /**
@@ -57,7 +57,7 @@ describe('toolSchemas(): the contract handed to the model', () => {
     const declared = toolSchemas()
       .map((s: { function: { name: string } }) => s.function.name)
       .sort()
-    expect(declared).toEqual([...TOOL_NAMES].sort())
+    expect(declared).toEqual(Object.keys(TOOLS).sort())
   })
 
   it('advance_time constrains unit with an enum (protocol blocks a misspelled unit)', () => {
@@ -153,7 +153,7 @@ describe('runTool', () => {
   })
 
   it('the tool table holds only advance_time and no prompt content', () => {
-    expect(TOOL_NAMES).toEqual(['advance_time'])
+    expect(Object.keys(TOOLS)).toEqual(['advance_time'])
     // The prose lives in prompts/<lang>/tools.md -- code keeps only the implementation
     expect(Object.keys(TOOLS.advance_time)).toEqual(['run'])
   })

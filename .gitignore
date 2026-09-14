@@ -13,6 +13,7 @@ vendor/
 dist/
 build/
 *.min.js
+*.tsbuildinfo
 
 # --- 测试覆盖率报告（HTML 报告有几百个文件，属于生成物）---
 coverage/

@@ -2,7 +2,7 @@
  * 历法测试 —— 重点盯「手写日期运算一定会算错」的那些边界。
  */
 import { describe, expect, it } from 'vitest'
-import { realCalendar, hourToSegment, getCalendar, nowIso, segmentName } from '../src/core/calendar'
+import { realCalendar, hourToSegment, nowIso, segmentName } from '../src/core/calendar'
 import { t } from '../src/i18n'
 
 describe('Hour to segment mapping', () => {
@@ -140,11 +140,6 @@ describe('Extra branches', () => {
 })
 
 describe('Calendar registry', () => {
-  it('falls back to the default calendar instead of throwing on an unknown id', () => {
-    expect(getCalendar('no-such-calendar').id).toBe('real')
-    expect(getCalendar(undefined).id).toBe('real')
-  })
-
   it('nowIso returns a parseable ISO string', () => {
     expect(Number.isNaN(Date.parse(nowIso()))).toBe(false)
   })

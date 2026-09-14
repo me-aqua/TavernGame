@@ -29,7 +29,7 @@ const YEARS_PER_UNIT: Record<TimeUnit, number> = {
   year: 1,
 }
 
-export type AdvanceOutcome = { ok: true; iso: string; elapsedMs: number } | { ok: false; message: string }
+type AdvanceOutcome = { ok: true; iso: string; elapsedMs: number } | { ok: false; message: string }
 
 /** 单位是否是协议枚举里的规范值 */
 function isTimeUnit(value: unknown): value is TimeUnit {

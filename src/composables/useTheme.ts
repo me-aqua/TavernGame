@@ -61,10 +61,5 @@ export function useTheme() {
     mode.value = mode.value === 'system' ? 'light' : mode.value === 'light' ? 'dark' : 'system'
   }
 
-  /** 当前是否深色（DOM 是唯一事实，不另存一份状态） */
-  function isDark(): boolean {
-    return document.documentElement.classList.contains('dark')
-  }
-
-  return { mode, cycle, isDark }
+  return { mode, cycle }
 }

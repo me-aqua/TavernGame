@@ -51,7 +51,6 @@ describe('initial state', () => {
     const s = createInitialState()
     expect(Object.keys(s).sort()).toEqual(['log', 'meta', 'player', 'scene', 'time', 'timeline'])
     expect(Number.isNaN(Date.parse(s.time.iso))).toBe(false)
-    expect(s.time.calendar).toBe('real')
     expect(s.meta.turn).toBe(0)
   })
 })
@@ -64,7 +63,7 @@ describe('load - reading and writing the save', () => {
   })
 
   it('a corrupted save does not silently start a new game: it returns an error and backs up the bad data', () => {
-    localStorage.setItem('tavernGame.save.v3', CORRUPT_SAVE_RAW)
+    localStorage.setItem(SAVE_KEY, CORRUPT_SAVE_RAW)
     const { data, error } = loadState()
     expect(data).toBeNull()
     expect(error).toContain(t('save.corrupted', { message: '' }).replace('{message}', '').trim())

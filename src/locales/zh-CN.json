@@ -128,7 +128,6 @@
     "days": "{days} 天",
     "years": "{years} 年",
     "elapsed": "过去了 {parts}",
-    "unknownCalendar": "未知历法「{id}」，已回退到「{fallback}」",
     "dateSeparator": " · "
   },
   "llm": {
@@ -175,7 +174,6 @@
   },
   "save": {
     "missingPlayer": "存档缺少 player 字段",
-    "migrating": "检测到旧存档（{key}），正在迁移…",
     "notValid": "这不是有效的存档文件",
     "corrupted": "本地存档已损坏：{message}"
   },

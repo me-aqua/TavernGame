@@ -240,7 +240,7 @@ check(
 
 // ---------- case 4: a corrupted save must not blank the page ----------
 await openWith({
-  statements: [SET_LANGUAGE(LANG), `localStorage.setItem('tavernGame.save.v3', '{not valid json')`],
+  statements: [SET_LANGUAGE(LANG), `localStorage.setItem('tavernGame.save', '{not valid json')`],
   waitMs: 3500,
 })
 const corrupted = await evaluate(`(() => ({

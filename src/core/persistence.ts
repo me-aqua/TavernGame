@@ -1,27 +1,30 @@
 /**
- * src/core/persistence.ts —— 存档的读写与校验
+ * src/core/persistence.ts —— 存档的进出与校验
  *
- * 这个模块存在的理由：**localStorage 是系统边界**，
- * 里面放的是外部数据（用户能手改、能从文件导入、可能是旧版本写的）。
- * 按纪律，只有系统边界才做校验 —— 所以校验全部集中在这里，
- * `state.ts` 只管「校验通过之后」的行为。
+ * 这个模块处理的都是**外部数据**（用户能手改、能从文件导入），
+ * 按纪律只有系统边界才做校验，所以校验集中在这里；
+ * state.ts 只管「校验通过之后」的行为。
+ *
+ * ⚠️ 只认当前格式。产品未发布，没有旧存档要兼容 ——
+ *    形状不对就拒绝（返回 null 或抛错），不做字段改名、不做版本迁移。
  */
 
-import { nowIso, DEFAULT_CALENDAR_ID } from './calendar'
+import { nowIso } from './calendar'
 import { t } from '../i18n'
 import type { GameData, LogEntry, TimelineEntry } from '../types/state'
 
-export const SAVE_KEY = 'tavernGame.save.v3'
-export const LEGACY_KEYS = ['tavernGame.save.v2', 'tavernGame.save.v1']
-const MAX_LOG = 80
-const MAX_TIMELINE = 40
+export const SAVE_KEY = 'tavernGame.save'
+
+/** 日志与时间线的保留上限（写时裁剪；读档时也用它裁剪） */
+export const MAX_LOG = 80
+export const MAX_TIMELINE = 40
 
 /** 能安全取属性的普通对象（null / 数组都不算） */
-function isRecord(v: unknown): v is Record<string, unknown> {
+export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-/** 时刻必须能被 Date 解析，否则回退到当前时间（比让整局卡死好） */
+/** 时刻必须能被 Date 解析，否则用当前时间（比让整局卡死好） */
 function pickIso(v: unknown): string {
   return typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : nowIso()
 }
@@ -60,9 +63,21 @@ function pickTurn(v: unknown): number {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0
 }
 
+/** 新游戏的初始状态（场景名与描述留空，由界面按当前语言现取） */
+export function createInitialState(): GameData {
+  return {
+    meta: { createdAt: new Date().toISOString(), turn: 0 },
+    player: { name: t('player.defaultName') },
+    scene: { name: '', description: '' },
+    time: { iso: nowIso() },
+    log: [],
+    timeline: [],
+  }
+}
+
 /**
- * 补齐缺失字段（比如存档里没有 time.calendar）。
- * 比整套迁移更稳：大部分情况只是少了个别字段。
+ * 把一份来路不明的数据整理成 GameData。
+ * 缺失的字段用 fresh 补上（手改坏一个字段不该让整局打不开）。
  */
 export function normalize(saved: unknown, fresh: GameData = createInitialState()): GameData {
   const s: Record<string, unknown> = isRecord(saved) ? saved : {}
@@ -72,76 +87,38 @@ export function normalize(saved: unknown, fresh: GameData = createInitialState()
   const time = isRecord(s.time) ? s.time : {}
 
   return {
-    meta: { ...fresh.meta, ...meta, version: 3, turn: pickTurn(meta.turn) },
+    meta: { ...fresh.meta, ...meta, turn: pickTurn(meta.turn) },
     player: { name: typeof player.name === 'string' && player.name ? player.name : fresh.player.name },
     scene: {
-      name: typeof scene.name === 'string' && scene.name ? scene.name : fresh.scene.name,
-      description:
-        typeof scene.description === 'string' && scene.description
-          ? scene.description
-          : fresh.scene.description,
+      name: typeof scene.name === 'string' ? scene.name : fresh.scene.name,
+      description: typeof scene.description === 'string' ? scene.description : fresh.scene.description,
     },
-    time: {
-      iso: pickIso(time.iso),
-      calendar: typeof time.calendar === 'string' && time.calendar ? time.calendar : DEFAULT_CALENDAR_ID,
-    },
+    time: { iso: pickIso(time.iso) },
     log: sanitizeLog(s.log),
     timeline: sanitizeTimeline(s.timeline),
   }
 }
 
 /**
- * 从 v1 / v2 存档迁移。
+ * 读存档：没有返回 null；存在但读不出来抛错（调用方负责提示玩家）。
  *
- * ⚠️ 那两版存的是「第 N 天 · 第 M 段」，现在是绝对时刻，两者无法精确换算 ——
- * 所以时间从今天重新计时，场景、日志、回合数照旧保留。
+ * ⚠️ 两种失败要分开报：JSON 解析不了 = 存档坏了（附上解析器的原话），
+ * 解析得出来但形状不对 = 缺 player 字段。混成一条会让玩家看不懂是哪种。
  */
-export function migrateLegacy(old: unknown, fresh: GameData = createInitialState()): GameData {
-  const o: Record<string, unknown> = isRecord(old) ? old : {}
-  const meta = isRecord(o.meta) ? o.meta : {}
-  const player = isRecord(o.player) ? o.player : {}
-  const scene = isRecord(o.scene) ? o.scene : {}
-
-  return {
-    meta: { ...fresh.meta, turn: pickTurn(meta.turn), version: 3 },
-    player: { name: typeof player.name === 'string' && player.name ? player.name : fresh.player.name },
-    scene: {
-      name: typeof scene.name === 'string' && scene.name ? scene.name : fresh.scene.name,
-      description:
-        typeof scene.description === 'string' && scene.description
-          ? scene.description
-          : fresh.scene.description,
-    },
-    time: { iso: fresh.time.iso, calendar: DEFAULT_CALENDAR_ID },
-    log: sanitizeLog(o.log),
-    timeline: sanitizeTimeline(o.timeline),
-  }
-}
-
-/** 从 localStorage 读原始 JSON。没有存档返回 null；损坏则抛错（不静默开新局） */
 export function readSave(): unknown | null {
   const raw = localStorage.getItem(SAVE_KEY)
-  if (raw) {
-    // 包一层上下文：JSON.parse 自己的报错（"Expected property name…"）
-    // 对玩家毫无意义，必须说清是「存档坏了」
-    try {
-      const parsed: unknown = JSON.parse(raw)
-      if (!isRecord(parsed) || !isRecord(parsed.player)) {
-        throw new Error(t('save.missingPlayer'))
-      }
-      return parsed
-    } catch (err) {
-      throw new Error(t('save.corrupted', { message: (err as Error).message }), { cause: err })
-    }
+  if (!raw) return null
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (err) {
+    throw new Error(t('save.corrupted', { message: (err as Error).message }), { cause: err })
   }
-  for (const key of LEGACY_KEYS) {
-    const legacy = localStorage.getItem(key)
-    if (legacy) {
-      console.info(t('save.migrating', { key }))
-      return { __legacy: JSON.parse(legacy) as unknown }
-    }
+  if (!isRecord(parsed) || !isRecord(parsed.player)) {
+    throw new Error(t('save.missingPlayer'))
   }
-  return null
+  return parsed
 }
 
 /** 写存档。失败返回 false —— 调用方必须让玩家看到 */
@@ -155,45 +132,11 @@ export function writeSave(data: GameData): boolean {
   }
 }
 
-/** 新游戏的初始状态 */
-export function createInitialState(): GameData {
-  return {
-    meta: {
-      version: 3,
-      createdAt: new Date().toISOString(),
-      turn: 0,
-    },
-    player: {
-      name: t('player.defaultName'),
-    },
-    // ⚠️ Empty means "no scene yet" — the display name is supplied by the UI
-    // layer (GameState.scene) so it follows the current language. Baking the
-    // default in here froze it into the save: a game created in English kept
-    // showing "Unknown place" after switching the UI to Chinese.
-    scene: {
-      name: '',
-      description: '',
-    },
-    time: {
-      iso: nowIso(),
-      calendar: DEFAULT_CALENDAR_ID,
-    },
-    log: [],
-    timeline: [],
-  }
-}
-
 /** 启动读档的结果：没有存档时 data 为 null（调用方自己开新局） */
 export function loadState(): { data: GameData | null; error: string | null } {
   try {
     const raw = readSave()
     if (raw === null) return { data: null, error: null }
-    if (typeof raw === 'object' && raw !== null && '__legacy' in raw) {
-      return {
-        data: migrateLegacy((raw as { __legacy: unknown }).__legacy, createInitialState()),
-        error: null,
-      }
-    }
     return { data: normalize(raw, createInitialState()), error: null }
   } catch (err) {
     // 存档存在但读不出来 = 数据受损。不静默开新局：
@@ -203,9 +146,9 @@ export function loadState(): { data: GameData | null; error: string | null } {
       // 只保留最新一份备份：否则每次启动都新建一个键，会无限堆积把配额吃光
       for (let i = localStorage.length - 1; i >= 0; i -= 1) {
         const k = localStorage.key(i)
-        if (k?.startsWith(`${SAVE_KEY}.broken-`)) localStorage.removeItem(k)
+        if (k?.startsWith(SAVE_KEY + '.broken-')) localStorage.removeItem(k)
       }
-      localStorage.setItem(`${SAVE_KEY}.broken-${Date.now()}`, broken)
+      localStorage.setItem(SAVE_KEY + '.broken-' + Date.now(), broken)
     }
     return { data: null, error: (err as Error).message }
   }

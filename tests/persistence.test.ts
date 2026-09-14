@@ -1,28 +1,22 @@
 /**
- * persistence 测试 —— 系统边界的模块：读档、迁移、备份坏数据。
+ * persistence 测试 —— 系统边界的模块：读档、校验、备份坏数据。
  *
  * 这里的每条断言都对应「玩家实际会遇到的坏情况」：
- * 旧版本存档、被手改的存档、私隐模式下写不进去。
+ * 被手改的存档、被截断的 JSON、隐私模式下写不进去。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createInitialState,
   normalize,
-  migrateLegacy,
   loadState,
   parseSave,
   readSave,
   writeSave,
   SAVE_KEY,
-  LEGACY_KEYS,
 } from '../src/core/persistence'
 import { t } from '../src/i18n'
 
-// Fixtures: legacy save data the migration must carry over, a player name, and
-// the garbage values the system boundary has to reject.
-const LEGACY_SCENE_NAME = 'Old scene'
-const LEGACY_SCENE_DESCRIPTION = 'Old description'
-const LEGACY_LOG_TEXT = 'Old narration'
+// Fixtures: a player name and the garbage values the system boundary has to reject.
 const PLAYER_NAME = 'Tester'
 const TRUNCATED_JSON = '{ broken'
 const INVALID_JSON = '{ not valid JSON'
@@ -55,37 +49,6 @@ describe('readSave', () => {
   it('throws when the player field is missing', () => {
     localStorage.setItem(SAVE_KEY, JSON.stringify({ meta: {} }))
     expect(() => readSave()).toThrow(t('save.missingPlayer'))
-  })
-
-  it('wraps a legacy save as __legacy for the migration path', () => {
-    localStorage.setItem(
-      LEGACY_KEYS[0],
-      JSON.stringify({ meta: { turn: 7 }, scene: { name: LEGACY_SCENE_NAME } }),
-    )
-    const raw = readSave() as { __legacy?: unknown }
-    expect(raw.__legacy).toBeTruthy()
-  })
-})
-
-describe('migrateLegacy', () => {
-  it('keeps the scene and turn count, restarting the clock from today', () => {
-    const old = {
-      meta: { turn: 7 },
-      scene: { name: LEGACY_SCENE_NAME, description: LEGACY_SCENE_DESCRIPTION },
-      log: [{ kind: 'narration', text: LEGACY_LOG_TEXT }],
-    }
-    const migrated = migrateLegacy(old)
-    expect(migrated.meta.turn).toBe(7)
-    expect(migrated.scene.name).toBe(LEGACY_SCENE_NAME)
-    expect(migrated.log).toHaveLength(1)
-    // v1/v2 存的是「第 N 天」，无法换算成绝对时刻 → 时间重置为现在
-    expect(Number.isNaN(Date.parse(migrated.time.iso))).toBe(false)
-    expect(migrated.meta.version).toBe(3)
-  })
-
-  it('migrates an entirely empty legacy save', () => {
-    expect(() => migrateLegacy(null)).not.toThrow()
-    expect(migrateLegacy(undefined).meta.turn).toBe(0)
   })
 })
 
@@ -133,13 +96,6 @@ describe('loadState - the startup path', () => {
     expect(loaded?.meta.turn).toBe(5)
   })
 
-  it('migrates a legacy save and treats it as normal (no error)', () => {
-    localStorage.setItem(LEGACY_KEYS[0], JSON.stringify({ meta: { turn: 3 } }))
-    const { data, error } = loadState()
-    expect(error).toBeNull()
-    expect(data?.meta.turn).toBe(3)
-  })
-
   it('does not pile up backups when a corrupt save is read repeatedly (that would drain the quota)', () => {
     localStorage.setItem(SAVE_KEY, TRUNCATED_JSON)
     loadState()
@@ -178,14 +134,14 @@ describe('normalize fallbacks', () => {
   it('fills missing fields with the initial values', () => {
     const d = normalize({})
     expect(d.player.name).toBe(t('player.defaultName'))
-    expect(d.time.calendar).toBe('real')
+    expect(Number.isNaN(Date.parse(d.time.iso))).toBe(false)
   })
 
   it('does not crash on wrong field types (number, null, nested array)', () => {
     const d = normalize({
       player: { name: 123 },
       scene: { name: null, description: [] },
-      time: { iso: 456, calendar: {} },
+      time: { iso: 456 },
       log: 'not-an-array',
       timeline: { nope: true },
     })

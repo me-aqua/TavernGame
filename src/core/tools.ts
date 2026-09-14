@@ -19,7 +19,7 @@ import { t } from '../i18n'
 import type { GameState } from './state'
 import type { ToolSchema } from './llm'
 
-export interface ToolDef {
+interface ToolDef {
   run(state: GameState, args: Record<string, unknown>): string
 }
 
@@ -99,6 +99,3 @@ export function runTool(state: GameState, name: string, rawArguments: string): s
   // （runTurn 会把它作为回合错误暴露，而不是静默变成一句工具输出）。
   return String(TOOLS[name].run(state, args))
 }
-
-/** 工具名列表，供测试与错误提示用 */
-export const TOOL_NAMES = Object.keys(TOOLS)
