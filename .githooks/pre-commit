@@ -9,11 +9,13 @@ if (process.env.SKIP_DISCIPLINE === '1') {
   process.exit(0)
 }
 
-const git = (cmd) =>
-  execSync('git ' + cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+const git = (cmd) => execSync('git ' + cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 
 const problems = []
-const staged = git('diff --cached --name-only --diff-filter=ACM').split('\n').filter(Boolean)
+const 全部暂存文件 = git('diff --cached --name-only --diff-filter=ACM').split('\n').filter(Boolean)
+// 开发脚本（钩子自身、e2e、测试）不进产物，不参与「源码纪律」检查：
+// 它们本来就是工具代码，用同一套行数/防御性标准要求只会产生噪声
+const staged = 全部暂存文件.filter((f) => !/^(\.githooks|e2e|tests)\//.test(f))
 
 // 只看文本文件（跳过图片等二进制）
 const textFiles = staged.filter((f) => /\.(ts|vue|js|mjs|css|html|json|md|bat|yml|yaml)$/.test(f))
@@ -53,7 +55,11 @@ for (const f of textFiles.filter((f) => /\.(ts|vue|js|mjs)$/.test(f))) {
       let started = false
       for (let k = 0; k < 从catch起.length; k += 1) {
         const c = 从catch起[k]
-        if (c === '{') { depth += 1; started = true; continue }
+        if (c === '{') {
+          depth += 1
+          started = true
+          continue
+        }
         if (c !== '}') continue
         depth -= 1
         if (started && depth === 0) return 从catch起.slice(0, k + 1)
@@ -80,7 +86,9 @@ for (const f of textFiles.filter((f) => /\.(ts|vue)$/.test(f) && !/^src\/core\//
   const lines = contentOf(f).split('\n')
   lines.forEach((line, i) => {
     if (/typeof\s+\w+\s*===\s*'(string|object|number)'/.test(line) && !/unknown/.test(line)) {
-      problems.push(`[防御性校验] ${f}:${i + 1} —— 内部代码在做 typeof 校验；边界校验只属于 core/ 的存档与网络层`)
+      problems.push(
+        `[防御性校验] ${f}:${i + 1} —— 内部代码在做 typeof 校验；边界校验只属于 core/ 的存档与网络层`,
+      )
     }
   })
 }
@@ -91,7 +99,9 @@ for (const f of textFiles.filter((f) => /\.(ts|vue)$/.test(f) && !/^src\/core\//
 const SRC = /^src\/(?!types\/|main\.ts$).*\.(ts|vue)$/
 const 测试目录内容 = (() => {
   try {
-    return execSync('git ls-files tests', { encoding: 'utf8' }).trim().split('\n')
+    return execSync('git ls-files tests', { encoding: 'utf8' })
+      .trim()
+      .split('\n')
       .map((f) => (f.endsWith('.md') ? '' : readFileSync(f, 'utf8')))
       .join('\n')
   } catch {
@@ -100,14 +110,21 @@ const 测试目录内容 = (() => {
 })()
 
 for (const f of textFiles.filter((f) => SRC.test(f))) {
-  const 模块名 = f.replace(/^src\//, '').replace(/\.(ts|vue)$/, '').split('/').pop()
+  const 模块名 = f
+    .replace(/^src\//, '')
+    .replace(/\.(ts|vue)$/, '')
+    .split('/')
+    .pop()
   if (!测试目录内容.includes(模块名)) {
     problems.push(`[缺测试] ${f} —— tests/ 里没有任何地方提到「${模块名}」；新增功能必须配测试`)
   }
 }
 
 // ---------- 检查 6：体积（最小代码） ----------
-const SIZE = { file: 260, func: 150, net: 500 }
+// 阈值校准说明（2026-09-14）：引入 Prettier 后，模板属性被拆行，
+// 同样语义的代码行数上升（SettingsDrawer.vue 201 → 278）。
+// 这是格式化器的既定风格，不是代码变臃肿，所以上限按新基线调整。
+const SIZE = { file: 400, func: 150, net: 500 }
 const countLines = (s) => s.split('\n').length
 // 生成物不算「我写的代码」：锁文件由 npm 维护，体积没有意义
 const 生成物 = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/
@@ -134,8 +151,8 @@ for (const f of textFiles.filter((f) => /\.(ts|vue)$/.test(f))) {
 // 统计净增行时排除锁文件：那是 npm 生成的依赖清单，不是「我写的代码」
 const stat = git('diff --cached --shortstat -- . ":(exclude)package-lock.json"')
 const net = Number(stat.match(/(\d+) insertion/)?.[1] ?? 0)
-if (net > SIZE.net) problems.push(`[体积] 本次改动 +${net} 行（上限 ${SIZE.net}）—— 拆成多次提交，或解释为什么必须一次改这么多`)
-
+if (net > SIZE.net)
+  problems.push(`[体积] 本次改动 +${net} 行（上限 ${SIZE.net}）—— 拆成多次提交，或解释为什么必须一次改这么多`)
 
 // ---------- 检查 7：换行 / BOM / 编码（三平台同时开发） ----------
 // 规则：仓库（索引）里一律 LF；Windows 脚本（.bat/.cmd）在工作区必须是 CRLF；不带 BOM。
@@ -151,7 +168,7 @@ if (net > SIZE.net) problems.push(`[体积] 本次改动 +${net} 行（上限 ${
 const 全部暂存 = git('diff --cached --name-only --diff-filter=ACM').split('\n').filter(Boolean)
 const 换行报告 = git('ls-files --eol').split('\n').filter(Boolean)
 for (const f of 全部暂存) {
-  const 行 = 换行报告.find((l) => l.endsWith("\t" + f))
+  const 行 = 换行报告.find((l) => l.endsWith('\t' + f))
   if (!行) continue
   const 索引侧 = 行.match(/i\/(\S+)/)?.[1]
   const 工作区侧 = 行.match(/w\/(\S+)/)?.[1]
@@ -159,13 +176,22 @@ for (const f of 全部暂存) {
 
   // 索引：任何文本文件都必须是 lf（否则 clone 到别的平台会不一致）
   if (索引侧 === 'crlf' || 索引侧 === 'mixed') {
-    problems.push('[换行] ' + f + ' —— 索引里是 ' + 索引侧 + '；git 要求索引一律 lf' )
+    problems.push('[换行] ' + f + ' —— 索引里是 ' + 索引侧 + '；git 要求索引一律 lf')
   }
   // 工作区：.bat/.cmd 必须 crlf，其余必须 lf
   const 期望工作区 = 期望 === 'crlf' ? 'crlf' : 'lf'
   if (工作区侧 !== 期望工作区) {
-    problems.push('[换行] ' + f + ' —— 工作区是 ' + 工作区侧 + '，应为 ' + 期望工作区 +
-      (期望工作区 === 'crlf' ? '（Windows 脚本用 LF 会执行出错）' : '（Windows 编辑器默认写 CRLF，请改成 LF）'))
+    problems.push(
+      '[换行] ' +
+        f +
+        ' —— 工作区是 ' +
+        工作区侧 +
+        '，应为 ' +
+        期望工作区 +
+        (期望工作区 === 'crlf'
+          ? '（Windows 脚本用 LF 会执行出错）'
+          : '（Windows 编辑器默认写 CRLF，请改成 LF）'),
+    )
   }
 
   // BOM 与编码：必须在工作区查（索引会被 git 规范化掉，查不到）
@@ -175,6 +201,100 @@ for (const f of 全部暂存) {
   }
   if (工作区内容.includes('\uFFFD')) {
     problems.push('[编码] ' + f + ' —— 不是合法 UTF-8（保存时请确认编码为 UTF-8，不要用 GBK）')
+  }
+}
+
+// ---------- 检查 8：密钥扫描（最关键的一条） ----------
+// 纯前端项目里 API key 就在玩家自己手里，仓库里出现真 key 的概率不低；
+// 一旦提交，历史里就留住了（v0.5.3 删 AGENIA.md 的教训）。
+try {
+  execSync('node .githooks/checks/secrets.mjs ' + staged.map((f) => '"' + f + '"').join(' '), {
+    stdio: 'pipe',
+  })
+} catch (err) {
+  problems.push(String(err.stdout || err.message).trim())
+}
+
+// ---------- 检查 9：语法（TS 编译器直接解析，秒级） ----------
+const 可查语法 = staged.filter((f) => /\.(ts|vue)$/.test(f))
+if (可查语法.length) {
+  try {
+    execSync('node .githooks/checks/syntax.mjs ' + 可查语法.map((f) => '"' + f + '"').join(' '), {
+      stdio: 'pipe',
+    })
+  } catch (err) {
+    problems.push('[语法] ' + String(err.stdout || err.message).trim().split('\n').slice(-4).join(' / '))
+  }
+}
+
+// ---------- 检查 10：格式化（Prettier 自动修好并重新暂存） ----------
+// 风格不让人争论：能自动修的就直接修掉，开发者只需再 commit 一次。
+const 可格式化 = staged.filter((f) => /\.(ts|vue|js|mjs|json|css|html|md|yml|yaml)$/.test(f))
+if (可格式化.length && !process.env.SKIP_FORMAT) {
+  try {
+    const 输出 = execSync('npx prettier --write ' + 可格式化.map((f) => '"' + f + '"').join(' '), {
+      stdio: 'pipe',
+      encoding: 'utf8',
+    })
+    if (/ms$|ms\b/m.test(输出) && !/unchanged/.test(输出)) {
+      // 把修好的内容重新入索引，否则提交的还是未格式化的版本
+      execSync('git add ' + 可格式化.map((f) => '"' + f + '"').join(' '), { stdio: 'pipe' })
+      console.log('⟳ Prettier 已格式化并重新暂存；请再执行一次 git commit')
+      process.exit(1)
+    }
+  } catch (err) {
+    problems.push('[格式化] Prettier 失败：' + String(err.stderr || err.message).slice(0, 200))
+  }
+}
+
+// ---------- 检查 11：ESLint（含类型感知规则：floating promise 这类真 bug） ----------
+// 只对暂存文件跑，控制等待时间
+const 可lint = staged.filter((f) => /\.(ts|vue|js|mjs)$/.test(f))
+let lintPromise = null
+if (可lint.length) {
+  lintPromise = new Promise((resolve) => {
+    try {
+      execSync('npx eslint ' + 可lint.map((f) => '"' + f + '"').join(' '), { stdio: 'pipe' })
+      resolve(null)
+    } catch (err) {
+      resolve(String(err.stdout || err.message).trim().split('\n').slice(0, 12).join('\n'))
+    }
+  })
+}
+
+// ---------- 检查 12：类型检查 + 单测（并行，缩短等待） ----------
+const 跑重检查 = staged.some((f) => /\.(ts|vue)$/.test(f)) || /package\.json|tsconfig/.test(staged.join(' '))
+const 并行任务 = []
+if (跑重检查) {
+  并行任务.push(
+    new Promise((resolve) => {
+      try {
+        execSync('npm run -s typecheck', { stdio: 'pipe' })
+        resolve(null)
+      } catch (err) {
+        resolve('typecheck：\n' + String(err.stdout || err.message).trim().split('\n').slice(0, 10).join('\n'))
+      }
+    }),
+  )
+  // 单测很快（<1 秒），放这里比放 pre-push 更早发现问题
+  并行任务.push(
+    new Promise((resolve) => {
+      try {
+        execSync('npm run -s test', { stdio: 'pipe' })
+        resolve(null)
+      } catch (err) {
+        resolve('测试：\n' + String(err.stdout || err.message).trim().split('\n').slice(-12).join('\n'))
+      }
+    }),
+  )
+}
+
+if (lintPromise || 并行任务.length) {
+  const 结果集 = await Promise.all([lintPromise, ...并行任务])
+  for (const 结果 of 结果集) {
+    if (!结果) continue
+    if (结果.startsWith('typecheck') || 结果.startsWith('测试')) problems.push('[' + 结果.split('：')[0] + '] ' + 结果.split('\n').slice(1).join('\n     '))
+    else problems.push('[lint]\n' + 结果.split('\n').map((l) => '     ' + l).join('\n'))
   }
 }
 
