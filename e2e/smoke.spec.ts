@@ -141,6 +141,9 @@ test.describe('语言', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'en')
     await expect(page.locator('.drawer')).toContainText('Language')
     await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), LANG_KEY)).toBe('en')
+    // 标签页标题也跟着语言走（index.html 里那个 title 只是 ASCII 占位）
+    await expect(page).toHaveTitle(/TavernGame/)
+    expect(await page.title()).not.toContain('游戏')
   })
 })
 

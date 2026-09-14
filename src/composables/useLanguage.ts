@@ -7,16 +7,22 @@
  *    提示词也跟着换。
  */
 import { ref, watch } from 'vue'
-import { i18n, readStoredLanguage, resolveLocale, storeLanguage, type LanguageMode } from '../i18n'
+import { i18n, readStoredLanguage, resolveLocale, storeLanguage, t, type LanguageMode } from '../i18n'
 
 const mode = ref<LanguageMode>('system')
 let initialized = false
 
-/** 把语言模式落到 vue-i18n 与 <html lang> 上 */
+/**
+ * 把语言模式落到 vue-i18n、<html lang> 与标签页标题上。
+ *
+ * ⚠️ 标题也必须在这里写：index.html 里那个 <title> 是 ASCII 占位（源码必须 ASCII），
+ *    真正给玩家看的标题来自 locale —— 否则英文界面会顶着一个中文标签页。
+ */
 function apply(next: LanguageMode): void {
   const locale = resolveLocale(next, navigator.language)
   ;(i18n.global.locale as unknown as { value: string }).value = locale
   document.documentElement.lang = locale
+  document.title = t('app.title')
 }
 
 /** 界面语言（三态循环），与 useTheme 同构 */

@@ -23,7 +23,7 @@ import { readFileSync } from 'node:fs'
 const RANGE_START = String.fromCharCode(0)
 const RANGE_END = String.fromCharCode(0x7f)
 const NON_ASCII = new RegExp('[^' + RANGE_START + '-' + RANGE_END + ']')
-const FILE_EXT = /\.(ts|tsx|vue|css|html)$/
+const FILE_EXT = /\.(ts|tsx|vue|css|html|js|mjs|cjs)$/
 /** 生成物与第三方目录，不该我们修 */
 const SKIP = /(^|\/)(node_modules|dist|coverage)\//
 /** locale 表是唯一允许中文常住的地方 */
@@ -41,6 +41,14 @@ const STATIC_CONTENT = /^public\/.*\.html$/
  * 所以这两处不按源码那套 ASCII 规则查。
  */
 const TEST_TOOL = /^e2e\/|\.stories\.ts$/
+/**
+ * 开发者工具与工作台：钩子自己的检查脚本、卡渲染器、Storybook 配置。
+ *
+ * 它们的中文是**给开发者看的输出**（和 doc/ 同类），不进产品产物 —— 所以 e2e/故事
+ * 一样放行。⚠️ 这份清单要跟目录结构一起维护：新开一个 dev-only 目录就把它加进来，
+ * 否则要么突然被拦，要么反过来 —— 把产品代码放进这些目录就绕过了检查。
+ */
+const DEV_TOOL = /^(\.githooks\/|tools\/|\.storybook\/)/
 
 const files = process.argv
   .slice(2)
@@ -50,7 +58,8 @@ const files = process.argv
       !SKIP.test(f) &&
       !LOCALES.test(f) &&
       !STATIC_CONTENT.test(f) &&
-      !TEST_TOOL.test(f),
+      !TEST_TOOL.test(f) &&
+      !DEV_TOOL.test(f),
   )
 const hits = []
 

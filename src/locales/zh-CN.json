@@ -1,5 +1,6 @@
 {
   "app": {
+    "title": "TavernGame · 游戏",
     "statusUnconfigured": "未配置",
     "debugOn": "🔧 调试模式已开启 —— 之后会显示模型的原始输出",
     "debugOff": "🔧 调试模式已关闭",

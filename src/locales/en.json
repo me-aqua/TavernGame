@@ -1,5 +1,6 @@
 {
   "app": {
+    "title": "TavernGame · Game",
     "statusUnconfigured": "Not configured",
     "debugOn": "🔧 Debug mode on — raw model output will be shown",
     "debugOff": "🔧 Debug mode off",
