@@ -1,0 +1,10 @@
+# 生成物与第三方内容，不格式化
+dist/
+coverage/
+node_modules/
+package-lock.json
+public/mea-avatar.jpg
+
+# 文档里有大量手工排版的中文行宽，Prettier 会打乱（proseWrap: preserve 已尽力，仍不动它们）
+doc/
+.agents/
