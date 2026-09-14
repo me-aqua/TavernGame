@@ -3,7 +3,7 @@
  *
  * ## 状态只有两样
  *
- * 1. **场景**（现在在哪、什么样）
+ * 1. **scene**（现在在哪、什么样）
  * 2. **时间**（唯一的结构化引擎状态）
  *
  * 早期版本有属性、背包、NPC、剧情标记等一堆字段，逼着模型每回合
@@ -12,7 +12,7 @@
  * ## save
  *
  * - 主存 localStorage（自动保存，刷新不丢）
- * - 备份：导出 JSON 文件 / 从文件导入
+ * - 备份：doExport JSON 文件 / 从文件导入
  *
  * ## ⚠️ 读存档一律当 unknown
  *
@@ -220,7 +220,7 @@ export class GameState {
       .filter((t) => t && typeof t === 'object' && String(t.to ?? ''))
       .map((t) => `- ${t.to}${t.reason ? `（${t.reason}）` : ''}`)
     if (timelineLines.length) {
-      lines.push('', '### 时间线', ...timelineLines)
+      lines.push('', '### timeline', ...timelineLines)
     }
 
     return lines.join('\n')

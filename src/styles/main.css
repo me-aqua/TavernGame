@@ -1,144 +1,120 @@
+@import 'tailwindcss';
+
 /* ============================================================
- *  src/styles/main.css —— 全局设计系统
+ *  主题层 —— Tailwind 4
  *
- *  这里只放「全站共用」的东西：配色变量、重置、排版、按钮。
- *  组件自己的样式写在各自的 <style scoped> 里 —— 这样加新组件
- *  不会污染别人的 class（原来 714 行的单文件里，样式全是全局的）。
+ *  做法：用**语义 token**（page / surface / text / line / accent）
+ *  而不是到处写具体颜色。理由：
+ *    · 深浅色切换只需换一套变量，组件代码一行不改
+ *    · 设计调整（比如换强调色）只改这里
+ *
+ *  ⚠️ `@theme inline` —— 必须加 inline，否则 Tailwind 把变量值内联成
+ *     字面量，`.dark` 下的覆盖就不生效（v4 的坑）。
+ *  ⚠️ 暗色用 class 策略而非 prefers-color-scheme：玩家要能手动切。
+ *     写法取自官方文档：@custom-variant dark (&:where(.dark, .dark *))
  * ============================================================ */
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------- 浅色（默认）---------- */
 :root {
-  --bg: #0d0f1a;
-  --panel: #141828;
-  --panel-2: #1b2035;
-  --accent: #6ee7b7;
-  --accent2: #7dd3fc;
-  --warn: #fbbf24;
-  --danger: #f87171;
-  --text: #e8ecf5;
-  --dim: #8b95b0;
-  --faint: #555e78;
-  --border: rgba(110, 231, 183, 0.18);
-  --radius: 12px;
+  /* 层次：page（正文区底色）< surface（顶栏/侧栏/输入区）< surface-2（卡片/输入框） */
+  --color-page: #f2f4f7;
+  --color-surface: #ffffff;
+  --color-surface-2: #f6f8fa;
+  --color-line: #e0e4ea;
+  --color-text: #1c2128;
+  --color-muted: #5c6674;
+  --color-faint: #8a94a3;
+
+  --color-accent: #0d8a67;
+  --color-accent-soft: #e3f5ef;
+  --color-accent-line: #a7ddcb;
+  --color-info: #1d6fb8;
+  --color-warn: #a16207;
+  --color-warn-soft: #fef6e3;
+  --color-danger: #c0392b;
+  --color-danger-soft: #fdeceb;
 }
 
-* {
-  box-sizing: border-box;
+/* ---------- 深色 ---------- */
+.dark {
+  /* 层次：page（正文区，最暗）< surface（顶栏/侧栏/输入区）< surface-2（卡片/输入框） */
+  --color-page: #0b0d11;
+  --color-surface: #14171d;
+  --color-surface-2: #1e232c;
+  --color-line: #2e3541;
+  --color-text: #e6e9ef;
+  --color-muted: #9aa4b2;
+  --color-faint: #6b7482;
+
+  --color-accent: #4ade9b;
+  --color-accent-soft: #123027;
+  --color-accent-line: #2b6b55;
+  --color-info: #7cc4ff;
+  --color-warn: #fbbf24;
+  --color-warn-soft: #2c2410;
+  --color-danger: #f87171;
+  --color-danger-soft: #2d1a1a;
 }
 
+/* ---------- 交给 Tailwind 的 token ---------- */
+@theme inline {
+  --color-page: var(--color-page);
+  --color-surface: var(--color-surface);
+  --color-surface-2: var(--color-surface-2);
+  --color-line: var(--color-line);
+  --color-text: var(--color-text);
+  --color-muted: var(--color-muted);
+  --color-faint: var(--color-faint);
+  --color-accent: var(--color-accent);
+  --color-accent-soft: var(--color-accent-soft);
+  --color-accent-line: var(--color-accent-line);
+  --color-info: var(--color-info);
+  --color-warn: var(--color-warn);
+  --color-warn-soft: var(--color-warn-soft);
+  --color-danger: var(--color-danger);
+  --color-danger-soft: var(--color-danger-soft);
+
+  --font-sans: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+/* ---------- 全局基线 ---------- */
 html,
-body {
-  margin: 0;
+body,
+#app {
   height: 100%;
-  background: var(--bg);
-  color: var(--text);
-  font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  /* 防止拖选文字影响操作（-webkit- 前缀兼容 Safari） */
+}
+
+body {
+  @apply bg-page text-text font-sans antialiased;
+  /* 防止拖选文字影响操作（输入框单独放开） */
   user-select: none;
   -webkit-user-select: none;
 }
 
-/* 输入框必须允许选中，否则没法编辑 */
 textarea,
 input {
   user-select: text;
   -webkit-user-select: text;
 }
 
-/* 用 100% 而不是 100vh：手机浏览器地址栏伸缩时 vh 会算错，导致底部被裁 */
-body {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
+/* 叙事与工具输出要保留换行语义 */
+.story-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
-#app {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
+/* 滚动条跟主题一致，别用系统默认的亮条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
 }
-
-/* ---------- 通用按钮 ---------- */
-button {
-  padding: 7px 15px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--panel-2);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  transition:
-    background 0.18s,
-    transform 0.12s;
-  white-space: nowrap;
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
-button:hover:not(:disabled) {
-  background: rgba(110, 231, 183, 0.16);
-}
-button:active:not(:disabled) {
-  transform: scale(0.97);
-}
-button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-button.primary {
-  background: linear-gradient(180deg, rgba(110, 231, 183, 0.22), rgba(110, 231, 183, 0.08));
-  font-weight: 600;
-}
-button.ghost {
-  background: transparent;
-  border-color: transparent;
-  color: var(--dim);
-}
-button.ghost:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.05);
-}
-
-/* ---------- 通用布局 ---------- */
-.layout {
-  display: grid;
-  grid-template-columns: 1fr 280px;
-  flex: 1;
-  min-height: 0;
-}
-.main {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border-right: 1px solid var(--border);
-}
-
-/* ---------- 卡片 ---------- */
-.card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 13px;
-  background: var(--panel-2);
-}
-.card h2 {
-  margin: 0 0 10px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  color: var(--faint);
-  text-transform: uppercase;
-}
-
-/* ---------- 窄屏 ---------- */
-@media (max-width: 780px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
-  .main {
-    border-right: none;
-  }
-  .sidebar {
-    max-height: 40vh;
-    border-top: 1px solid var(--border);
-  }
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 4px;
 }

@@ -80,9 +80,9 @@ describe('runTurn —— 主要路径', () => {
     const state = freshState()
     await runTurn(state, { action: '等一下' })
 
-    const 第二轮消息 = fake.calls[1].body.messages ?? []
-    const assistant = 第二轮消息.find((m) => m.role === 'assistant' && m.tool_calls?.length)
-    const toolMsg = 第二轮消息.find((m) => m.role === 'tool')
+    const secondRoundMessages = fake.calls[1].body.messages ?? []
+    const assistant = secondRoundMessages.find((m) => m.role === 'assistant' && m.tool_calls?.length)
+    const toolMsg = secondRoundMessages.find((m) => m.role === 'tool')
 
     expect(assistant?.tool_calls?.[0].function.name).toBe('advance_time')
     expect(toolMsg).toBeDefined()
@@ -102,7 +102,7 @@ describe('runTurn —— 主要路径', () => {
     expect(state.data.log.find((l) => l.kind === 'action')?.text).toBe('我推门进去')
   })
 
-  it('回合数 +1 并落盘（刷新后能读回来）', async () => {
+  it('turn +1 并落盘（刷新后能读回来）', async () => {
     fake = installFakeLlm(['写完了。'])
     const state = freshState()
     await runTurn(state, { action: '做点什么' })
@@ -159,8 +159,15 @@ describe('runTurn —— 把错误交回模型（不自己兜）', () => {
 describe('runTurn —— 兜底与边界', () => {
   it('模型把步数全花在调工具上 → 补写，且补写那一步**不给工具**', async () => {
     // 每一步都带工具调用，循环才会耗尽步数、一次叙事都没产生
-    const 调用 = { toolCalls: [advanceCall('{"step":1}')] }
-    fake = installFakeLlm([调用, 调用, 调用, 调用, 调用, '补写的场景描写。'])
+    const toolInvocation = { toolCalls: [advanceCall('{"step":1}')] }
+    fake = installFakeLlm([
+      toolInvocation,
+      toolInvocation,
+      toolInvocation,
+      toolInvocation,
+      toolInvocation,
+      '补写的场景描写。',
+    ])
     const state = freshState()
     const events: AgentEvent[] = []
 
@@ -176,8 +183,15 @@ describe('runTurn —— 兜底与边界', () => {
   })
 
   it('补写仍然没文字 → 警告，且不写入空叙事', async () => {
-    const 调用 = { toolCalls: [advanceCall('{"step":1}')] }
-    fake = installFakeLlm([调用, 调用, 调用, 调用, 调用, '   '])
+    const toolInvocation = { toolCalls: [advanceCall('{"step":1}')] }
+    fake = installFakeLlm([
+      toolInvocation,
+      toolInvocation,
+      toolInvocation,
+      toolInvocation,
+      toolInvocation,
+      '   ',
+    ])
     const state = freshState()
     const events: AgentEvent[] = []
 

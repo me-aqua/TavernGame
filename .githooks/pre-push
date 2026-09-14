@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// 推送前检查：跑那些「秒级钩子里放不下」的重活。
+// Pre-push checks: the heavy jobs that do not fit in a sub-second pre-commit.
 //
-// 为什么分层：
-//   pre-commit 要快（每次提交都跑）→ 语法/格式化/lint/类型/单测
-//   pre-push 可以慢（每次推送才跑）→ 覆盖率门禁/构建/端到端
-// 这样既保证「不把坏东西推上去」，又不让每次提交等十几秒。
+// Why layered:
+//   pre-commit runs on every commit  → syntax / format / lint / types / unit tests
+//   pre-push   runs on every push    → coverage gate / build / end-to-end
+// This keeps "never push something broken" without making every commit wait.
 import { execSync } from 'node:child_process'
 
 if (process.env.SKIP_DISCIPLINE === '1') {
@@ -12,29 +12,35 @@ if (process.env.SKIP_DISCIPLINE === '1') {
   process.exit(0)
 }
 
-const 任务 = [
-  { 名: '覆盖率门禁', 命令: 'npm run -s test:coverage' },
-  { 名: '构建', 命令: 'npm run -s build' },
-  { 名: '端到端（真浏览器）', 命令: 'node e2e/smoke.mjs' },
+const tasks = [
+  { name: '覆盖率门禁', command: 'npm run -s test:coverage' },
+  { name: '构建', command: 'npm run -s build' },
+  { name: '端到端（真浏览器）', command: 'node e2e/smoke.mjs' },
 ]
 
-const 失败 = []
-for (const t of 任务) {
-  process.stdout.write(`⟳ ${t.名} … `)
+const failures = []
+for (const task of tasks) {
+  process.stdout.write(`⟳ ${task.name} … `)
   try {
-    execSync(t.命令, { stdio: 'pipe' })
+    execSync(task.command, { stdio: 'pipe' })
     console.log('✓')
   } catch (err) {
     console.log('✖')
-    失败.push({ ...t, 输出: String(err.stdout || err.message) })
+    failures.push({ ...task, output: String(err.stdout || err.message) })
   }
 }
 
-if (失败.length) {
+if (failures.length) {
   console.error('\n✖ 推送前检查未通过：\n')
-  for (const f of 失败) {
-    console.error(`【${f.名}】`)
-    console.error(f.输出.split('\n').slice(-15).map((l) => '  ' + l).join('\n'))
+  for (const failure of failures) {
+    console.error(`【${failure.name}】`)
+    console.error(
+      failure.output
+        .split('\n')
+        .slice(-15)
+        .map((l) => '  ' + l)
+        .join('\n'),
+    )
     console.error('')
   }
   console.error('修好后重试，或用 SKIP_DISCIPLINE=1 git push 跳过（需说明理由）。\n')

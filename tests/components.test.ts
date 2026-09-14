@@ -88,10 +88,10 @@ describe('AppSidebar', () => {
         turn: 1,
       },
     })
-    const 时间线 = w.find('.timeline')
-    expect(时间线.text()).toContain('9 月 12 日 · 上午')
-    expect(时间线.text()).not.toContain('9 月 13 日 · 晚上')
-    expect(时间线.text()).toContain('睡了一觉')
+    const timeline = w.find('.timeline')
+    expect(timeline.text()).toContain('9 月 12 日 · 上午')
+    expect(timeline.text()).not.toContain('9 月 13 日 · 晚上')
+    expect(timeline.text()).toContain('睡了一觉')
   })
 })
 
@@ -122,19 +122,18 @@ describe('GameComposer', () => {
 
 describe('AppHeader', () => {
   it('状态灯有三种状态', async () => {
-    const w = mount(AppHeader, { props: { light: 'ok', statusText: '已连接' } })
-    expect(w.find('.light').classes()).toContain('ok')
+    const w = mount(AppHeader, { props: { light: 'ok', statusText: '已连接', theme: 'system' } })
+    expect(w.find('.bg-accent').exists()).toBe(true)
     await w.setProps({ light: 'err' })
-    expect(w.find('.light').classes()).toContain('err')
+    expect(w.find('.bg-danger').exists()).toBe(true)
   })
 
-  it('四个按钮各自 emit 对应事件', async () => {
-    const w = mount(AppHeader, { props: { light: 'ok', statusText: '' } })
+  it('五个按钮各自 emit 对应事件（含主题切换）', async () => {
+    const w = mount(AppHeader, { props: { light: 'ok', statusText: '', theme: 'system' } })
     const btns = w.findAll('header button')
-    await btns[0].trigger('click')
-    await btns[1].trigger('click')
-    await btns[2].trigger('click')
-    await btns[3].trigger('click')
+    expect(btns).toHaveLength(5)
+    for (const b of btns) await b.trigger('click')
+    expect(w.emitted('toggleTheme')).toHaveLength(1)
     expect(w.emitted('export')).toHaveLength(1)
     expect(w.emitted('import')).toHaveLength(1)
     expect(w.emitted('reset')).toHaveLength(1)

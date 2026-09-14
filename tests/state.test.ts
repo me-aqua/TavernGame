@@ -185,13 +185,13 @@ describe('未覆盖分支补测', () => {
     const s = new GameState(createInitialState())
     const snap = s.snapshot()
     expect(snap).not.toContain('最近发生的事')
-    expect(snap).not.toContain('时间线')
+    expect(snap).not.toContain('timeline')
   })
 
   it('时间线里的空 to 会被跳过（不让提示词出现空行）', () => {
     const s = new GameState(createInitialState())
     s.data.timeline = [{ from: 'a', to: '', reason: '', elapsedMs: 0, at: '' }]
-    expect(s.snapshot()).not.toContain('### 时间线')
+    expect(s.snapshot()).not.toContain('### timeline')
   })
 })
 

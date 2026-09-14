@@ -91,7 +91,7 @@ export function normalize(saved: unknown, fresh: GameData = createInitialState()
 /**
  * 从 v1 / v2 存档迁移。
  * 旧版是「第 N 天 · 第 M 段」，新版是绝对时刻，无法精确换算 ——
- * 所以从今天重新计时，但保留场景、日志、回合数。
+ * 所以从今天重新计时，但保留场景、日志、turn。
  */
 export function migrateLegacy(old: unknown, fresh: GameData = createInitialState()): GameData {
   const o: Record<string, unknown> = isRecord(old) ? old : {}
