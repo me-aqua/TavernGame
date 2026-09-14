@@ -50,6 +50,7 @@
     "@types/node": "^26.5.1",
     "@vitejs/plugin-vue": "6.0.8",
     "@vitest/coverage-v8": "5.0.0",
+    "@vue-flow/core": "^1.48.2",
     "@vue/test-utils": "2.5.0",
     "eslint": "10.10.0",
     "eslint-plugin-vue": "10.11.0",

@@ -281,7 +281,7 @@
 
 纯数据没有这些负担，而且领域逻辑能在没有 Vue 的地方跑（离线脚本、卡校验）。
 
-**五条约束**：
+**六条约束**：
 
 1. **动作函数原地改传进来的 `s`，不返回新 state。** 调用方把 `reactive()` 的**代理**
    传进来，Vue 才能建立依赖；传原对象（`toRaw`）不会报错，但界面不会更新 ——
@@ -294,6 +294,10 @@
    （基础层不认识游戏，领域不认识模型）。
 5. **存储是参数，不是状态的一部分** —— `save(s, store)` / `importFile(s, json, store)`；
    引擎（`agent/`）完全不碰存储，落盘由组合根在回合成功后决定。
+6. **开发工具不进产物** —— 卡图（`src/dev/card-graph.ts` + `src/components/CardGraph.vue`）
+   是作者 / 调试工具，只被 Storybook 故事引用，`src/App.vue` 与 `src/main.ts` 都不引它；
+   `@vue-flow/core` 因此装在 **`devDependencies`** —— 只在 Storybook / dev 里用，
+   `npm run build` 的 dist 里没有它（玩家侧依赖仍然只有 `vue`）。
 
 **为什么这样分**：一个文件能一句话说清职责才算分了层。
 把「建默认局 + 出界校验 + 读写 + 格式迁移」四件事写在一个文件里的代价是：改一处要读全文。
