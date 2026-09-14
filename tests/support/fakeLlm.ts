@@ -77,9 +77,11 @@ export function installFakeLlm(replies: FakeReply[]): FakeLlm {
 
   return {
     calls,
+    /** 让下一次请求以这个错误失败 */
     failNextWith(err) {
       failures.push(err)
     },
+    /** 还原真实的 fetch（afterEach 必须调用） */
     restore() {
       globalThis.fetch = original
     },

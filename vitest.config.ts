@@ -17,8 +17,8 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     include: ['tests/**/*.test.ts'],
-    // ⚠️ 这行曾经漏掉：文件写了却没注册，于是 localStorage 垫片从未加载，
-    //    存档相关断言全部静默走「保存失败」的报错分支 —— 看起来全绿，其实是假通过。
+    // ⚠️ 没有这一行，tests/setup.ts 根本不会加载：localStorage 垫片缺席时，
+    //    存档相关断言会静默走「保存失败」分支 —— 测试全绿，其实是假通过。
     setupFiles: ['tests/setup.ts'],
     coverage: {
       provider: 'v8',

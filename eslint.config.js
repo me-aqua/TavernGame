@@ -6,6 +6,7 @@ import js from '@eslint/js'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 import pluginVue from 'eslint-plugin-vue'
+import commentStyle from './eslint-plugin-comment-style.js'
 
 export default tseslint.config(
   // 这些目录不是我们的源码，不该被 lint
@@ -38,7 +39,11 @@ export default tseslint.config(
 
   {
     files: ['**/*.{ts,vue}'],
+    plugins: { tavern: commentStyle },
     rules: {
+      // 注释规范：函数要有简短中文说明，且不写历史对比（详见插件里的说明）
+      'tavern/comment-style': 'error',
+
       // 真 bug 类
       '@typescript-eslint/no-floating-promises': 'error', // 忘了 await 的 Promise
       '@typescript-eslint/no-explicit-any': 'error', // 真正的 any 要出声（测试文件已放宽）

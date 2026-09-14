@@ -21,6 +21,7 @@ beforeAll(() => {
   i18n.global.locale.value = 'zh-CN'
 })
 
+/** 每个用例一个干净状态 */
 function fresh() {
   return new GameState(createInitialState())
 }

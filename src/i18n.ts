@@ -33,11 +33,13 @@ export function resolveLocale(mode: LanguageMode, systemLanguage: string): Local
   return systemLanguage.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en'
 }
 
+/** 读玩家存过的语言偏好；没存过或不合法都当 'system' */
 export function readStoredLanguage(): LanguageMode {
   const raw = localStorage.getItem(STORAGE_KEY)
   return raw === 'zh-CN' || raw === 'en' || raw === 'system' ? raw : 'system'
 }
 
+/** 记住玩家选的语言 */
 export function storeLanguage(mode: LanguageMode): void {
   localStorage.setItem(STORAGE_KEY, mode)
 }

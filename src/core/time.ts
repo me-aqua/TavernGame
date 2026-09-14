@@ -42,6 +42,7 @@ function isTimeUnit(value: unknown): value is TimeUnit {
  * @param unit 单位（外部输入）；不传按 segment 处理
  * @param currentLabel 当前时间标签，只用于错误文案
  */
+/** 校验并推进一个 ISO 时刻；失败返回结构化错误（交给模型改参数重试） */
 export function advanceTime(iso: string, step: unknown, unit: unknown, currentLabel: string): AdvanceOutcome {
   // 未提供按默认单位处理；提供了就必须是规范值，不做任何容错猜测
   const resolved: unknown = unit == null ? 'segment' : unit

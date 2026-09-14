@@ -5,6 +5,7 @@
  * 造一个隐藏的 <a download>，让它替你去点一下。
  */
 
+/** 用隐藏的 <a download> 触发一次文件下载 */
 export function downloadText(filename: string, text: string, mime = 'application/json'): void {
   const blob = new Blob([text], { type: mime })
   const url = URL.createObjectURL(blob)

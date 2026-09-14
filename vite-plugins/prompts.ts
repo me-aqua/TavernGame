@@ -60,7 +60,8 @@ function collectPrompts(root: string): PromptEntry[] {
   const entries: PromptEntry[] = []
   const skipped: string[] = []
 
-  const walk = (dir: string) => {
+  /** 递归收集目录下的提示词（跳过 README，它没有语言段） */
+  function walk(dir: string): void {
     for (const item of readdirSync(dir)) {
       const full = join(dir, item)
       if (statSync(full).isDirectory()) {
@@ -92,6 +93,7 @@ function collectPrompts(root: string): PromptEntry[] {
   return entries
 }
 
+/** 把 prompts/<lang>/*.md 变成 virtual:prompt/<lang>/<name> 虚拟模块 */
 export function promptsPlugin(): Plugin {
   let root = process.cwd()
 
@@ -100,7 +102,8 @@ export function promptsPlugin(): Plugin {
   /** Known language folders, for error messages */
   let locales: string[] = []
 
-  const scan = () => {
+  /** 重新扫描提示词目录（启动时与文件变更时各一次） */
+  function scan(): void {
     const entries = collectPrompts(join(root, 'prompts'))
     byKey.clear()
     for (const entry of entries) byKey.set(entry.lang + '/' + entry.name, entry.file)
@@ -118,11 +121,13 @@ export function promptsPlugin(): Plugin {
   return {
     name: 'taverngame:prompts',
 
+    /** 拿到真实 root 后扫描一次：提示词 id 依赖目录结构 */
     configResolved(config: ResolvedConfig) {
       root = config.root
       scan()
     },
 
+    /** 校验模块 id：语言段必须有，且文件必须真实存在 */
     resolveId(id) {
       if (!id.startsWith(NS)) return null
       const { lang, name } = parseId(id)
@@ -144,6 +149,7 @@ export function promptsPlugin(): Plugin {
       return RESOLVED_PREFIX + key
     },
 
+    /** 构建期把 Markdown 转成 base64 字符串随包发布（不产生中间文件） */
     load(id) {
       if (!id.startsWith(RESOLVED_PREFIX)) return null
       const key = id.slice(RESOLVED_PREFIX.length)
@@ -161,11 +167,13 @@ export function promptsPlugin(): Plugin {
       )
     },
 
+    /** 开发时监听提示词目录，改 .md 立刻生效 */
     configureServer(server: ViteDevServer) {
       // Watch the prompts tree; see the HMR note in the file header
       server.watcher.add(join(root, 'prompts'))
     },
 
+    /** 提示词变了就整页刷新：它会被拼进 system 消息，缓存里那份必须作废 */
     handleHotUpdate({ file, server }) {
       if (!file.includes(root + '/prompts') || !file.endsWith('.md')) return
       scan()

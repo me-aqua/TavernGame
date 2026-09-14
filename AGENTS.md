@@ -42,6 +42,10 @@
 标识符一律英文（没有「领域词汇例外」），由 `.githooks/checks/identifiers.mjs` 强制。
 语言有三种状态（`system` / `zh-CN` / `en`），**模型语言跟随界面语言** —— 见 doc/DESIGN.md。
 
+注释一律**简短中文**：文件头说明这个文件管什么，函数上方一行说明它做什么；
+禁止写「原来的实现 / 曾经」这类历史对比（只对当时在场的人有意义）。
+由 `tavern/comment-style` 规则强制，写法见 skill: `comments`。
+
 测试用 `data-*` 钩子选元素（`data-settings`、`data-language`…），不要匹配界面文案。
 
 ### 提示词

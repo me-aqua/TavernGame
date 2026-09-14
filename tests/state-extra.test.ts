@@ -51,6 +51,7 @@ const logText = (i: number) => `entry ${i}`
 /** 第 i 天的推进原因 */
 const dayReason = (i: number) => `day ${i}`
 
+/** 每个用例一个干净状态 */
 function fresh() {
   return new GameState(createInitialState())
 }

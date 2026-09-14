@@ -26,6 +26,7 @@ export interface ToolDef {
 /** 工具的实现。说明文字在 prompts/，参数契约在下面的 toolSchemas()。 */
 export const TOOLS: Record<string, ToolDef> = {
   advance_time: {
+    /** 时间推进；参数把关在 state.advanceTime（系统边界） */
     run: (state, a) => state.advanceTime(a.step, a.unit, typeof a.reason === 'string' ? a.reason : ''),
   },
 }
@@ -36,6 +37,7 @@ export const TOOLS: Record<string, ToolDef> = {
  * ⚠️ 描述文字是**给模型看的**，所以跟随界面语言（不需要 locale 文件之外的中文）——
  * 用 getter 而不是常量数组：locale 可以在运行时切换，常量只会在模块加载时求值一次。
  */
+/** 当前语言下的工具契约（描述文字来自 locale，随界面语言变） */
 export function toolSchemas(): ToolSchema[] {
   return [
     {
@@ -68,6 +70,7 @@ export function toolSchemas(): ToolSchema[] {
  * 所以这里是**边界**：JSON 可能不合法、字段可能给错。出错时返回
  * 结构化错误交给模型自己改 —— 这正是原生 tool calling 的好处。
  */
+/** 执行模型要求的工具调用，返回给模型看的结果（成功或错误文案） */
 export function runTool(state: GameState, name: string, rawArguments: string): string {
   // ⚠️ 必须用 Object.hasOwn，不能写成 `const tool = TOOLS[name]` —— 那样
   // `constructor` / `toString` / `valueOf` / `__proto__` / `hasOwnProperty`

@@ -72,6 +72,7 @@ export const realCalendar: Calendar = {
   label: 'real',
   description: 'real',
 
+  /** 完整时间标签：「2026 年 9 月 10 日 · 星期四 · 晚上」 */
   format(iso: string): string {
     const d = new Date(iso)
     const date = t('calendar.yearMonthDay', {
@@ -83,12 +84,14 @@ export const realCalendar: Calendar = {
     return `${date}${sep}${t(`calendar.weekday.${d.getDay()}`)}${sep}${segmentName(d.getHours())}`
   },
 
+  /** 简短时间标签，侧栏时间线用 */
   formatShort(iso: string): string {
     const d = new Date(iso)
     const date = t('calendar.monthDay', { month: d.getMonth() + 1, day: d.getDate() })
     return `${date}${t('calendar.dateSeparator')}${segmentName(d.getHours())}`
   },
 
+  /** 按单位推进时刻；日期运算全部交给 Date，不手写除法 */
   advance(iso: string, step: number, unit: TimeUnit = 'segment'): AdvanceResult {
     const d = new Date(iso)
     const before = d.getTime()

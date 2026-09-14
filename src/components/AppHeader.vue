@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
 /**
  * 顶栏：品牌 + 连接状态 + 主题切换 + 存档操作 + 设置入口。
  *
@@ -7,6 +6,7 @@ import { useI18n } from 'vue-i18n'
  * 样式全部用 Tailwind 语义 token（bg-surface / text-muted / border-line…），
  * 所以深浅色切换不需要改这个文件。
  */
+import { useI18n } from 'vue-i18n'
 import { computed } from 'vue'
 
 const { t } = useI18n()

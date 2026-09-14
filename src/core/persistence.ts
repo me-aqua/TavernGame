@@ -39,6 +39,7 @@ function sanitizeLog(list: unknown): LogEntry[] {
     .slice(-MAX_LOG)
 }
 
+/** 时间线数组的边界清洗（外部数据，逐项校验） */
 function sanitizeTimeline(list: unknown): TimelineEntry[] {
   if (!Array.isArray(list)) return []
   return list
@@ -91,8 +92,9 @@ export function normalize(saved: unknown, fresh: GameData = createInitialState()
 
 /**
  * 从 v1 / v2 存档迁移。
- * 旧版是「第 N 天 · 第 M 段」，新版是绝对时刻，无法精确换算 ——
- * 所以从今天重新计时，但保留场景、日志、turn。
+ *
+ * ⚠️ 那两版存的是「第 N 天 · 第 M 段」，现在是绝对时刻，两者无法精确换算 ——
+ * 所以时间从今天重新计时，场景、日志、回合数照旧保留。
  */
 export function migrateLegacy(old: unknown, fresh: GameData = createInitialState()): GameData {
   const o: Record<string, unknown> = isRecord(old) ? old : {}
