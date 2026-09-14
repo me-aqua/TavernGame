@@ -58,7 +58,7 @@ import { useI18n } from 'vue-i18n'
 
 ## 怎么被强制的
 
-`tavern/comment-style` 规则（`eslint-plugin-comment-style.js`，在 `eslint.config.js` 注册）：
+`tavern/comment-style` 规则（`tools/eslint-plugin-comment-style.js`，在 `eslint.config.js` 注册）：
 
 1. 具名函数 / 类方法必须有紧贴上方的注释（单行或多行都行）
 2. 注释里不许出现历史对比的句式

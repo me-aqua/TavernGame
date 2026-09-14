@@ -43,7 +43,7 @@ export type AgentEvent =
   | { type: 'warn'; message: string }
 
 /** 一次回合的产物 */
-export interface TurnResult {
+interface TurnResult {
   /** 本回合的全部叙事（多步之间用空行连接） */
   text: string
   /** 每一步的工具执行结果，供调试与展示 */
@@ -53,7 +53,7 @@ export interface TurnResult {
   history: ChatMessage[]
 }
 
-export interface TurnOptions {
+interface TurnOptions {
   /** 玩家输入；不传表示开新游戏 */
   action?: string
   history?: ChatMessage[]

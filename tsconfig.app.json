@@ -28,5 +28,6 @@
     // paths 用相对本配置文件的路径，三个版本都认。
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "env.d.ts", "tests/**/*.ts"]
+  // env.d.ts 已收进 src/，被 src/**/*.ts 覆盖，不必单列
+  "include": ["src/**/*.ts", "src/**/*.vue", "tests/**/*.ts"]
 }

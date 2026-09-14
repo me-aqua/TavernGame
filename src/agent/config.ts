@@ -16,7 +16,7 @@ import { t } from '../i18n'
 const STORAGE_KEY = 'tavernGame.config'
 
 /** A provider preset (label text lives in src/locales) */
-export interface ProviderPreset {
+interface ProviderPreset {
   apiBase: string
   models: string[]
   keyUrl: string

@@ -6,8 +6,8 @@
  */
 
 /** 用隐藏的 <a download> 触发一次文件下载 */
-export function downloadText(filename: string, text: string, mime = 'application/json'): void {
-  const blob = new Blob([text], { type: mime })
+export function downloadText(filename: string, text: string): void {
+  const blob = new Blob([text], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -19,11 +19,11 @@ export function downloadText(filename: string, text: string, mime = 'application
 }
 
 /** 弹出一个文件选择框，返回用户选中的文件（取消则返回 null） */
-export function pickFile(accept = '.json,application/json'): Promise<File | null> {
+export function pickFile(): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = accept
+    input.accept = '.json,application/json'
     input.onchange = () => resolve(input.files?.[0] ?? null)
     // 用户直接关掉对话框时不会触发 change；这里不额外处理，
     // 因为 File 对话框没有可靠的取消事件，留着 Promise 挂着也无害。

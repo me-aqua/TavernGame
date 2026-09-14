@@ -49,7 +49,7 @@ export interface ChatReply {
   raw: unknown
 }
 
-export interface ChatOptions {
+interface ChatOptions {
   /** 用于中途取消 */
   signal?: AbortSignal
   /** 声明可用工具；不传则模型不会调用任何工具 */

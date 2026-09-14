@@ -31,20 +31,20 @@ import { t } from '../i18n'
 /** 时段键（协议/内部用）；显示名走 locale 的 calendar.segment.* */
 export const SEGMENTS = ['morning', 'afternoon', 'evening'] as const
 
+/** 唯一的单位表：类型与运行时校验都从它派生（agent/tools.ts 的 schema enum 也从这里取） */
+export const TIME_UNITS = ['segment', 'hour', 'day', 'week', 'month', 'year'] as const
+
 /** 时间单位（历法只认这些） */
-export type TimeUnit = 'segment' | 'hour' | 'day' | 'week' | 'month' | 'year'
+type TimeUnit = (typeof TIME_UNITS)[number]
 
 /** 一次时间推进的结果 */
-export interface AdvanceResult {
+interface AdvanceResult {
   iso: string
   elapsedMs: number
 }
 
 /** 现实公历的形状（只有一种历法，接口留着是为了给 realCalendar 定型） */
-export interface Calendar {
-  id: string
-  label: string
-  description: string
+interface Calendar {
   /** 「2026 年 9 月 10 日 · 星期四 · 晚上」 */
   format(iso: string): string
   /** 「9 月 10 日 · 晚上」 */
@@ -72,10 +72,6 @@ export function segmentName(hour: number): string {
 
 /** 日历预设：现实公历 */
 export const realCalendar: Calendar = {
-  id: 'real',
-  label: 'real',
-  description: 'real',
-
   /** 完整时间标签：「2026 年 9 月 10 日 · 星期四 · 晚上」 */
   format(iso: string): string {
     const d = new Date(iso)
@@ -96,7 +92,7 @@ export const realCalendar: Calendar = {
   },
 
   /** 按单位推进时刻；日期运算全部交给 Date，不手写除法 */
-  advance(iso: string, step: number, unit: TimeUnit = 'segment'): AdvanceResult {
+  advance(iso: string, step: number, unit: TimeUnit): AdvanceResult {
     const d = new Date(iso)
     const before = d.getTime()
 
@@ -184,8 +180,6 @@ export const realCalendar: Calendar = {
 export function nowIso(): string {
   return new Date().toISOString()
 }
-
-const TIME_UNITS = ['segment', 'hour', 'day', 'week', 'month', 'year'] as const
 
 /** 一次推进的防呆上限：超过这个量级视为手滑，不是玩法 */
 const MAX_YEARS = 1000

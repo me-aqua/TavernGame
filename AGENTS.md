@@ -1,6 +1,6 @@
 # AGENTS.md
 
-纪律全部自动化：`.githooks/` 在提交时强制检查；新增纪律 = 新增检查，不写文字。
+纪律全部自动化：`.githooks/` 在提交时强制检查；**新增纪律 = 新增检查，不写文字**。
 
 ## 行为规则
 
@@ -19,50 +19,8 @@
 - 禁止为一次性操作创建辅助函数、工具类或抽象。
 - 优先快速失败，而不是掩盖问题。
 
----
+## 快速入口
 
-## 自动化检查（纪律的可执行部分）
-
-三道钩子（`.githooks/`，`npm install` 后自动装）：
-
-| 钩子                    | 时机     | 检查                                                                                                                                   |
-| ----------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `pre-commit`（约 5 秒） | 每次提交 | 密钥扫描 → 换行/编码/BOM → 语法 → ASCII → 英文标识符 → 提示词未内联 → ESLint（类型感知）→ 类型检查 + 单测（并行）→ Prettier 自动格式化 |
-| `pre-push`（约 12 秒）  | 每次推送 | 覆盖率门禁 → 构建 → 端到端（真浏览器）                                                                                                 |
-| `commit-msg`            | 每次提交 | 约定式提交前缀（`feat:` / `fix:` / …）                                                                                                 |
-
-跳过（需在提交信息里说明理由）：`SKIP_DISCIPLINE=1 git commit ...`
-
-一条命令跑完全部把关：`npm run verify`
-
-### 文字与语言
-
-**代码一律 ASCII** —— 中文只允许出现在 `src/locales/*.json`、`prompts/*.md`、`doc/` 和注释里。
-由 `.githooks/checks/ascii.mjs` 强制：字符串里的中文也会被拦，界面文案一律 `t('some.key')`。
-标识符一律英文（没有「领域词汇例外」），由 `.githooks/checks/identifiers.mjs` 强制。
-语言有三种状态（`system` / `zh-CN` / `en`），**模型语言跟随界面语言** —— 见 doc/DESIGN.md。
-
-注释一律**简短中文**：文件头说明这个文件管什么，函数上方一行说明它做什么；
-禁止写「原来的实现 / 曾经」这类历史对比（只对当时在场的人有意义）。
-由 `tavern/comment-style` 规则强制，写法见 skill: `comments`。
-
-测试用 `data-*` 钩子选元素（`data-settings`、`data-language`…），不要匹配界面文案。
-
-### 提示词
-
-**禁止把提示词内联在代码里** —— 内容放 `prompts/<lang>/*.md`，代码只用 `renderPrompt()` 装配。
-由 `.githooks/checks/prompts.mjs` 强制（超 30 字的中文串会被拦；ASCII 检查更严，任何中文串都拦）。
-占位符没填完会抛错，绝不会把 `{{SNAPSHOT}}` 发给模型。
-
-### 测试
-
-**新增功能必须新增测试** —— 由 `.githooks/pre-commit` 强制：
-每个 `src` 模块都必须在 `tests/` 里被提到，否则拒绝提交。
-覆盖率门禁见 `vitest.config.ts`，一条命令验收：`npm run verify`。
-
-细节（各层测什么、坑在哪）见 skill: `testing`；
-检查体系与工具配置见 skill: `checks`。
-
----
-
-环境、调试、发布等具体做法在 `.agents/skills/`，不要写回这里。
+- 全量把关：`npm run verify`
+- 跳过（需在提交信息里说明理由）：`SKIP_DISCIPLINE=1 git commit ...`
+- 具体机制见对应实现：`.githooks/`（检查）、`doc/DESIGN.md`（设计）、`.agents/skills/`（环境 / 调试 / 发布 / 测试 / 注释）。

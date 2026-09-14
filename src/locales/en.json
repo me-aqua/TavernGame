@@ -84,7 +84,6 @@
     "introBefore": "Runs entirely in your browser — your API key is stored only in",
     "introAfter": "and is sent straight to the provider, never to any server of ours.",
     "appName": "your own browser",
-    "icon": "",
     "providerLabel": "Provider",
     "modelLabel": "Model name (modelName)",
     "language": "Language",

@@ -66,7 +66,7 @@ function pickTurn(v: unknown): number {
 /** 新游戏的初始状态（场景名与描述留空，由界面按当前语言现取） */
 export function createInitialState(): GameData {
   return {
-    meta: { createdAt: new Date().toISOString(), turn: 0 },
+    meta: { turn: 0 },
     player: { name: t('player.defaultName') },
     scene: { name: '', description: '' },
     time: { iso: nowIso() },

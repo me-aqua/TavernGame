@@ -16,7 +16,7 @@
  * 它只描述「校验通过之后」的形状。
  */
 
-import { realCalendar, segmentName, advanceTime } from '../utils/calendar'
+import { realCalendar, advanceTime } from '../utils/calendar'
 import { parseSave, createInitialState, normalize, MAX_LOG, MAX_TIMELINE } from './save'
 import { localStorageStore, backupBrokenSave, type GameStore, type StorageLike } from '../utils/storage'
 import { t } from '../i18n'
@@ -140,10 +140,6 @@ export class GameState {
 
   // ---------- 便捷读取 ----------
 
-  get player(): GameData['player'] {
-    return this.data.player
-  }
-
   /**
    * 场景。名字与描述为空时给一个**当前语言**的默认值 —— 存档里存的是空串，
    * 所以切换语言时它跟着变（存成字符串的话会永远停在创建时那门语言）。
@@ -172,16 +168,6 @@ export class GameState {
   /** 完整时间标签，由历法决定格式 */
   get timeLabel(): string {
     return this.calendar.format(this.data.time.iso)
-  }
-
-  /** 简短时间标签 */
-  get timeLabelShort(): string {
-    return this.calendar.formatShort(this.data.time.iso)
-  }
-
-  /** 当前时段名（上午/下午/晚上） */
-  get segmentName(): string {
-    return segmentName(new Date(this.data.time.iso).getHours())
   }
 
   // ---------- 工具：时间推进 ----------

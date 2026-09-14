@@ -84,7 +84,6 @@
     "introBefore": "纯前端运行 —— 你的 API key 只保存在",
     "introAfter": "里，不会上传到任何服务器。请求直接从浏览器发往服务商。",
     "appName": "你自己的浏览器",
-    "icon": "",
     "providerLabel": "服务商",
     "modelLabel": "模型名（modelName）",
     "language": "语言",

@@ -33,7 +33,6 @@ export interface TimelineEntry {
 /** 世界状态的全部字段 */
 export interface GameData {
   meta: {
-    createdAt: string
     turn: number
   }
   player: {

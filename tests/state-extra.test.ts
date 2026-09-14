@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { GameState } from '../src/game/GameState'
 import { createInitialState } from '../src/game/save'
 import { SAVE_KEY } from '../src/utils/storage'
+import { realCalendar, segmentName } from '../src/utils/calendar'
 import { t } from '../src/i18n'
 
 /** 时段显示名（产品文案，只能从 locale 表取） */
@@ -22,7 +23,7 @@ const AFTERNOON = t('calendar.segment.afternoon')
 const EVENING = t('calendar.segment.evening')
 const SEGMENT_NAMES = [MORNING, AFTERNOON, EVENING]
 
-/** timeLabelShort 的形状：`{month} 月 {day} 日 · 时段`，月日部分用 \d+ 占位 */
+/** 时间线起点用的简短标签形状：`{month} 月 {day} 日 · 时段`，月日部分用 \d+ 占位 */
 const SHORT_TIME_LABEL = new RegExp(
   `^${t('calendar.monthDay', { month: '\\d+', day: '\\d+' })}${t('calendar.dateSeparator')}(${SEGMENT_NAMES.join('|')})$`,
 )
@@ -59,41 +60,36 @@ describe('constructor and getters', () => {
   it('falls back to the initial state when no argument is passed (the ?? branch)', () => {
     const s = new GameState()
     expect(s.turn).toBe(0)
-    expect(s.player.name).toBe(t('player.defaultName'))
+    expect(s.data.player.name).toBe(t('player.defaultName'))
   })
 
-  it('player / scene / timeLabelShort / segmentName are all readable', () => {
+  it('scene and the short time label are readable', () => {
     const s = fresh()
-    expect(s.player).toEqual({ name: t('player.defaultName') })
+    expect(s.data.player).toEqual({ name: t('player.defaultName') })
     expect(s.scene.name).toBe(t('scene.unknownPlace'))
-    expect(s.timeLabelShort).toMatch(SHORT_TIME_LABEL)
-    expect(SEGMENT_NAMES).toContain(s.segmentName)
+    // 简短时间标签直接用历法格式化：GameState 不再包一层同名 getter（避免两份真值来源）
+    expect(realCalendar.formatShort(s.iso)).toMatch(SHORT_TIME_LABEL)
   })
 })
 
 describe('segmentName - the three segment branches', () => {
-  /** 把时刻设成当天的某个小时（用本地时间构造，getHours 才一致） */
-  function atHour(hour: number) {
-    const s = fresh()
-    const d = new Date(s.data.time.iso)
-    d.setHours(hour, 0, 0, 0)
-    s.data.time.iso = d.toISOString()
-    return s
-  }
-
   it('before noon -> morning', () => {
-    expect(atHour(0).segmentName).toBe(MORNING)
-    expect(atHour(11).segmentName).toBe(MORNING)
+    expect(segmentName(0)).toBe(MORNING)
+    expect(segmentName(11)).toBe(MORNING)
   })
 
   it('noon to early evening -> afternoon', () => {
-    expect(atHour(12).segmentName).toBe(AFTERNOON)
-    expect(atHour(17).segmentName).toBe(AFTERNOON)
+    expect(segmentName(12)).toBe(AFTERNOON)
+    expect(segmentName(17)).toBe(AFTERNOON)
   })
 
   it('late evening -> evening', () => {
-    expect(atHour(18).segmentName).toBe(EVENING)
-    expect(atHour(23).segmentName).toBe(EVENING)
+    expect(segmentName(18)).toBe(EVENING)
+    expect(segmentName(23)).toBe(EVENING)
+  })
+
+  it('returns one of the three localized segment names', () => {
+    expect(SEGMENT_NAMES).toContain(segmentName(9))
   })
 })
 

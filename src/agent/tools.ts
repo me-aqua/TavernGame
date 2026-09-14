@@ -16,6 +16,7 @@
  */
 
 import { t } from '../i18n'
+import { TIME_UNITS } from '../utils/calendar'
 import type { GameState } from '../game/GameState'
 import type { ToolSchema } from './llm'
 
@@ -51,7 +52,8 @@ export function toolSchemas(): ToolSchema[] {
             unit: {
               type: 'string',
               description: t('tools.advanceTime.unit'),
-              enum: ['segment', 'hour', 'day', 'week', 'month', 'year'],
+              // 单位表只有一处（utils/calendar.ts）：手写第二份就会和校验逻辑走偏
+              enum: [...TIME_UNITS],
             },
             reason: { type: 'string', description: t('tools.advanceTime.reason') },
           },

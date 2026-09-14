@@ -65,7 +65,7 @@ function submit() {
     <p class="mt-2 text-[11px] text-faint">
       <template v-if="!configured">
         {{ t('composer.hintBefore') }}
-        <b class="text-text">{{ t('settings.icon') }} {{ t('settings.title') }}</b>
+        <b class="text-text">{{ t('settings.title') }}</b>
         {{ t('composer.hintAfter') }}
       </template>
       <template v-else>{{ t('composer.hintKeys') }}</template>
