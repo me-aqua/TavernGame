@@ -29,9 +29,9 @@ export interface StoryLine {
   rawBlocks?: number
 }
 
-let 行号 = 0
-function 新行(kind: StoryLine['kind'], text: string, extra: Partial<StoryLine> = {}): StoryLine {
-  return { id: ++行号, kind, text, ...extra }
+let nextId = 0
+function makeLine(kind: StoryLine['kind'], text: string, extra: Partial<StoryLine> = {}): StoryLine {
+  return { id: ++nextId, kind, text, ...extra }
 }
 
 // ⚠️ GameState.load() 返回的**已经是 GameState 实例**，
@@ -43,13 +43,13 @@ function 新行(kind: StoryLine['kind'], text: string, extra: Partial<StoryLine>
  * ⚠️ 存档损坏不让整页打不开（那样玩家连导出坏数据的机会都没有），
  *    但也**不静默开新局** —— 把坏数据的原文留一份，并让调用方拿到错误去提示玩家。
  */
-function 启动读档(): { state: GameState; error: string | null } {
+function loadAtStartup(): { state: GameState; error: string | null } {
   const { data, error } = loadState()
   return { state: new GameState(data ?? createInitialState()), error }
 }
 
-const 启动结果 = 启动读档()
-const state = shallowRef(启动结果.state)
+const startupResult = loadAtStartup()
+const state = shallowRef(startupResult.state)
 const 消息流 = ref<StoryLine[]>([])
 const 对话历史 = ref<ChatMessage[]>([])
 const 正在跑 = ref(false)
@@ -64,19 +64,19 @@ export function useGame() {
   const 回合数 = computed(() => (state.value, state.value.turn))
 
   // ---------- 消息流 ----------
-  function 追加(kind: StoryLine['kind'], text: string, extra: Partial<StoryLine> = {}) {
-    消息流.value.push(新行(kind, text, extra))
+  function append(kind: StoryLine['kind'], text: string, extra: Partial<StoryLine> = {}) {
+    消息流.value.push(makeLine(kind, text, extra))
   }
 
-  function 清空消息流() {
+  function clearMessages() {
     消息流.value = []
   }
 
   /** 刷新页面后从日志恢复叙事与行动（system 类不恢复，避免重复提示） */
-  function 恢复日志(条数 = 20) {
+  function restoreLog(条数 = 20) {
     for (const entry of state.value.data.log.slice(-条数)) {
       if (entry.kind !== 'narration' && entry.kind !== 'action') continue
-      追加(entry.kind, entry.text)
+      append(entry.kind, entry.text)
     }
   }
 
@@ -94,27 +94,27 @@ export function useGame() {
     controller = null
   }
 
-  function 处理事件(evt: AgentEvent) {
+  function handleEvent(evt: AgentEvent) {
     switch (evt.type) {
       case 'narration':
-        追加('narration', evt.text)
+        append('narration', evt.text)
         break
       case 'raw':
         if (调试模式.value) {
-          追加('tool', `🔍 模型原始输出（解析出 ${evt.blocks} 个工具块）`, {
+          append('tool', `🔍 模型原始输出（解析出 ${evt.blocks} 个工具块）`, {
             raw: evt.text,
             rawBlocks: evt.blocks,
           })
         }
         break
       case 'tool':
-        追加('tool', `⚙ 调用 ${evt.tool}(${JSON.stringify(evt.args)})`)
+        append('tool', `⚙ 调用 ${evt.tool}(${JSON.stringify(evt.args)})`)
         break
       case 'toolResult':
-        追加('tool', `   → ${evt.result}`)
+        append('tool', `   → ${evt.result}`)
         break
       case 'warn':
-        追加('warn', `⚠ ${evt.message}`)
+        append('warn', `⚠ ${evt.message}`)
         break
       case 'thinking':
         break
@@ -124,7 +124,7 @@ export function useGame() {
   async function 执行回合(action?: string): Promise<void> {
     if (正在跑.value) return
     正在跑.value = true
-    if (action) 追加('action', action)
+    if (action) append('action', action)
 
     controller = new AbortController()
     try {
@@ -132,16 +132,16 @@ export function useGame() {
         action,
         history: 对话历史.value,
         signal: controller.signal,
-        onEvent: 处理事件,
+        onEvent: handleEvent,
       })
       对话历史.value = result.history
-      if (!result.text) 追加('system', '（模型没有返回文字，可能只调用了工具）')
+      if (!result.text) append('system', '（模型没有返回文字，可能只调用了工具）')
     } catch (err) {
       const e = err as Error
       if (e.name === 'AbortError') {
-        追加('system', '已取消本回合')
+        append('system', '已取消本回合')
       } else {
-        追加('error', `出错了：\n${e.message}`)
+        append('error', `出错了：\n${e.message}`)
       }
       throw err // 交给调用方决定要不要提示
     } finally {
@@ -159,7 +159,7 @@ export function useGame() {
     state.value.reset()
     对话历史.value = []
     triggerRef(state)
-    清空消息流()
+    clearMessages()
   }
 
   function 导入存档(json: string) {
@@ -167,7 +167,7 @@ export function useGame() {
     state.value.import(json)
     对话历史.value = []
     triggerRef(state)
-    清空消息流()
+    clearMessages()
   }
 
   function 导出存档(): string {
@@ -176,7 +176,7 @@ export function useGame() {
 
   return {
     /** 启动时读档失败的说明；null = 正常 */
-    启动错误: 启动结果.error,
+    启动错误: startupResult.error,
     // 状态
     时间标签,
     时间线,
@@ -186,8 +186,8 @@ export function useGame() {
     正在跑,
     调试模式,
     // 动作
-    追加,
-    恢复日志,
+    append,
+    restoreLog,
     执行回合,
     重新开始,
     导入存档,
@@ -195,7 +195,7 @@ export function useGame() {
   }
 }
 
-/** 界面初始化：读存档 → 恢复日志（在 App.vue 的 onMounted 里调用） */
+/** 界面初始化：读存档 → restoreLog（在 App.vue 的 onMounted 里调用） */
 export function useGameState() {
   return useGame()
 }

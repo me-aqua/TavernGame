@@ -167,13 +167,13 @@ const 面板 = await 求值(`(() => {
     打开: true,
     服务商数: d.querySelectorAll('select option').length,
     字段: [...d.querySelectorAll('.field label')].map((l) => l.textContent.trim()).length,
-    有测试连接: [...d.querySelectorAll('button')].some((b) => b.textContent.includes('测试连接')),
+    有测试连接: [...d.querySelectorAll('button')].some((b) => b.textContent.includes('testConnection')),
   }
 })()`)
 检查('设置面板能打开', 面板.打开 === true)
 检查('六个服务商可选', 面板.服务商数 === 6, String(面板.服务商数))
 检查('五个配置字段', 面板.字段 === 5, String(面板.字段))
-检查('有「测试连接」按钮', 面板.有测试连接 === true)
+检查('有「testConnection」按钮', 面板.有测试连接 === true)
 
 // ---------- 用例 3：关闭面板 ----------
 await 求值(`document.querySelector('.drawer')?.click()`)

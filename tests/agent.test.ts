@@ -70,9 +70,9 @@ describe('runTurn —— 主要路径', () => {
     // 时间真的推进了 7 天
     expect(Date.parse(state.iso) - before).toBe(7 * 86400000)
     // 第二步请求里带上了工具执行结果（回传）
-    const 第二步 = JSON.stringify(fake.calls[1].body.messages)
-    expect(第二步).toContain('工具的实际执行结果')
-    expect(第二步).toContain('时间推进')
+    const secondCall = JSON.stringify(fake.calls[1].body.messages)
+    expect(secondCall).toContain('工具的实际执行结果')
+    expect(secondCall).toContain('时间推进')
     expect(events.some((e) => e.type === 'tool' && e.tool === 'advance_time')).toBe(true)
     expect(events.some((e) => e.type === 'toolResult')).toBe(true)
   })
@@ -95,9 +95,9 @@ describe('runTurn —— 主要路径', () => {
     await runTurn(state, { action: '做点什么' })
 
     expect(state.turn).toBe(1)
-    const 重新读 = new GameState(loadState().data!)
-    expect(重新读.turn).toBe(1)
-    expect(重新读.data.log.at(-1)?.text).toContain('写完了。')
+    const reloaded = new GameState(loadState().data!)
+    expect(reloaded.turn).toBe(1)
+    expect(reloaded.data.log.at(-1)?.text).toContain('写完了。')
   })
 
   it('把本回合叙事带进历史，供下一回合拼接', async () => {
@@ -113,9 +113,9 @@ describe('runTurn —— 主要路径', () => {
     // 下一回合的请求里应该能看到上一回合的叙事
     fake.restore()
     fake = installFakeLlm(['继续。'])
-    await runTurn(state, { action: '第二步', history: r.history })
-    const 第二回合请求 = JSON.stringify(fake.calls[0].body.messages)
-    expect(第二回合请求).toContain('带到历史里的文字。')
+    await runTurn(state, { action: 'secondCall', history: r.history })
+    const secondTurnPayload = JSON.stringify(fake.calls[0].body.messages)
+    expect(secondTurnPayload).toContain('带到历史里的文字。')
   })
 })
 
@@ -141,10 +141,10 @@ describe('runTurn —— 兜底与边界', () => {
     expect(result.steps).toBe(5)
 
     // 兜底请求里必须**明确禁止它再调工具**，否则它会接着调工具、又一次没有叙事
-    const 兜底消息 = fake.calls[5].body.messages ?? []
-    const 最后一条 = 兜底消息.at(-1)?.content ?? ''
-    expect(最后一条).toContain('请**只写叙事**')
-    expect(最后一条).toContain('不要再调用任何工具')
+    const fallbackMessages = fake.calls[5].body.messages ?? []
+    const lastMessage = fallbackMessages.at(-1)?.content ?? ''
+    expect(lastMessage).toContain('请**只写叙事**')
+    expect(lastMessage).toContain('不要再调用任何工具')
 
     // 玩家要能看到「达到步数上限」和「正在补写」
     expect(events.some((e) => e.type === 'warn' && e.message.includes('步数上限'))).toBe(true)

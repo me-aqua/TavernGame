@@ -76,7 +76,7 @@ function buildMessages(state: GameState, history: ChatMessage[], userContent: st
  * 实测会发生的真实情况：模型把步数全花在调用工具上，一次叙事都没输出，
  * 玩家看到的是一片空白。所以这里明确禁止它继续调工具，只能写文字。
  */
-async function 补写叙事(
+async function forceNarration(
   messages: ChatMessage[],
   signal: AbortSignal | undefined,
   onEvent: (evt: AgentEvent) => void,
@@ -182,7 +182,7 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
   }
 
   if (!narrations.length) {
-    const extra = await 补写叙事(messages, signal, onEvent)
+    const extra = await forceNarration(messages, signal, onEvent)
     if (extra) narrations.push(extra)
   }
 

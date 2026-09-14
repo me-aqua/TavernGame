@@ -92,16 +92,16 @@ describe('执行回合', () => {
 describe('日志恢复', () => {
   it('只回放叙事与行动（system 类不重复提示）', async () => {
     const g = await 跑一回合()
-    const 存档 = JSON.parse(g.导出存档()) as { log: Array<{ kind: string; text: string; at: string }> }
-    存档.log = [
+    const save = JSON.parse(g.导出存档()) as { log: Array<{ kind: string; text: string; at: string }> }
+    save.log = [
       { kind: 'narration', text: '存档里的叙事', at: new Date().toISOString() },
       { kind: 'system', text: '不该被回放', at: new Date().toISOString() },
       { kind: 'action', text: '存档里的行动', at: new Date().toISOString() },
     ]
-    g.导入存档(JSON.stringify(存档))
+    g.导入存档(JSON.stringify(save))
     expect(g.消息流.value).toHaveLength(0)
 
-    g.恢复日志()
+    g.restoreLog()
     expect(g.消息流.value.map((l) => l.kind)).toEqual(['narration', 'action'])
   })
 })
@@ -140,9 +140,9 @@ describe('调试模式', () => {
     await g.执行回合('看看')
     fake.restore()
     fake = null
-    const 原始行 = g.消息流.value.filter((l) => l.raw !== undefined)
-    expect(原始行).toHaveLength(1)
-    expect(原始行[0].raw).toContain('原始输出示例')
+    const rawLines = g.消息流.value.filter((l) => l.raw !== undefined)
+    expect(rawLines).toHaveLength(1)
+    expect(rawLines[0].raw).toContain('原始输出示例')
     g.调试模式.value = false
   })
 
@@ -157,7 +157,7 @@ describe('调试模式', () => {
   })
 })
 
-describe('启动读档', () => {
+describe('loadAtStartup', () => {
   it('没有存档时启动错误为 null', () => {
     localStorage.removeItem(SAVE_KEY)
     expect(useGame().启动错误).toBeNull()
