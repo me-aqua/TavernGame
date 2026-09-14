@@ -6,6 +6,8 @@
  *    原来叙事要靠 onEvent 回调里手动 append 到 DOM，
  *    曾经漏掉那一行 → 界面上什么都看不到（但存档里有）。
  *    现在只是 v-for 一个数组，**不存在「忘了渲染」这种可能**。
+ *
+ * 每一种行的样式都在下面 lineStyles 表里 —— 加一种 kind 只需加一行映射。
  */
 import { nextTick, ref, watch } from 'vue'
 import type { StoryLine } from '../stores/game'
@@ -17,7 +19,17 @@ const props = defineProps<{
 
 const storyEl = ref<HTMLElement | null>(null)
 
-// 新内容进来自动滚到底（替代手工 scrollTop = scrollHeight）
+/** 不同 kind 的外观。工具/系统类用等宽字体，叙事用正文体。 */
+const lineStyles: Record<StoryLine['kind'], string> = {
+  narration: 'text-text/90',
+  action: 'border-l-2 border-info/40 pl-3 text-info',
+  system: 'rounded-lg border border-dashed border-line bg-surface-2/60 px-3.5 py-2 text-[12.5px] text-muted',
+  tool: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
+  warn: 'rounded-lg border border-warn/40 bg-warn-soft px-3.5 py-2 text-[12.5px] text-warn',
+  error: 'rounded-lg border border-danger/40 bg-danger-soft px-3.5 py-2 text-[12.5px] text-danger',
+}
+
+// 新内容进来自动滚到底
 watch(
   () => [props.lines.length, props.thinking] as const,
   async () => {
@@ -28,124 +40,30 @@ watch(
 </script>
 
 <template>
-  <div ref="storyEl" class="story">
+  <div ref="storyEl" class="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-5">
     <template v-for="line in lines" :key="line.id">
-      <!-- 调试模式：模型的原始输出，用原生 <details> 折叠，不需要 JS -->
-      <details v-if="line.raw !== undefined" class="line system tool" style="cursor: pointer">
-        <summary>{{ line.text }} —— 点击展开</summary>
-        <pre>{{ line.raw }}</pre>
+      <!-- debugMode：原始响应，用原生 <details> 折叠，不需要 JS -->
+      <details
+        v-if="line.raw !== undefined"
+        class="cursor-pointer rounded-lg border border-line bg-surface-2/60 px-3.5 py-2"
+      >
+        <summary class="text-[12.5px] text-muted">{{ line.text }} —— 点击展开</summary>
+        <pre class="story-text mt-2 text-[12px] leading-relaxed text-faint">{{ line.raw }}</pre>
       </details>
-      <div v-else class="line" :class="line.kind">{{ line.text }}</div>
+      <p
+        v-else
+        class="line story-text max-w-[70ch] text-[15px] leading-[1.85]"
+        :class="[line.kind, lineStyles[line.kind]]"
+      >
+        {{ line.text }}
+      </p>
     </template>
 
-    <div v-if="thinking" class="thinking">
-      <span class="dot2"></span><span class="dot2"></span><span class="dot2"></span>
-      <span>思考中…</span>
-    </div>
+    <p v-if="thinking" class="thinking flex items-center gap-2 text-[13px] text-faint">
+      <span class="size-1.5 animate-pulse rounded-full bg-accent" />
+      <span class="size-1.5 animate-pulse rounded-full bg-accent [animation-delay:0.2s]" />
+      <span class="size-1.5 animate-pulse rounded-full bg-accent [animation-delay:0.4s]" />
+      <span class="ml-1">思考中…</span>
+    </p>
   </div>
 </template>
-
-<style scoped>
-.story {
-  flex: 1;
-  overflow-y: auto;
-  padding: 22px 26px;
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-  scroll-behavior: smooth;
-}
-.story::-webkit-scrollbar {
-  width: 8px;
-}
-.story::-webkit-scrollbar-thumb {
-  background: rgba(110, 231, 183, 0.18);
-  border-radius: 4px;
-}
-
-.line {
-  line-height: 1.85;
-  font-size: 15px;
-  max-width: 70ch;
-  white-space: pre-wrap;
-}
-.line.narration {
-  color: #c8d0e2;
-}
-.line.action {
-  color: var(--accent2);
-  padding-left: 12px;
-  border-left: 2px solid rgba(125, 211, 252, 0.4);
-}
-.line.system {
-  color: var(--faint);
-  font-size: 12.5px;
-  padding: 9px 13px;
-  border: 1px dashed rgba(139, 149, 176, 0.25);
-  border-radius: 10px;
-  background: rgba(139, 149, 176, 0.05);
-}
-.line.error {
-  color: #f0a5a5;
-  font-size: 12.5px;
-  padding: 9px 13px;
-  border: 1px solid rgba(248, 113, 113, 0.45);
-  border-radius: 10px;
-  background: rgba(248, 113, 113, 0.06);
-}
-.line.warn {
-  color: var(--warn);
-  font-size: 12.5px;
-  padding: 9px 13px;
-  border: 1px solid rgba(251, 191, 36, 0.35);
-  border-radius: 10px;
-  background: rgba(251, 191, 36, 0.06);
-}
-.line.tool {
-  border-color: rgba(125, 211, 252, 0.25);
-  color: #9fc4e0;
-  background: rgba(125, 211, 252, 0.05);
-  font-family: Consolas, monospace;
-  font-size: 12.5px;
-  padding: 9px 13px;
-  border-radius: 10px;
-  border-width: 1px;
-  border-style: dashed;
-}
-.line.tool pre {
-  white-space: pre-wrap;
-  margin: 8px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.thinking {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--faint);
-  font-size: 13px;
-}
-.dot2 {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: blink 1.2s infinite;
-}
-.dot2:nth-child(2) {
-  animation-delay: 0.2s;
-}
-.dot2:nth-child(3) {
-  animation-delay: 0.4s;
-}
-@keyframes blink {
-  0%,
-  100% {
-    opacity: 0.2;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-</style>

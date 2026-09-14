@@ -5,7 +5,7 @@
  *   - 持有 GameState 实例与对话历史
  *   - 跑回合（含重入保护、中止）
  *   - 把 agent 循环抛出的事件转成界面用的消息流
- *   - 导出 / 导入 / 重开
+ *   - doExport / doImport / 重开
  *
  * 为什么用 shallowRef 包 GameState：
  *   GameState 内部是普通对象 + getter（日历、时间标签都是 getter），
@@ -50,31 +50,31 @@ function loadAtStartup(): { state: GameState; error: string | null } {
 
 const startupResult = loadAtStartup()
 const state = shallowRef(startupResult.state)
-const 消息流 = ref<StoryLine[]>([])
-const 对话历史 = ref<ChatMessage[]>([])
-const 正在跑 = ref(false)
-const 调试模式 = ref(false)
+const messages = ref<StoryLine[]>([])
+const history = ref<ChatMessage[]>([])
+const running = ref(false)
+const debugMode = ref(false)
 let controller: AbortController | null = null
 
 export function useGame() {
   // ---------- 只读派生 ----------
-  const 时间标签 = computed(() => (state.value, state.value.timeLabel))
-  const 时间线 = computed(() => (state.value, state.value.data.timeline.slice(-4)))
-  const 场景 = computed(() => (state.value, state.value.data.scene))
-  const 回合数 = computed(() => (state.value, state.value.turn))
+  const timeLabel = computed(() => (state.value, state.value.timeLabel))
+  const timeline = computed(() => (state.value, state.value.data.timeline.slice(-4)))
+  const scene = computed(() => (state.value, state.value.data.scene))
+  const turn = computed(() => (state.value, state.value.turn))
 
-  // ---------- 消息流 ----------
+  // ---------- messages ----------
   function append(kind: StoryLine['kind'], text: string, extra: Partial<StoryLine> = {}) {
-    消息流.value.push(makeLine(kind, text, extra))
+    messages.value.push(makeLine(kind, text, extra))
   }
 
   function clearMessages() {
-    消息流.value = []
+    messages.value = []
   }
 
   /** 刷新页面后从日志恢复叙事与行动（system 类不恢复，避免重复提示） */
-  function restoreLog(条数 = 20) {
-    for (const entry of state.value.data.log.slice(-条数)) {
+  function restoreLog(limit = 20) {
+    for (const entry of state.value.data.log.slice(-limit)) {
       if (entry.kind !== 'narration' && entry.kind !== 'action') continue
       append(entry.kind, entry.text)
     }
@@ -84,11 +84,11 @@ export function useGame() {
 
   /**
    * ⚠️ 重入保护：一次只能跑一个回合。
-   * 没有它的时候，模型正在写故事时点「重来」/「导入」，会同时跑两个回合 ——
+   * 没有它的时候，模型正在写故事时点「resetAll」/「doImport」，会同时跑两个回合 ——
    * 旧回合的 addLog/advanceTime/save 全都作用在**新游戏**上，
    * 于是新存档里混进旧剧情、回合数对不上。
    */
-  function 中止当前回合() {
+  function abortRunningTurn() {
     if (!controller) return
     controller.abort()
     controller = null
@@ -100,9 +100,9 @@ export function useGame() {
         append('narration', evt.text)
         break
       case 'raw':
-        if (调试模式.value) {
-          const 调用数 = evt.reply.toolCalls.length
-          append('tool', `🔍 模型原始回复（${调用数} 次工具调用）`, {
+        if (debugMode.value) {
+          const callCount = evt.reply.toolCalls.length
+          append('tool', `🔍 模型原始回复（${callCount} 次工具调用）`, {
             raw: JSON.stringify(evt.reply.raw, null, 2),
           })
         }
@@ -122,20 +122,20 @@ export function useGame() {
     }
   }
 
-  async function 执行回合(action?: string): Promise<void> {
-    if (正在跑.value) return
-    正在跑.value = true
+  async function runTurnAction(action?: string): Promise<void> {
+    if (running.value) return
+    running.value = true
     if (action) append('action', action)
 
     controller = new AbortController()
     try {
       const result = await runTurn(state.value, {
         action,
-        history: 对话历史.value,
+        history: history.value,
         signal: controller.signal,
         onEvent: handleEvent,
       })
-      对话历史.value = result.history
+      history.value = result.history
       if (!result.text) append('system', '（模型没有返回文字，可能只调用了工具）')
     } catch (err) {
       const e = err as Error
@@ -147,7 +147,7 @@ export function useGame() {
       throw err // 交给调用方决定要不要提示
     } finally {
       controller = null
-      正在跑.value = false
+      running.value = false
       // ⚠️ 必须手动触发：GameState 是普通对象，改动不会自动被 Vue 感知
       triggerRef(state)
     }
@@ -155,44 +155,44 @@ export function useGame() {
 
   // ---------- 换 state 的三个入口 ----------
 
-  function 重新开始() {
-    中止当前回合()
+  function resetGame() {
+    abortRunningTurn()
     state.value.reset()
-    对话历史.value = []
+    history.value = []
     triggerRef(state)
     clearMessages()
   }
 
-  function 导入存档(json: string) {
-    中止当前回合()
+  function importSave(json: string) {
+    abortRunningTurn()
     state.value.import(json)
-    对话历史.value = []
+    history.value = []
     triggerRef(state)
     clearMessages()
   }
 
-  function 导出存档(): string {
+  function exportSave(): string {
     return state.value.export()
   }
 
   return {
     /** 启动时读档失败的说明；null = 正常 */
-    启动错误: startupResult.error,
+    startupError: startupResult.error,
     // 状态
-    时间标签,
-    时间线,
-    场景,
-    回合数,
-    消息流,
-    正在跑,
-    调试模式,
+    timeLabel,
+    timeline,
+    scene,
+    turn,
+    messages,
+    running,
+    debugMode,
     // 动作
     append,
     restoreLog,
-    执行回合,
-    重新开始,
-    导入存档,
-    导出存档,
+    runTurnAction,
+    resetGame,
+    importSave,
+    exportSave,
   }
 }
 

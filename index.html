@@ -8,6 +8,17 @@
   </head>
   <body>
     <div id="app"></div>
+    <script>
+      // 在 Vue 挂载前定好主题，否则会「先亮一下再变暗」。
+      // 逻辑必须与 src/composables/useTheme.ts 一致（内联脚本无法 import）
+      ;(function () {
+        var stored = localStorage.getItem('tavernGame.theme') || 'system'
+        var dark =
+          stored === 'dark' ||
+          (stored === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        if (dark) document.documentElement.classList.add('dark')
+      })()
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

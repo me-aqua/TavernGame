@@ -16,89 +16,52 @@ defineProps<{
 
 const emit = defineEmits<{ submit: [text: string] }>()
 
-const 文本 = ref('')
-const 输入框 = ref<HTMLTextAreaElement | null>(null)
+const draft = ref('')
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
 
 function autoResize() {
-  const el = 输入框.value
+  const el = textareaRef.value
   if (!el) return
   el.style.height = 'auto'
-  el.style.height = `${Math.min(el.scrollHeight, 130)}px`
+  el.style.height = `${Math.min(el.scrollHeight, 160)}px`
 }
 
-watch(文本, () => void nextTick(autoResize))
+watch(draft, () => void nextTick(autoResize))
 
-function 提交() {
-  const t = 文本.value.trim()
+function submit() {
+  const t = draft.value.trim()
   if (!t) return
-  文本.value = ''
-  // 有意不等待：高度调整是纯视觉的，下一帧做就行
+  draft.value = ''
   void nextTick(autoResize)
   emit('submit', t)
 }
 </script>
 
 <template>
-  <div class="composer">
-    <div class="composer-row">
+  <div class="shrink-0 border-t border-line bg-surface px-4 py-3">
+    <div class="composer-row flex items-end gap-2.5">
       <textarea
-        ref="输入框"
-        v-model="文本"
+        ref="textareaRef"
+        v-model="draft"
         rows="1"
         placeholder="你想做什么？"
         :disabled="disabled"
-        @keydown.enter.exact.prevent="提交"
-      ></textarea>
-      <button class="primary" :disabled="disabled" @click="提交">行动</button>
+        class="max-h-40 min-h-[42px] flex-1 resize-none rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-[14px] leading-relaxed text-text outline-none transition-colors placeholder:text-faint focus:border-accent-line disabled:opacity-50"
+        @keydown.enter.exact.prevent="submit"
+      />
+      <button
+        class="rounded-xl bg-accent px-5 py-2.5 text-[14px] font-semibold text-page transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+        :disabled="disabled"
+        @click="submit"
+      >
+        行动
+      </button>
     </div>
-    <div class="hint">
-      <template v-if="!configured"> 还没配置 API key —— 点右上角 <b>⚙ 设置</b> 填一下就能开始 </template>
+    <p class="mt-2 text-[11px] text-faint">
+      <template v-if="!configured">
+        还没配置 API key —— 点右上角 <b class="text-text">⚙ 设置</b> 填一下就能开始
+      </template>
       <template v-else>Enter 发送 · Shift+Enter 换行</template>
-    </div>
+    </p>
   </div>
 </template>
-
-<style scoped>
-.composer {
-  flex-shrink: 0;
-  padding: 11px 14px 14px;
-  border-top: 1px solid var(--border);
-  background: var(--panel);
-}
-.composer-row {
-  display: flex;
-  gap: 9px;
-  align-items: flex-end;
-}
-textarea {
-  flex: 1;
-  resize: none;
-  min-height: 42px;
-  max-height: 130px;
-  padding: 11px 13px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--panel-2);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.5;
-  outline: none;
-  transition: border-color 0.2s;
-}
-textarea:focus {
-  border-color: rgba(110, 231, 183, 0.5);
-}
-textarea::placeholder {
-  color: var(--faint);
-}
-.hint {
-  margin-top: 7px;
-  font-size: 11px;
-  color: var(--faint);
-  min-height: 14px;
-}
-b {
-  color: var(--text);
-}
-</style>

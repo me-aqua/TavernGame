@@ -1,65 +1,67 @@
 /**
- * 把 prompts/*.md 编码成 prompts/*.md.b64，供代码在**构建期**导入。
+ * Encodes prompts/*.md into prompts/*.md.b64 for build-time import.
  *
- * 为什么编码而不是直接内联 Markdown 原文：
- *   1. 产物里不再是可读明文（前端做不到加密，但至少不是一眼可见）
- *   2. **彻底避开转义坑** —— 提示词里有大量换行、引号、反引号、
- *      Markdown 围栏（```）与中文字符；直接内联进 JS 字符串时，
- *      任何一个反引号都可能截断模板字面量（本项目踩过三次）
- *   3. 解码只发生一次（模块加载时），无运行时开销
+ * Why encode instead of inlining raw Markdown:
+ *   1. The bundle no longer contains readable plaintext (client-side code can
+ *      never be truly secret, but it should not be trivially greppable)
+ *   2. **It sidesteps escaping entirely** — prompts contain newlines, quotes,
+ *      backticks, Markdown fences and Chinese text; inlining them into JS
+ *      string literals risks a stray backtick truncating the literal
+ *      (this project has been bitten by that three times)
+ *   3. Decoding happens once at module load; there is no runtime cost
  *
- * ⚠️ 这是**编码不是加密**：base64 可逆，客户端字符串永远拿得到。
- *    真正要保密的东西（API key）绝不能进产物。
+ * ⚠️ This is **encoding, not encryption**: base64 is reversible and client-side
+ *    strings are always obtainable. Never put anything truly secret in a bundle.
  *
- * 用法：
- *   node scripts/encode-prompts.mjs         # 生成/更新
- *   node scripts/encode-prompts.mjs --check # 只校验是否同步（钩子与测试用）
+ * Usage:
+ *   node scripts/encode-prompts.mjs         # write/update
+ *   node scripts/encode-prompts.mjs --check # verify in sync (hook and tests)
  */
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const 目录 = 'prompts'
-const 只校验 = process.argv.includes('--check')
+const DIR = 'prompts'
+const checkOnly = process.argv.includes('--check')
 
-/** 生成一个 .b64 文件的内容（带生成标记，提醒人别手改） */
-function 生成(md路径, md内容) {
-  const b64 = Buffer.from(md内容, 'utf8').toString('base64')
+/** Build one .b64 file body (with a generated-by header) */
+function render(mdPath, mdText) {
+  const b64 = Buffer.from(mdText, 'utf8').toString('base64')
   return [
-    '// ⚠️ 自动生成，请勿手改 —— 源文件是 ' + md路径 + '，改完跑 npm run prompts:encode',
+    '// ⚠️ 自动生成，请勿手改 —— 源文件是 ' + mdPath + '，改完跑 npm run prompts:encode',
     'export default ' + JSON.stringify(b64),
     '',
   ].join('\n')
 }
 
-const md文件 = readdirSync(目录).filter((f) => f.endsWith('.md') && f !== 'README.md')
-let 不同步 = 0
+const mdFiles = readdirSync(DIR).filter((f) => f.endsWith('.md') && f !== 'README.md')
+let outOfSync = 0
 
-for (const f of md文件) {
-  const md路径 = join(目录, f)
-  const b64路径 = md路径 + '.b64'
-  const 期望 = 生成(md路径, readFileSync(md路径, 'utf8'))
+for (const file of mdFiles) {
+  const mdPath = join(DIR, file)
+  const b64Path = mdPath + '.b64'
+  const expected = render(mdPath, readFileSync(mdPath, 'utf8'))
 
-  if (只校验) {
-    let 现有 = ''
+  if (checkOnly) {
+    let current = ''
     try {
-      现有 = readFileSync(b64路径, 'utf8')
+      current = readFileSync(b64Path, 'utf8')
     } catch {
-      // 文件还不存在 → 视作不同步
+      // file does not exist yet → treated as out of sync
     }
-    if (现有 !== 期望) {
-      console.error(`✖ ${b64路径} 与 ${md路径} 不同步`)
-      不同步 += 1
+    if (current !== expected) {
+      console.error(`✖ ${b64Path} 与 ${mdPath} 不同步`)
+      outOfSync += 1
     }
   } else {
-    writeFileSync(b64路径, 期望)
-    console.log(`✓ ${b64路径}`)
+    writeFileSync(b64Path, expected)
+    console.log(`✓ ${b64Path}`)
   }
 }
 
-if (只校验) {
-  if (不同步) {
+if (checkOnly) {
+  if (outOfSync) {
     console.error('\n  改过 prompts/*.md 之后要跑：npm run prompts:encode\n')
     process.exit(1)
   }
-  console.log(`✓ 提示词编码与源文件同步（${md文件.length} 个）`)
+  console.log(`✓ 提示词编码与源文件同步（${mdFiles.length} 个）`)
 }

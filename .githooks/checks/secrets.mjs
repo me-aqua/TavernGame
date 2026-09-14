@@ -1,65 +1,78 @@
 /**
- * 密钥扫描（提交前）。
+ * Secret scan (runs on pre-commit).
  *
- * 为什么必须自动化：这个项目是**纯前端、玩家自带 API key**，
- * 所以仓库里出现真 key 的概率不低（调试时顺手粘进文件、写进文档举例）。
- * 一旦提交上去，就算下一秒删掉，历史里也还在（参见 v0.5.3 删掉 AGENIA.md 的教训）。
+ * Why this must be automated: the project is **client-side with the player's own
+ * API key**, so a real key can easily end up in the repo (pasted while debugging,
+ * used as an example in docs). Once committed it stays in history — even if
+ * deleted the next second (see the v0.5.3 AGENIA.md lesson).
  *
- * 判据基于**已知格式前缀**，不是猜：
- *   sk-…             OpenAI / DeepSeek / 硅基流动等
+ * Detection is based on **known token formats**, not guesswork:
+ *   sk-…             OpenAI / DeepSeek / SiliconFlow …
  *   sk-or-v1-…       OpenRouter
  *   sk-ant-…         Anthropic
- *   ghp_ / gho_ / ghs_ / github_pat_  GitHub
+ *   ghp_ / gho_ / ghs_ / github_pat_   GitHub
  *   AIza…            Google
  *   AKIA…            AWS
- *   私钥头            -----BEGIN … PRIVATE KEY-----
- *   长随机串 + key 语义变量名
+ *   private key headers
+ *   long random string assigned to a key-ish variable name
  *
- * 注意：本文件里出现的前缀都是**规则**，不是真 key；扫描时会跳过自己。
+ * Note: the prefixes above are **rules**, not real keys; this file skips itself.
  */
+import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
-const 规则 = [
-  { 名: 'OpenAI / DeepSeek 风格', re: /\bsk-[A-Za-z0-9_-]{20,}/, 线索: 'sk-' },
-  { 名: 'OpenRouter', re: /\bsk-or-v1-[a-f0-9]{32,}/, 线索: 'sk-or-v1-' },
-  { 名: 'Anthropic', re: /\bsk-ant-[A-Za-z0-9_-]{20,}/, 线索: 'sk-ant-' },
-  { 名: 'GitHub token', re: /\b(ghp|gho|ghs|ghr)_[A-Za-z0-9]{30,}/, 线索: 'gh*_' },
-  { 名: 'GitHub 细粒度 token', re: /\bgithub_pat_[A-Za-z0-9_]{30,}/, 线索: 'github_pat_' },
-  { 名: 'Google API key', re: /\bAIza[A-Za-z0-9_-]{30,}/, 线索: 'AIza' },
-  { 名: 'AWS access key', re: /\bAKIA[0-9A-Z]{16}\b/, 线索: 'AKIA' },
-  { 名: '私钥文件内容', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/, 线索: 'PRIVATE KEY' },
+// First make sure the .md sources and their .b64 encodings are in sync —
+// otherwise the bundle would ship stale prompts (the hardest kind of bug to notice)
+try {
+  execSync('npm run -s prompts:check', { stdio: 'pipe' })
+} catch (err) {
+  const out = Buffer.isBuffer(err.stdout) ? err.stdout.toString('utf8') : String(err.stdout ?? '')
+  console.error('\n✖ ' + (out.trim() || 'prompts/*.b64 is out of sync with prompts/*.md'))
+  console.error('  fix: npm run prompts:encode\n')
+  process.exit(1)
+}
+
+const RULES = [
+  { label: 'OpenAI / DeepSeek 风格', re: /\bsk-[A-Za-z0-9_-]{20,}/, hint: 'sk-' },
+  { label: 'OpenRouter', re: /\bsk-or-v1-[a-f0-9]{32,}/, hint: 'sk-or-v1-' },
+  { label: 'Anthropic', re: /\bsk-ant-[A-Za-z0-9_-]{20,}/, hint: 'sk-ant-' },
+  { label: 'GitHub token', re: /\b(ghp|gho|ghs|ghr)_[A-Za-z0-9]{30,}/, hint: 'gh*_' },
+  { label: 'GitHub 细粒度 token', re: /\bgithub_pat_[A-Za-z0-9_]{30,}/, hint: 'github_pat_' },
+  { label: 'Google API key', re: /\bAIza[A-Za-z0-9_-]{30,}/, hint: 'AIza' },
+  { label: 'AWS access key', re: /\bAKIA[0-9A-Z]{16}\b/, hint: 'AKIA' },
+  { label: '私钥文件内容', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/, hint: 'PRIVATE KEY' },
   {
-    名: '带赋值的疑似密钥',
+    label: '带赋值的疑似密钥',
     re: /(api[_-]?key|secret|token|password)\s*[:=]\s*['"][A-Za-z0-9_\-]{24,}['"]/i,
-    线索: '赋值',
+    hint: 'assignment',
   },
 ]
 
 const files = process.argv.slice(2)
-const 命中 = []
+const hits = []
 
-for (const f of files) {
-  if (f.endsWith('secrets.mjs')) continue // 本文件只有规则
-  let 内容
+for (const file of files) {
+  if (file.endsWith('secrets.mjs')) continue // this file contains rules only
+  let text
   try {
-    内容 = readFileSync(f, 'utf8')
+    text = readFileSync(file, 'utf8')
   } catch {
-    // 成功路径：文件已删或读到一半被改（git 暂存场景常见），跳过即可
+    // success path: file already deleted or changed mid-read (common with git staging)
     continue
   }
-  内容.split('\n').forEach((行, i) => {
-    for (const r of 规则) {
-      if (r.re.test(行)) {
-        // 只报位置与类型，**不回显内容**（免得把密钥打到日志/终端里）
-        命中.push(`${f}:${i + 1} —— 疑似 ${r.名}（命中特征：${r.线索}）`)
+  text.split('\n').forEach((line, i) => {
+    for (const rule of RULES) {
+      if (rule.re.test(line)) {
+        // Report location and kind only — never echo the value into logs/terminal
+        hits.push(`${file}:${i + 1} —— 疑似 ${rule.label}（命中特征：${rule.hint}）`)
       }
     }
   })
 }
 
-if (命中.length) {
+if (hits.length) {
   console.error('\n✖ 疑似密钥，已阻止提交：\n')
-  for (const h of 命中) console.error('  ' + h)
+  for (const h of hits) console.error('  ' + h)
   console.error('\n  ⚠️ 密钥一旦提交，历史里就留住了 —— 请先撤销改动，再重置该密钥。')
   console.error('  误报（例如文档里举例）时，把示例写成 sk-xxxx 这类明显占位。\n')
   process.exit(1)

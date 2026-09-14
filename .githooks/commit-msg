@@ -1,18 +1,25 @@
 #!/usr/bin/env node
-// 提交信息检查：约定式前缀。
-// 这不是形式主义 —— CHANGELOG 与语义化版本号都依赖这个前缀（见 doc/CHANGELOG.md）。
+// Commit message check: conventional-commit prefix.
+// Not formalism — CHANGELOG and semantic versioning depend on that prefix
+// (see doc/CHANGELOG.md).
 import { execSync } from 'node:child_process'
 
-const 文件 = process.argv[2]
-if (!文件) process.exit(0)
+const messageFile = process.argv[2]
+if (!messageFile) process.exit(0)
 
 if (process.env.SKIP_DISCIPLINE === '1') process.exit(0)
 
 try {
-  execSync(`npx commitlint --edit "${文件}"`, { stdio: 'pipe' })
+  execSync(`npx commitlint --edit "${messageFile}"`, { stdio: 'pipe' })
 } catch (err) {
   console.error('\n✖ 提交信息不符合约定式规范：\n')
-  console.error(String(err.stdout || err.message).split('\n').slice(0, 20).map((l) => '  ' + l).join('\n'))
+  console.error(
+    String(err.stdout || err.message)
+      .split('\n')
+      .slice(0, 20)
+      .map((l) => '  ' + l)
+      .join('\n'),
+  )
   console.error('\n  格式：<类型>: <说明>')
   console.error('  类型：feat / fix / docs / style / refactor / test / chore / perf / build / ci / revert')
   console.error('  例：feat: 支持自定义历法\n')
