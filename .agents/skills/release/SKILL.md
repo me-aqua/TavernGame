@@ -43,6 +43,10 @@ push 到 `main` → `npm ci` → `npm run build` → 发布 `dist/`。
 两个协作者都在它上面开分支、发 PR。默认分支是 **`main`**（Pages 也由它的 Actions 触发）。
 
 > **权限现状**（2026-09-14）：协作者 `Alice-space` 是 **Write** —— 可直接在本仓库建分支并推送，**不需要 fork**；但 `main` **没有开保护**（能直推 main），要不要加保护是取舍：加了之后 me-aqua 自己也不能直推。
+>
+> **分支保护只有仓库管理员（me-aqua）能开**，实测 `Alice-space` 的 `permissions` 是 `{admin:false, push:true}`，
+> 调 `GET /repos/{owner}/{repo}/branches/main/protection` 返回 404 —— 不是「没开」的 404 就是「权限不够」的 404，两者都指向同一件事：要开得由 me-aqua 动手。
+> 要开的话，必需检查选 **UI checks / checks**（`.github/workflows/ui.yml` 里 job 的 `name`），它得先在 GitHub 上跑过一次才会出现在候选列表里。
 
 身份是**每个人各自的**，用 `--local` 设在仓库里，不动全局配置：
 
