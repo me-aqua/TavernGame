@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 状态浮层：时间 / 地点 / 回合，加最近一次「值得记」的时间跳跃。
+ * 状态浮层：时间 / 地点 / 回合（浮在故事上），加最近一次「值得记」的时间跳跃。
  *
  * 它是**浮在故事上的小块**，不是占一列的侧栏 —— 文字才是主线（用户明确要求：
  * 「右侧边栏的状态也要缩小，最好也悬浮起来」）。DESIGN.md 决定 #15（显示层由卡驱动）
@@ -26,7 +26,7 @@ defineProps<{
     <p class="time-display truncate text-[12.5px] font-semibold text-accent">{{ timeLabel }}</p>
     <p class="scene-name mt-0.5 truncate text-muted">
       {{ scene.name }}
-      <span class="text-faint"> · {{ t('sidebar.turn') }} </span>
+      <span class="text-faint">{{ t('sidebar.separator') }}{{ t('sidebar.turn') }}</span>
       <span data-turn class="font-semibold text-accent tabular-nums">{{ turn }}</span>
     </p>
     <!-- 时间线只渲染**起点**（from）不渲染终点：这是有意设计（用户明确要求），
@@ -34,7 +34,9 @@ defineProps<{
          ⚠️ 独立审查员曾把这条报成缺陷，已驳回。 -->
     <p v-if="timeline.length" class="timeline mt-1 truncate text-faint">
       {{ t('sidebar.timelineArrow') }} {{ timeline.at(-1)?.from }}
-      <span v-if="timeline.at(-1)?.reason" class="opacity-70"> · {{ timeline.at(-1)?.reason }}</span>
+      <span v-if="timeline.at(-1)?.reason" class="opacity-70"
+        >{{ t('sidebar.separator') }}{{ timeline.at(-1)?.reason }}</span
+      >
     </p>
   </aside>
 </template>

@@ -50,6 +50,7 @@
     "time": "Time",
     "place": "Place",
     "turn": "Turn",
+    "separator": " · ",
     "turnCount": "Elapsed",
     "timelineArrow": "↑"
   },

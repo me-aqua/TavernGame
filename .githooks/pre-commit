@@ -5,12 +5,14 @@
 import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
+const git = (cmd) => execSync('git ' + cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+
+// 跳过检查时也要提醒视觉检验 —— 它不是检查，是「别忘了看图」
 if (process.env.SKIP_DISCIPLINE === '1') {
   console.log('⚠ SKIP_DISCIPLINE=1 —— 纪律检查已跳过')
+  remindVisualCheck(git('diff --cached --name-only --diff-filter=ACM').split('\n').filter(Boolean))
   process.exit(0)
 }
-
-const git = (cmd) => execSync('git ' + cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 
 /**
  * Read the output of a failed execSync as text.
@@ -23,6 +25,33 @@ const git = (cmd) => execSync('git ' + cmd, { encoding: 'utf8', stdio: ['ignore'
 const readOutput = (err) => {
   const decode = (v) => (Buffer.isBuffer(v) ? v.toString('utf8') : String(v ?? ''))
   return (decode(err.stdout) || decode(err.stderr) || decode(err.message)).trim()
+}
+
+/**
+ * 视觉提醒（**不阻塞**，只是提醒）。
+ *
+ * 为什么要有它：单元测试与结构探针都只能证明「没坏」，证明不了「看着对」——
+ * 遮挡、拥挤、比例失衡这些只有看图才发现。改界面就必须真的看一眼截图。
+ * 用户 2026-09-14 明确要求：每次提交都提醒 agent 做这一步。
+ */
+const UI_TOUCHED = /^(src\/App\.vue|src\/components\/|src\/styles\/|src\/locales\/)/
+function remindVisualCheck(files) {
+  const uiFiles = files.filter((f) => UI_TOUCHED.test(f))
+  if (!uiFiles.length) {
+    console.log('👀 视觉检验：这次没动界面文件；若你其实改过 UI，记得 npm run visual')
+    return
+  }
+  console.log('')
+  console.log('👀 视觉检验（这次动了界面，别只看检查通过）：')
+  console.log('   npm run visual     # 10 状态 × 5 屏：渲染 + 遮挡/溢出/点按目标检查')
+  console.log('   npm run stories    # 组件故事 × 浅深 × 中英')
+  console.log('   然后**真的看图**：artifacts/screenshots/index.html 与 artifacts/stories/index.html')
+  console.log('   检查通过 ≠ 好看：结构判据只保证没溢出、没被压住、点得到。')
+  console.log('   有意改外观时：npx playwright test e2e/visual.spec.ts --update-snapshots')
+  console.log(
+    `   （界面文件 ${uiFiles.length} 个：${uiFiles.slice(0, 3).join(', ')}${uiFiles.length > 3 ? ' …' : ''}）`,
+  )
+  console.log('')
 }
 
 const problems = []
@@ -366,3 +395,4 @@ if (problems.length) {
   process.exit(1)
 }
 console.log(`✓ 纪律检查通过（${staged.length} 个文件）`)
+remindVisualCheck(allStaged)

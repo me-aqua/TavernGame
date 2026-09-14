@@ -50,6 +50,7 @@
     "time": "时间",
     "place": "地点",
     "turn": "回合",
+    "separator": " · ",
     "turnCount": "已进行",
     "timelineArrow": "↑"
   },
