@@ -4,8 +4,8 @@
  * 重点：
  *   - abortRunningTurn 真正中止一个在飞的回合（重入保护的核心）
  *   - 取消路径（AbortError）与失败路径的区分
- *   - handleEvent 的 tool / toolResult / warn / raw 分支
- *   - 回合没产出文字时的提示分支
+ *   - handleEvent 的 tool / toolResult / warn / raw 分支（调试痕迹，不是故事）
+ *   - 回合没产出文字、存档写不进去时的通知分支
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useGame } from '../src/stores/game'
@@ -47,7 +47,7 @@ describe('aborting an in-flight turn (store-internal abortRunningTurn)', () => {
    * abortRunningTurn 不是公开 API，但**取消路径是可测的**：
    * resetGame() 与 importSave() 都会先调它。回合在飞时调 resetGame 即可。
    */
-  it('resetting while a turn is running takes the cancelled branch and clears running', async () => {
+  it('resetting while a turn is running takes the cancelled branch and clears busy', async () => {
     const original = globalThis.fetch
     globalThis.fetch = (async (_input: unknown, init?: RequestInit) =>
       new Promise<Response>((_resolve, reject) => {
@@ -59,12 +59,12 @@ describe('aborting an in-flight turn (store-internal abortRunningTurn)', () => {
     const pending = g.runTurnAction(WAIT_ACTION)
     // 等 store 建好 controller 并进入 fetch
     await new Promise((r) => setTimeout(r, 20))
-    expect(g.running.value).toBe(true)
+    expect(g.busy.value).toBe(true)
 
     g.resetGame() // 内部 abortRunningTurn() → controller.abort()
 
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
-    expect(g.running.value).toBe(false)
+    expect(g.busy.value).toBe(false)
 
     globalThis.fetch = original
   })
@@ -72,32 +72,44 @@ describe('aborting an in-flight turn (store-internal abortRunningTurn)', () => {
   it('aborting with no turn running is a safe no-op', () => {
     const g = useGame()
     expect(() => g.resetGame()).not.toThrow()
-    expect(g.running.value).toBe(false)
+    expect(g.busy.value).toBe(false)
   })
 })
 
-describe('handleEvent - each event branch', () => {
-  it('a tool call and its result each append one line (tool / toolResult branches)', async () => {
-    fake = installFakeLlm([{ content: WAIT_REPLY, toolCalls: ADVANCE_STEP_REPLY.toolCalls }, DAWN_REPLY])
+describe('handleEvent - each trace branch (debug only)', () => {
+  it('a tool call and its result each record one trace line, and never the story', async () => {
     const g = useGame()
+    g.debugMode.value = true
+    fake = installFakeLlm([{ content: WAIT_REPLY, toolCalls: ADVANCE_STEP_REPLY.toolCalls }, DAWN_REPLY])
     await g.runTurnAction(WAIT_ACTION)
 
-    const texts = g.messages.value.map((l) => l.text)
+    const texts = g.trace.value.map((l) => l.text)
     expect(texts).toContain(t('toolbar.toolCall', { tool: TOOL_NAME, args: TOOL_ARGS }))
     const resultPrefix = t('store.toolResultLine', { result: '' })
     const advanceHead = t('tools.advanceResult', { before: '', after: '' }).split('\n')[0].trim()
     expect(texts.some((line) => line.startsWith(resultPrefix) && line.includes(advanceHead))).toBe(true)
+
+    // 故事区只有故事：工具调用是 agent 信息，玩家看不到
+    const kinds = g.lines.value.map((l) => l.kind)
+    expect(kinds[0]).toBe('action')
+    expect(kinds.every((kind) => kind === 'action' || kind === 'narration')).toBe(true)
+    expect(g.lines.value.map((l) => l.text)).not.toContain(
+      t('toolbar.toolCall', { tool: TOOL_NAME, args: TOOL_ARGS }),
+    )
+    g.debugMode.value = false
   })
 
-  it('exhausting the step budget shows up as a warn line (warn branch)', async () => {
-    fake = installFakeLlm([...STEP_LIMIT_REPLIES, PATCHED_REPLY])
+  it('exhausting the step budget records a warn trace line', async () => {
     const g = useGame()
+    g.debugMode.value = true
+    fake = installFakeLlm([...STEP_LIMIT_REPLIES, PATCHED_REPLY])
     await g.runTurnAction(KEEP_WAITING_ACTION)
 
-    const warns = g.messages.value.filter((l) => l.kind === 'warn')
+    const warns = g.trace.value.filter((l) => l.kind === 'warn')
     expect(warns.length).toBeGreaterThan(0)
     const stepLimit = t('store.warnLine', { message: t('agent.stepLimit', { max: MAX_STEPS }) })
     expect(warns.map((w) => w.text)).toContain(stepLimit)
+    g.debugMode.value = false
   })
 
   it('with debug mode on, the raw branch records the response JSON', async () => {
@@ -109,7 +121,7 @@ describe('handleEvent - each event branch', () => {
     fake.restore()
     fake = null
 
-    const rawLines = g.messages.value.filter((l) => l.raw !== undefined)
+    const rawLines = g.trace.value.filter((l) => l.raw !== undefined)
     expect(rawLines).toHaveLength(1)
     // raw 里存的是协议响应（JSON 文本）
     expect(() => JSON.parse(rawLines[0].raw ?? '')).not.toThrow()
@@ -118,14 +130,13 @@ describe('handleEvent - each event branch', () => {
 })
 
 describe('a notice when the turn produced nothing', () => {
-  it('a system notice is appended when the model wrote nothing (!result.text branch)', async () => {
+  it('a notice is shown when the model wrote nothing (!result.text branch)', async () => {
     // 五步全调工具、补写也空 → result.text 为空
     fake = installFakeLlm([...STEP_LIMIT_REPLIES, BLANK_REPLY])
     const g = useGame()
     await g.runTurnAction(IDLE_ACTION)
 
-    const texts = g.messages.value.map((l) => l.text)
-    expect(texts).toContain(t('store.noText'))
+    expect(g.status.value).toEqual({ kind: 'info', text: t('store.noText') })
   })
 })
 
@@ -153,7 +164,7 @@ describe('a save that fails must be announced (the store owns persistence)', () 
    * 回合成功后 store 调 save()，返回 false 时必须让玩家看见 ——
    * 静默失败会让玩家以为进度已保存，刷新后才发现没了。
    */
-  it('a failed save appends a warning line to the transcript', async () => {
+  it('a failed save shows an error notice', async () => {
     fake = installFakeLlm([DAWN_REPLY])
     const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceededError')
@@ -162,18 +173,16 @@ describe('a save that fails must be announced (the store owns persistence)', () 
     const g = useGame()
     await g.runTurnAction(WAIT_ACTION)
 
-    const warns = g.messages.value.filter((l) => l.kind === 'warn')
-    expect(warns.map((w) => w.text)).toContain(t('agent.saveFailed'))
+    expect(g.status.value).toEqual({ kind: 'error', text: t('agent.saveFailed') })
 
     spy.mockRestore()
   })
 
-  it('a successful save does not produce that warning', async () => {
+  it('a successful save leaves no notice', async () => {
     fake = installFakeLlm([DAWN_REPLY])
     const g = useGame()
     await g.runTurnAction(WAIT_ACTION)
 
-    const warns = g.messages.value.filter((l) => l.kind === 'warn')
-    expect(warns.map((w) => w.text)).not.toContain(t('agent.saveFailed'))
+    expect(g.status.value).toBeNull()
   })
 })

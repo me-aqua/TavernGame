@@ -3,7 +3,7 @@
     "statusUnconfigured": "Not configured",
     "debugOn": "🔧 Debug mode on — raw model output will be shown",
     "debugOff": "🔧 Debug mode off",
-    "generatingOpening": "(Generating the opening scene…)",
+    "generatingOpening": "Generating the opening scene…",
     "openingFailed": "Failed to generate the opening: {message}",
     "saveFileName": "taverngame-save-{date}.json",
     "saveExported": "Save exported to a file",
@@ -16,6 +16,8 @@
     "settingsSaved": "Settings saved ✓"
   },
   "header": {
+    "debug": "debug",
+    "debugTitle": "Debug mode: on by default for local development; the story area also shows model I/O and tool calls",
     "themeSystem": "Theme: follow system (click to switch)",
     "themeLight": "Theme: light (click to switch)",
     "themeDark": "Theme: dark (click to switch)",

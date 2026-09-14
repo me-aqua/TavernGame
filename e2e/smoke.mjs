@@ -182,6 +182,11 @@ const firstPaint = await evaluate(`(() => {
     status: q('header span:nth-child(2) span:last-child')?.textContent ?? null,
     buttons: [...document.querySelectorAll('header button')].map((b) => b.textContent.trim()),
     storyLines: document.querySelectorAll('.line').length,
+    // Notices and in-progress hints are a computed status row, never story lines
+    notice: document.querySelector('[data-status]')?.textContent?.trim() ?? null,
+    noticeKind: document.querySelector('[data-status]')?.getAttribute('data-status') ?? null,
+    // localhost is a dev host, so the header must show the debug badge
+    debugBadge: document.querySelector('[data-debug]')?.textContent?.trim() ?? null,
   }
 })()`)
 
@@ -205,7 +210,16 @@ check(
   firstPaint.status,
 )
 check('all header buttons are present', firstPaint.buttons.length === 6, JSON.stringify(firstPaint.buttons))
-check('first paint shows a welcome line', firstPaint.storyLines >= 1, `${firstPaint.storyLines} lines`)
+check(
+  'an unconfigured first paint shows the welcome notice (not a story line)',
+  firstPaint.storyLines === 0 && firstPaint.notice === (await T('app.welcome')),
+  `${firstPaint.storyLines} lines, notice=${firstPaint.notice}`,
+)
+check(
+  'localhost turns debug mode on (badge shown)',
+  firstPaint.debugBadge === (await T('header.debug')),
+  String(firstPaint.debugBadge),
+)
 
 // ---------- case 2: settings drawer ----------
 await evaluate(
@@ -245,14 +259,14 @@ await openWith({
 })
 const corrupted = await evaluate(`(() => ({
   mounted: !!document.querySelector('#app')?.firstElementChild,
-  errorLines: [...document.querySelectorAll('.line.error')].map((d) => d.textContent.slice(0, 40)),
+  errors: [...document.querySelectorAll('[data-status="error"]')].map((d) => d.textContent.slice(0, 40)),
   backups: Object.keys(localStorage).filter((k) => k.includes('.broken-')).length,
 }))()`)
 check('corrupted save does not blank the page', corrupted.mounted === true)
 check(
-  'the UI explains the save is corrupted',
-  corrupted.errorLines.length === 1,
-  JSON.stringify(corrupted.errorLines),
+  'the UI explains the save is corrupted (error notice)',
+  corrupted.errors.length === 1,
+  JSON.stringify(corrupted.errors),
 )
 check('bad data is backed up', corrupted.backups === 1, String(corrupted.backups))
 

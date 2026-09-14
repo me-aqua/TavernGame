@@ -144,6 +144,19 @@ export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promis
   const narrations: string[] = []
   let stepCount = 0
 
+  /**
+   * 收下一段叙事。
+   *
+   * ⚠️ 写日志与「通知界面」是同一件事的两面：界面渲染的故事就是日志的投影，
+   *    所以叙事一产生就得进日志（不然要等回合结束才看得见），
+   *    也没有第二个数组需要同步。
+   */
+  function record(text: string) {
+    narrations.push(text)
+    ctx.addLog('narration', text)
+    onEvent({ type: 'narration', text })
+  }
+
   while (stepCount < maxSteps) {
     if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
     stepCount += 1
@@ -153,10 +166,7 @@ export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promis
     onEvent({ type: 'raw', reply })
 
     const outcome = classifyStep(reply, onEvent, stepCount)
-    if (outcome.narration) {
-      narrations.push(outcome.narration)
-      onEvent({ type: 'narration', text: outcome.narration })
-    }
+    if (outcome.narration) record(outcome.narration)
     if (outcome.kind === 'done') break
 
     // 模型这一步要求调工具：先把它自己的输出记进对话（协议要求），
@@ -191,13 +201,7 @@ export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promis
   // 它就只能写文字（协议层面保证，而不是靠提示词请求它自觉）。
   if (!narrations.length) {
     const text = await forceNarration(messages, signal, onEvent)
-    if (text) narrations.push(text)
-  }
-
-  // 把本回合的叙事写进日志，供刷新后恢复。
-  // 没有这一步的话，存档只有数值、没有故事 —— 刷新页面就只剩一个裸的状态栏。
-  if (narrations.length) {
-    ctx.addLog('narration', narrations.join('\n\n'))
+    if (text) record(text)
   }
 
   ctx.endTurn()
@@ -251,6 +255,5 @@ async function forceNarration(
     onEvent({ type: 'warn', message: t('agent.stillNoText') })
     return null
   }
-  onEvent({ type: 'narration', text })
   return text
 }

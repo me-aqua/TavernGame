@@ -1,10 +1,13 @@
 /**
  * src/game/state.ts —— 这一局游戏本身：**纯数据 + 纯函数**
  *
- * 一个实体管三样（都是普通数据，没有类、没有 this）：
+ * 一个实体管两样（都是普通数据，没有类、没有 this）：
  *   1. data —— 持久化的世界状态（玩家 / 场景 / 时间 / 日志 / 时间线）
- *   2. messages —— 本次会话的叙事流（界面 v-for 的那串，不持久化）
- *   3. loadError —— 读档失败的原因（给界面显示，不静默；null = 正常）
+ *   2. loadError —— 读档失败的原因（给界面显示，不静默；null = 正常）
+ *
+ * ⚠️ 界面上那串故事**不是**状态，而是 data.log 的投影（见 stores/game.ts）：
+ *    这里只留「故事日志」这一个真值。没有第二个可变的叙事流数组，
+ *    也就没有「写进去却没人负责收回」的行 —— 通知与进行中提示各有各的家。
  *
  * ## 为什么是函数而不是类
  *
@@ -18,7 +21,7 @@
  *
  * - 动作函数**原地改**传进来的 `s`，不返回新 state。调用方把 `reactive()` 的**代理**
  *   传进来，Vue 才能建立依赖；传原对象（`toRaw`）不会报错，但界面不会更新。
- * - 只有 `data` 会落盘；`messages` / `loadError` 是会话状态，序列化时不许带进去。
+ * - 只有 `data` 会落盘；`loadError` 是会话状态，序列化时不许带进去。
  * - 读存档一律当 unknown（见 game/save.ts），类型标注不是验证手段。
  */
 
@@ -34,30 +37,17 @@ const LONG_JUMP_MS = 180 * 86400000
 /** 一个时段 ≈ 4 小时：时间线只记录不小于它的跳跃 */
 const SEGMENT_MS = 4 * 3600000
 
-/** 叙事流里的一行（界面直接 v-for 它；id 供 key 用） */
-export interface StoryLine {
-  id: number
-  kind: 'narration' | 'action' | 'system' | 'tool' | 'warn' | 'error'
-  text: string
-  /** 调试模式下的模型原始输出（可折叠） */
-  raw?: string
-}
-
 /** 这一局的全部状态（普通对象，可以被 reactive() 包） */
 export interface GameState {
   /** 持久化的世界状态 */
   data: GameData
-  /** 本次会话的叙事流；不持久化，刷新后由日志恢复 */
-  messages: StoryLine[]
   /** 读档失败的原因；null = 正常 */
   loadError: string | null
 }
 
-let nextLineId = 0
-
 /** 新开局：没有存储、没有读档，纯粹的一份初始状态 */
 export function initialState(): GameState {
-  return { data: createInitialState(), messages: [], loadError: null }
+  return { data: createInitialState(), loadError: null }
 }
 
 // ---------- 读 ----------
@@ -95,29 +85,6 @@ export function addLog(s: GameState, kind: LogEntry['kind'], text: string): void
   s.data.log.push({ kind, text, at: new Date().toISOString() })
   if (s.data.log.length > MAX_LOG) {
     s.data.log.splice(0, s.data.log.length - MAX_LOG)
-  }
-}
-
-/** 往叙事流末尾追加一行 */
-export function appendMessage(
-  s: GameState,
-  kind: StoryLine['kind'],
-  text: string,
-  extra: Partial<StoryLine> = {},
-): void {
-  s.messages.push({ id: ++nextLineId, kind, text, ...extra })
-}
-
-/** 清空叙事流（重来 / 导入后调用） */
-export function clearMessages(s: GameState): void {
-  s.messages = []
-}
-
-/** 刷新页面后从日志恢复叙事与行动（system 类不恢复，避免重复提示） */
-export function restoreMessages(s: GameState, limit = 20): void {
-  for (const entry of s.data.log.slice(-limit)) {
-    if (entry.kind !== 'narration' && entry.kind !== 'action') continue
-    appendMessage(s, entry.kind, entry.text)
   }
 }
 
@@ -246,17 +213,15 @@ export function exportFile(s: GameState): string {
   return JSON.stringify(s.data, null, 2)
 }
 
-/** 重置为新开局（清空叙事流）并立刻落盘 */
+/** 重置为新开局并立刻落盘 */
 export function reset(s: GameState, store: SaveStore): void {
   s.data = createInitialState()
-  s.messages = []
   save(s, store)
 }
 
-/** 从 JSON 文本导入存档（解析与校验在 game/save.ts），清空叙事流并落盘 */
+/** 从 JSON 文本导入存档（解析与校验在 game/save.ts）并落盘 */
 export function importFile(s: GameState, json: string, store: SaveStore): void {
   s.data = parseSave(json)
-  s.messages = []
   save(s, store)
 }
 
@@ -273,6 +238,8 @@ export function hydrateFromSave(s: GameState, storage: StorageLike): void {
     const raw = store.load()
     if (raw !== null) s.data = normalize(raw)
   } catch (err) {
+    // 坏存档不是致命错误：备份原数据、把原因挂到 loadError 上（界面会说明），
+    // 抛出去的话整页打不开，玩家连导出坏数据抢救的机会都没有
     backupBrokenSave(storage)
     s.loadError = (err as Error).message
   }

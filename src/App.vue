@@ -4,6 +4,12 @@
  *
  * 这里是唯一的「事件编排层」：子组件只 emit 意图，具体动作在这里做。
  * 样式几乎全在子组件里（Tailwind 工具类），这个文件只管布局。
+ *
+ * ⚠️ 界面上的每一行都属于三类之一，各有各的家（见 stores/game.ts）：
+ *    · 故事（叙事 / 玩家行动）—— data.log 的投影，由 StoryPanel 渲染
+ *    · 进行中与通知 —— status（computed：phase 与单槽 notice）
+ *    · 调试痕迹 —— trace（只在调试模式产生）
+ *    所以这里**不往故事里写任何东西**：没有「写进去等会儿再删」的行。
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import AppHeader from './components/AppHeader.vue'
@@ -24,11 +30,12 @@ const {
   timeline,
   scene,
   turn,
-  messages,
-  running,
+  lines,
+  trace,
+  status,
+  busy,
   debugMode,
-  append,
-  restoreLog,
+  notify,
   runTurnAction,
   resetGame,
   importSave,
@@ -65,9 +72,9 @@ function refreshConfigStatus() {
   statusLight.value = configState.value ? 'ok' : 'warn'
 }
 
-// debugMode：在控制台执行 __DEBUG = true 即可打开（刷新后失效）
+// debugMode：本地开发默认打开，也可以在控制台执行 __DEBUG = true/false 切换
 watch(debugMode, (on) => {
-  append('system', on ? t('app.debugOn') : t('app.debugOff'))
+  notify(on ? t('app.debugOn') : t('app.debugOff'))
   window.__DEBUG = on
 })
 Object.defineProperty(window, '__DEBUG', {
@@ -89,7 +96,7 @@ async function submitAction(text: string) {
   try {
     await runTurnAction(text)
   } catch (err) {
-    // 错误正文已由 runTurnAction 追加到故事区（见 stores/game.ts），
+    // 错误正文已由 runTurnAction 报给玩家（见 stores/turn.ts），
     // 这里只负责把顶栏状态灯变红 —— 不是吞掉
     if ((err as Error).name !== 'AbortError') statusLight.value = 'err'
   }
@@ -98,19 +105,18 @@ async function submitAction(text: string) {
 /**
  * 跑开场。
  *
- * ⚠️ 这里**自己消化错误**（显示给玩家），所以调用点可以安全地不等它 ——
- * 否则「点重来 / 保存设置后自动开场」失败时，界面会永远停在「正在生成开场…」，
- * 玩家完全不知道发生了什么。
+ * ⚠️ 这里**自己消化错误**（显示给玩家），所以调用点可以安全地不等它。
+ *    没有占位行需要清理：「正在生成开场…」是 status 从 phase 算出来的，
+ *    回合一开始就在、一结束就没。
  */
 async function startNewGame() {
-  append('system', t('app.generatingOpening'))
   try {
     await runTurnAction()
   } catch (err) {
     // 边界：这是开场生成，失败要显示给玩家 —— 不是吞掉
     if ((err as Error).name === 'AbortError') return
     statusLight.value = 'err'
-    append('error', t('app.openingFailed', { message: (err as Error).message }))
+    notify(t('app.openingFailed', { message: (err as Error).message }), 'error')
   }
 }
 
@@ -118,20 +124,19 @@ async function startNewGame() {
 function doExport() {
   const date = new Date().toISOString().slice(0, 10)
   downloadText(t('app.saveFileName', { date }), exportSave())
-  append('system', t('app.saveExported'))
+  notify(t('app.saveExported'))
 }
 
-/** 从文件导入存档，并把叙事日志恢复出来 */
+/** 从文件导入存档（故事区跟着日志变，不需要额外「恢复」） */
 async function doImport() {
   const file = await pickFile()
   if (!file) return
   try {
     importSave(await file.text())
-    append('system', t('app.saveImported'))
-    restoreLog(12)
+    notify(t('app.saveImported'))
   } catch (err) {
     // 边界：导入的文件来自用户，坏了要告诉他哪里坏了 —— 不是吞掉
-    append('error', t('app.importFailed', { message: (err as Error).message }))
+    notify(t('app.importFailed', { message: (err as Error).message }), 'error')
   }
 }
 
@@ -159,9 +164,9 @@ function onDrawerAction(name: 'export' | 'import' | 'reset') {
 /** 设置保存后：刷新顶栏状态，首局则顺手把开场跑出来 */
 function onSettingsSaved() {
   refreshConfigStatus()
-  append('system', t('app.settingsSaved'))
+  notify(t('app.settingsSaved'))
   // 全新的游戏（没回合、没历史）时，保存配置后顺手把开场跑出来
-  if (turn.value === 0 && messages.value.length === 0 && !running.value) void startNewGame()
+  if (turn.value === 0 && lines.value.length === 0 && !busy.value) void startNewGame()
 }
 
 // ---------- 启动 ----------
@@ -171,22 +176,21 @@ onMounted(() => {
 
   // 存档坏了要说清楚，不能装作无事发生（坏数据已另存一份备份）
   if (startupError) {
-    append('error', t('app.startupCorrupted', { message: startupError }))
+    notify(t('app.startupCorrupted', { message: startupError }), 'error')
     statusLight.value = 'err'
+    return
   }
 
-  // 恢复上次的叙事日志：叙事与玩家行动都按日志顺序原样输出。
-  // 刷新时界面是空的，所以不存在重复问题 —— 日志里每条都是唯一的。
-  if (!startupError) restoreLog()
-
+  // 故事不用「恢复」：渲染的是日志本身。
+  // 通知只有一条能显示，所以按重要性挑：配好了就开场 / 接着上次 / 先欢迎。
   if (isConfigured()) {
     if (turn.value === 0) {
       void startNewGame()
     } else {
-      append('system', t('app.resuming', { turn: turn.value }))
+      notify(t('app.resuming', { turn: turn.value }))
     }
   } else {
-    append('system', t('app.welcome'))
+    notify(t('app.welcome'))
   }
 })
 </script>
@@ -198,6 +202,7 @@ onMounted(() => {
       :status-text="statusText"
       :theme="themeMode"
       :language="languageMode"
+      :debug="debugMode"
       @export="doExport"
       @import="doImport"
       @reset="resetAll"
@@ -208,8 +213,8 @@ onMounted(() => {
 
     <div class="flex min-h-0 flex-1 flex-col lg:flex-row">
       <main class="flex min-h-0 flex-1 flex-col">
-        <StoryPanel :lines="messages" :thinking="running" />
-        <GameComposer :disabled="running" :configured="configured" @submit="submitAction" />
+        <StoryPanel :lines="lines" :trace="trace" :status="status" />
+        <GameComposer :disabled="busy" :configured="configured" @submit="submitAction" />
       </main>
 
       <AppSidebar :time-label="timeLabel" :timeline="timeline" :scene="scene" :turn="turn" />

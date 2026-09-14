@@ -3,7 +3,7 @@
     "statusUnconfigured": "未配置",
     "debugOn": "🔧 调试模式已开启 —— 之后会显示模型的原始输出",
     "debugOff": "🔧 调试模式已关闭",
-    "generatingOpening": "（正在生成开场…）",
+    "generatingOpening": "正在生成开场…",
     "openingFailed": "生成开场失败：{message}",
     "saveFileName": "taverngame-存档-{date}.json",
     "saveExported": "存档已导出为文件",
@@ -16,6 +16,8 @@
     "settingsSaved": "设置已保存 ✓"
   },
   "header": {
+    "debug": "调试",
+    "debugTitle": "调试模式：本地开发自动开启，故事区会多出模型输入输出与工具调用",
     "themeSystem": "主题：跟随系统（点击切换）",
     "themeLight": "主题：浅色（点击切换）",
     "themeDark": "主题：深色（点击切换）",

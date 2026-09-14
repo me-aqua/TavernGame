@@ -13,11 +13,18 @@ whenToUse: 需要跑命令、连服务、配环境，或遇到「连不上 / 找
 | 构建 | Vite 8 + vue-tsc + vitest（`npm run verify` 跑齐） |
 | 仓库 | https://github.com/me-aqua/TavernGame |
 | 线上 | https://me-aqua.github.io/TavernGame/ |
-| 提交身份 | `me-aqua` / `74250100+me-aqua@users.noreply.github.com`（匿名，勿改） |
+| 提交身份 | **每人各自**用 `git config --local` 设（这台机器当前是 Alice-space）；别动全局配置 |
 | 代理 | `http://127.0.0.1:7897`（curl/git 不读系统代理，要显式 `-x`） |
 
 > ⚠️ 上游文档里遗留的 Windows 路径（`F:\SillyTavernX\...`、`gh.exe`、Edge）**已过时**，
 > 本机是 macOS + Google Chrome。不要再照那套排查。
+
+## 本机开发的两个默认值
+
+| 项 | 值 | 原因 |
+| --- | --- | --- |
+| 调试模式 | **localhost 上默认打开**（顶栏有「调试」徽标） | 本地要看模型的输入输出与工具调用；判定在 `src/main.ts`，线上域名不命中 |
+| 故事区内容 | 只有叙事与玩家行动 | 工具调用与模型原始响应进调试痕迹（`.trace`），进行中与通知进状态行（`[data-status]`） |
 
 ## 本机踩过的坑
 

@@ -2,11 +2,11 @@
  * store 测试 —— 界面与游戏之间唯一的桥梁，此前 0% 覆盖。
  *
  * 只通过公开 API 驱动：store 的实例是模块级的，
- * 所以每个用例开头都「resetGame」清空（它同时清空消息流与历史）。
+ * 所以每个用例开头都「resetGame」清空（数据、日志、历史、调试痕迹、通知一起清）。
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { watchEffect } from 'vue'
-import { useGame } from '../src/stores/game'
+import { isDevHost, useGame } from '../src/stores/game'
 import { initialState, hydrateFromSave, turn } from '../src/game/state'
 import { SAVE_KEY } from '../src/utils/storage'
 import { hourToSegment, SEGMENTS } from '../src/utils/calendar'
@@ -66,14 +66,14 @@ describe('derived state (what the sidebar reads)', () => {
     expect(g.timeline.value).toEqual([])
   })
 
-  it('after one turn: turn +1 and both the action and the narration are in the stream', async () => {
+  it('after one turn: turn +1 and both the action and the narration are in the story', async () => {
     const g = await runOneTurn()
     expect(g.turn.value).toBe(1)
-    const kinds = g.messages.value.map((l) => l.kind)
+    const kinds = g.lines.value.map((l) => l.kind)
     expect(kinds).toContain('action')
     expect(kinds).toContain('narration')
-    expect(g.messages.value.find((l) => l.kind === 'action')?.text).toBe(OPEN_EYES)
-    expect(g.messages.value.find((l) => l.kind === 'narration')?.text).toContain(WAKE_REPLY)
+    expect(g.lines.value.find((l) => l.kind === 'action')?.text).toBe(OPEN_EYES)
+    expect(g.lines.value.find((l) => l.kind === 'narration')?.text).toContain(WAKE_REPLY)
   })
 })
 
@@ -88,12 +88,12 @@ describe('runTurnAction', () => {
     fake = null
   })
 
-  it('resets the running flag (otherwise every later turn would be blocked)', async () => {
+  it('resets the busy flag (otherwise every later turn would be blocked)', async () => {
     fake = installFakeLlm([DONE_REPLY])
     const g = useGame()
-    expect(g.running.value).toBe(false)
+    expect(g.busy.value).toBe(false)
     await g.runTurnAction(NUDGE_ACTION)
-    expect(g.running.value).toBe(false)
+    expect(g.busy.value).toBe(false)
     fake.restore()
     fake = null
   })
@@ -106,14 +106,14 @@ describe('runTurnAction', () => {
     const g = useGame()
 
     await expect(g.runTurnAction(RETRY_ACTION)).rejects.toThrow(NETWORK_ERROR)
-    expect(g.running.value).toBe(false)
+    expect(g.busy.value).toBe(false)
     fake.restore()
     fake = null
   })
 })
 
-describe('log restore', () => {
-  it('replays only narration and actions (system lines are not shown again)', async () => {
+describe('the story is a projection of the log (nothing to restore)', () => {
+  it('shows narration and actions right after import, and hides system markers', async () => {
     const g = await runOneTurn()
     const save = JSON.parse(g.exportSave()) as { log: Array<{ kind: string; text: string; at: string }> }
     save.log = [
@@ -121,21 +121,23 @@ describe('log restore', () => {
       { kind: 'system', text: SAVED_SYSTEM, at: new Date().toISOString() },
       { kind: 'action', text: SAVED_ACTION, at: new Date().toISOString() },
     ]
-    g.importSave(JSON.stringify(save))
-    expect(g.messages.value).toHaveLength(0)
 
-    g.restoreLog()
-    expect(g.messages.value.map((l) => l.kind)).toEqual(['narration', 'action'])
+    // ⚠️ 没有 restoreLog 这一步：渲染的是日志本身，导入完就该是这三行里该显示的
+    g.importSave(JSON.stringify(save))
+
+    expect(g.lines.value.map((l) => l.kind)).toEqual(['narration', 'action'])
+    expect(g.lines.value.map((l) => l.text)).toEqual([SAVED_NARRATION, SAVED_ACTION])
+    expect(g.lines.value.map((l) => l.text)).not.toContain(SAVED_SYSTEM)
   })
 })
 
 describe('the three entry points that swap state', () => {
-  it('resetGame: turn back to 0, message stream cleared, save overwritten', async () => {
+  it('resetGame: turn back to 0, story cleared, save overwritten', async () => {
     const g = await runOneTurn()
     expect(g.turn.value).toBe(1)
     g.resetGame()
     expect(g.turn.value).toBe(0)
-    expect(g.messages.value).toHaveLength(0)
+    expect(g.lines.value).toHaveLength(0)
     const reloaded = initialState()
     hydrateFromSave(reloaded, localStorage)
     expect(turn(reloaded)).toBe(0)
@@ -148,7 +150,8 @@ describe('the three entry points that swap state', () => {
     expect(g.turn.value).toBe(0)
     g.importSave(json)
     expect(g.turn.value).toBe(1)
-    expect(g.messages.value).toHaveLength(0)
+    // 导入的那份存档里有一回合的故事，所以故事区应当显示它（而不是空的）
+    expect(g.lines.value.map((l) => l.kind)).toEqual(['action', 'narration'])
   })
 
   it('importing broken JSON throws (the UI reports it)', () => {
@@ -158,27 +161,29 @@ describe('the three entry points that swap state', () => {
 })
 
 describe('debugMode', () => {
-  it('when on, the raw model output is appended to the message stream', async () => {
+  it('when on, the raw model output lands in the trace -- never in the story', async () => {
     const g = useGame()
     g.debugMode.value = true
     fake = installFakeLlm([RAW_REPLY])
     await g.runTurnAction(LOOK_ACTION)
     fake.restore()
     fake = null
-    const rawLines = g.messages.value.filter((l) => l.raw !== undefined)
+
+    const rawLines = g.trace.value.filter((l) => l.raw !== undefined)
     expect(rawLines).toHaveLength(1)
     expect(rawLines[0].raw).toContain(RAW_REPLY)
+    expect(g.lines.value.map((l) => l.text)).not.toContain(rawLines[0].text)
     g.debugMode.value = false
   })
 
-  it('when off, nothing raw is appended', async () => {
+  it('when off, no trace is collected at all', async () => {
     const g = useGame()
     g.debugMode.value = false
     fake = installFakeLlm([PLAIN_REPLY])
     await g.runTurnAction(LOOK_ACTION)
     fake.restore()
     fake = null
-    expect(g.messages.value.filter((l) => l.raw !== undefined)).toHaveLength(0)
+    expect(g.trace.value).toHaveLength(0)
   })
 })
 
@@ -213,39 +218,94 @@ describe('reactivity: the UI updates when the domain mutates the data', () => {
     const after = g.timeLabel.value
 
     expect(after, 'the clock must actually move, or this test proves nothing').not.toBe(before)
-    expect(seen, 'the computed must recompute after the advance -- that is what the UI updating means').toContain(after)
+    expect(
+      seen,
+      'the computed must recompute after the advance -- that is what the UI updating means',
+    ).toContain(after)
     expect(seen.length, 'it must be evaluated more than once').toBeGreaterThan(1)
     stop()
   })
 
-  it('the transcript the UI renders changes when the domain appends a line', async () => {
+  it('the story the UI renders changes when the domain writes to the log', async () => {
     fake = installFakeLlm([WAKE_REPLY])
     const g = useGame()
     const counts: number[] = []
-    const stop = watchEffect(() => counts.push(g.messages.value.length))
+    const stop = watchEffect(() => counts.push(g.lines.value.length))
 
     expect(counts.length).toBe(1)
     await g.runTurnAction(OPEN_EYES)
 
-    expect(counts.length, 'a transcript change must trigger a recompute').toBeGreaterThan(1)
-    expect(counts.at(-1)).toBe(g.messages.value.length)
+    expect(counts.length, 'a log change must trigger a recompute').toBeGreaterThan(1)
+    expect(counts.at(-1)).toBe(g.lines.value.length)
     stop()
   })
 })
 
-describe('append: the one-line entry point components use', () => {
-  /**
-   * App.vue 通过它写系统提示（调试开关、开场失败、导入结果）。
-   * 它是 store 暴露给组件的唯一「追加一行」入口，不能只靠别的路径间接覆盖。
-   */
-  it('adds a line of the requested kind to the transcript', () => {
-    const g = useGame()
-    g.append('system', 'a system line')
-    g.append('error', 'an error line', { raw: 'raw payload' })
+describe('status line: in-progress and notices are computed, never stored', () => {
+  it('is empty when idle and there is no notice', () => {
+    expect(useGame().status.value).toBeNull()
+  })
 
-    const last = g.messages.value.slice(-2)
-    expect(last.map((l) => l.kind)).toEqual(['system', 'error'])
-    expect(last.map((l) => l.text)).toEqual(['a system line', 'an error line'])
-    expect(last[1].raw).toBe('raw payload')
+  it('holds one notice at a time: a new one replaces the old, null clears', () => {
+    const g = useGame()
+    g.notify('exported')
+    expect(g.status.value).toEqual({ kind: 'info', text: 'exported' })
+    g.notify('failed', 'error')
+    expect(g.status.value).toEqual({ kind: 'error', text: 'failed' })
+    g.notify(null)
+    expect(g.status.value).toBeNull()
+  })
+
+  it('says the opening is being generated while it runs, and clears when it ends', async () => {
+    const g = useGame()
+    fake = installFakeLlm([WAKE_REPLY])
+    const opening = g.runTurnAction()
+    expect(g.status.value).toEqual({ kind: 'busy', text: t('app.generatingOpening') })
+
+    await opening
+    fake.restore()
+    fake = null
+    expect(g.busy.value).toBe(false)
+    expect(g.status.value).toBeNull()
+  })
+
+  it('drops the previous notice when a new turn starts, and says it is thinking', async () => {
+    const g = useGame()
+    g.notify('exported')
+    fake = installFakeLlm([WAKE_REPLY])
+    const running = g.runTurnAction(OPEN_EYES)
+    expect(g.status.value).toEqual({ kind: 'busy', text: t('story.thinking') })
+
+    await running
+    fake.restore()
+    fake = null
+    expect(g.status.value).toBeNull()
+  })
+
+  /**
+   * 原始 bug 的回归网：点「重来」之后，故事区不能留下「正在生成开场…」这样的行。
+   * 现在它由 phase 算出来（status），回合一结束就不存在 —— 不是「写了再删」。
+   */
+  it('leaves no in-progress line in the story after the opening finishes', async () => {
+    const g = useGame()
+    fake = installFakeLlm([WAKE_REPLY])
+    await g.runTurnAction()
+    fake.restore()
+    fake = null
+
+    expect(g.lines.value.map((l) => l.text)).not.toContain(t('app.generatingOpening'))
+    expect(g.lines.value.map((l) => l.kind)).toEqual(['narration'])
+  })
+})
+
+describe('isDevHost', () => {
+  /** 本机地址才自动开调试：开发时模型输入输出直接可见，线上不受影响 */
+  it('matches loopback hosts only', () => {
+    for (const host of ['localhost', '127.0.0.1', '[::1]']) {
+      expect(isDevHost(host), host).toBe(true)
+    }
+    for (const host of ['me-aqua.github.io', 'example.com', 'localhost.example.com', '']) {
+      expect(isDevHost(host), host).toBe(false)
+    }
   })
 })

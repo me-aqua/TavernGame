@@ -11,7 +11,7 @@ import AppSidebar from '../src/components/AppSidebar.vue'
 import GameComposer from '../src/components/GameComposer.vue'
 import AppHeader from '../src/components/AppHeader.vue'
 import SettingsDrawer from '../src/components/SettingsDrawer.vue'
-import type { StoryLine } from '../src/stores/game'
+import type { Status, StoryLine, TraceLine } from '../src/stores/game'
 import { i18n, t } from '../src/i18n'
 import { realCalendar } from '../src/utils/calendar'
 
@@ -23,8 +23,8 @@ i18n.global.locale.value = 'zh-CN'
 const DEFAULT_LINE_TEXT = 'body text'
 const NARRATION_TEXT = 'You are in the inn.'
 const ACTION_TEXT = 'I push the door open and step outside'
-const SYSTEM_TEXT = '(system notice)'
 const WARN_TEXT = t('store.warnLine', { message: 'watch out' })
+const TOOL_TEXT = t('toolbar.toolCall', { tool: 'advance_time', args: '{}' })
 const RAW_REPLY = 'raw model reply'
 const RAW_BLOCKS = 2
 const RAW_SUMMARY = t('store.rawReply', { count: RAW_BLOCKS })
@@ -53,51 +53,80 @@ function render<C>(component: C, options: Record<string, unknown> = {}) {
   )
 }
 
-/** 造一行叙事流数据 */
+/** 造一行故事数据（日志的投影） */
 function makeLine(over: Partial<StoryLine>): StoryLine {
   return { id: 1, kind: 'narration', text: DEFAULT_LINE_TEXT, ...over }
 }
 
+/** 造一行调试痕迹数据 */
+function makeTrace(over: Partial<TraceLine>): TraceLine {
+  return { id: 1, kind: 'tool', text: DEFAULT_LINE_TEXT, ...over }
+}
+
 describe('StoryPanel', () => {
-  it('renders every line by kind (kind picks the style class)', () => {
+  it('renders story lines by kind (kind picks the style class)', () => {
     const lines = [
       makeLine({ id: 1, kind: 'narration', text: NARRATION_TEXT }),
       makeLine({ id: 2, kind: 'action', text: ACTION_TEXT }),
-      makeLine({ id: 3, kind: 'system', text: SYSTEM_TEXT }),
-      makeLine({ id: 4, kind: 'warn', text: WARN_TEXT }),
     ]
-    const w = render(StoryPanel, { props: { lines, thinking: false } })
+    const w = render(StoryPanel, { props: { lines, trace: [], status: null } })
 
     const divs = w.findAll('.line')
-    expect(divs).toHaveLength(4)
+    expect(divs).toHaveLength(2)
     expect(divs[0].classes()).toContain('narration')
     expect(divs[1].classes()).toContain('action')
-    expect(divs[2].classes()).toContain('system')
-    expect(divs[3].classes()).toContain('warn')
     expect(w.text()).toContain(ACTION_TEXT)
   })
 
-  it('folds raw debug output into details, out of the story text', () => {
+  it('renders debug traces separately, folding raw output into details', () => {
     const w = render(StoryPanel, {
       props: {
-        lines: [makeLine({ raw: RAW_REPLY, text: RAW_SUMMARY })],
-        thinking: false,
+        lines: [],
+        trace: [
+          makeTrace({ id: 1, kind: 'tool', text: TOOL_TEXT }),
+          makeTrace({ id: 2, kind: 'warn', text: WARN_TEXT }),
+          makeTrace({ id: 3, kind: 'raw', text: RAW_SUMMARY, raw: RAW_REPLY }),
+        ],
+        status: null,
       },
     })
-    expect(w.find('details').exists()).toBe(true)
+    const traces = w.findAll('.trace')
+    expect(traces).toHaveLength(3)
+    expect(traces[0].classes()).toContain('tool')
+    expect(traces[1].classes()).toContain('warn')
     expect(w.find('details pre').text()).toBe(RAW_REPLY)
+    // 痕迹不占故事行的位（.line 只属于故事）
+    expect(w.findAll('.line')).toHaveLength(0)
   })
 
-  it('shows a thinking indicator while thinking and drops it afterwards', async () => {
-    const w = render(StoryPanel, { props: { lines: [], thinking: true } })
+  it('shows the busy status row while a turn runs and drops it afterwards', async () => {
+    const busy: Status = { kind: 'busy', text: NARRATION_TEXT }
+    const w = render(StoryPanel, { props: { lines: [], trace: [], status: busy } })
     expect(w.find('.thinking').exists()).toBe(true)
-    await w.setProps({ thinking: false })
+    expect(w.find('[data-status]').attributes('data-status')).toBe('busy')
+
+    await w.setProps({ status: null })
     expect(w.find('.thinking').exists()).toBe(false)
+    expect(w.find('[data-status]').exists()).toBe(false)
+  })
+
+  it('renders a notice, marking errors so the style can differ', () => {
+    const w = render(StoryPanel, {
+      props: { lines: [], trace: [], status: { kind: 'error', text: WARN_TEXT } as Status },
+    })
+    const row = w.find('[data-status]')
+    expect(row.attributes('data-status')).toBe('error')
+    expect(row.classes()).toContain('notice')
+    expect(row.text()).toBe(WARN_TEXT)
   })
 
   it('sends model output through textContent, never parsing HTML (XSS defence)', () => {
     const w = render(StoryPanel, {
-      props: { lines: [makeLine({ text: XSS_TEXT })], thinking: false },
+      props: {
+        lines: [makeLine({ text: XSS_TEXT })],
+        trace: [makeTrace({ id: 2, kind: 'raw', text: RAW_SUMMARY, raw: XSS_TEXT })],
+        status: { kind: 'info', text: XSS_TEXT },
+      },
     })
     expect(w.find('img').exists()).toBe(false)
     expect(w.text()).toContain(XSS_TEXT)
@@ -171,15 +200,26 @@ describe('GameComposer', () => {
 
 describe('AppHeader', () => {
   it('shows the status light in its ok and error states', async () => {
-    const w = render(AppHeader, { props: { light: 'ok', statusText: STATUS_TEXT, theme: 'system' } })
+    const w = render(AppHeader, {
+      props: { light: 'ok', statusText: STATUS_TEXT, theme: 'system', debug: false },
+    })
     expect(w.find('.bg-accent').exists()).toBe(true)
     await w.setProps({ light: 'err' })
     expect(w.find('.bg-danger').exists()).toBe(true)
   })
 
+  it('marks debug mode so the extra story lines are explainable', async () => {
+    const w = render(AppHeader, {
+      props: { light: 'ok', statusText: STATUS_TEXT, theme: 'system', debug: false },
+    })
+    expect(w.find('[data-debug]').exists()).toBe(false)
+    await w.setProps({ debug: true })
+    expect(w.find('[data-debug]').text()).toBe(t('header.debug'))
+  })
+
   it('every header button emits its event (theme and language toggles included)', async () => {
     const w = render(AppHeader, {
-      props: { light: 'ok', statusText: '', theme: 'system', language: 'system' },
+      props: { light: 'ok', statusText: '', theme: 'system', language: 'system', debug: false },
     })
     const btns = w.findAll('header button')
     expect(btns).toHaveLength(6)

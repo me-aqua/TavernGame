@@ -20,6 +20,8 @@ const props = defineProps<{
   theme: 'system' | 'light' | 'dark'
   /** languageMode（跟随系统 / zh-CN / en） */
   language: 'system' | 'zh-CN' | 'en'
+  /** 调试模式：本地开发默认打开，故事区会多出模型输入输出与工具调用 */
+  debug: boolean
 }>()
 
 defineEmits<{
@@ -84,6 +86,15 @@ const secondaryButton =
       <span class="light size-2 rounded-full" :class="lightColor" />
       <span class="hidden sm:inline">{{ statusText }}</span>
     </span>
+
+    <!-- 调试模式标记：故事区里那些工具调用与原始响应不是 bug -->
+    <span
+      v-if="debug"
+      data-debug
+      :title="t('header.debugTitle')"
+      class="rounded border border-warn/40 bg-warn-soft px-1.5 py-0.5 text-[11px] font-medium text-warn"
+      >{{ t('header.debug') }}</span
+    >
 
     <span class="ml-auto flex items-center gap-1">
       <button

@@ -296,27 +296,31 @@ describe('a no-op save store', () => {
   })
 })
 
-describe('narration stream (messages)', () => {
-  it('appends lines with increasing ids and can be cleared', () => {
-    const s = createGame()
-    game.appendMessage(s, 'narration', STORY_LOG_TEXT)
-    game.appendMessage(s, 'action', PLAYER_ACTION)
-
-    expect(s.messages.map((m) => m.text)).toEqual([STORY_LOG_TEXT, PLAYER_ACTION])
-    expect(s.messages[1].id).toBeGreaterThan(s.messages[0].id)
-
-    game.clearMessages(s)
-    expect(s.messages).toHaveLength(0)
-  })
-
-  it('restores only narration and actions from the log (system lines are not replayed)', () => {
+describe('the story lives in the log and nowhere else', () => {
+  /**
+   * 界面渲染的故事就是日志的投影（投影规则在 store 里，见 tests/store.test.ts）。
+   * 这里守住领域侧那条：日志是唯一的故事容器 —— 换一局就是把它清空，
+   * 不存在「第二个叙事流数组」残留旧剧情。
+   */
+  it('reset empties the log so a new game cannot inherit the old story', () => {
     const s = createGame()
     game.addLog(s, 'narration', STORY_LOG_TEXT)
-    game.addLog(s, 'system', PLAYER_ACTION)
     game.addLog(s, 'action', PLAYER_ACTION)
 
-    game.restoreMessages(s)
+    game.reset(s, localStorageStore(localStorage))
 
-    expect(s.messages.map((m) => m.kind)).toEqual(['narration', 'action'])
+    expect(s.data.log).toHaveLength(0)
+    expect(game.turn(s)).toBe(0)
+  })
+
+  it('importing a save replaces the log with the file content', () => {
+    const s = createGame()
+    game.addLog(s, 'narration', STORY_LOG_TEXT)
+
+    const imported = createGame()
+    game.addLog(imported, 'narration', GM_REPLY)
+    game.importFile(s, game.exportFile(imported), localStorageStore(localStorage))
+
+    expect(s.data.log.map((entry) => entry.text)).toEqual([GM_REPLY])
   })
 })
