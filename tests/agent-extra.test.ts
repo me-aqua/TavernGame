@@ -50,7 +50,7 @@ describe('a failed save must be announced', () => {
       throw new Error('QuotaExceededError')
     })
 
-    const state = new GameState(createInitialState())
+    const state = new GameState({ storage: localStorage })
     const events: AgentEvent[] = []
     await runTurn(state, { action: ACTION_SOMETHING, onEvent: (e) => events.push(e) })
 

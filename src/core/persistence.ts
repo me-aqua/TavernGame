@@ -6,14 +6,14 @@
  * state.ts 只管「校验通过之后」的行为。
  *
  * ⚠️ 只认当前格式。产品未发布，没有旧存档要兼容 ——
- *    形状不对就拒绝（返回 null 或抛错），不做字段改名、不做版本迁移。
+ *    形状不对就拒绝（抛错），不做字段改名、不做版本迁移。
+ *
+ * 这里的函数都是纯函数；localStorage 的读写与坏档备份在 utils/storage.ts。
  */
 
 import { nowIso } from './calendar'
 import { t } from '../i18n'
 import type { GameData, LogEntry, TimelineEntry } from '../types/state'
-
-export const SAVE_KEY = 'tavernGame.save'
 
 /** 日志与时间线的保留上限（写时裁剪；读档时也用它裁剪） */
 export const MAX_LOG = 80
@@ -96,61 +96,6 @@ export function normalize(saved: unknown, fresh: GameData = createInitialState()
     time: { iso: pickIso(time.iso) },
     log: sanitizeLog(s.log),
     timeline: sanitizeTimeline(s.timeline),
-  }
-}
-
-/**
- * 读存档：没有返回 null；存在但读不出来抛错（调用方负责提示玩家）。
- *
- * ⚠️ 两种失败要分开报：JSON 解析不了 = 存档坏了（附上解析器的原话），
- * 解析得出来但形状不对 = 缺 player 字段。混成一条会让玩家看不懂是哪种。
- */
-export function readSave(): unknown | null {
-  const raw = localStorage.getItem(SAVE_KEY)
-  if (!raw) return null
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch (err) {
-    throw new Error(t('save.corrupted', { message: (err as Error).message }), { cause: err })
-  }
-  if (!isRecord(parsed) || !isRecord(parsed.player)) {
-    throw new Error(t('save.missingPlayer'))
-  }
-  return parsed
-}
-
-/** 写存档。失败返回 false —— 调用方必须让玩家看到 */
-export function writeSave(data: GameData): boolean {
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(data))
-    return true
-  } catch (err) {
-    console.warn('[persistence] save failed', err)
-    return false
-  }
-}
-
-/** 启动读档的结果：没有存档时 data 为 null（调用方自己开新局） */
-export function loadState(): { data: GameData | null; error: string | null } {
-  try {
-    const raw = readSave()
-    if (raw === null) return { data: null, error: null }
-    return { data: normalize(raw, createInitialState()), error: null }
-  } catch (err) {
-    // 存档存在但读不出来 = 数据受损。不静默开新局：
-    // 把坏数据另存一份（玩家还有机会导出），把原因交给调用方去提示玩家。
-    const broken = localStorage.getItem(SAVE_KEY)
-    if (broken) {
-      // 只保留最新一份备份：否则每次启动都新建一个键，会无限堆积把配额吃光
-      for (let i = localStorage.length - 1; i >= 0; i -= 1) {
-        const k = localStorage.key(i)
-        if (k?.startsWith(SAVE_KEY + '.broken-')) localStorage.removeItem(k)
-      }
-      localStorage.setItem(SAVE_KEY + '.broken-' + Date.now(), broken)
-    }
-    return { data: null, error: (err as Error).message }
   }
 }
 

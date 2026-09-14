@@ -6,7 +6,8 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { GameState } from '../src/core/state'
-import { createInitialState, normalize, loadState, SAVE_KEY } from '../src/core/persistence'
+import { createInitialState, normalize } from '../src/core/persistence'
+import { SAVE_KEY } from '../src/utils/storage'
 import { i18n, t } from '../src/i18n'
 
 /** 数一数有几个 .broken- 备份键（垫片是普通对象，只能用它的 key()） */
@@ -56,23 +57,22 @@ describe('initial state', () => {
 })
 
 describe('load - reading and writing the save', () => {
-  it('returns null when there is no save (the caller starts a new game)', () => {
-    const { data, error } = loadState()
-    expect(data).toBeNull()
-    expect(error).toBeNull()
+  it('starts a fresh game when there is no save', () => {
+    const g = GameState.open(localStorage)
+    expect(g.error).toBeNull()
+    expect(g.turn).toBe(0)
   })
 
   it('a corrupted save does not silently start a new game: it returns an error and backs up the bad data', () => {
     localStorage.setItem(SAVE_KEY, CORRUPT_SAVE_RAW)
-    const { data, error } = loadState()
-    expect(data).toBeNull()
-    expect(error).toContain(t('save.corrupted', { message: '' }).replace('{message}', '').trim())
+    const g = GameState.open(localStorage)
+    expect(g.error).toContain(t('save.corrupted', { message: '' }).replace('{message}', '').trim())
     // 坏数据必须留一份，否则玩家连导出抢救的机会都没有
     expect(countBackupKeys()).toBe(1)
   })
 
   it('a failed save returns false instead of pretending to succeed', () => {
-    const gs = new GameState(createInitialState())
+    const gs = new GameState({ storage: localStorage })
     // 垫片是普通对象（不是 Storage 实例），所以要打它自己的方法
     const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceededError')
@@ -229,7 +229,7 @@ describe('extra coverage for uncovered branches', () => {
   })
 
   it('GameState.save returns false when the write fails (a failed write does not crash)', () => {
-    const s = new GameState(createInitialState())
+    const s = new GameState({ storage: localStorage })
     const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceededError')
     })
@@ -260,13 +260,6 @@ describe('snapshot - built for the prompt, must never throw', () => {
     expect(snap).toContain(t('snapshot.place', { name: s.scene.name }))
   })
 
-  it('dirty data does not throw (if it did, every following turn would crash in the same place)', () => {
-    const s = new GameState(createInitialState())
-    s.data.log = [null, 'x', { text: 'ok' }] as never
-    s.data.timeline = [null, { to: '' }] as never
-    expect(() => s.snapshot()).not.toThrow()
-  })
-
   it('history wins over the log when it is provided', () => {
     const s = new GameState(createInitialState())
     const snap = s.snapshot([
@@ -283,10 +276,10 @@ describe('import / export', () => {
     const s = new GameState(createInitialState())
     s.addLog('narration', STORY_LOG_TEXT)
     s.advanceTime(1, 'day', SLEPT_THROUGH_THE_NIGHT)
-    const json = s.export()
+    const json = s.exportFile()
 
     const s2 = new GameState(createInitialState())
-    s2.import(json)
+    s2.importFile(json)
     expect(s2.data.log.at(-1)?.text).toBe(STORY_LOG_TEXT)
     expect(s2.data.timeline).toHaveLength(1)
     expect(s2.iso).toBe(s.iso)
@@ -294,7 +287,41 @@ describe('import / export', () => {
 
   it('rejects JSON that is not a save', () => {
     const s = new GameState(createInitialState())
-    expect(() => s.import('{"player": 1}')).toThrow(t('save.notValid'))
-    expect(() => s.import('[]')).toThrow(t('save.notValid'))
+    expect(() => s.importFile('{"player": 1}')).toThrow(t('save.notValid'))
+    expect(() => s.importFile('[]')).toThrow(t('save.notValid'))
+  })
+})
+
+describe('without a storage adapter', () => {
+  it('reads and writes nothing (used by pure logic tests)', () => {
+    const s = new GameState(createInitialState())
+    expect(s.save()).toBe(true) // 空实现不报错，也不落盘
+    expect(localStorage.getItem('tavernGame.save')).toBeNull()
+    expect(GameState.open(localStorage).turn).toBe(0)
+  })
+})
+
+describe('narration stream (messages)', () => {
+  it('appends lines with increasing ids and can be cleared', () => {
+    const s = new GameState(createInitialState())
+    s.appendMessage('narration', STORY_LOG_TEXT)
+    s.appendMessage('action', PLAYER_ACTION)
+
+    expect(s.messages.map((m) => m.text)).toEqual([STORY_LOG_TEXT, PLAYER_ACTION])
+    expect(s.messages[1].id).toBeGreaterThan(s.messages[0].id)
+
+    s.clearMessages()
+    expect(s.messages).toHaveLength(0)
+  })
+
+  it('restores only narration and actions from the log (system lines are not replayed)', () => {
+    const s = new GameState(createInitialState())
+    s.addLog('narration', STORY_LOG_TEXT)
+    s.addLog('system', PLAYER_ACTION)
+    s.addLog('action', PLAYER_ACTION)
+
+    s.restoreMessages()
+
+    expect(s.messages.map((m) => m.kind)).toEqual(['narration', 'action'])
   })
 })

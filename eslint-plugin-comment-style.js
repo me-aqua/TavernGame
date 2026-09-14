@@ -44,13 +44,26 @@ function isDefinePropertyDescriptor(node) {
  *      上一个函数头上的注释会顺带「喂饱」下一个函数（实测漏报过）。
  */
 function commentAbove(sourceCode, node, parent) {
-  const isExport = parent && parent.type.startsWith('Export')
-  for (const target of isExport ? [node, parent] : [node]) {
+  // 父节点也要看：export function 的注释挂在 ExportNamedDeclaration 上，
+  // `const f = () => {}` 的注释挂在 VariableDeclaration 上，
+  // 只看函数/声明符本身会误报「没有注释」。
+  for (const target of parent ? [node, parent] : [node]) {
     const comments = sourceCode.getCommentsBefore(target)
     if (!comments.length) continue
     const comment = comments[comments.length - 1]
+    // 必须紧贴上一行
     const gap = target.loc.start.line - comment.loc.end.line
     if (gap < 1 || gap > 1) continue
+    // ⚠️ 回退到父节点时会看到「上一个兄弟节点」的注释：
+    //    若不加这一层判断，前一个函数的注释会把后一个函数也「喂饱」（实测漏报过）。
+    //    判据用位置：注释必须出现在上一个兄弟节点结束之后。
+    if (target !== node) {
+      const siblings = target.parent?.body
+      const list = Array.isArray(siblings) ? siblings : (target.parent?.properties ?? [])
+      const index = list.indexOf(target)
+      const previous = index > 0 ? list[index - 1] : null
+      if (previous && comment.range[0] < previous.range[1]) continue
+    }
     return comment
   }
   return null

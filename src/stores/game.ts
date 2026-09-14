@@ -1,67 +1,29 @@
 /**
- * src/stores/game.ts —— 界面与游戏之间的唯一桥梁
+ * src/stores/game.ts —— 界面与 GameState 之间的薄层
  *
- *   - 持有 GameState 实例与对话历史
- *   - 跑回合（含重入保护、中止）
- *   - 把 agent 循环抛出的事件转成界面用的消息流
- *   - doExport / doImport / 重开
- *
- * 响应式边界在这里，不在引擎里：
- *   GameState 是普通类（src/core 不依赖 Vue，能在 Node 里直接测）。
- *   引擎改 this.data 的**内部**字段（addLog / advanceTime）能被追踪，
- *   是因为 store 把实例放进了 reactive 容器，由容器提供深响应式。
+ * GameState 自己管数据、叙事流与存档；这里只做三件事：
+ *   1. 把它装进 reactive 容器（响应式边界在界面侧，core 不依赖 Vue）
+ *   2. 持有跨回合的对话历史（引擎每回合要用，但不属于存档）
+ *   3. 把回合编排、导入导出暴露成界面用的动作
  *
  * 为什么用容器 object 而不是 shallowRef + triggerRef：
  *   存档会被整份替换（读档 / 重来 / 导入），替换也要能被追踪。
- *   容器里换属性会自然触发；shallowRef 则要靠每处调用点记得写 triggerRef，
+ *   容器里换属性会自然触发；shallowRef 要靠每处调用点记得写 triggerRef，
  *   漏一处就是「界面不更新」这种最难查的 bug。
  */
 
 import { computed, reactive, ref } from 'vue'
-import { GameState } from '../core/state'
-import { loadState, createInitialState } from '../core/persistence'
+import { GameState, type StoryLine } from '../core/state'
 import { createTurnRunner } from './turn'
 import type { ChatMessage } from '../types/state'
 
-/** 叙事流里的一行 —— 界面直接 v-for 它 */
-export interface StoryLine {
-  id: number
-  kind: 'narration' | 'action' | 'system' | 'tool' | 'warn' | 'error'
-  text: string
-  /** 调试模式下的模型原始输出（可折叠） */
-  raw?: string
-}
+export type { StoryLine }
 
-let nextId = 0
-
-/** 造一行叙事流（id 单调递增，供 v-for 的 key 用） */
-function makeLine(kind: StoryLine['kind'], text: string, extra: Partial<StoryLine> = {}): StoryLine {
-  return { id: ++nextId, kind, text, ...extra }
-}
-
-// ⚠️ GameState.load() 返回的**已经是 GameState 实例**，
-//    不能再 `new GameState(...)` 包一层 —— 那样 this.data 会变成
-//    { data: GameState }，所有 getter（timeLabel / calendar）全崩。
 /**
- * 启动时读档。
- *
- * ⚠️ 存档损坏不让整页打不开（那样玩家连导出坏数据的机会都没有），
- *    但也**不静默开新局** —— 把坏数据的原文留一份，并让调用方拿到错误去提示玩家。
+ * 当前这一局。GameState 自己读档（存档坏了把原因挂在 error 上，不抛错）；
+ * reactive 容器提供深响应式 —— 引擎改 this.data 的字段，界面自动跟着变。
  */
-function loadAtStartup(): { state: GameState; error: string | null } {
-  const { data, error } = loadState()
-  return { state: new GameState(data ?? createInitialState()), error }
-}
-
-const startupResult = loadAtStartup()
-/**
- * 当前存档。深响应式由这个容器提供：引擎只管改数据，追踪交给 Vue。
- *
- * ⚠️ 不要退化成 shallowRef + triggerRef：那样每个改动点都得记得触发，
- *    而「忘了触发」的表现是界面不更新 —— 没有任何测试会因此变红。
- */
-const store = reactive({ game: startupResult.state })
-const messages = ref<StoryLine[]>([])
+const store = reactive({ game: GameState.open(localStorage) })
 const history = ref<ChatMessage[]>([])
 const running = ref(false)
 const debugMode = ref(false)
@@ -71,29 +33,22 @@ export function useGame() {
   // ---------- 只读派生 ----------
   const timeLabel = computed(() => store.game.timeLabel)
   const timeline = computed(() => store.game.data.timeline.slice(-4))
-  // ⚠️ state.scene（getter）而不是 state.data.scene：默认场景名/描述来自 locale，
-  //    空值时由 getter 现取，所以切换语言时侧栏会跟着变。
+  // ⚠️ store.game.scene（getter）而不是 store.game.data.scene：默认场景名/描述
+  //    来自 locale，空值时由 getter 现取，所以切换语言时侧栏会跟着变。
   const scene = computed(() => store.game.scene)
   const turn = computed(() => store.game.turn)
 
-  // ---------- messages ----------
+  // ---------- messages（叙事流由 GameState 持有，这里只转发） ----------
+
   /** 往叙事流末尾追加一行 */
-  function append(kind: StoryLine['kind'], text: string, extra: Partial<StoryLine> = {}) {
-    messages.value.push(makeLine(kind, text, extra))
-  }
+  const append = (kind: StoryLine['kind'], text: string, extra: Partial<StoryLine> = {}) =>
+    store.game.appendMessage(kind, text, extra)
 
   /** 清空叙事流（重来 / 导入后调用） */
-  function clearMessages() {
-    messages.value = []
-  }
+  const clearMessages = () => store.game.clearMessages()
 
-  /** 刷新页面后从日志恢复叙事与行动（system 类不恢复，避免重复提示） */
-  function restoreLog(limit = 20) {
-    for (const entry of store.game.data.log.slice(-limit)) {
-      if (entry.kind !== 'narration' && entry.kind !== 'action') continue
-      append(entry.kind, entry.text)
-    }
-  }
+  /** 刷新页面后从日志恢复叙事与行动 */
+  const restoreLog = (limit = 20) => store.game.restoreMessages(limit)
 
   // ---------- 回合（编排在 stores/turn.ts） ----------
   const { runTurnAction, abortRunningTurn } = createTurnRunner({
@@ -123,25 +78,25 @@ export function useGame() {
   /** 从文件导入存档：换掉整份 state，并让依赖方重算 */
   function importSave(json: string) {
     abortRunningTurn()
-    store.game.import(json)
+    store.game.importFile(json)
     history.value = []
     clearMessages()
   }
 
   /** 把当前存档序列化成 JSON 文本（导出文件用） */
   function exportSave(): string {
-    return store.game.export()
+    return store.game.exportFile()
   }
 
   return {
     /** 启动时读档失败的说明；null = 正常 */
-    startupError: startupResult.error,
+    startupError: store.game.error,
     // 状态
     timeLabel,
     timeline,
     scene,
     turn,
-    messages,
+    messages: computed(() => store.game.messages),
     running,
     debugMode,
     // 动作

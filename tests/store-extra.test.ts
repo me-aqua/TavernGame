@@ -12,7 +12,6 @@ import { effect, reactive } from 'vue'
 import { useGame } from '../src/stores/game'
 import { saveConfig } from '../src/core/config'
 import { GameState } from '../src/core/state'
-import { loadState } from '../src/core/persistence'
 import { t } from '../src/i18n'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 
@@ -147,7 +146,7 @@ describe('a notice when the turn produced nothing', () => {
  */
 describe('deep reactivity: the engine mutates, the UI follows', () => {
   it('a nested mutation through a class method is tracked without triggerRef', () => {
-    const holder = reactive({ game: new GameState(loadState().data ?? undefined) })
+    const holder = reactive({ game: GameState.open(localStorage) })
     const seen: number[] = []
     effect(() => {
       seen.push(holder.game.turn)
@@ -161,7 +160,7 @@ describe('deep reactivity: the engine mutates, the UI follows', () => {
   })
 
   it('replacing the whole instance is tracked too (import / reset path)', () => {
-    const holder = reactive({ game: new GameState(loadState().data ?? undefined) })
+    const holder = reactive({ game: GameState.open(localStorage) })
     const seen: number[] = []
     effect(() => {
       seen.push(holder.game.turn)

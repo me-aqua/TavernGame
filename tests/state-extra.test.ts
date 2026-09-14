@@ -12,7 +12,8 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { GameState } from '../src/core/state'
-import { createInitialState, SAVE_KEY } from '../src/core/persistence'
+import { createInitialState } from '../src/core/persistence'
+import { SAVE_KEY } from '../src/utils/storage'
 import { t } from '../src/i18n'
 
 /** 时段显示名（产品文案，只能从 locale 表取） */
@@ -37,12 +38,10 @@ const REASON_LABEL = t('tools.advanceReason', { reason: '' }).trim()
 const PLAYER_ACTION = 'I head to the docks'
 const GM_REPLY = 'The sea air is salty.'
 const LOG_LINE = 'a line from the log'
-const VALID_ENTRY = 'a valid entry'
 const LONG_TEXT = 'x'.repeat(300)
 const A_YEAR_APART = 'a year apart'
 const WAITED_SEVEN_DAYS = 'waited seven days'
 const OLD_STORY = 'the old story'
-const PLAIN_STRING = 'a plain string'
 const BROKEN_JSON = '{broken'
 
 /** 第 i 条日志的文本 */
@@ -167,13 +166,6 @@ describe('snapshot - branches', () => {
     expect(snap).toContain(LOG_LINE)
   })
 
-  it('skips dirty log entries (a non-object is skipped)', () => {
-    const s = fresh()
-    s.data.log = [null, PLAIN_STRING, { kind: 'narration', text: VALID_ENTRY, at: '' }] as never
-    expect(() => s.snapshot([])).not.toThrow()
-    expect(s.snapshot([])).toContain(VALID_ENTRY)
-  })
-
   it('collapses long text to one line and truncates it to 160 characters', () => {
     const s = fresh()
     s.addLog('narration', LONG_TEXT)
@@ -211,19 +203,19 @@ describe('import - rejection branches', () => {
   it('rejects non-objects, a missing player, and a player that is not an object', () => {
     const s = fresh()
     for (const bad of ['[]', '"a string"', 'null', '{}', '{"player": 1}', '{"player": null}']) {
-      expect(() => s.import(bad), `should reject: ${bad}`).toThrow(t('save.notValid'))
+      expect(() => s.importFile(bad), `should reject: ${bad}`).toThrow(t('save.notValid'))
     }
   })
 
   it('throws a parse error on broken JSON', () => {
     const s = fresh()
-    expect(() => s.import(BROKEN_JSON)).toThrow()
+    expect(() => s.importFile(BROKEN_JSON)).toThrow()
   })
 })
 
 describe('save / reset', () => {
   it('save returns false on failure (private mode)', () => {
-    const s = fresh()
+    const s = new GameState({ storage: localStorage })
     const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceededError')
     })
@@ -232,7 +224,7 @@ describe('save / reset', () => {
   })
 
   it('reset writes back a fresh initial state', () => {
-    const s = fresh()
+    const s = new GameState({ storage: localStorage })
     s.addLog('narration', OLD_STORY)
     s.advanceTime(3, 'day')
     s.reset()

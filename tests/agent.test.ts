@@ -12,7 +12,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GameState } from '../src/core/state'
-import { createInitialState, loadState } from '../src/core/persistence'
+import { createInitialState } from '../src/core/persistence'
 import { runTurn, type AgentEvent } from '../src/core/agent'
 import { saveConfig } from '../src/core/config'
 import { i18n, t } from '../src/i18n'
@@ -137,11 +137,12 @@ describe('runTurn -- main path', () => {
 
   it('turn increments and is persisted (readable after a reload)', async () => {
     fake = installFakeLlm([REPLY_ONE])
-    const state = freshState()
+    const state = new GameState({ storage: localStorage })
     await runTurn(state, { action: ACTION_SOMETHING })
 
     expect(state.turn).toBe(1)
-    const reloaded = new GameState(loadState().data!)
+    // 重新读档：持久化的是「引擎自己的存储」，不经存储层就别指望能读回来
+    const reloaded = GameState.open(localStorage)
     expect(reloaded.turn).toBe(1)
   })
 

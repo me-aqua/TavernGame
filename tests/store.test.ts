@@ -7,7 +7,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useGame } from '../src/stores/game'
 import { GameState } from '../src/core/state'
-import { loadState, SAVE_KEY } from '../src/core/persistence'
+import { SAVE_KEY } from '../src/utils/storage'
 import { saveConfig } from '../src/core/config'
 import { hourToSegment, SEGMENTS } from '../src/core/calendar'
 import { t } from '../src/i18n'
@@ -141,7 +141,7 @@ describe('the three entry points that swap state', () => {
     g.resetGame()
     expect(g.turn.value).toBe(0)
     expect(g.messages.value).toHaveLength(0)
-    expect(new GameState(loadState().data!).turn).toBe(0)
+    expect(GameState.open(localStorage).turn).toBe(0)
   })
 
   it('export -> resetGame -> import: the turn count comes back', async () => {
