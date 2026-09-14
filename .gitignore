@@ -14,6 +14,9 @@ dist/
 build/
 *.min.js
 
+# --- 测试覆盖率报告（HTML 报告有几百个文件，属于生成物）---
+coverage/
+
 # --- 本地工具与临时备份（属于个人环境，不需要上传）---
 .tools/
 PATH-backup.txt

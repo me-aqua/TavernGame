@@ -23,6 +23,9 @@ const 测试结果 = ref('')
 const 测试状态 = ref<'' | 'ok' | 'bad'>('')
 const 测试中 = ref(false)
 
+/** 当前服务商预设。服务商可能被配置填成不存在的值，所以这里要能返回 undefined */
+const 当前预设 = computed(() => PRESETS[服务商.value])
+
 /** 面板打开时，从 localStorage 读一次最新配置填进表单 */
 watch(
   () => props.open,
@@ -40,8 +43,6 @@ watch(
   },
   { immediate: true },
 )
-
-const 当前预设 = computed(() => PRESETS[服务商.value])
 
 /** 接口地址 / 模型如果还是**任何**一个预设的默认值，切换服务商时就自动替换 */
 function 同步服务商字段() {
@@ -88,6 +89,7 @@ async function 测试连接() {
     测试状态.value = 'ok'
     测试结果.value = `✅ 连接成功（${r.ms}ms）· 回复：${r.reply}`
   } catch (err) {
+    // 边界：这是「测试连接」按钮，失败本身就是结果 —— 显示给用户，不是吞掉
     测试状态.value = 'bad'
     测试结果.value = `❌ 失败\n${(err as Error).message}`
   } finally {
