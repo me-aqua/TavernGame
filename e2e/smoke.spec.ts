@@ -1,11 +1,10 @@
 /**
  * 功能冒烟 —— 在真实浏览器里跑构建产物，覆盖「玩家点得出来」的那些路径。
  *
- * 判据和以前一样：**读运行时 DOM**，不读源码；每个用例结束都检查
+ * 判据：**读运行时 DOM**，不读源码；每个用例结束都检查
  * 「没有页面异常、没有 4xx/5xx」（见文件末尾的 afterEach）。
  *
- * 与 dsh 里的旧版本相比，这里换成了 Playwright 的自动等待：
- * 不再有 sleep(1600)，等的是「这个元素真的变成这样了」。
+ * 等待一律用 Playwright 的自动等待：等的是「这个元素真的变成这样了」，不是固定 sleep。
  */
 import { expect, test, type Page } from '@playwright/test'
 import { CONFIG, DEBUG_KEY, LANG_KEY, NARRATION, openApp, saveWith, translate, watchErrors } from './fixtures'
@@ -37,7 +36,7 @@ test.describe('第一屏', () => {
   test('外壳、侧栏、时间标签、状态栏与按钮都在，且欢迎走状态行', async ({ page }) => {
     await openApp(page)
 
-    // 状态浮层：时间、地点、回合都收在一小块里（不再是三张卡片）
+    // 状态浮层：时间、地点、回合都收在一小块里
     const pill = page.locator('aside')
     await expect(pill.locator('.scene-name')).toContainText(await translate(page, 'scene.unknownPlace'))
     await expect(pill.locator('[data-turn]')).toHaveText('0')
@@ -57,6 +56,12 @@ test.describe('第一屏', () => {
 
     const toggle = page.locator('button[data-debug]')
     await expect(toggle).toHaveText(await translate(page, 'header.debugToggleOn'))
+
+    // 它必须紧挨着设置按钮、一起在右上角（justify-between 曾把它推到屏幕正中）
+    const debugBox = await toggle.boundingBox()
+    const settingsBox = await page.locator('button[data-settings]').boundingBox()
+    expect(debugBox?.x ?? 0).toBeLessThan(settingsBox?.x ?? 0)
+    expect(settingsBox?.x ?? 0).toBeGreaterThan((page.viewportSize()?.width ?? 0) / 2)
 
     await toggle.click()
     await expect(toggle).toHaveText(await translate(page, 'header.debugToggleOff'))

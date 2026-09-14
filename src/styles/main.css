@@ -88,13 +88,15 @@ body,
 
 body {
   @apply bg-page text-text font-sans antialiased;
-  /* 防止拖选文字影响操作（输入框单独放开） */
+  /* 控件不要能被拖选（像应用而不像文档）—— 但**故事正文是内容**，必须能选中复制 */
   user-select: none;
   -webkit-user-select: none;
 }
 
 textarea,
-input {
+input,
+.story-text,
+.trace {
   user-select: text;
   -webkit-user-select: text;
 }

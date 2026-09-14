@@ -2,16 +2,13 @@
 /**
  * App.vue —— 应用外壳（沉浸式布局）
  *
- * 分工只有一句话：**文字是主线，控件都浮在它上面**。
- *   · 故事区占满整屏（它是主角）
- *   · 输入框浮在底部
- *   · 状态（时间 / 地点 / 回合 + 最近一次时间跳跃）浮在左上角
- *   · 设置与调试浮在右上角：主题、语言、存档、服务商全在设置面板里
+ * 分工只有一句话：**文字是主线，控件都浮在它上面**。故事区占满整屏，输入框浮在底部，
+ * 状态（时间 / 地点 / 回合 + 最近一次时间跳跃）浮在左上角，设置与调试浮在右上角。
  *
- * ⚠️ 界面上的每一行都属于三类之一，各有各的家（见 stores/game.ts）：
- *    · 事件流（故事 + 调试痕迹）—— rows 是它的投影，由 StoryPanel 渲染
- *    · 进行中与通知 —— status（computed：phase 与单槽 notice）
- *    所以这里**不往事件流里写任何东西**：没有「写进去等会儿再删」的行。
+ * ⚠️ 界面上的每一行都属于三类之一，各有各的家（见 stores/game.ts）：事件流（故事 +
+ *    调试痕迹，rows 是它的投影，由 StoryPanel 渲染）、进行中与通知（status =
+ *    phase 与单槽 notice 算出来的）。所以这里**不往事件流里写任何东西**：
+ *    没有「写进去等会儿再删」的行。
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import StoryPanel from './components/StoryPanel.vue'
@@ -203,30 +200,33 @@ onMounted(() => {
         :scene="scene"
         :turn="turn"
       />
-      <button
-        v-if="devHost"
-        data-debug
-        :title="t('header.debugToggleTitle')"
-        class="hidden shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium backdrop-blur transition-colors sm:inline-block"
-        :class="
-          debugMode
-            ? 'border-warn/40 bg-warn-soft/90 text-warn'
-            : 'border-line bg-surface/80 text-faint hover:text-muted'
-        "
-        @click="toggleDebug"
-      >
-        {{ debugMode ? t('header.debugToggleOn') : t('header.debugToggleOff') }}
-      </button>
-      <button
-        data-settings
-        :title="t('header.settings')"
-        :aria-label="t('header.settings')"
-        class="flex shrink-0 items-center gap-2 rounded-full border border-line bg-surface/80 px-3 py-1.5 text-[12.5px] text-muted shadow-sm backdrop-blur transition-colors hover:text-text"
-        @click="settingsOpen = true"
-      >
-        <span class="size-2 rounded-full" :class="lightColor" />
-        {{ t('header.settings') }}
-      </button>
+      <!-- 两颗按钮成一组靠右：justify-between 会把中间那颗推到屏幕正中 -->
+      <div class="flex shrink-0 items-center gap-1.5">
+        <button
+          v-if="devHost"
+          data-debug
+          :title="t('header.debugToggleTitle')"
+          class="hidden shrink-0 rounded-full border px-2.5 py-1 text-[11px] backdrop-blur transition-colors sm:inline-block"
+          :class="
+            debugMode
+              ? 'border-warn/25 bg-warn-soft/60 text-warn/90 hover:text-warn'
+              : 'border-line/70 bg-surface/70 text-faint hover:text-muted'
+          "
+          @click="toggleDebug"
+        >
+          {{ debugMode ? t('header.debugToggleOn') : t('header.debugToggleOff') }}
+        </button>
+        <button
+          data-settings
+          :title="t('header.settings')"
+          :aria-label="t('header.settings')"
+          class="flex shrink-0 items-center gap-2 rounded-full border border-line bg-surface/80 px-3 py-1.5 text-[12.5px] text-muted shadow-sm backdrop-blur transition-colors hover:text-text"
+          @click="settingsOpen = true"
+        >
+          <span class="size-2 rounded-full" :class="lightColor" />
+          {{ t('header.settings') }}
+        </button>
+      </div>
     </div>
 
     <!-- 主线：故事（占满剩下的高度，只有它滚动） -->
