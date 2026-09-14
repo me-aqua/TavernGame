@@ -33,6 +33,9 @@ npm run verify     # 类型检查 → 单测 + 覆盖率门禁 → 构建 → �
 | 功能冒烟 | `e2e/smoke.spec.ts` | Playwright（chromium） | 玩家点得出来的路径：设置、语言、主题、坏存档、跑一个回合、无异常无 4xx |
 | 视觉矩阵 | `e2e/visual.spec.ts` | Playwright | 10 个状态 × 5 种屏幕：结构检查 + 少量像素基线 |
 
+> UI 那一侧（Storybook、Playwright、结构判据、像素基线、看图习惯）单独成一篇：
+> 见 **ui-testing** skill。下面只留与单元测试共通的约定。
+
 ### e2e 的三条约定
 
 1. **假模型走 `page.route`**（见 `e2e/fixtures.ts` 的 `fakeLlm`），不注入脚本改 `window.fetch`
