@@ -22,7 +22,7 @@ push 到 `main` → `npm ci` → `npm run build` → 发布 `dist/`。
 3. 确认提交真的发生：`git log -1 --format=%s`
 4. 才打标签：`git tag -a vX.Y.Z`
 5. 核对标签指向：`git rev-list -n 1 vX.Y.Z` 应等于 HEAD
-6. `git push` + `git push origin vX.Y.Z`
+6. `git push` + `git push upstream vX.Y.Z`
 
 **真实事故**：安全检查失败时脚本执行了 `git reset`（清空暂存区），
 但只修正了检查逻辑、**忘了重新 `git add`** → 提交失败 → HEAD 没动 →
@@ -35,10 +35,16 @@ push 到 `main` → `npm ci` → `npm run build` → 发布 `dist/`。
 - 改了行为／修了 bug／加了功能 → 发版；只改文档 → 直接提交，不发版
 - 标签落后 HEAD 是正常的
 
-## 提交身份
+## 远端与提交身份
+
+远端只有 **`upstream`** = `git@github.com:me-aqua/TavernGame.git`（唯一的仓库，**不要建 fork**）：
+两个协作者都在它上面开分支、发 PR。
+
+身份是**每个人各自的**，用 `--local` 设在仓库里，不动全局配置：
 
 ```bash
 git config --local user.name "me-aqua"
 git config --local user.email "74250100+me-aqua@users.noreply.github.com"
 ```
-用 `--local`，不动这台机器的全局配置。
+
+提交前核对 `git log -1 --format='%an <%ae>'`；错了用 `git commit --amend --reset-author`。
