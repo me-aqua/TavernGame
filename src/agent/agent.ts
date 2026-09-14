@@ -10,9 +10,12 @@
  *   - **出错就回传，让模型自己改**：参数不合法、单位不认识、时间倒退都作为工具结果
  *     回传，引擎只拦「绝不能发生」的事，不做静默纠正。
  *   - **步数有上限**，防止模型陷入死循环把 API 额度烧光。
+ *   - **一轮 = 执行一张图**（src/agent/graph.ts，决定 #25/#37）：默认图只有一个节点，
+ *     那唯一的节点就是下面这个循环；卡里的九个节点、卡到图的翻译都还没接。
  */
 
 import { t } from '../i18n'
+import { executeGraph, type Graph } from './graph'
 import { chat } from './llm'
 import { runTool, toolSchemas } from './tools'
 import {
@@ -112,7 +115,7 @@ function executeToolCall(
 type StepOutcome =
   { kind: 'done'; narration: string } | { kind: 'tools'; narration: string; calls: ToolCallRequest[] }
 
-/** 跑一个回合：循环到模型不再调工具，或步数用尽 */
+/** 跑一个回合：执行一张只有一个节点的图，那唯一的节点就是 agent 循环（决定 #25/#37） */
 export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promise<TurnResult> {
   const { action, history = [], signal, onEvent = () => {}, tools = toolSchemas() } = opts
   const cfg = loadConfig()
@@ -145,61 +148,82 @@ export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promis
     onEvent({ type: 'narration', text })
   }
 
-  while (stepCount < maxSteps) {
-    if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
-    stepCount += 1
-    onEvent({ type: 'thinking', step: stepCount })
+  /**
+   * 默认图 = 1 个节点：这唯一的节点就是整个 agent 循环，产出是本回合的叙事正文。
+   * 将来接卡里的九个节点时，节点各自产出短 JSON，由执行器按顺序累加进上游。
+   *
+   * ⚠️ 执行器回传的 node 事件**不转给界面**：进度仍由循环自己的 thinking 表达，
+   *    界面收到的事件里没有图添的那一条。
+   */
+  const graph: Graph = {
+    nodes: [
+      {
+        id: 'agent-loop',
+        /** 这唯一的节点：跑完整的 agent 循环，产出本回合的叙事正文 */
+        run: async ({ signal: turnSignal }) => {
+          while (stepCount < maxSteps) {
+            if (turnSignal?.aborted) throw new DOMException('aborted', 'AbortError')
+            stepCount += 1
+            onEvent({ type: 'thinking', step: stepCount })
 
-    const reply = await chat(messages, { signal, tools })
-    onEvent({ type: 'model', step: stepCount, reply })
+            const reply = await chat(messages, { signal: turnSignal, tools })
+            onEvent({ type: 'model', step: stepCount, reply })
 
-    const outcome = classifyStep(reply, onEvent, stepCount)
-    if (outcome.narration) record(outcome.narration)
-    if (outcome.kind === 'done') break
+            const outcome = classifyStep(reply, onEvent, stepCount)
+            if (outcome.narration) record(outcome.narration)
+            if (outcome.kind === 'done') break
 
-    // 模型这一步要求调工具：先把它自己的输出记进对话（协议要求），
-    // 再逐个执行、把结构化结果回传。
-    messages.push({
-      role: 'assistant',
-      content: reply.content,
-      // 原样回传模型给的 tool_calls（协议要求 id 与 name 一字不差）
-      tool_calls: reply.toolCalls.map((c) => ({
-        id: c.id,
-        type: 'function' as const,
-        function: { name: c.name, arguments: c.arguments },
-      })),
-    })
+            // 模型这一步要求调工具：先把它自己的输出记进对话（协议要求），
+            // 再逐个执行、把结构化结果回传。
+            messages.push({
+              role: 'assistant',
+              content: reply.content,
+              // 原样回传模型给的 tool_calls（协议要求 id 与 name 一字不差）
+              tool_calls: reply.toolCalls.map((c) => ({
+                id: c.id,
+                type: 'function' as const,
+                function: { name: c.name, arguments: c.arguments },
+              })),
+            })
 
-    for (const call of outcome.calls) {
-      const result = executeToolCall(ctx.state, call, onEvent)
-      toolResults.push(`[${call.name}] ${result}`)
-      // 工具结果必须以 role:'tool' + tool_call_id 回传，模型才能对应上
-      messages.push({ role: 'tool', tool_call_id: call.id, content: result })
-    }
+            for (const call of outcome.calls) {
+              const result = executeToolCall(ctx.state, call, onEvent)
+              toolResults.push(`[${call.name}] ${result}`)
+              // 工具结果必须以 role:'tool' + tool_call_id 回传，模型才能对应上
+              messages.push({ role: 'tool', tool_call_id: call.id, content: result })
+            }
+          }
+
+          if (stepCount >= maxSteps && toolResults.length > 0) {
+            onEvent({ type: 'warn', message: t('agent.stepLimit', { max: maxSteps }) })
+          }
+
+          // ---------- 兜底：一整个回合一个字都没写 ----------
+          // 实测会发生的真实情况：模型把步数全花在调用工具上，一次叙事都没输出，
+          // 玩家看到的是一片空白。所以这里强制再要一次 —— **不给它工具**，
+          // 它就只能写文字（协议层面保证，而不是靠提示词请求它自觉）。
+          if (!narrations.length) {
+            const text = await forceNarration(messages, turnSignal, onEvent)
+            if (text) record(text)
+          }
+
+          ctx.endTurn()
+          return narrations.join('\n\n')
+        },
+      },
+    ],
   }
 
-  if (stepCount >= maxSteps && toolResults.length > 0) {
-    onEvent({ type: 'warn', message: t('agent.stepLimit', { max: maxSteps }) })
-  }
+  await executeGraph(graph, { signal })
 
-  // ---------- 兜底：一整个回合一个字都没写 ----------
-  // 实测会发生的真实情况：模型把步数全花在调用工具上，一次叙事都没输出，
-  // 玩家看到的是一片空白。所以这里强制再要一次 —— **不给它工具**，
-  // 它就只能写文字（协议层面保证，而不是靠提示词请求它自觉）。
-  if (!narrations.length) {
-    const text = await forceNarration(messages, signal, onEvent)
-    if (text) record(text)
-  }
-
-  ctx.endTurn()
-
+  const text = narrations.join('\n\n')
   const appended: ChatMessage[] = [
     { role: 'user', content: userContent },
-    { role: 'assistant', content: narrations.join('\n\n') },
+    { role: 'assistant', content: text },
   ]
   const newHistory: ChatMessage[] = [...history.slice(-6), ...appended].slice(-8)
 
-  return { text: narrations.join('\n\n'), toolResults, steps: stepCount, history: newHistory }
+  return { text, toolResults, steps: stepCount, history: newHistory }
 }
 
 /** 判断模型这一步是「说完了」还是要调工具 */
