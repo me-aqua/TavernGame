@@ -15,6 +15,7 @@ whenToUse: 需要跑命令、连服务、配环境，或遇到「连不上 / 找
 | 线上 | https://me-aqua.github.io/TavernGame/ |
 | 提交身份 | **每人各自**用 `git config --local` 设（这台机器当前是 Alice-space）；别动全局配置 |
 | 代理 | `http://127.0.0.1:7897`（curl/git 不读系统代理，要显式 `-x`） |
+| 浏览器直连（CORS） | DeepSeek 官方 / 硅基流动 / OpenRouter / Mistral ✅；**Groq ❌**（README 有面向玩家的表） |
 
 > ⚠️ 上游文档里遗留的 Windows 路径（`F:\SillyTavernX\...`、`gh.exe`、Edge）**已过时**，
 > 本机是 macOS + Google Chrome。不要再照那套排查。
@@ -95,6 +96,14 @@ Windows 开发者建议设 `git config --global core.autocrlf true`
 
 仓库在 macOS 上（默认大小写不敏感），但 GitHub Actions 在 Linux 上跑（**敏感**）。
 引资源时大小写必须与磁盘一致，否则本地过、线上 404。
+
+## 几条实测过的事实
+
+| 事实 | 说明 |
+| --- | --- |
+| **localStorage 按域名隔离** | `localhost` 与线上各存一份 API key 与存档 —— 首次在本地调试要重新填一次 |
+| **资源引用必须带 base** | Pages 部署在 `/TavernGame/` 子目录：`/assets/x.jpg` 这种绝对路径会解析到域名根 → 线上 404（静态资源现在放 `public/`） |
+| **离线测试** | 引擎侧能在 Node 里直接测（伪造 `localStorage` + `fetch`），不需要浏览器 —— localStorage 垫片的坑见上 |
 
 ## 常用命令
 

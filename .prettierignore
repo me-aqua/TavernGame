@@ -14,3 +14,9 @@ doc/
 .githooks/commit-msg
 .githooks/pre-commit
 .githooks/pre-push
+
+# 卡与它的渲染产物：手工排版（一行一条，diff 干净）—— 重排会毁掉「改卡能被评审」这个选型理由
+cards/
+
+# 检查脚本与三道钩子同性质：它们在提交中途被执行，绝不自动格式化
+.githooks/checks/
