@@ -15,6 +15,19 @@ push 到 `main` → `npm ci` → `npm run build` → 发布 `dist/`。
 如果还停留在「从分支根目录发布」，根目录是**源码**（Vue + TypeScript），
 浏览器跑不了 —— 合并后线上会直接 404。
 
+> **实测（2026-09-14，线上白屏的根因）**：`GET /repos/me-aqua/TavernGame/pages` 当时返回
+> `"build_type": "legacy"`、`"source": {"branch": "main", "path": "/"}` ——
+> 于是每次 push 到 main 有**两个发布者**：我们的 `Deploy to GitHub Pages`（发 `dist/`）与
+> GitHub 自带的 `pages-build-deployment`（发仓库根目录）。后者更晚结束，永远覆盖前者。
+>
+> 症状很好认（三条一起看就能确认）：线上 HTML 结尾是 `<script type="module" src="/src/main.ts">`
+> （源码而不是产物）；`/TavernGame/src/main.ts` 返回 **200 + `content-type: video/mp2t`**
+> （`.ts` 被静态服务器当成 MPEG 流，浏览器拒绝当模块执行 → `#app` 空白）；
+> 而 `/TavernGame/assets/index-*.js` 是 **404**。
+>
+> ⚠️ 改这个开关要**仓库管理员**：`Alice-space` 是 Write，`PUT /repos/.../pages` 返回 404 ——
+> 也就是说「构建没问题、CI 全绿、线上还是白屏」这种状态只能由 me-aqua 动手解除。
+
 ## 提交顺序（每步都要验证）
 
 1. `git add -A`，确认 `git diff --cached --name-only` 非空
