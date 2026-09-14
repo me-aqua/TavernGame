@@ -19,7 +19,7 @@ npm run verify     # 类型检查 → 单测 + 覆盖率门禁 → 构建 → �
 | `npm test` | 单元 + 组件测试（vitest） |
 | `npm run test:coverage` | 带覆盖率与门禁 |
 | `npm run e2e` | 功能冒烟：Playwright 跑构建产物（9 条） |
-| `npm run stories` | 组件故事巡检：Storybook 构建 + 每故事 × 主题 × 语言（76 张） |
+| `npm run stories` | 组件故事巡检：Storybook 构建 + 每故事 × 主题 × 语言（72 张） |
 | `npm run visual` | 状态 × 屏幕矩阵（50 张，含 8 张像素基线） |
 | `npm run storybook` | 组件工作台（人看的地方，6006） |
 

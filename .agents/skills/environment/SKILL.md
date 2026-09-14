@@ -114,7 +114,7 @@ npm run build      # 产物到 dist/（已 git 忽略）
 npm run preview    # 预览构建产物（同样在 /TavernGame/ 下）
 
 npm run storybook  # 组件工作台（6006）
-npm run stories    # 组件故事巡检（Storybook 构建 + Playwright，76 张）
+npm run stories    # 组件故事巡检（Storybook 构建 + Playwright，72 张）
 npm run e2e        # 功能冒烟（Playwright，9 条）
 npm run visual     # 状态 × 屏幕矩阵（50 张 + 8 张像素基线）
 ```
