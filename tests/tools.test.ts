@@ -15,15 +15,11 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { runTool, TOOLS, toolSchemas } from '../src/agent/tools'
 import { i18n, t } from '../src/i18n'
 import * as game from '../src/game/state'
+import { createGame } from './support/game-fixtures'
 
 beforeAll(() => {
   i18n.global.locale.value = 'zh-CN'
 })
-
-/** 每个用例一个干净状态 */
-function fresh() {
-  return game.initialState()
-}
 
 /** The 'tool missing' message for a given name, built from the locale table */
 function unknownToolMessage(name: string): string {
@@ -74,7 +70,7 @@ describe('toolSchemas(): the contract handed to the model', () => {
 
 describe('runTool', () => {
   it('returns a hint instead of throwing when the tool does not exist', () => {
-    const out = runTool(fresh(), 'no-such-tool', '{}')
+    const out = runTool(createGame(), 'no-such-tool', '{}')
     expect(out).toBe(unknownToolMessage('no-such-tool'))
   })
 
@@ -83,13 +79,13 @@ describe('runTool', () => {
     // truthy value on Object.prototype, skipped the "no such tool" branch and threw a
     // TypeError that escaped runTurn -- narrative was never persisted while time had moved.
     for (const bad of ['constructor', 'toString', 'valueOf', '__proto__', 'hasOwnProperty']) {
-      expect(() => runTool(fresh(), bad, '{}')).not.toThrow()
-      expect(runTool(fresh(), bad, '{}')).toBe(unknownToolMessage(bad))
+      expect(() => runTool(createGame(), bad, '{}')).not.toThrow()
+      expect(runTool(createGame(), bad, '{}')).toBe(unknownToolMessage(bad))
     }
   })
 
   it('empty arguments are valid (step has a default)', () => {
-    const state = fresh()
+    const state = createGame()
     const before = Date.parse(game.iso(state))
     // 成功文案带着时钟标记（locale 提供）
     expect(runTool(state, 'advance_time', '{}')).toContain(resultMarker('advanceResult'))
@@ -97,7 +93,7 @@ describe('runTool', () => {
   })
 
   it('valid JSON arguments execute normally', () => {
-    const state = fresh()
+    const state = createGame()
     const before = Date.parse(game.iso(state))
     runTool(state, 'advance_time', '{"step":3,"unit":"day","reason":"slept three days"}')
     expect(Date.parse(game.iso(state)) - before).toBe(3 * 86400000)
@@ -105,18 +101,18 @@ describe('runTool', () => {
 
   it('malformed JSON returns an error message for the model to retry (no throw)', () => {
     const raw = '{"broken'
-    const out = runTool(fresh(), 'advance_time', raw)
+    const out = runTool(createGame(), 'advance_time', raw)
     expect(out).toContain('JSON')
     expect(out).toContain(raw)
     expect(out).not.toContain(resultMarker('advanceResult'))
   })
 
   it('an array or a bare literal is rejected explicitly', () => {
-    const arrayOut = runTool(fresh(), 'advance_time', '[1,2]')
+    const arrayOut = runTool(createGame(), 'advance_time', '[1,2]')
     expect(arrayOut).toContain('[1,2]')
     expect(arrayOut).not.toContain(resultMarker('advanceResult'))
 
-    const literalOut = runTool(fresh(), 'advance_time', '"a string"')
+    const literalOut = runTool(createGame(), 'advance_time', '"a string"')
     expect(literalOut).toContain('a string')
     expect(literalOut).not.toContain(resultMarker('advanceResult'))
   })
@@ -126,7 +122,7 @@ describe('runTool', () => {
     // (lenient provider, hand-edited payload), so the engine must return a
     // *retryable* error rather than silently picking a unit.
     for (const bad of ['lightyear', 'days', 'HOUR']) {
-      const state = fresh()
+      const state = createGame()
       const before = game.iso(state)
       const out = runTool(state, 'advance_time', `{"step":1,"unit":"${bad}"}`)
       // 这条错误文案由 utils/calendar.ts 的 advanceTime 直接拼英文（不走 locale 表：
@@ -139,10 +135,9 @@ describe('runTool', () => {
   })
 
   it('an invalid stored timestamp surfaces as an advance failure, not a time jump', () => {
-    // NOTE (reported upstream): runTool no longer has a try/catch (it was dead code),
-    // so a thrown tool error is NOT converted here -- unique tool advance_time turns the
-    // failure into a warning inside state.advanceTime.
-    const state = fresh()
+    // runTool has no try/catch, so a thrown tool error is NOT converted here; the only
+    // tool, advance_time, turns the failure into a warning inside game/state.ts.
+    const state = createGame()
     state.data.time.iso = 'not-a-valid-time'
     const out = runTool(state, 'advance_time', '{"step":1}')
     expect(out).toContain(resultMarker('advanceFailed')) // the warning marker

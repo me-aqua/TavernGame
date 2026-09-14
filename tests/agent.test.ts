@@ -11,12 +11,13 @@
  * is wired; fixtures are ASCII constants so this file stays ASCII-only.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { initialState, addLog, endTurn, snapshot, save, hydrateFromSave, turn, iso } from '../src/game/state'
+import { initialState, save, hydrateFromSave, turn, iso } from '../src/game/state'
 import { localStorageStore, SAVE_KEY } from '../src/utils/storage'
-import { runTurn, type AgentContext, type AgentEvent } from '../src/agent/agent'
-import { saveConfig } from '../src/agent/config'
-import { i18n, t } from '../src/i18n'
+import { runTurn, type AgentEvent } from '../src/agent/agent'
+import { t } from '../src/i18n'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
+import { configureFakeProvider, createAgentContext } from './support/game-fixtures'
+import { ADVANCE_OK_MARKER } from './support/locale-patterns'
 
 /** ASCII fixtures: what the fake model "writes" and what the player "types" */
 const REPLY_PLAIN = 'The rain has stopped.'
@@ -43,38 +44,13 @@ let fake: FakeLlm
 
 beforeEach(() => {
   // agent 依赖配置里的 maxAgentSteps/temperature 等
-  saveConfig({
-    provider: 'custom',
-    apiKey: 'k',
-    apiBase: 'https://example.test/v1',
-    model: 'm',
-    maxAgentSteps: 5,
-  })
+  configureFakeProvider()
 })
 
 afterEach(() => {
   fake?.restore()
   vi.restoreAllMocks()
 })
-
-/**
- * 每例一份干净的数据 + 引擎要的上下文。
- * 引擎不接「类」：它要纯数据（工具会改它）+ 三个领域动作。
- */
-function freshGame(): AgentContext {
-  const state = initialState()
-  return {
-    state,
-    addLog: (kind, text) => addLog(state, kind, text),
-    endTurn: () => void endTurn(state),
-    snapshot: (history) => snapshot(state, history),
-  }
-}
-
-/** 只读那一局（断言用） */
-function stateOf(ctx: AgentContext) {
-  return ctx.state
-}
 
 /** 造一次 advance_time 的协议层调用 */
 function advanceCall(args: string) {
@@ -84,7 +60,7 @@ function advanceCall(args: string) {
 describe('runTurn -- main path', () => {
   it('a single reply with no tool call ends the turn in one step', async () => {
     fake = installFakeLlm([REPLY_PLAIN])
-    const ctx = freshGame()
+    const ctx = createAgentContext()
     const events: AgentEvent[] = []
 
     const result = await runTurn(ctx, { action: ACTION_LOOK_OUT, onEvent: (e) => events.push(e) })
@@ -106,21 +82,21 @@ describe('runTurn -- main path', () => {
       },
       REPLY_AFTER_WAIT,
     ])
-    const ctx = freshGame()
-    const before = Date.parse(iso(stateOf(ctx)))
+    const ctx = createAgentContext()
+    const before = Date.parse(iso(ctx.state))
     const events: AgentEvent[] = []
 
     const result = await runTurn(ctx, { action: ACTION_WAIT_WEEK, onEvent: (e) => events.push(e) })
 
     expect(result.steps).toBe(2)
-    expect(Date.parse(iso(stateOf(ctx))) - before).toBe(7 * 86400000)
+    expect(Date.parse(iso(ctx.state)) - before).toBe(7 * 86400000)
     expect(events.some((e) => e.type === 'tool' && e.tool === 'advance_time')).toBe(true)
     expect(events.some((e) => e.type === 'toolResult')).toBe(true)
   })
 
   it('tool results go back as role:"tool" with a matching tool_call_id', async () => {
     fake = installFakeLlm([{ content: REPLY_WAITING, toolCalls: [advanceCall('{"step":1}')] }, REPLY_NIGHT])
-    const ctx = freshGame()
+    const ctx = createAgentContext()
     await runTurn(ctx, { action: ACTION_WAIT })
 
     const secondRoundMessages = fake.calls[1].body.messages ?? []
@@ -131,36 +107,34 @@ describe('runTurn -- main path', () => {
     expect(toolMsg).toBeDefined()
     // id 必须与那次调用一致
     expect(toolMsg?.tool_call_id).toBe(assistant?.tool_calls?.[0].id)
-    // 结果里的时钟标记由 locale 表提供，本文件因此不必写非 ASCII 字符
-    const messages = i18n.global.getLocaleMessage(i18n.global.locale.value) as {
-      tools: Record<string, string>
-    }
-    expect(String(toolMsg?.content)).toContain(messages.tools.advanceResult.split('{')[0].trim())
+    // 结果里的时钟标记由 locale 表提供（共享模式见 support/locale-patterns），
+    // 本文件因此不必写非 ASCII 字符
+    expect(String(toolMsg?.content)).toContain(ADVANCE_OK_MARKER)
   })
 
   it('narration and action are both logged so a refresh can restore them', async () => {
     fake = installFakeLlm([REPLY_ONE, REPLY_TWO])
-    const ctx = freshGame()
+    const ctx = createAgentContext()
     await runTurn(ctx, { action: ACTION_ENTER })
 
-    const kinds = stateOf(ctx).data.log.map((l) => l.kind)
+    const kinds = ctx.state.data.log.map((l) => l.kind)
     expect(kinds).toContain('action')
     expect(kinds).toContain('narration')
-    expect(stateOf(ctx).data.log.find((l) => l.kind === 'action')?.text).toBe(ACTION_ENTER)
+    expect(ctx.state.data.log.find((l) => l.kind === 'action')?.text).toBe(ACTION_ENTER)
   })
 
   it("turn increments; persisting it is the caller task, not the engine's", async () => {
     fake = installFakeLlm([REPLY_ONE])
-    const ctx = freshGame()
+    const ctx = createAgentContext()
     await runTurn(ctx, { action: ACTION_SOMETHING })
 
-    expect(turn(stateOf(ctx))).toBe(1)
+    expect(turn(ctx.state)).toBe(1)
     // ⚠️ 引擎不碰存储（数据不该知道怎么落盘）——落盘由组合根在回合成功后做。
     //    这里断言「引擎没写盘」，再由 store 的测试守住「组合根写了」。
     expect(localStorage.getItem(SAVE_KEY)).toBeNull()
 
     // 组合根那样做一次：写盘后重新读档，回合数读得回来
-    save(stateOf(ctx), localStorageStore(localStorage))
+    save(ctx.state, localStorageStore(localStorage))
     const reloaded = initialState()
     hydrateFromSave(reloaded, localStorage)
     expect(turn(reloaded)).toBe(1)
@@ -168,7 +142,7 @@ describe('runTurn -- main path', () => {
 
   it('this turn narration is carried into history for the next turn', async () => {
     fake = installFakeLlm([REPLY_HISTORY])
-    const ctx = freshGame()
+    const ctx = createAgentContext()
     const r = await runTurn(ctx, { action: ACTION_STEP_ONE })
 
     expect(r.history).toHaveLength(2)
@@ -187,13 +161,13 @@ describe('runTurn -- errors are handed back to the model', () => {
       { content: REPLY_WAITING, toolCalls: [advanceCall('{"step":1,"unit":"lightyear"}')] },
       'That one worked.',
     ])
-    const ctx = freshGame()
-    const before = Date.parse(iso(stateOf(ctx)))
+    const ctx = createAgentContext()
+    const before = Date.parse(iso(ctx.state))
 
     const result = await runTurn(ctx, { action: ACTION_WAIT })
 
     // 时间**没有**被推进（引擎不猜）
-    expect(Date.parse(iso(stateOf(ctx)))).toBe(before)
+    expect(Date.parse(iso(ctx.state))).toBe(before)
     // 但错误进了工具结果，模型看得到
     expect(result.toolResults[0]).toContain('Unknown time unit')
     const toolMsg = (fake.calls[1].body.messages ?? []).find((m) => m.role === 'tool')
@@ -202,11 +176,11 @@ describe('runTurn -- errors are handed back to the model', () => {
 
   it('malformed JSON arguments are returned as an error instead of crashing', async () => {
     fake = installFakeLlm([{ content: 'waiting', toolCalls: [advanceCall('{"broken')] }, 'ok'])
-    const ctx = freshGame()
+    const ctx = createAgentContext()
     const result = await runTurn(ctx, { action: 'wait' })
 
     expect(result.toolResults[0]).toContain('JSON')
-    expect(turn(stateOf(ctx))).toBe(1) // 回合正常结束
+    expect(turn(ctx.state)).toBe(1) // 回合正常结束
   })
 })
 
@@ -222,7 +196,7 @@ describe('runTurn -- fallbacks and boundaries', () => {
       toolInvocation,
       REPLY_FORCED,
     ])
-    const ctx = freshGame()
+    const ctx = createAgentContext()
     const events: AgentEvent[] = []
 
     const result = await runTurn(ctx, { action: ACTION_WAIT, onEvent: (e) => events.push(e) })
@@ -237,7 +211,7 @@ describe('runTurn -- fallbacks and boundaries', () => {
         (e) => e.type === 'warn' && e.message.includes(t('agent.stepLimit', { max: 5 }).split('{')[0].trim()),
       ),
     ).toBe(true)
-    expect(stateOf(ctx).data.log.at(-1)?.text).toContain(REPLY_FORCED)
+    expect(ctx.state.data.log.at(-1)?.text).toContain(REPLY_FORCED)
   })
 
   it('a still-empty forced narration warns and is not written as an empty entry', async () => {
@@ -250,19 +224,19 @@ describe('runTurn -- fallbacks and boundaries', () => {
       toolInvocation,
       '   ',
     ])
-    const ctx = freshGame()
+    const ctx = createAgentContext()
     const events: AgentEvent[] = []
 
     const result = await runTurn(ctx, { action: ACTION_WAIT, onEvent: (e) => events.push(e) })
 
     expect(result.text).toBe('')
     expect(events.some((e) => e.type === 'warn' && e.message === t('agent.stillNoText'))).toBe(true)
-    expect(stateOf(ctx).data.log.some((l) => l.kind === 'narration')).toBe(false)
+    expect(ctx.state.data.log.some((l) => l.kind === 'narration')).toBe(false)
   })
 
   it('aborting before the loop throws AbortError and writes no log', async () => {
     fake = installFakeLlm([REPLY_UNUSED])
-    const ctx = freshGame()
+    const ctx = createAgentContext()
     const controller = new AbortController()
     controller.abort()
 
@@ -276,10 +250,10 @@ describe('runTurn -- fallbacks and boundaries', () => {
   it('a network error propagates (not swallowed) and does not bump the turn counter', async () => {
     fake = installFakeLlm([REPLY_UNUSED])
     fake.failNextWith(new Error('network down'))
-    const ctx = freshGame()
+    const ctx = createAgentContext()
 
     await expect(runTurn(ctx, { action: ACTION_TRY })).rejects.toThrow('network down')
-    expect(turn(stateOf(ctx))).toBe(0)
+    expect(turn(ctx.state)).toBe(0)
   })
 
   it('an empty-argument tool call uses the default unit (segment = 4 hours)', async () => {
@@ -287,15 +261,15 @@ describe('runTurn -- fallbacks and boundaries', () => {
       { content: 'Half the afternoon went by.', toolCalls: [advanceCall('{}')] },
       REPLY_NIGHT,
     ])
-    const ctx = freshGame()
-    const before = Date.parse(iso(stateOf(ctx)))
+    const ctx = createAgentContext()
+    const before = Date.parse(iso(ctx.state))
     await runTurn(ctx, { action: ACTION_WAIT })
-    expect(Date.parse(iso(stateOf(ctx))) - before).toBe(4 * 3600000)
+    expect(Date.parse(iso(ctx.state)) - before).toBe(4 * 3600000)
   })
 
   it('the available tools can be overridden (empty array means the model has none)', async () => {
     fake = installFakeLlm(['story only'])
-    const ctx = freshGame()
+    const ctx = createAgentContext()
     await runTurn(ctx, { action: 'look', tools: [] })
     expect(fake.calls[0].body.tools).toBeUndefined()
   })

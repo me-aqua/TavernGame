@@ -6,21 +6,10 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import * as game from '../src/game/state'
-import { localStorageStore } from '../src/utils/storage'
 import { createInitialState, normalize } from '../src/game/save'
-import { SAVE_KEY } from '../src/utils/storage'
+import { localStorageStore, SAVE_KEY } from '../src/utils/storage'
+import { createGame, countBackupKeys } from './support/game-fixtures'
 import { i18n, t } from '../src/i18n'
-
-/** 数一数有几个 .broken- 备份键（垫片是普通对象，只能用它的 key()） */
-function countBackupKeys(): number {
-  let n = 0
-  for (let i = 0; ; i += 1) {
-    const k = localStorage.key(i)
-    if (k === null) break
-    if (k.startsWith(`${SAVE_KEY}.broken-`)) n += 1
-  }
-  return n
-}
 
 /** 坏存档内容：JSON.parse 必然失败（测试自己编的 fixture） */
 const CORRUPT_SAVE_RAW = '{not valid JSON'
@@ -59,7 +48,7 @@ describe('initial state', () => {
 
 describe('load - reading and writing the save', () => {
   it('starts a fresh game when there is no save', () => {
-    const g = game.initialState()
+    const g = createGame()
     game.hydrateFromSave(g, localStorage)
     expect(g.loadError).toBeNull()
     expect(game.turn(g)).toBe(0)
@@ -67,7 +56,7 @@ describe('load - reading and writing the save', () => {
 
   it('a corrupted save does not silently start a new game: it returns an error and backs up the bad data', () => {
     localStorage.setItem(SAVE_KEY, CORRUPT_SAVE_RAW)
-    const g = game.initialState()
+    const g = createGame()
     game.hydrateFromSave(g, localStorage)
     expect(g.loadError).toContain(t('save.corrupted', { message: '' }).replace('{message}', '').trim())
     // 坏数据必须留一份，否则玩家连导出抢救的机会都没有
@@ -75,7 +64,7 @@ describe('load - reading and writing the save', () => {
   })
 
   it('a failed save returns false instead of pretending to succeed', () => {
-    const gs = game.initialState()
+    const gs = createGame()
     const store = localStorageStore(localStorage)
     // 垫片是普通对象（不是 Storage 实例），所以要打它自己的方法
     const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
@@ -134,20 +123,15 @@ describe('normalize - sanitizing a dirty save', () => {
 })
 
 describe('advanceTime - rejecting invalid input', () => {
-  /** 每个用例一份干净状态 */
-  function fresh() {
-    return game.initialState()
-  }
-
   it('rejects a step that moves backwards', () => {
-    const s = fresh()
+    const s = createGame()
     const before = game.iso(s)
     expect(game.advanceTime(s, -1)).toContain('backwards')
     expect(game.iso(s)).toBe(before)
   })
 
   it('rejects a step that stands still', () => {
-    const s = fresh()
+    const s = createGame()
     const before = game.iso(s)
     expect(game.advanceTime(s, 0)).toContain('stand still')
     expect(game.iso(s)).toBe(before)
@@ -157,7 +141,7 @@ describe('advanceTime - rejecting invalid input', () => {
     // 旧版本靠一张别名表把「days / 天 / DAY」猜成 day；原生 tool calling 之后
     // 协议层用 enum 挡住了这些，引擎只认 6 个规范值。
     for (const bad of NON_CANONICAL_UNITS) {
-      const s = fresh()
+      const s = createGame()
       const before = game.iso(s)
       const msg = game.advanceTime(s, 1, bad)
       expect(msg, `unit "${bad}" must not be accepted`).toContain('Unknown time unit')
@@ -175,7 +159,7 @@ describe('advanceTime - rejecting invalid input', () => {
       year: 365 * 86400000,
     }
     for (const [unit, ms] of Object.entries(expected)) {
-      const s = fresh()
+      const s = createGame()
       const before = Date.parse(game.iso(s))
       game.advanceTime(s, 1, unit)
       const elapsed = Date.parse(game.iso(s)) - before
@@ -190,14 +174,14 @@ describe('advanceTime - rejecting invalid input', () => {
   })
 
   it('blocks slip-of-the-hand input such as advancing a hundred thousand years', () => {
-    const s = fresh()
+    const s = createGame()
     const before = game.iso(s)
     expect(game.advanceTime(s, 99999, 'year')).toContain('Step too large')
     expect(game.iso(s)).toBe(before)
   })
 
   it('a successful advance moves the clock, writes the timeline, and its start differs from its end', () => {
-    const s = fresh()
+    const s = createGame()
     const before = game.timeLabel(s)
     const msg = game.advanceTime(s, 1, 'week', WAITED_A_WEEK)
     const after = game.timeLabel(s)
@@ -210,7 +194,7 @@ describe('advanceTime - rejecting invalid input', () => {
   })
 
   it('defaults to the segment unit (4 hours) and still reaches the timeline', () => {
-    const s = fresh()
+    const s = createGame()
     const before = Date.parse(game.iso(s))
     game.advanceTime(s, 1)
     expect(Date.parse(game.iso(s)) - before).toBe(4 * 3600000)
@@ -221,7 +205,7 @@ describe('advanceTime - rejecting invalid input', () => {
 
 describe('extra coverage for uncovered branches', () => {
   it('advancing returns the failure text instead of throwing when the saved instant was hand-edited to an invalid value', () => {
-    const s = game.initialState()
+    const s = createGame()
     s.data.time.iso = INVALID_TIME
     const out = game.advanceTime(s, 1, 'day')
     // 文案来自 locale 表，不能手写；RangeError 的文本由 JS 引擎给，也不能硬编码
@@ -232,8 +216,8 @@ describe('extra coverage for uncovered branches', () => {
     expect(out).toContain(game.timeLabel(s))
   })
 
-  it('GameState.save returns false when the write fails (a failed write does not crash)', () => {
-    const s = game.initialState()
+  it('save() returns false when the write fails (a failed write does not crash)', () => {
+    const s = createGame()
     const store = localStorageStore(localStorage)
     const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceededError')
@@ -243,14 +227,14 @@ describe('extra coverage for uncovered branches', () => {
   })
 
   it('with neither log nor history the snapshot only carries time and place', () => {
-    const s = game.initialState()
+    const s = createGame()
     const snap = game.snapshot(s)
     expect(snap).not.toContain(t('snapshot.recent'))
     expect(snap).not.toContain(t('snapshot.timeline'))
   })
 
   it('timeline entries with an empty to are skipped (no blank line in the prompt)', () => {
-    const s = game.initialState()
+    const s = createGame()
     s.data.timeline = [{ from: 'a', to: '', reason: '', elapsedMs: 0, at: '' }]
     expect(game.snapshot(s)).not.toContain(t('snapshot.timeline'))
   })
@@ -258,7 +242,7 @@ describe('extra coverage for uncovered branches', () => {
 
 describe('snapshot - built for the prompt, must never throw', () => {
   it('a normal state carries time / place / turn', () => {
-    const s = game.initialState()
+    const s = createGame()
     const snap = game.snapshot(s)
     expect(snap).toContain(t('snapshot.turn', { turn: 0 }))
     expect(snap).toContain(t('snapshot.time', { time: game.timeLabel(s) }))
@@ -266,7 +250,7 @@ describe('snapshot - built for the prompt, must never throw', () => {
   })
 
   it('history wins over the log when it is provided', () => {
-    const s = game.initialState()
+    const s = createGame()
     const snap = game.snapshot(s, [
       { role: 'user', content: PLAYER_ACTION },
       { role: 'assistant', content: GM_REPLY },
@@ -278,12 +262,12 @@ describe('snapshot - built for the prompt, must never throw', () => {
 
 describe('import / export', () => {
   it('exporting and importing again is idempotent', () => {
-    const s = game.initialState()
+    const s = createGame()
     game.addLog(s, 'narration', STORY_LOG_TEXT)
     game.advanceTime(s, 1, 'day', SLEPT_THROUGH_THE_NIGHT)
     const json = game.exportFile(s)
 
-    const s2 = game.initialState()
+    const s2 = createGame()
     game.importFile(s2, json, localStorageStore(localStorage))
     expect(s2.data.log.at(-1)?.text).toBe(STORY_LOG_TEXT)
     expect(s2.data.timeline).toHaveLength(1)
@@ -291,7 +275,7 @@ describe('import / export', () => {
   })
 
   it('rejects JSON that is not a save', () => {
-    const s = game.initialState()
+    const s = createGame()
     expect(() => game.importFile(s, '{"player": 1}', localStorageStore(localStorage))).toThrow(
       t('save.notValid'),
     )
@@ -301,12 +285,12 @@ describe('import / export', () => {
 
 describe('a no-op save store', () => {
   it('reports success without touching disk (used by pure logic tests)', () => {
-    const s = game.initialState()
+    const s = createGame()
     const noop = { save: () => true }
     expect(game.save(s, noop)).toBe(true) // 空实现不报错，也不落盘
     expect(localStorage.getItem(SAVE_KEY)).toBeNull()
     // 没有存档时读档 = 保持新开局
-    const opened = game.initialState()
+    const opened = createGame()
     game.hydrateFromSave(opened, localStorage)
     expect(game.turn(opened)).toBe(0)
   })
@@ -314,7 +298,7 @@ describe('a no-op save store', () => {
 
 describe('narration stream (messages)', () => {
   it('appends lines with increasing ids and can be cleared', () => {
-    const s = game.initialState()
+    const s = createGame()
     game.appendMessage(s, 'narration', STORY_LOG_TEXT)
     game.appendMessage(s, 'action', PLAYER_ACTION)
 
@@ -326,7 +310,7 @@ describe('narration stream (messages)', () => {
   })
 
   it('restores only narration and actions from the log (system lines are not replayed)', () => {
-    const s = game.initialState()
+    const s = createGame()
     game.addLog(s, 'narration', STORY_LOG_TEXT)
     game.addLog(s, 'system', PLAYER_ACTION)
     game.addLog(s, 'action', PLAYER_ACTION)

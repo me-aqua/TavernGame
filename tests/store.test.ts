@@ -9,9 +9,9 @@ import { watchEffect } from 'vue'
 import { useGame } from '../src/stores/game'
 import { initialState, hydrateFromSave, turn } from '../src/game/state'
 import { SAVE_KEY } from '../src/utils/storage'
-import { saveConfig } from '../src/agent/config'
 import { hourToSegment, SEGMENTS } from '../src/utils/calendar'
 import { t } from '../src/i18n'
+import { configureFakeProvider } from './support/game-fixtures'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 
 /** 测试自造的 fixture（模型回复与玩家行动），不是产品文案 */
@@ -35,13 +35,7 @@ const LOOK_ACTION = 'look around'
 let fake: FakeLlm | null = null
 
 beforeEach(() => {
-  saveConfig({
-    provider: 'custom',
-    apiKey: 'k',
-    apiBase: 'https://example.test/v1',
-    model: 'm',
-    maxAgentSteps: 5,
-  })
+  configureFakeProvider()
   useGame().resetGame()
 })
 
@@ -218,9 +212,9 @@ describe('reactivity: the UI updates when the domain mutates the data', () => {
     await g.runTurnAction(OPEN_EYES)
     const after = g.timeLabel.value
 
-    expect(after, '时间必须真的推进了，否则这条测试是空的').not.toBe(before)
-    expect(seen, 'computed 必须在推进后重算（这才是「界面会更新」）').toContain(after)
-    expect(seen.length, '不能只求值一次').toBeGreaterThan(1)
+    expect(after, 'the clock must actually move, or this test proves nothing').not.toBe(before)
+    expect(seen, 'the computed must recompute after the advance -- that is what the UI updating means').toContain(after)
+    expect(seen.length, 'it must be evaluated more than once').toBeGreaterThan(1)
     stop()
   })
 
@@ -233,7 +227,7 @@ describe('reactivity: the UI updates when the domain mutates the data', () => {
     expect(counts.length).toBe(1)
     await g.runTurnAction(OPEN_EYES)
 
-    expect(counts.length, 'messages 变化必须触发重新求值').toBeGreaterThan(1)
+    expect(counts.length, 'a transcript change must trigger a recompute').toBeGreaterThan(1)
     expect(counts.at(-1)).toBe(g.messages.value.length)
     stop()
   })

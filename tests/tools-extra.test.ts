@@ -1,17 +1,16 @@
 /**
  * tools.ts 补充测试 —— 参数边界（非法 JSON、非对象）已在 tests/tools.test.ts 覆盖。
  *
- * 这里只补一条：时刻非法时的行为。
- *
- * ⚠️ 结论（写进报告）：runTool 的 `catch`（把工具抛错转成 ❌ 文案）**当前不可达** ——
- * 唯一的工具 advance_time 内部（state.advanceTime）已经用 try/catch 把错误
- * 转成了 ⚠ 文案，不会抛到 runTool。该 catch 是给"将来新增会抛错的工具"留的兜底，
- * 属于为本项目纪律所不允许的「不可能发生的场景」写的防御代码（报给上游判断）。
+ * 这里补的是「时刻本身非法」：失败在 advanceTime 内部（utils/calendar.ts）就被
+ * 转成 tools.advanceFailed 文案返回，不会抛到 runTool —— runTool 里没有 try/catch，
+ * 理由见该文件第 98 行的注释。
  */
 import { describe, expect, it } from 'vitest'
 import { runTool } from '../src/agent/tools'
 import * as game from '../src/game/state'
 import { t } from '../src/i18n'
+import { ADVANCE_OK_MARKER } from './support/locale-patterns'
+import { createGame } from './support/game-fixtures'
 
 /** 非法时刻 fixture（存档被手改成这种值时走的就是这条路径） */
 const INVALID_TIME = 'not-a-valid-time'
@@ -22,15 +21,9 @@ const INVALID_TIME = 'not-a-valid-time'
  */
 const INVALID_TIME_ERROR = 'Invalid time value'
 
-/**
- * 成功文案的固定开头（首行，占位符之外的部分）。
- * t() 不带具名参数时占位符会被替换成空串，所以传空串取模板、再截首行。
- */
-const ADVANCE_OK_MARKER = t('tools.advanceResult', { before: '', after: '' }).split('\n')[0].trim()
-
 describe('advance_time with an invalid time', () => {
-  it('returns the advance-failed line (caught inside state.advanceTime, never thrown to runTool)', () => {
-    const state = game.initialState()
+  it('returns the advance-failed line (caught inside advanceTime, never thrown to runTool)', () => {
+    const state = createGame()
     state.data.time.iso = INVALID_TIME
     const current = game.timeLabel(state)
 
@@ -40,7 +33,7 @@ describe('advance_time with an invalid time', () => {
   })
 
   it('treats an empty arguments string as {} (the tool takes no required params)', () => {
-    const state = game.initialState()
+    const state = createGame()
     const before = game.timeLabel(state)
 
     const out = runTool(state, 'advance_time', '')
@@ -48,7 +41,7 @@ describe('advance_time with an invalid time', () => {
   })
 
   it('advances successfully from a valid time', () => {
-    const state = game.initialState()
+    const state = createGame()
     const before = game.timeLabel(state)
 
     const out = runTool(state, 'advance_time', '{"step":1}')

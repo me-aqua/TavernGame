@@ -9,8 +9,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useGame } from '../src/stores/game'
-import { saveConfig } from '../src/agent/config'
 import { t } from '../src/i18n'
+import { configureFakeProvider } from './support/game-fixtures'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 
 /** 测试自造的 fixture（模型回复与玩家行动），不是产品文案 */
@@ -33,13 +33,7 @@ const IDLE_ACTION = 'idle'
 let fake: FakeLlm | null = null
 
 beforeEach(() => {
-  saveConfig({
-    provider: 'custom',
-    apiKey: 'k',
-    apiBase: 'https://example.test/v1',
-    model: 'm',
-    maxAgentSteps: MAX_STEPS,
-  })
+  configureFakeProvider(MAX_STEPS)
   useGame().resetGame()
 })
 

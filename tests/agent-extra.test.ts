@@ -8,11 +8,10 @@
  * file stays ASCII-only; fixtures are ASCII constants.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { initialState, addLog, endTurn, snapshot, type GameState } from '../src/game/state'
-import { runTurn, type AgentContext, type AgentEvent } from '../src/agent/agent'
-import { saveConfig } from '../src/agent/config'
+import { runTurn, type AgentEvent } from '../src/agent/agent'
 import { t } from '../src/i18n'
 import { forcedNarrationInstruction, toolCallsWithoutNarration } from '../src/agent/prompts'
+import { configureFakeProvider, createAgentContext } from './support/game-fixtures'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 
 /** ASCII fixtures */
@@ -20,32 +19,10 @@ const REPLY_WAKE = 'You wake up in an inn.'
 const REPLY_FORCED = 'The forced narration.'
 const ACTION_WAIT = 'wait a bit'
 
-/** 造一份干净数据 + 引擎要的上下文（引擎接纯数据 + 动作，不接类） */
-function freshGame(): AgentContext {
-  const state = initialState()
-  return {
-    state,
-    addLog: (kind, text) => addLog(state, kind, text),
-    endTurn: () => void endTurn(state),
-    snapshot: (history) => snapshot(state, history),
-  }
-}
-
-/** ctx 里的那一局（断言用） */
-function stateOf(ctx: AgentContext): GameState {
-  return ctx.state
-}
-
 let fake: FakeLlm | null = null
 
 beforeEach(() => {
-  saveConfig({
-    provider: 'custom',
-    apiKey: 'k',
-    apiBase: 'https://example.test/v1',
-    model: 'm',
-    maxAgentSteps: 5,
-  })
+  configureFakeProvider()
 })
 
 afterEach(() => {
@@ -57,14 +34,14 @@ afterEach(() => {
 describe('opening branch (no action passed)', () => {
   it('logs as system and sends the opening instruction instead of a player action', async () => {
     fake = installFakeLlm([REPLY_WAKE])
-    const ctx = freshGame()
+    const ctx = createAgentContext()
     const events: AgentEvent[] = []
 
     const result = await runTurn(ctx, { onEvent: (e) => events.push(e) })
 
     expect(result.text).toBe(REPLY_WAKE)
     // 日志的第一条是 system（而非 action）
-    expect(stateOf(ctx).data.log[0].kind).toBe('system')
+    expect(ctx.state.data.log[0].kind).toBe('system')
     // 发给模型的第一条 user 消息带开场指令的前缀
     const firstUser = fake.calls[0].body.messages?.find((m) => m.role === 'user')
     const gameStartPrefix = t('agent.gameStart', { instruction: '' }).split('{')[0]
@@ -80,7 +57,7 @@ describe('choosing the forced-narration instruction', () => {
   it('uses the "narration only" nudge when a tool was already called (tool_call_id branch)', async () => {
     const invocation = { toolCalls: [{ name: 'advance_time', arguments: '{"step":1}' }] }
     fake = installFakeLlm([invocation, invocation, invocation, invocation, invocation, REPLY_FORCED])
-    const ctx = freshGame()
+    const ctx = createAgentContext()
 
     const result = await runTurn(ctx, { action: ACTION_WAIT })
 

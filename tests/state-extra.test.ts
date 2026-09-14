@@ -16,23 +16,8 @@ import { localStorageStore } from '../src/utils/storage'
 import { SAVE_KEY } from '../src/utils/storage'
 import { realCalendar, segmentName } from '../src/utils/calendar'
 import { t } from '../src/i18n'
-
-/** 时段显示名（产品文案，只能从 locale 表取） */
-const MORNING = t('calendar.segment.morning')
-const AFTERNOON = t('calendar.segment.afternoon')
-const EVENING = t('calendar.segment.evening')
-const SEGMENT_NAMES = [MORNING, AFTERNOON, EVENING]
-
-/** 时间线起点用的简短标签形状：`{month} 月 {day} 日 · 时段`，月日部分用 \d+ 占位 */
-const SHORT_TIME_LABEL = new RegExp(
-  `^${t('calendar.monthDay', { month: '\\d+', day: '\\d+' })}${t('calendar.dateSeparator')}(${SEGMENT_NAMES.join('|')})$`,
-)
-
-/** elapsed 文案的前缀（产品文案）；出现即说明推进结果回传了「过去了多久」 */
-const ELAPSED_PREFIX = t('calendar.elapsed', { parts: '' }).trim()
-
-/** 原因那一行的前缀（产品文案）；出现即说明 reason 被追加了 */
-const REASON_LABEL = t('tools.advanceReason', { reason: '' }).trim()
+import { SEGMENT_NAMES, SHORT_TIME_LABEL, ELAPSED_PREFIX, REASON_LABEL } from './support/locale-patterns'
+import { createGame } from './support/game-fixtures'
 
 /* ---- 以下都是测试自己编的 fixture（非产品文案） ---- */
 
@@ -51,20 +36,15 @@ const logText = (i: number) => `entry ${i}`
 /** 第 i 天的推进原因 */
 const dayReason = (i: number) => `day ${i}`
 
-/** 每个用例一个干净状态 */
-function fresh() {
-  return game.initialState()
-}
-
 describe('constructor and getters', () => {
   it('falls back to the initial state when no argument is passed (the ?? branch)', () => {
-    const s = game.initialState()
+    const s = createGame()
     expect(game.turn(s)).toBe(0)
     expect(s.data.player.name).toBe(t('player.defaultName'))
   })
 
   it('scene and the short time label are readable', () => {
-    const s = fresh()
+    const s = createGame()
     expect(s.data.player).toEqual({ name: t('player.defaultName') })
     expect(game.sceneOf(s).name).toBe(t('scene.unknownPlace'))
     // 简短时间标签直接用历法格式化：GameState 不再包一层同名 getter（避免两份真值来源）
@@ -74,18 +54,18 @@ describe('constructor and getters', () => {
 
 describe('segmentName - the three segment branches', () => {
   it('before noon -> morning', () => {
-    expect(segmentName(0)).toBe(MORNING)
-    expect(segmentName(11)).toBe(MORNING)
+    expect(segmentName(0)).toBe(SEGMENT_NAMES[0])
+    expect(segmentName(11)).toBe(SEGMENT_NAMES[0])
   })
 
   it('noon to early evening -> afternoon', () => {
-    expect(segmentName(12)).toBe(AFTERNOON)
-    expect(segmentName(17)).toBe(AFTERNOON)
+    expect(segmentName(12)).toBe(SEGMENT_NAMES[1])
+    expect(segmentName(17)).toBe(SEGMENT_NAMES[1])
   })
 
   it('late evening -> evening', () => {
-    expect(segmentName(18)).toBe(EVENING)
-    expect(segmentName(23)).toBe(EVENING)
+    expect(segmentName(18)).toBe(SEGMENT_NAMES[2])
+    expect(segmentName(23)).toBe(SEGMENT_NAMES[2])
   })
 
   it('returns one of the three localized segment names', () => {
@@ -95,7 +75,7 @@ describe('segmentName - the three segment branches', () => {
 
 describe('addLog - trimming at the limit', () => {
   it('drops from the head past MAX_LOG (80), keeping the last 80 entries', () => {
-    const s = fresh()
+    const s = createGame()
     for (let i = 0; i < 100; i += 1) game.addLog(s, 'narration', logText(i))
 
     expect(s.data.log).toHaveLength(80)
@@ -107,7 +87,7 @@ describe('addLog - trimming at the limit', () => {
 
 describe('advanceTime - timeline branches', () => {
   it('truncates the timeline from the head past MAX_TIMELINE (40)', () => {
-    const s = fresh()
+    const s = createGame()
     for (let i = 0; i < 50; i += 1) game.advanceTime(s, 1, 'day', dayReason(i))
 
     expect(s.data.timeline).toHaveLength(40)
@@ -115,7 +95,7 @@ describe('advanceTime - timeline branches', () => {
   })
 
   it('a jump beyond 180 days no longer reports the elapsed time', () => {
-    const s = fresh()
+    const s = createGame()
     const before = game.timeLabel(s)
     const out = game.advanceTime(s, 1, 'year', A_YEAR_APART)
     const after = game.timeLabel(s)
@@ -126,13 +106,13 @@ describe('advanceTime - timeline branches', () => {
   })
 
   it('omits the reason line when no reason is passed', () => {
-    const s = fresh()
+    const s = createGame()
     const out = game.advanceTime(s, 1, 'day')
     expect(out).not.toContain(REASON_LABEL)
   })
 
   it('with 3 or more timeline entries, only advances of 4 hours or more are worth recording', () => {
-    const s = fresh()
+    const s = createGame()
     // 先塞满 3 条（这几条无论跨度多小都会被记，因为 timeline.length < 3）
     for (let i = 0; i < 3; i += 1) game.advanceTime(s, 1, 'day')
     const before = s.data.timeline.length
@@ -144,7 +124,7 @@ describe('advanceTime - timeline branches', () => {
 
 describe('snapshot - branches', () => {
   it('uses history when present, tagged with the player/GM roles', () => {
-    const s = fresh()
+    const s = createGame()
     const snap = game.snapshot(s, [
       { role: 'user', content: PLAYER_ACTION },
       { role: 'assistant', content: GM_REPLY },
@@ -155,7 +135,7 @@ describe('snapshot - branches', () => {
   })
 
   it('falls back to the log when there is no history', () => {
-    const s = fresh()
+    const s = createGame()
     game.addLog(s, 'narration', LOG_LINE)
     const snap = game.snapshot(s, [])
     expect(snap).toContain(t('snapshot.recent'))
@@ -163,7 +143,7 @@ describe('snapshot - branches', () => {
   })
 
   it('collapses long text to one line and truncates it to 160 characters', () => {
-    const s = fresh()
+    const s = createGame()
     game.addLog(s, 'narration', LONG_TEXT)
     const snap = game.snapshot(s, [])
     // 截断到 160 字（替换空白后）
@@ -172,7 +152,7 @@ describe('snapshot - branches', () => {
   })
 
   it('appends the reason in parentheses when the timeline entry has one', () => {
-    const s = fresh()
+    const s = createGame()
     game.advanceTime(s, 1, 'week', WAITED_SEVEN_DAYS)
     const snap = game.snapshot(s, [])
     expect(snap).toContain(t('snapshot.timeline'))
@@ -182,13 +162,13 @@ describe('snapshot - branches', () => {
   })
 
   it('skips timeline entries with an empty to; no heading when every entry is empty', () => {
-    const s = fresh()
+    const s = createGame()
     s.data.timeline = [{ from: 'a', to: '', reason: '', elapsedMs: 0, at: '' }] as never
     expect(game.snapshot(s, [])).not.toContain(t('snapshot.timeline'))
   })
 
   it('with no log and no history the snapshot has only turn / time / place', () => {
-    const s = fresh()
+    const s = createGame()
     const snap = game.snapshot(s, [])
     expect(snap).not.toContain(t('snapshot.recent'))
     expect(snap).not.toContain(t('snapshot.timeline'))
@@ -197,7 +177,7 @@ describe('snapshot - branches', () => {
 
 describe('import - rejection branches', () => {
   it('rejects non-objects, a missing player, and a player that is not an object', () => {
-    const s = fresh()
+    const s = createGame()
     for (const bad of ['[]', '"a string"', 'null', '{}', '{"player": 1}', '{"player": null}']) {
       expect(() => game.importFile(s, bad, localStorageStore(localStorage)), `should reject: ${bad}`).toThrow(
         t('save.notValid'),
@@ -206,14 +186,14 @@ describe('import - rejection branches', () => {
   })
 
   it('throws a parse error on broken JSON', () => {
-    const s = fresh()
+    const s = createGame()
     expect(() => game.importFile(s, BROKEN_JSON, localStorageStore(localStorage))).toThrow()
   })
 })
 
 describe('save / reset', () => {
   it('save returns false on failure (private mode)', () => {
-    const s = game.initialState()
+    const s = createGame()
     const store = localStorageStore(localStorage)
     const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceededError')
@@ -223,7 +203,7 @@ describe('save / reset', () => {
   })
 
   it('reset writes back a fresh initial state', () => {
-    const s = game.initialState()
+    const s = createGame()
     const store = localStorageStore(localStorage)
     game.addLog(s, 'narration', OLD_STORY)
     game.advanceTime(s, 3, 'day')

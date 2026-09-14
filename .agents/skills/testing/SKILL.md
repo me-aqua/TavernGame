@@ -28,6 +28,21 @@ npm run verify     # 类型检查 → 223 项测试 + 覆盖率门禁 → 构建
 | 组件 | `tests/components.test.ts` | jsdom | 渲染出的契约、点击后 emit 什么（**不测样式**） |
 | e2e | `e2e/smoke.mjs` | 真实 Chrome（CDP） | 构建产物真能打开、能交互、无异常无 4xx |
 
+## 共享夹具（tests/support/）
+
+**重复的夹具必须集中，不要在测试文件里各写一份** —— 领域层改成纯数据 + 纯函数之后，
+「造一局」是「`initialState()` + 传 store」两步，各写一份就会出现五份几乎相同的
+`freshGame` / `testContext`，改一次签名要改五处。
+
+| 文件 | 提供 |
+| --- | --- |
+| `game-fixtures.ts` | `createGame()`（纯数据一局）、`createPersistedGame()`（带真存储）、`createAgentContext()`（引擎要的纯数据 + 三动作）、`noopStore` / `failingStore`、`countBackupKeys()` |
+| `locale-patterns.ts` | 断言用的 locale 派生**模式**：`SEGMENT_NAMES`、`SHORT_TIME_LABEL`、`ELAPSED_PREFIX`、`REASON_LABEL`、`ADVANCE_OK_MARKER` |
+| `fakeLlm.ts` | 假 fetch（按序返回预设回复并记录请求） |
+
+判据：**同一个夹具在第二个文件里再写一遍时**才提取。fake 回复常量（`WAIT_REPLY` 之类）
+属于各用例的上下文，各文件自己的那份不算重复 —— 硬合并只会让测试读不懂。
+
 **测试里的网络一律用假 fetch**：`tests/support/fakeLlm.ts`
 （按调用次序返回预设回复，并记录每次请求供断言）。**绝不发真实请求。**
 
