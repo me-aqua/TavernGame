@@ -4,8 +4,20 @@
  * 重点：**坏存档不能让游戏卡死**。
  * 这些断言全部对应 v0.5.4 那次独立审查修掉的缺陷，是防回归用的。
  */
-import { describe, expect, it } from 'vitest'
-import { GameState, createInitialState } from '../src/core/state'
+import { describe, expect, it, vi } from 'vitest'
+import { GameState } from '../src/core/state'
+import { createInitialState, normalize, loadState, SAVE_KEY } from '../src/core/persistence'
+
+/** 数一数有几个 .broken- 备份键（垫片是普通对象，只能用它的 key()） */
+function 备份键数量(): number {
+  let n = 0
+  for (let i = 0; ; i += 1) {
+    const k = localStorage.key(i)
+    if (k === null) break
+    if (k.startsWith(`${SAVE_KEY}.broken-`)) n += 1
+  }
+  return n
+}
 
 describe('初始状态', () => {
   it('包含全部必需字段', () => {
@@ -17,25 +29,52 @@ describe('初始状态', () => {
   })
 })
 
+describe('load —— 存档读写', () => {
+  it('没有存档时返回 null（由调用方决定开新局）', () => {
+    const { data, error } = loadState()
+    expect(data).toBeNull()
+    expect(error).toBeNull()
+  })
+
+  it('存档损坏时不静默开新局：返回 error 并备份坏数据', () => {
+    localStorage.setItem('tavernGame.save.v3', '{这不是合法 JSON')
+    const { data, error } = loadState()
+    expect(data).toBeNull()
+    expect(error).toContain('本地存档已损坏')
+    // 坏数据必须留一份，否则玩家连导出抢救的机会都没有
+    expect(备份键数量()).toBe(1)
+  })
+
+  it('save 失败返回 false 而不是假装成功', () => {
+    const gs = new GameState(createInitialState())
+    // 垫片是普通对象（不是 Storage 实例），所以要打它自己的方法
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError')
+    })
+    expect(gs.save()).toBe(false)
+    spy.mockRestore()
+  })
+})
+
 describe('normalize —— 脏存档净化', () => {
   it('null / 数组 / 字符串都不会让它抛错', () => {
     for (const bad of [null, undefined, [], 'x', 42, true]) {
-      expect(() => GameState.normalize(bad)).not.toThrow()
+      expect(() => normalize(bad)).not.toThrow()
     }
   })
 
   it('完全空的输入也会补成完整的初始状态', () => {
-    const d = GameState.normalize({})
+    const d = normalize({})
     expect(Object.keys(d).sort()).toEqual(['log', 'meta', 'player', 'scene', 'time', 'timeline'])
   })
 
   it('非法时刻回退到当前时间（否则侧栏会永久显示 NaN 年，时间工具每次都失败）', () => {
-    const d = GameState.normalize({ time: { iso: '这不是时间' } })
+    const d = normalize({ time: { iso: '这不是时间' } })
     expect(Number.isNaN(Date.parse(d.time.iso))).toBe(false)
   })
 
   it('log 里的 null / 字符串元素被过滤，不留下会让 snapshot 抛错的东西', () => {
-    const d = GameState.normalize({
+    const d = normalize({
       log: [null, 'abc', 42, { kind: 'narration', text: '正常的一条' }],
     })
     expect(d.log).toHaveLength(1)
@@ -43,21 +82,21 @@ describe('normalize —— 脏存档净化', () => {
   })
 
   it('timeline 里的脏元素被过滤并补齐字段', () => {
-    const d = GameState.normalize({ timeline: [null, { from: 'a' }] })
+    const d = normalize({ timeline: [null, { from: 'a' }] })
     expect(d.timeline).toHaveLength(1)
     expect(d.timeline[0].reason).toBe('')
     expect(d.timeline[0].elapsedMs).toBe(0)
   })
 
   it('回合数被强制成数字（字符串会被 endTurn 拼成 "51"）', () => {
-    expect(GameState.normalize({ meta: { turn: '7' } }).meta.turn).toBe(7)
-    expect(GameState.normalize({ meta: { turn: 'abc' } }).meta.turn).toBe(0)
-    expect(GameState.normalize({ meta: { turn: -5 } }).meta.turn).toBe(0)
+    expect(normalize({ meta: { turn: '7' } }).meta.turn).toBe(7)
+    expect(normalize({ meta: { turn: 'abc' } }).meta.turn).toBe(0)
+    expect(normalize({ meta: { turn: -5 } }).meta.turn).toBe(0)
   })
 
   it('log 有上限，不会无限增长', () => {
     const many = Array.from({ length: 200 }, (_, i) => ({ kind: 'narration', text: '第' + i }))
-    expect(GameState.normalize({ log: many }).log.length).toBeLessThanOrEqual(80)
+    expect(normalize({ log: many }).log.length).toBeLessThanOrEqual(80)
   })
 })
 

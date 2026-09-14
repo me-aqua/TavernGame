@@ -74,21 +74,15 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
     // 被 .catch 吞成空串 —— 于是网关返回 HTML 502 时，
     // 玩家只看到一行状态码、拿不到任何可用于排查的内容。
     // 所以先整体读成文本，再尝试从中解析 JSON。
+    const raw = await res.text()
     let detail = ''
     try {
-      const raw = await res.text().catch(() => '')
-      if (raw) {
-        try {
-          const j = JSON.parse(raw) as { error?: { message?: string }; message?: string }
-          detail = j?.error?.message || j?.message || raw.slice(0, 300)
-        } catch {
-          detail = raw.slice(0, 300) // 不是 JSON（HTML 错误页等），照样给出来
-        }
-      }
+      const j = JSON.parse(raw) as { error?: { message?: string }; message?: string }
+      detail = j?.error?.message || j?.message || ''
     } catch {
-      /* 读不到就算了，下面至少还有状态码 */
+      // 成功路径：网关返回 HTML 错误页（502 等）时本来就不是 JSON
     }
-    throw new Error(`接口返回 ${res.status} ${res.statusText}\n${detail}`)
+    throw new Error(`接口返回 ${res.status} ${res.statusText}\n${detail || raw.slice(0, 300)}`)
   }
 
   const data = (await res.json()) as {

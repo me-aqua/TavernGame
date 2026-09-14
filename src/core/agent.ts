@@ -71,6 +71,37 @@ function buildMessages(
   return messages
 }
 
+/**
+ * 一整个回合一个字都没写时，强制再要一次叙事。
+ *
+ * 实测会发生的真实情况：模型把步数全花在调用工具上，一次叙事都没输出，
+ * 玩家看到的是一片空白。所以这里明确禁止它继续调工具，只能写文字。
+ */
+async function 补写叙事(
+  messages: ChatMessage[],
+  signal: AbortSignal | undefined,
+  onEvent: (evt: AgentEvent) => void,
+): Promise<string | null> {
+  onEvent({ type: 'warn', message: '这一回合没有产生叙事文字，正在要求 GM 补写…' })
+  messages.push({
+    role: 'user',
+    content:
+      '你刚才只调用了工具，没有输出任何叙事文字，玩家现在看到的是一片空白。\n\n' +
+      '请**只写叙事**，不要再调用任何工具。\n' +
+      '基于已经发生的事，把这个场景写给玩家看：他身处何处、看到什么、' +
+      '听到什么、有什么处境。两到三段。',
+  })
+
+  const forced = await chat(messages, { signal })
+  const text = parseToolCalls(forced).clean || forced.trim()
+  if (!text) {
+    onEvent({ type: 'warn', message: 'GM 依然没有输出文字' })
+    return null
+  }
+  onEvent({ type: 'narration', text })
+  return text
+}
+
 /** 跑一个回合 */
 export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise<TurnResult> {
   const { action, history = [], signal, onEvent = () => {} } = opts
@@ -167,36 +198,9 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
     onEvent({ type: 'warn', message: `达到步数上限（${maxSteps}），本回合结束` })
   }
 
-  // ---------- 兜底：一整个回合一个字都没写 ----------
-  // 实测会发生的真实情况：模型把步数全花在调用工具上，
-  // 一次叙事都没输出，玩家看到的是一片空白。
-  // 所以这里强制再要一次 —— 明确禁止它继续调工具，只能写文字。
   if (!narrations.length) {
-    onEvent({ type: 'warn', message: '这一回合没有产生叙事文字，正在要求 GM 补写…' })
-    try {
-      messages.push({
-        role: 'user',
-        content:
-          '你刚才只调用了工具，没有输出任何叙事文字，玩家现在看到的是一片空白。\n\n' +
-          '请**只写叙事**，不要再调用任何工具。\n' +
-          '基于已经发生的事，把这个场景写给玩家看：他身处何处、看到什么、' +
-          '听到什么、有什么处境。两到三段。',
-      })
-
-      const forced = await chat(messages, { signal })
-      const parsed = parseToolCalls(forced)
-      const text = parsed.clean || forced.trim()
-
-      if (text) {
-        narrations.push(text)
-        onEvent({ type: 'narration', text })
-      } else {
-        onEvent({ type: 'warn', message: 'GM 依然没有输出文字' })
-      }
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') throw err
-      onEvent({ type: 'warn', message: `补写叙事失败：${(err as Error).message}` })
-    }
+    const extra = await 补写叙事(messages, signal, onEvent)
+    if (extra) narrations.push(extra)
   }
 
   // 把本回合的叙事写进日志，供刷新后恢复。
@@ -207,7 +211,9 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
 
   // 记录回合数并落盘
   state.endTurn()
-  state.save()
+  if (!state.save()) {
+    onEvent({ type: 'warn', message: '存档写入失败（可能是隐私模式或空间已满）—— 这一回合的进度重启后会丢失' })
+  }
 
   // 维护对话历史（供下一回合拼接）
   const newHistory: ChatMessage[] = [

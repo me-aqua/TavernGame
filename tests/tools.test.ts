@@ -7,7 +7,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { runTool, parseToolCalls, toolsPrompt, TOOLS } from '../src/core/tools'
-import { GameState, createInitialState } from '../src/core/state'
+import { GameState } from '../src/core/state'
+import { createInitialState } from '../src/core/persistence'
 
 function fresh() {
   return new GameState(createInitialState())
