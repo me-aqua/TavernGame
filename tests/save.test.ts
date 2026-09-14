@@ -44,16 +44,32 @@ describe('normalize fallbacks', () => {
     expect(Number.isNaN(Date.parse(d.time.iso))).toBe(false)
   })
 
+  it('drops events with an unknown kind but keeps detail for the known ones', () => {
+    const d = normalize({
+      events: [
+        { kind: 'narration', text: 'story' },
+        { kind: 'nonsense', text: 'not a thing' },
+        { kind: 'tool', text: 'tool call', detail: '{"a":1}' },
+        { kind: 'reply', text: 'reply', detail: 42 },
+      ],
+    })
+
+    expect(d.events.map((event) => event.kind)).toEqual(['narration', 'tool', 'reply'])
+    expect(d.events[1].detail).toBe('{"a":1}')
+    // detail 不是字符串就当没有，不让渲染层拿到数字
+    expect(d.events[2].detail).toBeUndefined()
+  })
+
   it('does not crash on wrong field types (number, null, nested array)', () => {
     const d = normalize({
       player: { name: 123 },
       scene: { name: null, description: [] },
       time: { iso: 456 },
-      log: 'not-an-array',
+      events: 'not-an-array',
       timeline: { nope: true },
     })
     expect(typeof d.player.name).toBe('string')
-    expect(d.log).toEqual([])
+    expect(d.events).toEqual([])
     expect(d.timeline).toEqual([])
   })
 })

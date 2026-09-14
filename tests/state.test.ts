@@ -40,7 +40,7 @@ const SLEPT_THROUGH_THE_NIGHT = 'slept through the night'
 describe('initial state', () => {
   it('contains every required field', () => {
     const s = createInitialState()
-    expect(Object.keys(s).sort()).toEqual(['log', 'meta', 'player', 'scene', 'time', 'timeline'])
+    expect(Object.keys(s).sort()).toEqual(['events', 'meta', 'player', 'scene', 'time', 'timeline'])
     expect(Number.isNaN(Date.parse(s.time.iso))).toBe(false)
     expect(s.meta.turn).toBe(0)
   })
@@ -84,7 +84,7 @@ describe('normalize - sanitizing a dirty save', () => {
 
   it('a completely empty input is filled in as a full initial state', () => {
     const d = normalize({})
-    expect(Object.keys(d).sort()).toEqual(['log', 'meta', 'player', 'scene', 'time', 'timeline'])
+    expect(Object.keys(d).sort()).toEqual(['events', 'meta', 'player', 'scene', 'time', 'timeline'])
   })
 
   it('an invalid instant falls back to now (otherwise the sidebar shows NaN years forever and every time tool fails)', () => {
@@ -94,10 +94,10 @@ describe('normalize - sanitizing a dirty save', () => {
 
   it('null / string entries in log are filtered out, leaving nothing that makes snapshot throw', () => {
     const d = normalize({
-      log: [null, 'abc', 42, { kind: 'narration', text: NORMAL_LOG_TEXT }],
+      events: [null, 'abc', 42, { kind: 'narration', text: NORMAL_LOG_TEXT }],
     })
-    expect(d.log).toHaveLength(1)
-    expect(d.log[0].text).toBe(NORMAL_LOG_TEXT)
+    expect(d.events).toHaveLength(1)
+    expect(d.events[0].text).toBe(NORMAL_LOG_TEXT)
   })
 
   it('dirty entries in timeline are filtered out and their fields are filled in', () => {
@@ -118,7 +118,7 @@ describe('normalize - sanitizing a dirty save', () => {
       kind: 'narration',
       text: `${FILLER_LOG_TEXT}-${i}`,
     }))
-    expect(normalize({ log: many }).log.length).toBeLessThanOrEqual(80)
+    expect(normalize({ events: many }).events.length).toBeLessThanOrEqual(80)
   })
 })
 
@@ -263,13 +263,13 @@ describe('snapshot - built for the prompt, must never throw', () => {
 describe('import / export', () => {
   it('exporting and importing again is idempotent', () => {
     const s = createGame()
-    game.addLog(s, 'narration', STORY_LOG_TEXT)
+    game.addEvent(s, 'narration', STORY_LOG_TEXT)
     game.advanceTime(s, 1, 'day', SLEPT_THROUGH_THE_NIGHT)
     const json = game.exportFile(s)
 
     const s2 = createGame()
     game.importFile(s2, json, localStorageStore(localStorage))
-    expect(s2.data.log.at(-1)?.text).toBe(STORY_LOG_TEXT)
+    expect(s2.data.events.at(-1)?.text).toBe(STORY_LOG_TEXT)
     expect(s2.data.timeline).toHaveLength(1)
     expect(game.iso(s2)).toBe(game.iso(s))
   })
@@ -304,23 +304,23 @@ describe('the story lives in the log and nowhere else', () => {
    */
   it('reset empties the log so a new game cannot inherit the old story', () => {
     const s = createGame()
-    game.addLog(s, 'narration', STORY_LOG_TEXT)
-    game.addLog(s, 'action', PLAYER_ACTION)
+    game.addEvent(s, 'narration', STORY_LOG_TEXT)
+    game.addEvent(s, 'action', PLAYER_ACTION)
 
     game.reset(s, localStorageStore(localStorage))
 
-    expect(s.data.log).toHaveLength(0)
+    expect(s.data.events).toHaveLength(0)
     expect(game.turn(s)).toBe(0)
   })
 
   it('importing a save replaces the log with the file content', () => {
     const s = createGame()
-    game.addLog(s, 'narration', STORY_LOG_TEXT)
+    game.addEvent(s, 'narration', STORY_LOG_TEXT)
 
     const imported = createGame()
-    game.addLog(imported, 'narration', GM_REPLY)
+    game.addEvent(imported, 'narration', GM_REPLY)
     game.importFile(s, game.exportFile(imported), localStorageStore(localStorage))
 
-    expect(s.data.log.map((entry) => entry.text)).toEqual([GM_REPLY])
+    expect(s.data.events.map((entry) => entry.text)).toEqual([GM_REPLY])
   })
 })

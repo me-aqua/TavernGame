@@ -41,7 +41,7 @@ describe('opening branch (no action passed)', () => {
 
     expect(result.text).toBe(REPLY_WAKE)
     // 日志的第一条是 system（而非 action）
-    expect(ctx.state.data.log[0].kind).toBe('system')
+    expect(ctx.state.data.events[0].kind).toBe('system')
     // 发给模型的第一条 user 消息带开场指令的前缀
     const firstUser = fake.calls[0].body.messages?.find((m) => m.role === 'user')
     const gameStartPrefix = t('agent.gameStart', { instruction: '' }).split('{')[0]

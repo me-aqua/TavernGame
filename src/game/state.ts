@@ -26,10 +26,10 @@
  */
 
 import { realCalendar, advanceTime as advanceTimeFor } from '../utils/calendar'
-import { parseSave, createInitialState, normalize, MAX_LOG, MAX_TIMELINE } from './save'
+import { parseSave, createInitialState, normalize, isStoryKind, trimEvents, MAX_TIMELINE } from './save'
 import { localStorageStore, backupBrokenSave, type SaveStore, type StorageLike } from '../utils/storage'
 import { t } from '../i18n'
-import type { ChatMessage, GameData, LogEntry } from '../types/state'
+import type { ChatMessage, EventKind, GameData } from '../types/state'
 
 /** 最后一次「大跨度跳跃」的显示阈值：超过半年就不显示「过去了多久」 */
 const LONG_JUMP_MS = 180 * 86400000
@@ -78,14 +78,16 @@ export function sceneOf(s: GameState): { name: string; description: string } {
   }
 }
 
-// ---------- 日志与叙事流 ----------
+// ---------- 事件流 ----------
 
-/** 追加一条日志；超出上限时丢最旧的 */
-export function addLog(s: GameState, kind: LogEntry['kind'], text: string): void {
-  s.data.log.push({ kind, text, at: new Date().toISOString() })
-  if (s.data.log.length > MAX_LOG) {
-    s.data.log.splice(0, s.data.log.length - MAX_LOG)
-  }
+/**
+ * 追加一条事件（故事或调试痕迹 —— 同一个数组，顺序就是发生顺序）。
+ *
+ * @param detail 可折叠的原始内容（请求体 / 响应体）；只有调试类事件会带
+ */
+export function addEvent(s: GameState, kind: EventKind, text: string, detail?: string): void {
+  s.data.events.push({ kind, text, detail, at: new Date().toISOString() })
+  trimEvents(s.data.events)
 }
 
 // ---------- 工具：时间推进 ----------
@@ -171,11 +173,15 @@ export function snapshot(s: GameState, history: ChatMessage[] = []): string {
       const who = h.role === 'user' ? t('snapshot.player') : t('snapshot.gm')
       lines.push(t('snapshot.recentLine', { who, text: h.content.replace(/\s+/g, ' ').slice(0, 160) }))
     }
-  } else if (s.data.log.length) {
-    lines.push('', t('snapshot.recentLog'))
-    for (const entry of s.data.log.slice(-4)) {
-      const text = entry.text.replace(/\s+/g, ' ').slice(0, 160)
-      lines.push(`- ${text}`)
+  } else {
+    // ⚠️ 只喂**故事类**事件：事件流里还有模型输入输出与工具调用，
+    //    那些是调试痕迹，混进上下文会把它冲掉（见 save.ts 的 isStoryKind）
+    const story = s.data.events.filter((event) => isStoryKind(event.kind)).slice(-4)
+    if (story.length) {
+      lines.push('', t('snapshot.recentLog'))
+      for (const event of story) {
+        lines.push(`- ${event.text.replace(/\s+/g, ' ').slice(0, 160)}`)
+      }
     }
   }
 

@@ -39,6 +39,12 @@ beforeEach(() => {
   useGame().resetGame()
 })
 
+/** 界面上的故事行（rows 里 debug=false 的那些） */
+const storyRows = (g: ReturnType<typeof useGame>) => g.rows.value.filter((row) => !row.debug)
+
+/** 界面上的调试行（只有打开调试模式才会出现） */
+const debugRows = (g: ReturnType<typeof useGame>) => g.rows.value.filter((row) => row.debug)
+
 /** 造一个已写完一回合的 store */
 async function runOneTurn(draft = WAKE_REPLY) {
   fake = installFakeLlm([draft])
@@ -69,11 +75,11 @@ describe('derived state (what the sidebar reads)', () => {
   it('after one turn: turn +1 and both the action and the narration are in the story', async () => {
     const g = await runOneTurn()
     expect(g.turn.value).toBe(1)
-    const kinds = g.lines.value.map((l) => l.kind)
+    const kinds = storyRows(g).map((l) => l.kind)
     expect(kinds).toContain('action')
     expect(kinds).toContain('narration')
-    expect(g.lines.value.find((l) => l.kind === 'action')?.text).toBe(OPEN_EYES)
-    expect(g.lines.value.find((l) => l.kind === 'narration')?.text).toContain(WAKE_REPLY)
+    expect(storyRows(g).find((l) => l.kind === 'action')?.text).toBe(OPEN_EYES)
+    expect(storyRows(g).find((l) => l.kind === 'narration')?.text).toContain(WAKE_REPLY)
   })
 })
 
@@ -115,8 +121,8 @@ describe('runTurnAction', () => {
 describe('the story is a projection of the log (nothing to restore)', () => {
   it('shows narration and actions right after import, and hides system markers', async () => {
     const g = await runOneTurn()
-    const save = JSON.parse(g.exportSave()) as { log: Array<{ kind: string; text: string; at: string }> }
-    save.log = [
+    const save = JSON.parse(g.exportSave()) as { events: Array<{ kind: string; text: string; at: string }> }
+    save.events = [
       { kind: 'narration', text: SAVED_NARRATION, at: new Date().toISOString() },
       { kind: 'system', text: SAVED_SYSTEM, at: new Date().toISOString() },
       { kind: 'action', text: SAVED_ACTION, at: new Date().toISOString() },
@@ -125,9 +131,9 @@ describe('the story is a projection of the log (nothing to restore)', () => {
     // ⚠️ 没有 restoreLog 这一步：渲染的是日志本身，导入完就该是这三行里该显示的
     g.importSave(JSON.stringify(save))
 
-    expect(g.lines.value.map((l) => l.kind)).toEqual(['narration', 'action'])
-    expect(g.lines.value.map((l) => l.text)).toEqual([SAVED_NARRATION, SAVED_ACTION])
-    expect(g.lines.value.map((l) => l.text)).not.toContain(SAVED_SYSTEM)
+    expect(storyRows(g).map((l) => l.kind)).toEqual(['narration', 'action'])
+    expect(storyRows(g).map((l) => l.text)).toEqual([SAVED_NARRATION, SAVED_ACTION])
+    expect(storyRows(g).map((l) => l.text)).not.toContain(SAVED_SYSTEM)
   })
 })
 
@@ -137,7 +143,7 @@ describe('the three entry points that swap state', () => {
     expect(g.turn.value).toBe(1)
     g.resetGame()
     expect(g.turn.value).toBe(0)
-    expect(g.lines.value).toHaveLength(0)
+    expect(storyRows(g)).toHaveLength(0)
     const reloaded = initialState()
     hydrateFromSave(reloaded, localStorage)
     expect(turn(reloaded)).toBe(0)
@@ -151,7 +157,7 @@ describe('the three entry points that swap state', () => {
     g.importSave(json)
     expect(g.turn.value).toBe(1)
     // 导入的那份存档里有一回合的故事，所以故事区应当显示它（而不是空的）
-    expect(g.lines.value.map((l) => l.kind)).toEqual(['action', 'narration'])
+    expect(storyRows(g).map((l) => l.kind)).toEqual(['action', 'narration'])
   })
 
   it('importing broken JSON throws (the UI reports it)', () => {
@@ -161,7 +167,7 @@ describe('the three entry points that swap state', () => {
 })
 
 describe('debugMode', () => {
-  it('when on, the raw model output lands in the trace -- never in the story', async () => {
+  it('when on, the model input and output land in the rows -- never in the story', async () => {
     const g = useGame()
     g.debugMode.value = true
     fake = installFakeLlm([RAW_REPLY])
@@ -169,21 +175,44 @@ describe('debugMode', () => {
     fake.restore()
     fake = null
 
-    const rawLines = g.trace.value.filter((l) => l.raw !== undefined)
-    expect(rawLines).toHaveLength(1)
-    expect(rawLines[0].raw).toContain(RAW_REPLY)
-    expect(g.lines.value.map((l) => l.text)).not.toContain(rawLines[0].text)
+    const payloads = debugRows(g).filter((row) => row.detail !== undefined)
+    // 一次调用两条：先请求体（模型输入），再响应体
+    expect(payloads.map((row) => row.kind)).toEqual(['request', 'reply'])
+    expect(payloads[0].detail).toContain('"messages"')
+    expect(payloads[1].detail).toContain(RAW_REPLY)
+    expect(storyRows(g).map((row) => row.text)).not.toContain(payloads[1].text)
     g.debugMode.value = false
   })
 
-  it('when off, no trace is collected at all', async () => {
+  it('when off, no debug event is written at all', async () => {
     const g = useGame()
     g.debugMode.value = false
     fake = installFakeLlm([PLAIN_REPLY])
     await g.runTurnAction(LOOK_ACTION)
     fake.restore()
     fake = null
-    expect(g.trace.value).toHaveLength(0)
+
+    expect(debugRows(g)).toEqual([])
+    // 源头上就没有：不是「写了但界面藏起来」
+    const event = JSON.parse(g.exportSave()) as { events: Array<{ kind: string }> }
+    expect(event.events.map((e) => e.kind)).toEqual(['action', 'narration'])
+  })
+
+  it('hides debug rows that are already in a save (player never sees agent info)', () => {
+    const g = useGame()
+    const save = JSON.parse(g.exportSave()) as { events: Array<{ kind: string; text: string }> }
+    save.events = [
+      { kind: 'narration', text: 'story line' },
+      { kind: 'tool', text: 'tool call line' },
+    ]
+    g.importSave(JSON.stringify(save))
+
+    expect(storyRows(g).map((row) => row.text)).toEqual(['story line'])
+    expect(debugRows(g)).toEqual([])
+
+    g.debugMode.value = true
+    expect(debugRows(g).map((row) => row.text)).toEqual(['tool call line'])
+    g.debugMode.value = false
   })
 })
 
@@ -230,13 +259,13 @@ describe('reactivity: the UI updates when the domain mutates the data', () => {
     fake = installFakeLlm([WAKE_REPLY])
     const g = useGame()
     const counts: number[] = []
-    const stop = watchEffect(() => counts.push(g.lines.value.length))
+    const stop = watchEffect(() => counts.push(storyRows(g).length))
 
     expect(counts.length).toBe(1)
     await g.runTurnAction(OPEN_EYES)
 
     expect(counts.length, 'a log change must trigger a recompute').toBeGreaterThan(1)
-    expect(counts.at(-1)).toBe(g.lines.value.length)
+    expect(counts.at(-1)).toBe(storyRows(g).length)
     stop()
   })
 })
@@ -293,17 +322,60 @@ describe('status line: in-progress and notices are computed, never stored', () =
     fake.restore()
     fake = null
 
-    expect(g.lines.value.map((l) => l.text)).not.toContain(t('app.generatingOpening'))
-    expect(g.lines.value.map((l) => l.kind)).toEqual(['narration'])
+    expect(storyRows(g).map((row) => row.text)).not.toContain(t('app.generatingOpening'))
+    expect(storyRows(g).map((row) => row.kind)).toEqual(['narration'])
   })
 })
 
-describe('debug traces survive a reload (their own key, never the save)', () => {
-  /** 与 store 里的 TRACE_KEY 同名：写错了这里会当场变红（读不到东西） */
-  const TRACE_KEY = 'tavernGame.trace'
+describe('one event stream: debug rows are interleaved where they happened', () => {
+  /** 一步调工具、一步写叙事 —— 痕迹会落在两段叙事之间 */
+  const TOOL_STEP = {
+    content: WAKE_REPLY,
+    toolCalls: [{ name: 'advance_time', arguments: '{"step":1,"unit":"day"}' }],
+  }
 
-  /** 跑一个带调试痕迹的回合（调试开 → 有模型原始响应） */
-  async function runWithTrace() {
+  it('keeps the story in order and puts the traces between the story lines', async () => {
+    const g = useGame()
+    g.debugMode.value = true
+    fake = installFakeLlm([TOOL_STEP, DONE_REPLY])
+    await g.runTurnAction(OPEN_EYES)
+    fake.restore()
+    fake = null
+
+    // 形状就是「谁在什么时候发生」：行动 → 第 1 步的输入/输出 → 叙事 → 工具调用与结果
+    // → 第 2 步的输入/输出 → 叙事
+    const shape = g.rows.value.map((row) => (row.debug ? row.kind : 'story:' + row.kind))
+    g.debugMode.value = false
+    expect(shape).toEqual([
+      'story:action',
+      'request',
+      'reply',
+      'story:narration',
+      'tool',
+      'toolResult',
+      'request',
+      'reply',
+      'story:narration',
+    ])
+  })
+
+  it('with debug off the same events are still there -- only the projection changes', async () => {
+    const g = useGame()
+    g.debugMode.value = false
+    fake = installFakeLlm([TOOL_STEP, DONE_REPLY])
+    await g.runTurnAction(OPEN_EYES)
+    fake.restore()
+    fake = null
+
+    expect(g.rows.value.map((row) => row.kind)).toEqual(['action', 'narration', 'narration'])
+    const saved = JSON.parse(g.exportSave()) as { events: Array<{ kind: string }> }
+    expect(saved.events.map((e) => e.kind)).toEqual(['action', 'narration', 'narration'])
+  })
+})
+
+describe('the event stream is the store: it survives a reload', () => {
+  /** 跑一个带调试痕迹的回合（调试开 → 有模型请求与响应） */
+  async function runWithDebug() {
     const g = useGame()
     g.debugMode.value = true
     fake = installFakeLlm([RAW_REPLY])
@@ -314,44 +386,51 @@ describe('debug traces survive a reload (their own key, never the save)', () => 
     return g
   }
 
-  it('writes them to their own key, and never into the save file', async () => {
-    const g = await runWithTrace()
+  it('saves debug events next to the story (one array, one key)', async () => {
+    const g = await runWithDebug()
 
-    const stored = JSON.parse(localStorage.getItem(TRACE_KEY) ?? '[]') as unknown[]
-    expect(stored).toHaveLength(g.trace.value.length)
-    // 痕迹里存的是协议响应（含 choices 字段的原始 JSON）
-    expect(JSON.stringify(stored)).toContain(RAW_REPLY)
-    expect(JSON.stringify(stored)).toContain('choices')
-    // 存档是给模型看的记忆（快照会读它），调试垃圾不许混进去
-    expect(g.exportSave()).not.toContain('choices')
+    const saved = JSON.parse(g.exportSave()) as { events: Array<{ kind: string; detail?: string }> }
+    expect(saved.events.map((e) => e.kind)).toEqual(['action', 'request', 'reply', 'narration'])
+    expect(saved.events.some((e) => e.detail?.includes(RAW_REPLY))).toBe(true)
   })
 
   it('loads them back on the next startup (module reload = F5)', async () => {
-    await runWithTrace()
+    await runWithDebug()
 
     vi.resetModules()
     const reloaded = await import('../src/stores/game')
+    const g = reloaded.useGame()
 
-    expect(reloaded.useGame().trace.value.length).toBeGreaterThan(0)
-  })
-
-  it('treats a corrupt stored value as no traces at all', async () => {
-    localStorage.setItem(TRACE_KEY, '{not json')
-
-    vi.resetModules()
-    const reloaded = await import('../src/stores/game')
-
-    expect(reloaded.useGame().trace.value).toEqual([])
+    expect(g.debugMode.value).toBe(false)
+    expect(g.rows.value.every((row) => !row.debug)).toBe(true)
+    g.debugMode.value = true
+    expect(g.rows.value.filter((row) => row.debug).map((row) => row.kind)).toEqual(['request', 'reply'])
   })
 
   it('resetGame clears them so a new game does not inherit the old traces', async () => {
-    const g = await runWithTrace()
-    expect(g.trace.value.length).toBeGreaterThan(0)
+    const g = await runWithDebug()
+    const saved = JSON.parse(g.exportSave()) as { events: Array<{ kind: string }> }
+    expect(saved.events.map((event) => event.kind)).toContain('request')
 
     g.resetGame()
+    g.debugMode.value = true
 
-    expect(g.trace.value).toEqual([])
-    expect(localStorage.getItem(TRACE_KEY)).toBe('[]')
+    expect(g.rows.value).toEqual([])
+    expect((JSON.parse(g.exportSave()) as { events: unknown[] }).events).toEqual([])
+  })
+})
+
+describe('hasStory', () => {
+  it('is false on a fresh game and true once something was played', async () => {
+    const g = useGame()
+    expect(g.hasStory.value).toBe(false)
+
+    fake = installFakeLlm([WAKE_REPLY])
+    await g.runTurnAction(OPEN_EYES)
+    fake.restore()
+    fake = null
+
+    expect(g.hasStory.value).toBe(true)
   })
 })
 

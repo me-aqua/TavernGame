@@ -29,7 +29,7 @@ import {
   toolCallsWithoutNarration,
 } from './prompts'
 import { loadConfig } from './config'
-import type { ChatMessage } from '../types/state'
+import type { ChatMessage, StoryKind } from '../types/state'
 import type { GameState } from '../game/state'
 import type { ChatReply, ToolCallRequest, ToolSchema } from './llm'
 
@@ -45,8 +45,8 @@ import type { ChatReply, ToolCallRequest, ToolSchema } from './llm'
 export interface AgentContext {
   /** 当前这一局的数据（工具会原地改它） */
   state: GameState
-  /** 记一条日志 */
-  addLog: (kind: 'action' | 'narration' | 'system', text: string) => void
+  /** 把故事写进事件流（引擎只写故事类；调试痕迹由界面侧写） */
+  addEvent: (kind: StoryKind, text: string) => void
   /** 回合 +1 */
   endTurn: () => void
   /** 世界状态快照，拼提示词用 */
@@ -56,7 +56,8 @@ export interface AgentContext {
 /** agent 循环里抛给界面的事件（界面据此实时渲染） */
 export type AgentEvent =
   | { type: 'thinking'; step: number }
-  | { type: 'raw'; reply: ChatReply }
+  /** 模型这一步的输入与输出（调试模式展示用；输入是实际发出去的请求体） */
+  | { type: 'model'; step: number; reply: ChatReply }
   | { type: 'narration'; text: string }
   | { type: 'tool'; tool: string; args: string }
   | { type: 'toolResult'; tool: string; result: string }
@@ -137,7 +138,7 @@ export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promis
   // 先把玩家的行动记入日志。
   // 必须在拼装消息之前做 —— snapshot() 会读日志，这样模型就能看到
   // 玩家刚说了什么（而不是只看到一堆历史数值）。
-  ctx.addLog(action ? 'action' : 'system', action || t('agent.newAdventure'))
+  ctx.addEvent(action ? 'action' : 'system', action || t('agent.newAdventure'))
 
   const messages = buildMessages(ctx, history, userContent)
   const toolResults: string[] = []
@@ -153,7 +154,7 @@ export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promis
    */
   function record(text: string) {
     narrations.push(text)
-    ctx.addLog('narration', text)
+    ctx.addEvent('narration', text)
     onEvent({ type: 'narration', text })
   }
 
@@ -163,7 +164,7 @@ export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promis
     onEvent({ type: 'thinking', step: stepCount })
 
     const reply = await chat(messages, { signal, tools })
-    onEvent({ type: 'raw', reply })
+    onEvent({ type: 'model', step: stepCount, reply })
 
     const outcome = classifyStep(reply, onEvent, stepCount)
     if (outcome.narration) record(outcome.narration)

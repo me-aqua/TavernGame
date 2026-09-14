@@ -8,16 +8,72 @@
  * ⚠️ 只认当前格式。产品未发布，没有旧存档要兼容 ——
  *    形状不对就拒绝（抛错），不做字段改名、不做版本迁移。
  *
+ * 事件流的分类与上限也在这一层：哪些 kind 算「故事」（玩家与模型看得到）、
+ * 哪些算「调试」、各留多少条 —— 这是形状的一部分，别处不许再写一份。
+ *
  * 这里的函数都是纯函数；localStorage 的读写与坏档备份在 utils/storage.ts。
  */
 
 import { nowIso } from '../utils/calendar'
 import { t } from '../i18n'
-import type { GameData, LogEntry, TimelineEntry } from '../types/state'
+import type { EventKind, GameData, GameEvent, StoryKind, TimelineEntry } from '../types/state'
 
-/** 日志与时间线的保留上限（写时裁剪；读档时也用它裁剪） */
-export const MAX_LOG = 80
+/** 事件流的两类上限（写时裁剪；读档时也用它裁剪）—— 分别计数，见 trimEvents */
+export const MAX_STORY = 80
+export const MAX_DEBUG = 120
 export const MAX_TIMELINE = 40
+
+/**
+ * 全部已知的事件 kind。
+ *
+ * ⚠️ 写成 Record<EventKind, true> 而不是数组：漏掉一种 kind 编译器会当场报错
+ *    （数组只能保证「写进来的都合法」，保证不了「该有的都在」）。
+ */
+const EVENT_KINDS: Record<EventKind, true> = {
+  narration: true,
+  action: true,
+  system: true,
+  request: true,
+  reply: true,
+  tool: true,
+  toolResult: true,
+  warn: true,
+}
+
+/**
+ * 这是不是「故事」（玩家与模型该看到的那部分）。
+ *
+ * 故事 = 已经发生的事；调试 = 只有开发者在调试模式下要看的过程。
+ * 界面投影与模型快照都用它筛选 —— 判断标准只有这一处。
+ */
+export function isStoryKind(kind: EventKind): kind is StoryKind {
+  return kind === 'narration' || kind === 'action' || kind === 'system'
+}
+
+/**
+ * 按类裁剪事件流：故事与调试**各算各的上限**。
+ *
+ * ⚠️ 这就是「调试噪声不许挤掉模型记忆」的实现：如果只按总条数裁，
+ *    调试开着时一个回合能产生十几条调试事件，几十个回合后模型能看到的
+ *    故事就只剩最近几百字了。
+ */
+export function trimEvents(events: GameEvent[]): void {
+  trimKind(events, isStoryKind, MAX_STORY)
+  trimKind(events, (kind) => !isStoryKind(kind), MAX_DEBUG)
+}
+
+/** 把某一类裁到上限（丢最旧的），其余条目的相对顺序不变 */
+function trimKind(events: GameEvent[], pick: (kind: EventKind) => boolean, max: number): void {
+  let count = events.filter((e) => pick(e.kind)).length
+  for (let i = 0; count > max && i < events.length;) {
+    if (pick(events[i].kind)) {
+      events.splice(i, 1)
+      count -= 1
+    } else {
+      i += 1
+    }
+  }
+}
 
 /** 能安全取属性的普通对象（null / 数组都不算） */
 export function isRecord(v: unknown): v is Record<string, unknown> {
@@ -29,17 +85,23 @@ function pickIso(v: unknown): string {
   return typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : nowIso()
 }
 
-/** 数组里只保留普通对象；顺带补齐关键字段，避免渲染层或 snapshot 抛错 */
-function sanitizeLog(list: unknown): LogEntry[] {
+/**
+ * 事件流的边界清洗：kind 不认识就丢掉（手改过的存档里什么都可能有），
+ * text 缺失补空串，detail 只接受字符串。最后按类裁剪到上限。
+ */
+function sanitizeEvents(list: unknown): GameEvent[] {
   if (!Array.isArray(list)) return []
-  return list
+  const events = list
     .filter(isRecord)
+    .filter((x) => typeof x.kind === 'string' && Object.hasOwn(EVENT_KINDS, x.kind))
     .map((x) => ({
-      kind: String(x.kind || 'narration') as LogEntry['kind'],
+      kind: x.kind as EventKind,
       text: String(x.text ?? ''),
+      ...(typeof x.detail === 'string' ? { detail: x.detail } : {}),
       at: typeof x.at === 'string' ? x.at : nowIso(),
     }))
-    .slice(-MAX_LOG)
+  trimEvents(events)
+  return events
 }
 
 /** 时间线数组的边界清洗（外部数据，逐项校验） */
@@ -70,7 +132,7 @@ export function createInitialState(): GameData {
     player: { name: t('player.defaultName') },
     scene: { name: '', description: '' },
     time: { iso: nowIso() },
-    log: [],
+    events: [],
     timeline: [],
   }
 }
@@ -94,7 +156,7 @@ export function normalize(saved: unknown, fresh: GameData = createInitialState()
       description: typeof scene.description === 'string' ? scene.description : fresh.scene.description,
     },
     time: { iso: pickIso(time.iso) },
-    log: sanitizeLog(s.log),
+    events: sanitizeEvents(s.events),
     timeline: sanitizeTimeline(s.timeline),
   }
 }

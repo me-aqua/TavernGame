@@ -11,7 +11,7 @@ import AppSidebar from '../src/components/AppSidebar.vue'
 import GameComposer from '../src/components/GameComposer.vue'
 import AppHeader from '../src/components/AppHeader.vue'
 import SettingsDrawer from '../src/components/SettingsDrawer.vue'
-import type { Status, StoryLine, TraceLine } from '../src/stores/game'
+import type { Row, Status } from '../src/stores/game'
 import { i18n, t } from '../src/i18n'
 import { realCalendar } from '../src/utils/calendar'
 
@@ -53,23 +53,23 @@ function render<C>(component: C, options: Record<string, unknown> = {}) {
   )
 }
 
-/** 造一行故事数据（日志的投影） */
-function makeLine(over: Partial<StoryLine>): StoryLine {
-  return { id: 1, kind: 'narration', text: DEFAULT_LINE_TEXT, ...over }
+/** 造一行故事数据（事件流的投影） */
+function makeLine(over: Partial<Extract<Row, { debug: false }>> = {}): Row {
+  return { id: 1, kind: 'narration', text: DEFAULT_LINE_TEXT, debug: false, ...over }
 }
 
-/** 造一行调试痕迹数据 */
-function makeTrace(over: Partial<TraceLine>): TraceLine {
-  return { id: 1, kind: 'tool', text: DEFAULT_LINE_TEXT, ...over }
+/** 造一行调试数据（模型 I/O、工具调用、警告） */
+function makeDebug(over: Partial<Extract<Row, { debug: true }>> = {}): Row {
+  return { id: 1, kind: 'tool', text: DEFAULT_LINE_TEXT, debug: true, ...over }
 }
 
 describe('StoryPanel', () => {
-  it('renders story lines by kind (kind picks the style class)', () => {
-    const lines = [
+  it('renders story rows by kind (kind picks the style class)', () => {
+    const rows = [
       makeLine({ id: 1, kind: 'narration', text: NARRATION_TEXT }),
       makeLine({ id: 2, kind: 'action', text: ACTION_TEXT }),
     ]
-    const w = render(StoryPanel, { props: { lines, trace: [], status: null } })
+    const w = render(StoryPanel, { props: { rows, status: null } })
 
     const divs = w.findAll('.line')
     expect(divs).toHaveLength(2)
@@ -78,30 +78,31 @@ describe('StoryPanel', () => {
     expect(w.text()).toContain(ACTION_TEXT)
   })
 
-  it('renders debug traces separately, folding raw output into details', () => {
-    const w = render(StoryPanel, {
-      props: {
-        lines: [],
-        trace: [
-          makeTrace({ id: 1, kind: 'tool', text: TOOL_TEXT }),
-          makeTrace({ id: 2, kind: 'warn', text: WARN_TEXT }),
-          makeTrace({ id: 3, kind: 'raw', text: RAW_SUMMARY, raw: RAW_REPLY }),
-        ],
-        status: null,
-      },
-    })
-    const traces = w.findAll('.trace')
-    expect(traces).toHaveLength(3)
-    expect(traces[0].classes()).toContain('tool')
-    expect(traces[1].classes()).toContain('warn')
+  it('renders debug rows in place, folding raw payloads into details', () => {
+    const rows = [
+      makeLine({ id: 1, kind: 'narration', text: NARRATION_TEXT }),
+      makeDebug({ id: 2, kind: 'tool', text: TOOL_TEXT }),
+      makeDebug({ id: 3, kind: 'warn', text: WARN_TEXT }),
+      makeDebug({ id: 4, kind: 'request', text: RAW_SUMMARY, detail: RAW_REPLY }),
+      makeLine({ id: 5, kind: 'narration', text: ACTION_TEXT }),
+    ]
+    const w = render(StoryPanel, { props: { rows, status: null } })
+
+    // 顺序就是数组顺序：调试行夹在两段叙事之间，而不是被堆到末尾
+    const text = w.text()
+    expect(text.indexOf(NARRATION_TEXT)).toBeLessThan(text.indexOf(TOOL_TEXT))
+    expect(text.indexOf(TOOL_TEXT)).toBeLessThan(text.indexOf(ACTION_TEXT))
+
+    expect(w.findAll('.line')).toHaveLength(2)
+    expect(w.findAll('.trace')).toHaveLength(3)
+    expect(w.findAll('.trace')[0].classes()).toContain('tool')
+    expect(w.findAll('.trace')[1].classes()).toContain('warn')
     expect(w.find('details pre').text()).toBe(RAW_REPLY)
-    // 痕迹不占故事行的位（.line 只属于故事）
-    expect(w.findAll('.line')).toHaveLength(0)
   })
 
   it('shows the busy status row while a turn runs and drops it afterwards', async () => {
     const busy: Status = { kind: 'busy', text: NARRATION_TEXT }
-    const w = render(StoryPanel, { props: { lines: [], trace: [], status: busy } })
+    const w = render(StoryPanel, { props: { rows: [], status: busy } })
     expect(w.find('.thinking').exists()).toBe(true)
     expect(w.find('[data-status]').attributes('data-status')).toBe('busy')
 
@@ -112,7 +113,7 @@ describe('StoryPanel', () => {
 
   it('renders a notice, marking errors so the style can differ', () => {
     const w = render(StoryPanel, {
-      props: { lines: [], trace: [], status: { kind: 'error', text: WARN_TEXT } as Status },
+      props: { rows: [], status: { kind: 'error', text: WARN_TEXT } as Status },
     })
     const row = w.find('[data-status]')
     expect(row.attributes('data-status')).toBe('error')
@@ -123,8 +124,10 @@ describe('StoryPanel', () => {
   it('sends model output through textContent, never parsing HTML (XSS defence)', () => {
     const w = render(StoryPanel, {
       props: {
-        lines: [makeLine({ text: XSS_TEXT })],
-        trace: [makeTrace({ id: 2, kind: 'raw', text: RAW_SUMMARY, raw: XSS_TEXT })],
+        rows: [
+          makeLine({ text: XSS_TEXT }),
+          makeDebug({ id: 2, kind: 'reply', text: RAW_SUMMARY, detail: XSS_TEXT }),
+        ],
         status: { kind: 'info', text: XSS_TEXT },
       },
     })

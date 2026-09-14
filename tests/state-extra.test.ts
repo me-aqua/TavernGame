@@ -3,7 +3,7 @@
  *
  * 重点：
  *   - snapshot() 的各分支（有/无历史、有/无时间线、脏数据、reason）
- *   - addLog 的 MAX_LOG 截断
+ *   - addEvent 的两类裁剪（故事 80 / 调试 120）
  *   - advanceTime 的长时间跳（elapsed 文案被省略）、时间线超长截断、时间线不上限时的分支
  *   - import 的拒绝分支、各 getter
  *
@@ -73,15 +73,35 @@ describe('segmentName - the three segment branches', () => {
   })
 })
 
-describe('addLog - trimming at the limit', () => {
-  it('drops from the head past MAX_LOG (80), keeping the last 80 entries', () => {
+describe('addEvent - two limits, counted separately', () => {
+  it('keeps the last 80 story events', () => {
     const s = createGame()
-    for (let i = 0; i < 100; i += 1) game.addLog(s, 'narration', logText(i))
+    for (let i = 0; i < 100; i += 1) game.addEvent(s, 'narration', logText(i))
 
-    expect(s.data.log).toHaveLength(80)
+    expect(s.data.events).toHaveLength(80)
     // 保留的是最后 80 条：第 20 条在最前，第 99 条在最后
-    expect(s.data.log[0].text).toBe(logText(20))
-    expect(s.data.log.at(-1)?.text).toBe(logText(99))
+    expect(s.data.events[0].text).toBe(logText(20))
+    expect(s.data.events.at(-1)?.text).toBe(logText(99))
+  })
+
+  it('keeps the last 120 debug events', () => {
+    const s = createGame()
+    for (let i = 0; i < 200; i += 1) game.addEvent(s, 'tool', logText(i))
+
+    expect(s.data.events).toHaveLength(120)
+    expect(s.data.events[0].text).toBe(logText(80))
+    expect(s.data.events.at(-1)?.text).toBe(logText(199))
+  })
+
+  it('debug noise cannot push the story out (that is the model memory)', () => {
+    const s = createGame()
+    for (let i = 0; i < 30; i += 1) game.addEvent(s, 'narration', logText(i))
+    // 调试开着时一个回合能产生十几条：这里灌 300 条，故事必须一条不少
+    for (let i = 0; i < 300; i += 1) game.addEvent(s, 'tool', logText(i))
+
+    const story = s.data.events.filter((event) => event.kind === 'narration')
+    expect(story).toHaveLength(30)
+    expect(story[0].text).toBe(logText(0))
   })
 })
 
@@ -136,7 +156,7 @@ describe('snapshot - branches', () => {
 
   it('falls back to the log when there is no history', () => {
     const s = createGame()
-    game.addLog(s, 'narration', LOG_LINE)
+    game.addEvent(s, 'narration', LOG_LINE)
     const snap = game.snapshot(s, [])
     expect(snap).toContain(t('snapshot.recent'))
     expect(snap).toContain(LOG_LINE)
@@ -144,7 +164,7 @@ describe('snapshot - branches', () => {
 
   it('collapses long text to one line and truncates it to 160 characters', () => {
     const s = createGame()
-    game.addLog(s, 'narration', LONG_TEXT)
+    game.addEvent(s, 'narration', LONG_TEXT)
     const snap = game.snapshot(s, [])
     // 截断到 160 字（替换空白后）
     expect(snap).toContain(LONG_TEXT.slice(0, 160))
@@ -205,11 +225,11 @@ describe('save / reset', () => {
   it('reset writes back a fresh initial state', () => {
     const s = createGame()
     const store = localStorageStore(localStorage)
-    game.addLog(s, 'narration', OLD_STORY)
+    game.addEvent(s, 'narration', OLD_STORY)
     game.advanceTime(s, 3, 'day')
     game.reset(s, store)
 
-    expect(s.data.log).toHaveLength(0)
+    expect(s.data.events).toHaveLength(0)
     expect(s.data.timeline).toHaveLength(0)
     expect(game.turn(s)).toBe(0)
     expect(localStorage.getItem(SAVE_KEY)).toBeTruthy()

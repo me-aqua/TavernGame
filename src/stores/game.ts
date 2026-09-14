@@ -4,44 +4,58 @@
  * 领域逻辑在 game/state.ts 的**纯函数**里（它们只认数据、不认 Vue、不认存储）。
  * 这里负责四件界面侧的事：
  *   1. 把纯数据包成 reactive（响应式边界在界面侧）
- *   2. 把日志**投影**成故事区要渲染的那串行 —— 显示是派生值，不是状态
- *   3. 持有三样瞬态：对话历史、调试痕迹、通知（单槽）
+ *   2. 把事件流**投影**成界面要渲染的行 —— 显示是派生值，不是状态
+ *   3. 持有两样瞬态：对话历史、通知（单槽）
  *   4. 编排动作：把代理交给领域函数、决定什么时候落盘
  *
  * ⚠️ 传出去的必须是**这个代理**：领域函数原地改它，Vue 才能建立依赖。
  *    传原对象（toRaw）不会报错，但界面不会更新 —— 这类静默失败由
  *    tests/store.test.ts 的「改数据 → DOM 更新」用例守着。
  *
- * ⚠️ 这里**没有**「叙事流数组」这种东西：故事是 data.log 的投影（lines）。
+ * ⚠️ 这里**没有**「叙事流数组」这种东西：界面渲染的是 `data.events` 的投影（rows）。
+ *    故事与调试痕迹在**同一个数组**里，所以顺序天然正确（痕迹就插在它发生的那段
+ *    叙事之间）；谁看得到由投影决定：玩家看故事、模型看快照、开发者看调试。
  *    进行中看 phase、一次性提示进 notice，两者都由 computed 算出来 ——
- *    没有任何一行需要谁记得删掉，也就不可能「永久停在正在生成开场」。
+ *    没有任何一行需要谁记得删掉。
  */
 
 import { computed, reactive, ref } from 'vue'
 import * as game from '../game/state'
 import { initialState } from '../game/state'
-import { isRecord } from '../game/save'
-import { createTurnRunner, type NoticeLevel, type Phase, type TraceKind } from './turn'
+import { isStoryKind } from '../game/save'
+import { createTurnRunner, type NoticeLevel, type Phase } from './turn'
 import { localStorageStore, type GameStore } from '../utils/storage'
 import { t } from '../i18n'
-import type { ChatMessage } from '../types/state'
+import type { ChatMessage, EventKind, StoryKind } from '../types/state'
 
-/** 故事区的一行：日志的投影 */
-export interface StoryLine {
-  /** key 用：日志里的下标（日志只追加、裁头，行不会重排） */
-  id: number
-  kind: 'narration' | 'action'
-  text: string
-}
+/** 界面能渲染的故事行 kind（system 是给模型看的回合标记，不列出来） */
+export type StoryRowKind = Exclude<StoryKind, 'system'>
 
-/** 调试痕迹里的一行（模型输入输出 / 工具调用与结果） */
-export interface TraceLine {
-  id: number
-  kind: TraceKind
-  text: string
-  /** 模型原始响应的 JSON（界面折叠显示） */
-  raw?: string
-}
+/** 界面能渲染的调试行 kind（只有打开调试模式才会出现在列表里） */
+export type DebugRowKind = Exclude<EventKind, StoryKind>
+
+/**
+ * 界面要渲染的一行 —— 事件流的投影。
+ *
+ * 故事行与调试行在**同一个列表**里，靠 debug 这个判别字段区分样式：
+ * 顺序就是事件发生的顺序（痕迹不会被单独堆到末尾），也就没有第二套编号要对齐。
+ */
+export type Row =
+  | {
+      /** key 用：事件在数组里的下标（事件流只追加、按类裁剪，不重排） */
+      id: number
+      kind: StoryRowKind
+      text: string
+      debug: false
+    }
+  | {
+      id: number
+      kind: DebugRowKind
+      text: string
+      /** 可折叠的原始内容（模型请求体 / 响应体） */
+      detail?: string
+      debug: true
+    }
 
 /** 底部状态行：进行中，或最近一条通知 */
 export interface Status {
@@ -57,50 +71,6 @@ export function isDevHost(host: string): boolean {
   return host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
 }
 
-/**
- * 调试痕迹的键与保留上限。
- *
- * ⚠️ 单独一个键，**不进存档**：存档是给模型看的记忆（快照会读它），
- *    工具调用与原始响应混进去会把上下文冲掉；导出存档时也不该带上调试垃圾。
- *    但它**要能扛住刷新** —— 排查问题时最需要看的就是上一个回合发生了什么。
- */
-const TRACE_KEY = 'tavernGame.trace'
-const MAX_TRACE = 100
-
-/** 存储里的痕迹是不是我们要的形状（外部数据，读的时候必须当 unknown） */
-function isTraceLine(v: unknown): v is TraceLine {
-  return isRecord(v) && typeof v.text === 'string' && typeof v.kind === 'string'
-}
-
-/**
- * 读回上次会话留下的调试痕迹。
- *
- * ⚠️ 读不出来就当没有：痕迹只是调试信息，没有理由为它打扰玩家
- *    （存档正相反 —— 读不出来必须说清楚，见 game/state.ts 的 loadError）。
- */
-function readStoredTrace(): TraceLine[] {
-  try {
-    const raw = localStorage.getItem(TRACE_KEY)
-    if (!raw) return []
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter(isTraceLine).slice(-MAX_TRACE)
-  } catch {
-    // 坏值（手改 / 格式变了）当作没有痕迹：调试数据不值得让整页出错
-    return []
-  }
-}
-
-/** 把痕迹写回存储。写不进去只影响「刷新后还看不看得到」，游戏照常 */
-function storeTrace(lines: TraceLine[]): void {
-  try {
-    localStorage.setItem(TRACE_KEY, JSON.stringify(lines))
-  } catch (err) {
-    // 配额满 / 隐私模式：丢掉调试痕迹可以接受（它本来就不是玩家数据）
-    console.warn('[store] trace save failed', err)
-  }
-}
-
 /** 存档读写器（模块级建一次） */
 const saveStore: GameStore = localStorageStore(localStorage)
 
@@ -114,11 +84,8 @@ const history = ref<ChatMessage[]>([])
 const phase = ref<Phase>(null)
 /** 单槽通知：后一条覆盖前一条，回合开始即清空 —— 它不会堆积 */
 const notice = ref<{ text: string; level: NoticeLevel } | null>(null)
-/** 调试痕迹：只在调试模式产生；单独一个键，刷新后还在（见 TRACE_KEY） */
-const trace = ref<TraceLine[]>(readStoredTrace())
-let nextTraceId = trace.value.reduce((max, line) => Math.max(max, line.id), 0)
 /**
- * 调试模式：记录模型输入输出与工具调用。
+ * 调试模式：把模型输入输出与工具调用也渲染出来。
  *
  * ⚠️ 默认值由入口（main.ts）按当前域名决定 —— 「本机开发默认打开」这条规则
  *    住在浏览器入口，store 只持有这个状态，于是纯逻辑测试不需要 location。
@@ -136,15 +103,26 @@ export function useGame() {
   const turn = computed(() => game.turn(state))
 
   /**
-   * 故事区的行 —— 日志的投影。
-   * system 是给模型看的回合标记（「新冒险」「第 N 回合」），不给玩家看。
-   * 刷新后不需要「恢复」：渲染的本来就是日志。
+   * 界面要渲染的行 —— 事件流的投影。
+   *
+   * 故事（叙事 / 玩家行动）始终显示；调试痕迹只在调试模式显示，
+   * system 是给模型看的回合标记，谁都不显示。
+   * 刷新后不需要「恢复」：渲染的本来就是事件流。
    */
-  const lines = computed<StoryLine[]>(() =>
-    state.data.log.flatMap((entry, id) =>
-      entry.kind === 'system' ? [] : [{ id, kind: entry.kind, text: entry.text }],
-    ),
+  const rows = computed<Row[]>(() =>
+    state.data.events.flatMap((event, id): Row[] => {
+      if (event.kind === 'narration' || event.kind === 'action') {
+        return [{ id, kind: event.kind, text: event.text, debug: false }]
+      }
+      // system 是给模型看的回合标记，不进界面
+      if (event.kind === 'system') return []
+      if (!debugMode.value) return []
+      return [{ id, kind: event.kind, text: event.text, detail: event.detail, debug: true }]
+    }),
   )
+
+  /** 事件流里有没有故事（界面与 store 用它区分「全新的一局」与「已经玩过」） */
+  const hasStory = computed(() => state.data.events.some((event) => isStoryKind(event.kind)))
 
   /** 有回合在飞：输入框禁用，也是重入保护的唯一判据 */
   const busy = computed(() => phase.value !== null)
@@ -170,20 +148,10 @@ export function useGame() {
     notice.value = text === null ? null : { text, level }
   }
 
-  /** 追加一行调试痕迹（回合编排调用）；超出上限丢最旧的，并立刻落盘 */
-  const addTrace = (kind: TraceKind, text: string, raw?: string) => {
-    trace.value.push({ id: ++nextTraceId, kind, text, raw })
-    if (trace.value.length > MAX_TRACE) {
-      trace.value.splice(0, trace.value.length - MAX_TRACE)
-    }
-    storeTrace(trace.value)
-  }
-
   // ---------- 回合（编排在 stores/turn.ts） ----------
   const { runTurnAction, abortRunningTurn } = createTurnRunner({
     state,
-    addLog: (kind, text) => game.addLog(state, kind, text),
-    addTrace,
+    addEvent: (kind, text, detail) => game.addEvent(state, kind, text, detail),
     notify,
     endTurn: () => void game.endTurn(state),
     snapshot: (h) => game.snapshot(state, h),
@@ -195,16 +163,14 @@ export function useGame() {
 
   // ---------- 换一局的两个入口 ----------
 
-  /** 换局前先收尾：在飞的回合中止，上一局的历史/痕迹/通知都不该跟过来 */
+  /** 换局前先收尾：在飞的回合中止，上一局的历史与通知都不该跟过来 */
   function resetSession() {
     abortRunningTurn()
     history.value = []
-    trace.value = []
-    storeTrace(trace.value)
     notify(null)
   }
 
-  /** 重来：重置数据与日志，并立刻落盘（由领域函数负责） */
+  /** 重来：重置数据（事件流跟着换新）并立刻落盘 */
   function resetGame() {
     resetSession()
     game.reset(state, saveStore)
@@ -227,8 +193,8 @@ export function useGame() {
     timeline,
     scene,
     turn,
-    lines,
-    trace,
+    rows,
+    hasStory,
     status,
     busy,
     debugMode,

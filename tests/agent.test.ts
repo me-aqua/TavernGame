@@ -117,10 +117,10 @@ describe('runTurn -- main path', () => {
     const ctx = createAgentContext()
     await runTurn(ctx, { action: ACTION_ENTER })
 
-    const kinds = ctx.state.data.log.map((l) => l.kind)
+    const kinds = ctx.state.data.events.map((l) => l.kind)
     expect(kinds).toContain('action')
     expect(kinds).toContain('narration')
-    expect(ctx.state.data.log.find((l) => l.kind === 'action')?.text).toBe(ACTION_ENTER)
+    expect(ctx.state.data.events.find((l) => l.kind === 'action')?.text).toBe(ACTION_ENTER)
   })
 
   it("turn increments; persisting it is the caller task, not the engine's", async () => {
@@ -211,7 +211,7 @@ describe('runTurn -- fallbacks and boundaries', () => {
         (e) => e.type === 'warn' && e.message.includes(t('agent.stepLimit', { max: 5 }).split('{')[0].trim()),
       ),
     ).toBe(true)
-    expect(ctx.state.data.log.at(-1)?.text).toContain(REPLY_FORCED)
+    expect(ctx.state.data.events.at(-1)?.text).toContain(REPLY_FORCED)
   })
 
   it('a still-empty forced narration warns and is not written as an empty entry', async () => {
@@ -231,7 +231,7 @@ describe('runTurn -- fallbacks and boundaries', () => {
 
     expect(result.text).toBe('')
     expect(events.some((e) => e.type === 'warn' && e.message === t('agent.stillNoText'))).toBe(true)
-    expect(ctx.state.data.log.some((l) => l.kind === 'narration')).toBe(false)
+    expect(ctx.state.data.events.some((l) => l.kind === 'narration')).toBe(false)
   })
 
   it('aborting before the loop throws AbortError and writes no log', async () => {

@@ -6,10 +6,9 @@
  * 样式几乎全在子组件里（Tailwind 工具类），这个文件只管布局。
  *
  * ⚠️ 界面上的每一行都属于三类之一，各有各的家（见 stores/game.ts）：
- *    · 故事（叙事 / 玩家行动）—— data.log 的投影，由 StoryPanel 渲染
+ *    · 事件流（故事 + 调试痕迹）—— rows 是它的投影，由 StoryPanel 渲染
  *    · 进行中与通知 —— status（computed：phase 与单槽 notice）
- *    · 调试痕迹 —— trace（只在调试模式产生）
- *    所以这里**不往故事里写任何东西**：没有「写进去等会儿再删」的行。
+ *    所以这里**不往事件流里写任何东西**：没有「写进去等会儿再删」的行。
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import AppHeader from './components/AppHeader.vue'
@@ -30,8 +29,8 @@ const {
   timeline,
   scene,
   turn,
-  lines,
-  trace,
+  rows,
+  hasStory,
   status,
   busy,
   debugMode,
@@ -165,8 +164,8 @@ function onDrawerAction(name: 'export' | 'import' | 'reset') {
 function onSettingsSaved() {
   refreshConfigStatus()
   notify(t('app.settingsSaved'))
-  // 全新的游戏（没回合、没历史）时，保存配置后顺手把开场跑出来
-  if (turn.value === 0 && lines.value.length === 0 && !busy.value) void startNewGame()
+  // 全新的游戏（没回合、事件流里也没有故事）时，保存配置后顺手把开场跑出来
+  if (turn.value === 0 && !hasStory.value && !busy.value) void startNewGame()
 }
 
 // ---------- 启动 ----------
@@ -213,7 +212,7 @@ onMounted(() => {
 
     <div class="flex min-h-0 flex-1 flex-col lg:flex-row">
       <main class="flex min-h-0 flex-1 flex-col">
-        <StoryPanel :lines="lines" :trace="trace" :status="status" />
+        <StoryPanel :rows="rows" :status="status" />
         <GameComposer :disabled="busy" :configured="configured" @submit="submitAction" />
       </main>
 

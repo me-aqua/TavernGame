@@ -1,39 +1,40 @@
 <script setup lang="ts">
 /**
- * 故事区：故事行 + 调试痕迹 + 底部状态行。
+ * 故事区：把事件流的投影一行行画出来。
  *
- * 故事行是**日志的投影**（store 算好），这里只负责画 ——
- * 所以不存在「显示层自己攒了一行、忘了清掉」这种状态。
+ * 故事行与调试痕迹在**同一个列表**里 —— 顺序就是它们发生的顺序，
+ * 所以「这句话之前模型收到/发出了什么」一眼可见（调试行不会被堆到末尾）。
  *
- * 调试痕迹只在调试模式下有内容；状态行要么是「进行中」，要么是最近一条通知。
+ * 底部那一行是状态：进行中（三个点）或最近一条通知；它由 store 算出来，
+ * 不是事件流里的一行。
  */
 import { nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { Status, StoryLine, TraceLine } from '../stores/game'
+import type { DebugRowKind, Row, Status, StoryRowKind } from '../stores/game'
 
 const { t } = useI18n()
 
 const props = defineProps<{
-  /** 故事行（叙事 / 玩家行动），始终显示 */
-  lines: StoryLine[]
-  /** 调试痕迹（模型输入输出 / 工具调用），调试模式才有 */
-  trace: TraceLine[]
+  /** 事件流的投影：故事行 + （调试模式下的）调试行，按发生顺序 */
+  rows: Row[]
   /** 底部状态行：进行中或最近一条通知；null = 什么都不显示 */
   status: Status | null
 }>()
 
 const storyEl = ref<HTMLElement | null>(null)
 
-/** 故事行的外观。行动用左侧竖线引出来，叙事用正文体 */
-const lineStyles: Record<StoryLine['kind'], string> = {
+/** 故事行的外观：叙事用正文体，行动用左侧竖线引出来 */
+const storyStyles: Record<StoryRowKind, string> = {
   narration: 'text-text/90',
   action: 'border-l-2 border-info/40 pl-3 text-info',
 }
 
-/** 调试痕迹的外观：工具类等宽、警告用暖色 */
-const traceStyles: Record<TraceLine['kind'], string> = {
+/** 调试行的外观：模型 I/O 与工具调用等宽，警告用暖色 */
+const debugStyles: Record<DebugRowKind, string> = {
+  request: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
+  reply: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
   tool: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
-  raw: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
+  toolResult: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
   warn: 'rounded-lg border border-warn/40 bg-warn-soft px-3.5 py-2 text-[12.5px] text-warn',
 }
 
@@ -47,7 +48,7 @@ const statusStyles: Record<Status['kind'], string> = {
 
 // 新内容进来自动滚到底
 watch(
-  () => [props.lines.length, props.trace.length, props.status] as const,
+  () => [props.rows.length, props.status] as const,
   async () => {
     await nextTick()
     if (storyEl.value) storyEl.value.scrollTop = storyEl.value.scrollHeight
@@ -57,26 +58,25 @@ watch(
 
 <template>
   <div ref="storyEl" class="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-5">
-    <p
-      v-for="line in lines"
-      :key="line.id"
-      class="line story-text max-w-[70ch] text-[15px] leading-[1.85]"
-      :class="[line.kind, lineStyles[line.kind]]"
-    >
-      {{ line.text }}
-    </p>
-
-    <!-- 调试痕迹：模型在想什么、调了什么工具。不进故事、不进存档 -->
-    <template v-for="line in trace" :key="'trace-' + line.id">
+    <template v-for="row in rows" :key="row.id">
+      <!-- 调试行带原始内容（模型请求体 / 响应体）：用原生 <details> 折叠 -->
       <details
-        v-if="line.raw !== undefined"
+        v-if="row.debug && row.detail !== undefined"
         class="trace cursor-pointer rounded-lg border border-line bg-surface-2/60 px-3.5 py-2"
+        :class="row.kind"
       >
-        <summary class="text-[12.5px] text-muted">{{ line.text }}{{ t('story.rawToggle') }}</summary>
-        <pre class="story-text mt-2 text-[12px] leading-relaxed text-faint">{{ line.raw }}</pre>
+        <summary class="text-[12.5px] text-muted">{{ row.text }}{{ t('story.rawToggle') }}</summary>
+        <pre class="story-text mt-2 text-[12px] leading-relaxed text-faint">{{ row.detail }}</pre>
       </details>
-      <p v-else class="trace max-w-[70ch]" :class="[line.kind, traceStyles[line.kind]]">
-        {{ line.text }}
+      <p v-else-if="row.debug" class="trace max-w-[70ch]" :class="[row.kind, debugStyles[row.kind]]">
+        {{ row.text }}
+      </p>
+      <p
+        v-else
+        class="line story-text max-w-[70ch] text-[15px] leading-[1.85]"
+        :class="[row.kind, storyStyles[row.kind]]"
+      >
+        {{ row.text }}
       </p>
     </template>
 

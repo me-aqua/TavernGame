@@ -56,6 +56,7 @@
     "toolCall": "⚙ 调用 {tool}({args})"
   },
   "store": {
+    "rawRequest": "📤 模型输入（{count} 条消息）",
     "rawReply": "🔍 模型原始回复（{count} 次工具调用）",
     "noText": "（模型没有返回文字，可能只调用了工具）",
     "cancelled": "已取消本回合",

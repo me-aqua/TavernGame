@@ -32,6 +32,12 @@ const IDLE_ACTION = 'idle'
 
 let fake: FakeLlm | null = null
 
+/** 界面上的故事行（rows 里 debug=false 的那些） */
+const storyRows = (g: ReturnType<typeof useGame>) => g.rows.value.filter((row) => !row.debug)
+
+/** 界面上的调试行（只有打开调试模式才会出现） */
+const debugRows = (g: ReturnType<typeof useGame>) => g.rows.value.filter((row) => row.debug)
+
 beforeEach(() => {
   configureFakeProvider(MAX_STEPS)
   useGame().resetGame()
@@ -83,17 +89,17 @@ describe('handleEvent - each trace branch (debug only)', () => {
     fake = installFakeLlm([{ content: WAIT_REPLY, toolCalls: ADVANCE_STEP_REPLY.toolCalls }, DAWN_REPLY])
     await g.runTurnAction(WAIT_ACTION)
 
-    const texts = g.trace.value.map((l) => l.text)
+    const texts = debugRows(g).map((l) => l.text)
     expect(texts).toContain(t('toolbar.toolCall', { tool: TOOL_NAME, args: TOOL_ARGS }))
     const resultPrefix = t('store.toolResultLine', { result: '' })
     const advanceHead = t('tools.advanceResult', { before: '', after: '' }).split('\n')[0].trim()
     expect(texts.some((line) => line.startsWith(resultPrefix) && line.includes(advanceHead))).toBe(true)
 
     // 故事区只有故事：工具调用是 agent 信息，玩家看不到
-    const kinds = g.lines.value.map((l) => l.kind)
+    const kinds = storyRows(g).map((l) => l.kind)
     expect(kinds[0]).toBe('action')
     expect(kinds.every((kind) => kind === 'action' || kind === 'narration')).toBe(true)
-    expect(g.lines.value.map((l) => l.text)).not.toContain(
+    expect(storyRows(g).map((l) => l.text)).not.toContain(
       t('toolbar.toolCall', { tool: TOOL_NAME, args: TOOL_ARGS }),
     )
     g.debugMode.value = false
@@ -105,7 +111,7 @@ describe('handleEvent - each trace branch (debug only)', () => {
     fake = installFakeLlm([...STEP_LIMIT_REPLIES, PATCHED_REPLY])
     await g.runTurnAction(KEEP_WAITING_ACTION)
 
-    const warns = g.trace.value.filter((l) => l.kind === 'warn')
+    const warns = debugRows(g).filter((l) => l.kind === 'warn')
     expect(warns.length).toBeGreaterThan(0)
     const stepLimit = t('store.warnLine', { message: t('agent.stepLimit', { max: MAX_STEPS }) })
     expect(warns.map((w) => w.text)).toContain(stepLimit)
@@ -121,10 +127,10 @@ describe('handleEvent - each trace branch (debug only)', () => {
     fake.restore()
     fake = null
 
-    const rawLines = g.trace.value.filter((l) => l.raw !== undefined)
-    expect(rawLines).toHaveLength(1)
-    // raw 里存的是协议响应（JSON 文本）
-    expect(() => JSON.parse(rawLines[0].raw ?? '')).not.toThrow()
+    const rawRows = debugRows(g).filter((row) => row.detail !== undefined)
+    // 一次调用两条：请求体 + 响应体，都是可折叠的 JSON
+    expect(rawRows.map((row) => row.kind)).toEqual(['request', 'reply'])
+    expect(() => JSON.parse(rawRows[0].detail ?? '')).not.toThrow()
     g.debugMode.value = false
   })
 })
@@ -148,7 +154,7 @@ describe('a notice when the turn produced nothing', () => {
  *    这里只留「不需要手动通知就能看到时间线」这一条。
  */
 describe('the store timeline updates without manual notification', () => {
-  it('addLog from the engine shows up in the store timeline without manual notification', async () => {
+  it('addEvent from the engine shows up in the store timeline without manual notification', async () => {
     fake = installFakeLlm([{ content: WAIT_REPLY, toolCalls: ADVANCE_STEP_REPLY.toolCalls }, DAWN_REPLY])
     const g = useGame()
     // 一步工具调用之后时间线就应有记录，不必等整个回合结束

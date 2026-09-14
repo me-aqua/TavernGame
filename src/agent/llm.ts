@@ -39,12 +39,29 @@ export interface ToolCallRequest {
   arguments: string
 }
 
+/**
+ * 实际发出去的请求体（OpenAI 兼容）。
+ *
+ * ⚠️ 只有这里拼得出来：模型名、温度、消息数组、工具声明都在这个函数里合成。
+ *    调试模式要展示「模型原始输入」就得把它带出去 —— 在别处重拼一份 = 第二份真值。
+ */
+export interface ChatRequest {
+  model: string
+  messages: ChatMessage[]
+  temperature: number
+  stream: boolean
+  tools?: ToolSchema[]
+  tool_choice?: 'auto' | 'none' | 'required'
+}
+
 /** 一次模型回复：可能只有文字，也可能要求调工具 */
 export interface ChatReply {
   /** 叙事文字（可能为空——只调工具时就是这样） */
   content: string
   /** 模型要求的工具调用（可能为空数组） */
   toolCalls: ToolCallRequest[]
+  /** 发给模型的请求体（调试模式展示「模型输入」用） */
+  request: ChatRequest
   /** 原始响应，供调试模式查看 */
   raw: unknown
 }
@@ -89,7 +106,7 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (cfg.apiKey) headers['Authorization'] = `Bearer ${cfg.apiKey}`
 
-  const body: Record<string, unknown> = {
+  const body: ChatRequest = {
     model: cfg.model,
     messages,
     temperature: cfg.temperature,
@@ -164,7 +181,7 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
     throw new Error(t('llm.emptyResponse', { body: JSON.stringify(data).slice(0, 300) }))
   }
 
-  return { content, toolCalls, raw: data }
+  return { content, toolCalls, request: body, raw: data }
 }
 
 interface TestResult {

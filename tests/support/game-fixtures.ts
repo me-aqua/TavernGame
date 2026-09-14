@@ -63,7 +63,7 @@ export function createPersistedGame(): { state: game.GameState; store: SaveStore
 export function createAgentContext(state: game.GameState = createGame()): AgentContext {
   return {
     state,
-    addLog: (kind, text) => game.addLog(state, kind, text),
+    addEvent: (kind, text) => game.addEvent(state, kind, text),
     endTurn: () => void game.endTurn(state),
     snapshot: (history: ChatMessage[]) => game.snapshot(state, history),
   }
