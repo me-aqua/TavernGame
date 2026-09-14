@@ -30,6 +30,7 @@ function apply(next: ThemeMode): void {
   document.documentElement.classList.toggle('dark', dark)
 }
 
+/** 读玩家存过的主题偏好；没存过或不合法都当 'system' */
 function readStored(): ThemeMode {
   const raw = localStorage.getItem(STORAGE_KEY)
   return raw === 'light' || raw === 'dark' || raw === 'system' ? raw : 'system'
@@ -60,5 +61,10 @@ export function useTheme() {
     mode.value = mode.value === 'system' ? 'light' : mode.value === 'light' ? 'dark' : 'system'
   }
 
-  return { mode, cycle, isDark: () => document.documentElement.classList.contains('dark') }
+  /** 当前是否深色（DOM 是唯一事实，不另存一份状态） */
+  function isDark(): boolean {
+    return document.documentElement.classList.contains('dark')
+  }
+
+  return { mode, cycle, isDark }
 }

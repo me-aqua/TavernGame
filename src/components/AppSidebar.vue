@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
 /**
  * 侧栏：时间 / 地点 / 回合。
  *
  * 这三块还是**写死的三块**。DESIGN.md 决定 #15（显示层由卡驱动）落地后，
  * 这里会变成「从卡的声明列表渲染组件」—— 到那时这个文件是第一个被替换的。
  */
+import { useI18n } from 'vue-i18n'
 import type { TimelineEntry } from '../types/state'
 
 const { t } = useI18n()

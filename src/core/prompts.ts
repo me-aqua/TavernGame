@@ -101,5 +101,5 @@ export function buildSystemPrompt(state: GameState, history: ChatMessage[] = [])
   })
 }
 
-// 注：原生 tool calling 之后，工具结果以 role:'tool' 的协议消息回传，
-// 不再需要「以下是工具的实际执行结果…」这类外套文案，相关提示词文件已删除。
+// 工具结果以 role:'tool' 的协议消息回传（协议自带 id 关联），
+// 所以这里不需要任何「以下是工具执行结果」之类的包装文案。

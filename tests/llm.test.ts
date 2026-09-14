@@ -181,13 +181,21 @@ describe('chat - error branches', () => {
     )
   })
 
-  it('gives an actionable hint on a CORS / network failure', async () => {
+  it('gives an actionable hint on a CORS / network failure, keeping the original error', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
     const fake = installFakeLlm(['unused'])
     restore = fake.restore
-    fake.failNextWith(new TypeError('Failed to fetch'))
-    await expect(chat(messages)).rejects.toThrow(
-      t('llm.requestFailed', { url: 'https://api.example.test/v1/chat/completions' }),
+    const networkError = new TypeError('Failed to fetch')
+    fake.failNextWith(networkError)
+
+    // 用 then 的失败分支取值：catch 的返回值会带上成功分支的类型，断言拿不到 Error 字段
+    const err = await chat(messages).then(
+      () => null,
+      (e: unknown) => e as Error,
     )
+    if (!err) throw new Error('expected chat() to reject')
+    expect(err.message).toBe(t('llm.requestFailed', { url: 'https://api.example.test/v1/chat/completions' }))
+    // 玩家看到的是「怎么修」，排查的人需要原始错误 —— 少了 cause 就只能靠猜
+    expect(err.cause).toBe(networkError)
   })
 })

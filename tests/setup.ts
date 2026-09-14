@@ -11,13 +11,19 @@ import { i18n } from '../src/i18n'
 const storage = new Map<string, string>()
 
 const localStorageShim: Storage = {
+  /** 键的数量 */
   get length() {
     return storage.size
   },
+  /** 清空全部 */
   clear: () => storage.clear(),
+  /** 取值；没有这个键返回 null（与浏览器一致） */
   getItem: (k: string) => (storage.has(k) ? (storage.get(k) as string) : null),
+  /** 按下标取键名 */
   key: (i: number) => [...storage.keys()][i] ?? null,
+  /** 删键 */
   removeItem: (k: string) => void storage.delete(k),
+  /** 写值；一律转成字符串（同浏览器） */
   setItem: (k: string, v: string) => void storage.set(k, String(v)),
 }
 

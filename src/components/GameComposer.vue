@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
 /**
  * 输入区：玩家输入行动。
  * 输入框随字数长高 —— 用 scrollHeight 算，再夹一个 max-height。
  *
  * 提示文字用模板条件渲染，**不用 v-html** —— 这样连转义都不需要。
  */
+import { useI18n } from 'vue-i18n'
 import { nextTick, ref, watch } from 'vue'
 
 const { t } = useI18n()
@@ -22,6 +22,7 @@ const emit = defineEmits<{ submit: [text: string] }>()
 const draft = ref('')
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 
+/** 输入框随内容长高，最高 160px */
 function autoResize() {
   const el = textareaRef.value
   if (!el) return
@@ -31,6 +32,7 @@ function autoResize() {
 
 watch(draft, () => void nextTick(autoResize))
 
+/** 提交当前草稿并清空输入框（空内容不提交） */
 function submit() {
   const t = draft.value.trim()
   if (!t) return

@@ -57,6 +57,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/** 每个用例一个干净状态 */
 function freshState() {
   return new GameState(createInitialState())
 }

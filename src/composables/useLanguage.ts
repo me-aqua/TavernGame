@@ -19,6 +19,7 @@ function apply(next: LanguageMode): void {
   document.documentElement.lang = locale
 }
 
+/** 界面语言（三态循环），与 useTheme 同构 */
 export function useLanguage() {
   if (!initialized) {
     initialized = true

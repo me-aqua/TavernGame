@@ -78,7 +78,7 @@ describe('migrateLegacy', () => {
     expect(migrated.meta.turn).toBe(7)
     expect(migrated.scene.name).toBe(LEGACY_SCENE_NAME)
     expect(migrated.log).toHaveLength(1)
-    // 旧版是「第 N 天」，无法换算 → 时间重置为现在
+    // v1/v2 存的是「第 N 天」，无法换算成绝对时刻 → 时间重置为现在
     expect(Number.isNaN(Date.parse(migrated.time.iso))).toBe(false)
     expect(migrated.meta.version).toBe(3)
   })
@@ -159,15 +159,18 @@ describe('loadState - the startup path', () => {
     const { data, error } = loadState()
     expect(data).toBeNull()
     expect(error).toContain(t('save.corrupted', { message: '' }).replace('{message}', '').trim())
-    expect(localStorage.getItem(`${SAVE_KEY}.broken-` + 'x')).toBeNull() // 只是确认键名格式
-    // 备份确实写进去了
-    let found = 0
+
+    // 备份确实写进去了，而且键名带时间戳（用来只保留最新一份）
+    const backupKeys: string[] = []
     for (let i = 0; ; i += 1) {
       const k = localStorage.key(i)
       if (k === null) break
-      if (k.startsWith(`${SAVE_KEY}.broken-`)) found += 1
+      if (k.startsWith(`${SAVE_KEY}.broken-`)) backupKeys.push(k)
     }
-    expect(found).toBe(1)
+    expect(backupKeys).toHaveLength(1)
+    const stamp = backupKeys[0].replace(`${SAVE_KEY}.broken-`, '')
+    expect(stamp).toMatch(/^\d+$/)
+    expect(Number(stamp)).toBeGreaterThan(0)
   })
 })
 

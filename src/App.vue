@@ -48,9 +48,9 @@ const configured = computed(() => configState.value)
 /**
  * 顶栏状态文字。
  *
- * ⚠️ 必须是 computed 而不是在 refreshConfigStatus() 里算好存进 ref：
- * 文案跟随界面语言，玩家点语言按钮时它必须跟着变。存进 ref 的旧写法
- * 会在切换语言后留下一句旧语言的提示。
+ * ⚠️ 必须是 computed，不能算好存进 ref：
+ * 文案跟随界面语言，玩家切语言时它必须跟着变；
+ * 存成快照就会留下上一门语言的提示。
  */
 const statusText = computed(() => {
   if (!configState.value) return t('app.statusUnconfigured')
@@ -80,6 +80,7 @@ Object.defineProperty(window, '__DEBUG', {
 
 // ---------- 动作 ----------
 
+/** 玩家提交行动：没配 API 就先开设置，否则跑一个回合 */
 async function submitAction(text: string) {
   if (!isConfigured()) {
     settingsOpen.value = true
@@ -113,12 +114,14 @@ async function startNewGame() {
   }
 }
 
+/** 导出存档为文件 */
 function doExport() {
   const date = new Date().toISOString().slice(0, 10)
   downloadText(t('app.saveFileName', { date }), exportSave())
   append('system', t('app.saveExported'))
 }
 
+/** 从文件导入存档，并把叙事日志恢复出来 */
 async function doImport() {
   const file = await pickFile()
   if (!file) return
@@ -132,6 +135,7 @@ async function doImport() {
   }
 }
 
+/** 重来（先确认），然后直接跑开场 */
 function resetAll() {
   if (!confirm(t('app.confirmReset'))) return
   resetGame()
@@ -152,6 +156,7 @@ function onDrawerAction(name: 'export' | 'import' | 'reset') {
   resetAll()
 }
 
+/** 设置保存后：刷新顶栏状态，首局则顺手把开场跑出来 */
 function onSettingsSaved() {
   refreshConfigStatus()
   append('system', t('app.settingsSaved'))

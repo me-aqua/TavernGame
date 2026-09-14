@@ -2,9 +2,8 @@
 /**
  * 设置面板：provider / API key / 接口地址 / modelName / 步数上限。
  *
- * 相比原来的实现，这里少了一处 XSS 隐患：
- * 原来「当前 key」那行是拼接字符串后塞进 innerHTML 的，
- * 现在只是模板里的 {{ }}，自动转义。
+ * 所有输出都走模板插值（{{ }}），由 Vue 自动转义 ——
+ * 没有任何 innerHTML 拼接，密钥这类内容不存在注入面。
  */
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -64,10 +63,12 @@ watch(
 function syncProviderFields() {
   const p = currentPreset.value
   if (!p) return
-  const isOldBase = (v: string) => Object.values(PRESETS).some((x) => x.apiBase === v)
-  const isOldModel = (v: string) => Object.values(PRESETS).some((x) => x.models?.includes(v))
-  if (!apiBase.value.trim() || isOldBase(apiBase.value.trim())) apiBase.value = p.apiBase
-  if (!modelName.value.trim() || isOldModel(modelName.value.trim())) modelName.value = p.models?.[0] ?? ''
+  // 表单里的地址/模型还是「任何预设的默认值」时，换服务商就顺手替换
+  const isPresetBase = (v: string) => Object.values(PRESETS).some((x) => x.apiBase === v)
+  // 同上，判断模型名是不是某个预设的默认值
+  const isPresetModel = (v: string) => Object.values(PRESETS).some((x) => x.models?.includes(v))
+  if (!apiBase.value.trim() || isPresetBase(apiBase.value.trim())) apiBase.value = p.apiBase
+  if (!modelName.value.trim() || isPresetModel(modelName.value.trim())) modelName.value = p.models?.[0] ?? ''
 }
 
 const corsHint = computed(() => {
@@ -77,6 +78,7 @@ const corsHint = computed(() => {
   return t('settings.corsUnknown')
 })
 
+/** 保存配置并关闭面板 */
 function save() {
   saveConfig({
     provider: provider.value,
@@ -89,6 +91,7 @@ function save() {
   emit('saved')
 }
 
+/** 用表单里的值试一次连接，结果就地显示（失败也是结果） */
 async function testConnectionAction() {
   // 先用表单里的值试，不必先保存
   saveConfig({
@@ -115,6 +118,7 @@ async function testConnectionAction() {
   }
 }
 
+/** 忘掉密钥（先确认），并清掉界面上的残留 */
 function forgetKey() {
   if (!confirm(t('settings.confirmForget'))) return
   clearConfig()

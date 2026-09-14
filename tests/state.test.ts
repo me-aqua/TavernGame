@@ -131,6 +131,7 @@ describe('normalize - sanitizing a dirty save', () => {
 })
 
 describe('advanceTime - rejecting invalid input', () => {
+  /** 每个用例一个干净实例 */
   function fresh() {
     return new GameState(createInitialState())
   }
@@ -200,7 +201,7 @@ describe('advanceTime - rejecting invalid input', () => {
     expect(msg).toContain(t('tools.advanceResult', { before, after }))
     expect(msg).toContain(t('tools.advanceReason', { reason: WAITED_A_WEEK }))
     expect(s.data.timeline).toHaveLength(1)
-    // 防回归：曾经 from 用的是推进后的时刻，导致 from === to
+    // 防回归：from 必须是**推进前**的时刻；若取推进后，from 会等于 to
     expect(s.data.timeline[0].from).not.toBe(s.data.timeline[0].to)
     expect(s.data.timeline[0].reason).toBe(WAITED_A_WEEK)
   })

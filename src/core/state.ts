@@ -47,19 +47,23 @@ export class GameState {
    * ⚠️ 失败返回 false，**调用方必须让玩家看到** —— 静默失败会让玩家以为
    * 进度已保存，刷新后才发现没了。
    */
+  /** 落盘。失败返回 false，调用方必须让玩家看到 */
   save(): boolean {
     return writeSave(this.data)
   }
 
+  /** 重置为新开局并立刻落盘 */
   reset(): void {
     this.data = createInitialState()
     this.save()
   }
 
+  /** 序列化成 JSON 文本（导出文件用） */
   export(): string {
     return JSON.stringify(this.data, null, 2)
   }
 
+  /** 从 JSON 文本导入存档（校验在 persistence 里） */
   import(json: string): void {
     this.data = parseSave(json)
     this.save()
@@ -67,6 +71,7 @@ export class GameState {
 
   // ---------- 日志 ----------
 
+  /** 追加一条日志；超出上限时丢最旧的 */
   addLog(kind: LogEntry['kind'], text: string): void {
     this.data.log.push({ kind, text, at: new Date().toISOString() })
     if (this.data.log.length > MAX_LOG) {
@@ -177,6 +182,7 @@ export class GameState {
     )
   }
 
+  /** 回合 +1，返回给模型看的结算文案 */
   endTurn(): string {
     this.data.meta.turn += 1
     return t('agent.turnAdvanced', { turn: this.data.meta.turn })
