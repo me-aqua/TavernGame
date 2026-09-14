@@ -11,6 +11,18 @@ if (process.env.SKIP_DISCIPLINE === '1') {
 
 const git = (cmd) => execSync('git ' + cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 
+/**
+ * 把 execSync 抛出的错误读成可读文本。
+ *
+ * ⚠️ 踩过的坑：err.stdout / err.stderr 是 **Buffer**，而且**空 Buffer 也是 truthy**，
+ * 所以 `String(err.stdout || err.stderr)` 会选到一个空 Buffer、把真正的内容吞掉
+ * （密钥报错因此变成空条目）。必须先解码、再按长度挑选。
+ */
+const 读输出 = (err) => {
+  const 解码 = (v) => (Buffer.isBuffer(v) ? v.toString('utf8') : String(v ?? ''))
+  return (解码(err.stdout) || 解码(err.stderr) || 解码(err.message)).trim()
+}
+
 const problems = []
 const 全部暂存文件 = git('diff --cached --name-only --diff-filter=ACM').split('\n').filter(Boolean)
 // 开发脚本（钩子自身、e2e、测试）不进产物，不参与「源码纪律」检查：
@@ -25,6 +37,17 @@ const contentOf = (f) => {
   } catch {
     return ''
   }
+}
+
+// ---------- 检查 8：密钥扫描（最关键的一条） ----------
+// 纯前端项目里 API key 就在玩家自己手里，仓库里出现真 key 的概率不低；
+// 一旦提交，历史里就留住了（v0.5.3 删 AGENIA.md 的教训）。
+try {
+  execSync('node .githooks/checks/secrets.mjs ' + staged.map((f) => '"' + f + '"').join(' '), {
+    stdio: 'pipe',
+  })
+} catch (err) {
+  problems.push(读输出(err))
 }
 
 // ---------- 检查 1：调试残留 ----------
@@ -204,17 +227,6 @@ for (const f of 全部暂存) {
   }
 }
 
-// ---------- 检查 8：密钥扫描（最关键的一条） ----------
-// 纯前端项目里 API key 就在玩家自己手里，仓库里出现真 key 的概率不低；
-// 一旦提交，历史里就留住了（v0.5.3 删 AGENIA.md 的教训）。
-try {
-  execSync('node .githooks/checks/secrets.mjs ' + staged.map((f) => '"' + f + '"').join(' '), {
-    stdio: 'pipe',
-  })
-} catch (err) {
-  problems.push(String(err.stdout || err.message).trim())
-}
-
 // ---------- 检查 9：语法（TS 编译器直接解析，秒级） ----------
 const 可查语法 = staged.filter((f) => /\.(ts|vue)$/.test(f))
 if (可查语法.length) {
@@ -223,8 +235,82 @@ if (可查语法.length) {
       stdio: 'pipe',
     })
   } catch (err) {
-    problems.push('[语法] ' + String(err.stdout || err.message).trim().split('\n').slice(-4).join(' / '))
+    problems.push(
+      '[语法] ' +
+        String(err.stdout || err.stderr || err.message)
+          .trim()
+          .split('\n')
+          .slice(-4)
+          .join(' / '),
+    )
   }
+}
+
+// ---------- 检查 11：ESLint（含类型感知规则：floating promise 这类真 bug） ----------
+// 只对暂存文件跑，控制等待时间
+const 可lint = staged.filter((f) => /\.(ts|vue|js|mjs)$/.test(f))
+let lintPromise = null
+if (可lint.length) {
+  lintPromise = new Promise((resolve) => {
+    try {
+      execSync('npx eslint ' + 可lint.map((f) => '"' + f + '"').join(' '), { stdio: 'pipe' })
+      resolve(null)
+    } catch (err) {
+      resolve(String(err.stdout || err.stderr || err.message).trim().split('\n').slice(0, 12).join('\n'))
+    }
+  })
+}
+
+// ---------- 检查 12：类型检查 + 单测（并行，缩短等待） ----------
+const 跑重检查 = staged.some((f) => /\.(ts|vue)$/.test(f)) || /package\.json|tsconfig/.test(staged.join(' '))
+const 并行任务 = []
+if (跑重检查) {
+  并行任务.push(
+    new Promise((resolve) => {
+      try {
+        execSync('npm run -s typecheck', { stdio: 'pipe' })
+        resolve(null)
+      } catch (err) {
+        resolve(
+          'typecheck：\n' +
+            String(err.stdout || err.stderr || err.message).trim().split('\n').slice(0, 10).join('\n'),
+        )
+      }
+    }),
+  )
+  // 单测很快（<1 秒），放这里比放 pre-push 更早发现问题
+  并行任务.push(
+    new Promise((resolve) => {
+      try {
+        execSync('npm run -s test', { stdio: 'pipe' })
+        resolve(null)
+      } catch (err) {
+        resolve(
+          '测试：\n' +
+            String(err.stdout || err.stderr || err.message).trim().split('\n').slice(-12).join('\n'),
+        )
+      }
+    }),
+  )
+}
+
+if (lintPromise || 并行任务.length) {
+  const 结果集 = await Promise.all([lintPromise, ...并行任务])
+  for (const 结果 of 结果集) {
+    if (!结果) continue
+    if (结果.startsWith('typecheck') || 结果.startsWith('测试')) problems.push('[' + 结果.split('：')[0] + '] ' + 结果.split('\n').slice(1).join('\n     '))
+    else problems.push('[lint]\n' + 结果.split('\n').map((l) => '     ' + l).join('\n'))
+  }
+}
+
+// ⚠️ 走到这里之前若已经发现问题，必须**立刻报告并退出** ——
+// 否则下面的 Prettier 会 process.exit(1) 抢在前面，
+// 真正的失败原因（例如密钥）永远打不出来。这是实测踩到的顺序缺陷。
+if (problems.length) {
+  console.error('\n✖ 纪律检查未通过：\n')
+  for (const p of problems) console.error('  ' + p)
+  console.error(`\n共 ${problems.length} 项。逐条修掉，或用 SKIP_DISCIPLINE=1 跳过（需说明理由）。\n`)
+  process.exit(1)
 }
 
 // ---------- 检查 10：格式化（Prettier 自动修好并重新暂存） ----------
@@ -244,57 +330,6 @@ if (可格式化.length && !process.env.SKIP_FORMAT) {
     }
   } catch (err) {
     problems.push('[格式化] Prettier 失败：' + String(err.stderr || err.message).slice(0, 200))
-  }
-}
-
-// ---------- 检查 11：ESLint（含类型感知规则：floating promise 这类真 bug） ----------
-// 只对暂存文件跑，控制等待时间
-const 可lint = staged.filter((f) => /\.(ts|vue|js|mjs)$/.test(f))
-let lintPromise = null
-if (可lint.length) {
-  lintPromise = new Promise((resolve) => {
-    try {
-      execSync('npx eslint ' + 可lint.map((f) => '"' + f + '"').join(' '), { stdio: 'pipe' })
-      resolve(null)
-    } catch (err) {
-      resolve(String(err.stdout || err.message).trim().split('\n').slice(0, 12).join('\n'))
-    }
-  })
-}
-
-// ---------- 检查 12：类型检查 + 单测（并行，缩短等待） ----------
-const 跑重检查 = staged.some((f) => /\.(ts|vue)$/.test(f)) || /package\.json|tsconfig/.test(staged.join(' '))
-const 并行任务 = []
-if (跑重检查) {
-  并行任务.push(
-    new Promise((resolve) => {
-      try {
-        execSync('npm run -s typecheck', { stdio: 'pipe' })
-        resolve(null)
-      } catch (err) {
-        resolve('typecheck：\n' + String(err.stdout || err.message).trim().split('\n').slice(0, 10).join('\n'))
-      }
-    }),
-  )
-  // 单测很快（<1 秒），放这里比放 pre-push 更早发现问题
-  并行任务.push(
-    new Promise((resolve) => {
-      try {
-        execSync('npm run -s test', { stdio: 'pipe' })
-        resolve(null)
-      } catch (err) {
-        resolve('测试：\n' + String(err.stdout || err.message).trim().split('\n').slice(-12).join('\n'))
-      }
-    }),
-  )
-}
-
-if (lintPromise || 并行任务.length) {
-  const 结果集 = await Promise.all([lintPromise, ...并行任务])
-  for (const 结果 of 结果集) {
-    if (!结果) continue
-    if (结果.startsWith('typecheck') || 结果.startsWith('测试')) problems.push('[' + 结果.split('：')[0] + '] ' + 结果.split('\n').slice(1).join('\n     '))
-    else problems.push('[lint]\n' + 结果.split('\n').map((l) => '     ' + l).join('\n'))
   }
 }
 
