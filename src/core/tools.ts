@@ -7,130 +7,93 @@
  *
  * 所以这里**只保留一个**：时间推进。
  *
- * 引擎持有事实的原则仍然成立：模型只能「申请」推进时间，
- * 真正改状态、并且拦住非法推进（倒退、手滑的超大跨度）的都是这里。
+ * ⚠️ 2026-09-14 起：工具通过 **OpenAI 兼容的原生 tools 协议** 声明给模型，
+ *    不再有「文本协议 + JSON 代码块」，也**没有解析器**了。
+ *    理由见 llm.ts 顶部注释：解析模型输出本质上是在猜格式，
+ *    而工具调用应该是协议层的契约。
+ *    给模型看的**说明**（何时该调用）在 prompts/tools.md；
+ *    给模型看的**参数契约**就是下面的 TOOL_SCHEMAS。
  */
 
 import type { GameState } from './state'
+import type { ToolSchema } from './llm'
 
-/**
- * 一个工具。
- *
- * ⚠️ 这里**只有执行体**：给模型看的说明（参数含义、调用示例、何时该调用）
- * 全在 `prompts/tools.md`。提示词与代码分离 —— 改玩法不用改代码。
- */
 export interface ToolDef {
   run(state: GameState, args: Record<string, unknown>): string
 }
 
+/** 工具的实现。说明文字在 prompts/，参数契约在下面的 TOOL_SCHEMAS。 */
 export const TOOLS: Record<string, ToolDef> = {
-  // ⚠️ 这里**只放执行逻辑**。给模型看的说明（参数含义、调用示例、
-  //    什么时候该调用）全在 prompts/tools.md —— 提示词与代码分离。
   advance_time: {
     run: (state, a) => state.advanceTime(a.step, a.unit, typeof a.reason === 'string' ? a.reason : ''),
   },
 }
 
 /**
- * 执行一个工具。
- * @returns 执行结果（会被回传给模型）
+ * 声明给模型的工具契约（OpenAI 兼容格式）。
+ *
+ * 描述文字是**游戏语言**的一部分（会直接影响模型对世界的理解），
+ * 所以这里是中文；将来做 i18n 时按语言取不同的一份。
  */
-export function runTool(state: GameState, name: unknown, args: Record<string, unknown>): string {
+export const TOOL_SCHEMAS: ToolSchema[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'advance_time',
+      description:
+        '推进故事内的时间。只在剧情确实经过了一段时间时才调用' +
+        '（赶路、交谈很久、睡了一觉、等到天黑、修养数日）。' +
+        '如果这一回合只是几句话、几个动作，就不要调用。跨度没有上限。',
+      parameters: {
+        type: 'object',
+        properties: {
+          step: { type: 'integer', description: '推进的数量，正整数。默认 1', minimum: 1 },
+          unit: {
+            type: 'string',
+            description: '时间单位。默认 segment（一个时段，约 4 小时）',
+            enum: ['segment', 'hour', 'day', 'week', 'month', 'year'],
+          },
+          reason: { type: 'string', description: '为什么时间会流逝（会记录在时间线里）' },
+        },
+        required: [],
+      },
+    },
+  },
+]
+
+/**
+ * 执行一个工具。
+ *
+ * 参数来自模型的 `arguments`（JSON 字符串，协议原样给出），
+ * 所以这里是**边界**：JSON 可能不合法、字段可能给错。出错时返回
+ * 结构化错误交给模型自己改 —— 这正是原生 tool calling 的好处。
+ */
+export function runTool(state: GameState, name: string, rawArguments: string): string {
   // ⚠️ 必须用 Object.hasOwn，不能写成 `const tool = TOOLS[name]` —— 那样
   // `constructor` / `toString` / `valueOf` / `__proto__` / `hasOwnProperty`
   // 会从 Object.prototype 上取到**真值**，绕过「没有这个工具」的判断，
-  // 随后读 `tool.args` 抛 TypeError；而这个异常会穿出 runTurn，
-  // 让 endTurn/save/addLog 全都不执行 —— 玩家看到的叙事不落盘、时间却已改。
-  if (typeof name !== 'string' || !Object.hasOwn(TOOLS, name)) {
-    return `❌ 没有名为「${String(name)}」的工具。可用工具：${Object.keys(TOOLS).join('、')}`
+  // 随后抛 TypeError；而这个异常会穿出 runTurn，让 endTurn/save/addLog 全不执行。
+  if (!Object.hasOwn(TOOLS, name)) {
+    return `❌ 没有名为「${name}」的工具。可用工具：${Object.keys(TOOLS).join('、')}`
   }
-  const tool = TOOLS[name]
+
+  let args: Record<string, unknown>
+  try {
+    const parsed: unknown = JSON.parse(rawArguments || '{}')
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return `❌ 参数必须是 JSON 对象，收到的是：${rawArguments.slice(0, 120)}`
+    }
+    args = parsed as Record<string, unknown>
+  } catch (err) {
+    return `❌ 参数不是合法 JSON（${(err as Error).message}）。你给的是：${rawArguments.slice(0, 120)}`
+  }
 
   try {
-    return String(tool.run(state, args || {}))
+    return String(TOOLS[name].run(state, args))
   } catch (err) {
     return `❌ 工具执行出错：${(err as Error).message}`
   }
 }
 
-/** 解析出的一个工具调用 */
-export interface ToolCall {
-  tool: string
-  args: Record<string, unknown>
-}
-
-export interface ParseResult {
-  blocks: ToolCall[]
-  /** 从回复里删掉工具块之后剩下的叙事正文 */
-  clean: string
-  errors: string[]
-}
-
-/**
- * 从模型回复里解析出工具调用块。
- *
- * 约定格式（模型被告知要这样写）：
- *   \`\`\`tool
- *   {"tool": "advance_time", "args": {"step": 1, "unit": "week", "reason": "等了七天"}}
- *   \`\`\`
- *
- * 为什么不用各家 API 的原生 function calling？
- *   1. 各家格式不统一，接入新服务商就要改代码
- *   2. 纯文本协议便于排查问题 —— 你能直接看到模型想干什么
- */
-export function parseToolCalls(text: string): ParseResult {
-  const blocks: ToolCall[] = []
-  const errors: string[] = []
-
-  // 围栏允许两种写法：换行的 \`\`\`tool\n{...}\n\`\`\`，以及同行的 \`\`\`tool {...}\`\`\`
-  const re = /```(tool|json)[ \t]*\r?\n?([\s\S]*?)```/g
-  let match: RegExpExecArray | null
-  const ranges: Array<[number, number]> = [] // 需要从正文里**删掉**的区间
-
-  while ((match = re.exec(text)) !== null) {
-    const lang = match[1]
-    const raw = match[2].trim()
-    const start = match.index
-    const end = start + match[0].length
-    if (!raw) {
-      ranges.push([start, end])
-      continue
-    }
-
-    try {
-      const parsed: unknown = JSON.parse(raw)
-      const items = Array.isArray(parsed) ? parsed : [parsed]
-      let gotTool = false
-      for (const item of items) {
-        const it = item as { tool?: unknown; args?: unknown }
-        if (it && typeof it.tool === 'string') {
-          blocks.push({
-            tool: it.tool,
-            args: (it.args && typeof it.args === 'object' ? it.args : {}) as Record<string, unknown>,
-          })
-          gotTool = true
-        }
-      }
-      // 解析成功且是工具块 → 从正文里删掉；否则（普通 json 数据块）**保留**
-      if (gotTool) ranges.push([start, end])
-      else if (lang === 'tool') {
-        errors.push(`工具块里没有 "tool" 字段，已忽略：${raw.slice(0, 120)}`)
-        ranges.push([start, end])
-      }
-    } catch (err) {
-      // 解析失败一律要出声 —— 否则模型以为调了工具（时间没动、故事却说「七天后」），
-      // 而玩家什么提示都看不到。会解析失败的块都删掉：留着只会把裸 JSON 当正文显示。
-      errors.push(`工具块解析失败：${(err as Error).message}｜原文：${raw.slice(0, 120)}`)
-      ranges.push([start, end])
-    }
-  }
-
-  // 从后往前删，避免影响前面的下标
-  let clean = text
-  for (let i = ranges.length - 1; i >= 0; i--) {
-    clean = clean.slice(0, ranges[i][0]) + clean.slice(ranges[i][1])
-  }
-  clean = clean.replace(/\n{3,}/g, '\n\n').trim()
-
-  return { blocks, clean, errors }
-}
+/** 工具名列表，供测试与错误提示用 */
+export const TOOL_NAMES = Object.keys(TOOLS)

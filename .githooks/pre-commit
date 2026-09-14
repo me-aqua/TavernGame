@@ -151,7 +151,9 @@ const SIZE = { file: 400, func: 150, net: 500 }
 const countLines = (s) => s.split('\n').length
 // 生成物不算「我写的代码」：锁文件由 npm 维护，体积没有意义
 const 生成物 = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/
-for (const f of textFiles.filter((f) => !生成物.test(f))) {
+// 文档不受「代码行数」约束：DESIGN.md 是设计推导过程，行数多是正常的
+const 非文档 = (f) => !/^doc\//.test(f) && !/^(README|AGENTS)\.md$/.test(f)
+for (const f of textFiles.filter((f) => !生成物.test(f) && 非文档(f))) {
   const n = countLines(contentOf(f))
   if (n > SIZE.file) problems.push(`[体积] ${f} —— ${n} 行（上限 ${SIZE.file}）`)
 }

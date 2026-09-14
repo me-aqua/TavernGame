@@ -1,27 +1,72 @@
 /**
- * src/core/llm.ts —— LLM 调用层
+ * src/core/llm.ts —— 模型调用的**唯一入口**
  *
- * 只做一件事：把消息发出去，把回复拿回来。
- * 不认识游戏规则，也不碰世界状态 —— 那些是 agent.ts 和 state.ts 的事。
+ * 规则（用户 2026-09-14 明确要求）：
+ *   1. **所有模型调用都经过这里的 chat()** —— 别处不允许直接 fetch
+ *   2. **禁止解析模型输出**。工具调用走 OpenAI 兼容的原生 `tools` 协议，
+ *      由模型在协议层声明「我要调哪个工具、参数是什么」，
+ *      我们不再用正则去猜它写在文本里的 JSON。
  *
- * 纯前端意味着：请求直接从浏览器发往服务商。
- * 已实测主要服务商都返回 CORS 允许头，所以浏览器不会拦截。
+ * 为什么这条很重要：文本协议时代，模型格式一飘（少个反引号、参数写中文、
+ * 把工具块单独发一条消息）就会静默失败；当时要靠「防呆」去兜。
+ * 原生 tool calling 把这些交给协议，模型有契约可依，出错时我们能把
+ * 结构化错误回传，让它自己改。
+ *
+ * 纯前端意味着：请求直接从浏览器发往服务商。已实测主要服务商都返回
+ * CORS 允许头，所以浏览器不会拦截。
  */
 
 import { loadConfig, PRESETS } from './config'
 import { CONNECTION_TEST_PROMPT } from './prompts'
 import type { ChatMessage } from '../types/state'
 
+/** OpenAI 兼容的工具声明 */
+export interface ToolSchema {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: Record<string, unknown>
+  }
+}
+
+/** 模型要求调用某个工具 */
+export interface ToolCallRequest {
+  id: string
+  name: string
+  /** 参数是 JSON 字符串（协议原样），由调用方解析 */
+  arguments: string
+}
+
+/** 一次模型回复：可能只有文字，也可能要求调工具 */
+export interface ChatReply {
+  /** 叙事文字（可能为空——只调工具时就是这样） */
+  content: string
+  /** 模型要求的工具调用（可能为空数组） */
+  toolCalls: ToolCallRequest[]
+  /** 原始响应，供调试模式查看 */
+  raw: unknown
+}
+
 export interface ChatOptions {
   /** 用于中途取消 */
   signal?: AbortSignal
+  /** 声明可用工具；不传则模型不会调用任何工具 */
+  tools?: ToolSchema[]
+  /** 给模型看的服务商侧提示（一般不用） */
+  toolChoice?: 'auto' | 'none' | 'required'
+}
+
+/** 接口返回的错误体形状（OpenAI 兼容） */
+interface ApiErrorBody {
+  error?: { message?: string }
+  message?: string
 }
 
 /**
- * 调用对话接口。
- * @returns 模型回复的纯文本
+ * 调用对话接口。**这是项目里唯一发请求给模型的地方。**
  */
-export async function chat(messages: ChatMessage[], options: ChatOptions = {}): Promise<string> {
+export async function chat(messages: ChatMessage[], options: ChatOptions = {}): Promise<ChatReply> {
   const cfg = loadConfig()
   const preset = PRESETS[cfg.provider]
 
@@ -41,11 +86,15 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (cfg.apiKey) headers['Authorization'] = `Bearer ${cfg.apiKey}`
 
-  const body = {
+  const body: Record<string, unknown> = {
     model: cfg.model,
     messages,
     temperature: cfg.temperature,
     stream: false,
+  }
+  if (options.tools?.length) {
+    body.tools = options.tools
+    body.tool_choice = options.toolChoice ?? 'auto'
   }
 
   let res: Response
@@ -64,7 +113,6 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
           `• 该服务商不允许浏览器直连（CORS 拦截）\n` +
           `• 接口地址写错了：${url}\n` +
           `• 网络不通或需要代理`,
-        // 带上原始错误：否则控制台里只剩我们这句话，看不到底层原因
         { cause: err },
       )
     }
@@ -76,12 +124,11 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
     // 先 res.json() 失败、再 res.text() 会抛「Body is unusable」，
     // 被 .catch 吞成空串 —— 于是网关返回 HTML 502 时，
     // 玩家只看到一行状态码、拿不到任何可用于排查的内容。
-    // 所以先整体读成文本，再尝试从中解析 JSON。
     const raw = await res.text()
     let detail = ''
     try {
-      const j = JSON.parse(raw) as { error?: { message?: string }; message?: string }
-      detail = j?.error?.message || j?.message || ''
+      const parsed = JSON.parse(raw) as ApiErrorBody
+      detail = parsed?.error?.message || parsed?.message || ''
     } catch {
       // 成功路径：网关返回 HTML 错误页（502 等）时本来就不是 JSON
     }
@@ -89,13 +136,32 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
   }
 
   const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: unknown } }>
+    choices?: Array<{
+      message?: {
+        content?: unknown
+        tool_calls?: Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }>
+      }
+    }>
   }
-  const content = data?.choices?.[0]?.message?.content
-  if (typeof content !== 'string') {
+  const message = data?.choices?.[0]?.message
+  if (!message) {
     throw new Error(`回复格式看不懂：${JSON.stringify(data).slice(0, 300)}`)
   }
-  return content
+
+  const content = typeof message.content === 'string' ? message.content : ''
+  const toolCalls: ToolCallRequest[] = (message.tool_calls ?? [])
+    .filter((c) => typeof c?.function?.name === 'string')
+    .map((c, i) => ({
+      id: typeof c.id === 'string' ? c.id : `call_${i}`,
+      name: String(c.function?.name),
+      arguments: typeof c.function?.arguments === 'string' ? c.function.arguments : '{}',
+    }))
+
+  if (!content && !toolCalls.length) {
+    throw new Error(`回复里既没有文字也没有工具调用：${JSON.stringify(data).slice(0, 300)}`)
+  }
+
+  return { content, toolCalls, raw: data }
 }
 
 export interface TestResult {
@@ -117,6 +183,6 @@ export async function testConnection(): Promise<TestResult> {
   return {
     ok: true,
     ms: Date.now() - started,
-    reply: reply.trim().slice(0, 40),
+    reply: reply.content.trim().slice(0, 40),
   }
 }

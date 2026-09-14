@@ -19,7 +19,7 @@ import systemTemplateB64 from '../../prompts/system.md.b64?raw'
 import toolsTemplateB64 from '../../prompts/tools.md.b64?raw'
 import openingInstructionB64 from '../../prompts/opening.md.b64?raw'
 import forcedNarrationInstructionB64 from '../../prompts/forced-narration.md.b64?raw'
-import toolResultsTemplateB64 from '../../prompts/tool-results.md.b64?raw'
+import toolCallsWithoutNarrationB64 from '../../prompts/tool-calls-without-narration.md.b64?raw'
 import connectionTestB64 from '../../prompts/connection-test.md.b64?raw'
 import calendarNoteB64 from '../../prompts/calendar.md.b64?raw'
 
@@ -41,7 +41,6 @@ function decodePrompt(原始: string): string {
 
 const systemTemplate = decodePrompt(systemTemplateB64)
 const toolsTemplate = decodePrompt(toolsTemplateB64)
-const toolResultsTemplate = decodePrompt(toolResultsTemplateB64)
 const calendarNote = decodePrompt(calendarNoteB64)
 
 /** 开场指令（代码里引用它，内容在 prompts/opening.md） */
@@ -50,6 +49,8 @@ export const OPENING_INSTRUCTION = decodePrompt(openingInstructionB64)
 export const FORCED_NARRATION_INSTRUCTION = decodePrompt(forcedNarrationInstructionB64)
 /** 连接测试用的最小 system 提示词（prompts/connection-test.md） */
 export const CONNECTION_TEST_PROMPT = decodePrompt(connectionTestB64)
+/** 模型只调工具、不写叙事时的催稿指令（prompts/tool-calls-without-narration.md） */
+export const TOOL_CALLS_WITHOUT_NARRATION = decodePrompt(toolCallsWithoutNarrationB64)
 
 import { SEGMENTS } from './calendar'
 import type { GameState } from './state'
@@ -95,7 +96,5 @@ export function buildSystemPrompt(state: GameState, history: ChatMessage[] = [])
   })
 }
 
-/** 工具执行结果回传给模型时的外套文案 */
-export function toolResultsPrompt(result: string): string {
-  return renderPrompt(toolResultsTemplate, { RESULTS: result })
-}
+// 注：原生 tool calling 之后，工具结果以 role:'tool' 的协议消息回传，
+// 不再需要「以下是工具的实际执行结果…」这类外套文案，相关提示词文件已删除。

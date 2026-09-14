@@ -56,8 +56,22 @@ export interface GameData {
   timeline: TimelineEntry[]
 }
 
-/** 对话消息（发给模型的历史） */
+/**
+ * 对话消息。
+ *
+ * ⚠️ 含工具协议字段：原生 tool calling 要求把模型的 tool_calls 原样回传，
+ * 并把每个工具的执行结果作为 role: 'tool' 的消息发回去（用 tool_call_id 关联）。
+ * 这是协议的一部分，不是我们自创的格式。
+ */
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant'
+  role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+  /** 仅 assistant：模型要求调用的工具 */
+  tool_calls?: Array<{
+    id: string
+    type: 'function'
+    function: { name: string; arguments: string }
+  }>
+  /** 仅 tool：对应哪一次调用 */
+  tool_call_id?: string
 }

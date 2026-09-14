@@ -101,14 +101,15 @@ export function useGame() {
         break
       case 'raw':
         if (调试模式.value) {
-          append('tool', `🔍 模型原始输出（解析出 ${evt.blocks} 个工具块）`, {
-            raw: evt.text,
-            rawBlocks: evt.blocks,
+          const 调用数 = evt.reply.toolCalls.length
+          append('tool', `🔍 模型原始回复（${调用数} 次工具调用）`, {
+            raw: JSON.stringify(evt.reply.raw, null, 2),
           })
         }
         break
       case 'tool':
-        append('tool', `⚙ 调用 ${evt.tool}(${JSON.stringify(evt.args)})`)
+        // args 是协议原样给的 JSON 字符串，直接展示（它就是模型实际发出的内容）
+        append('tool', `⚙ 调用 ${evt.tool}(${evt.args})`)
         break
       case 'toolResult':
         append('tool', `   → ${evt.result}`)
