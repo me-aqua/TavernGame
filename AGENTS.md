@@ -152,7 +152,15 @@
 | 网站地址 | https://me-aqua.github.io/TavernGame/ |
 | 默认分支 | `main` |
 | GitHub CLI | `E:\Github\GitHubCLI\gh.exe`（已在用户 PATH 中） |
-| 协作者 | `Alice-space`（Read 权限） |
+| 协作者 | `Alice-space`（**Write 权限**，2026-09-14 从 Read 升上来） |
+
+> **协作者的工作方式**：他有 Write 权限 —— 可以**直接在本仓库建分支并推送**，
+> 然后开 Pull Request。**不需要 fork。**
+>
+> ⚠️ **但 `main` 分支没有开保护** —— 也就是说他现在**能直接往 main 推，也能强推**。
+> 这是 2026-09-14 查出来的现状（`gh api .../branches/main/protection` 返回 404）。
+> 要不要加保护是个取舍：**加了之后你自己也不能直推 main**，
+> 得改成「开分支 → PR → 合并」的流程。**没动，等用户决定。**
 
 ## 🌐 代理（最容易踩的坑）
 
