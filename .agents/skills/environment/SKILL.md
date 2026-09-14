@@ -1,0 +1,58 @@
+---
+name: environment
+description: TavernGame 的运行环境事实——工作区、工具链、代理、以及本机必须记住的坑（dev URL 前缀、Vite 绑 IPv6、路径大小写、Node 原生 localStorage）。
+whenToUse: 需要跑命令、连服务、配环境，或遇到「连不上 / 找不到 / 报错像别的问题」时。
+---
+
+# 环境事实
+
+| 项 | 值 |
+| --- | --- |
+| 工作区 | `/Users/lzh/Developer/TavernGame`（macOS） |
+| 运行时 | Node v26，npm |
+| 构建 | Vite 8 + vue-tsc + vitest（`npm run verify` 跑齐） |
+| 仓库 | https://github.com/me-aqua/TavernGame |
+| 线上 | https://me-aqua.github.io/TavernGame/ |
+| 提交身份 | `me-aqua` / `74250100+me-aqua@users.noreply.github.com`（匿名，勿改） |
+| 代理 | `http://127.0.0.1:7897`（curl/git 不读系统代理，要显式 `-x`） |
+
+> ⚠️ 上游文档里遗留的 Windows 路径（`F:\SillyTavernX\...`、`gh.exe`、Edge）**已过时**，
+> 本机是 macOS + Google Chrome。不要再照那套排查。
+
+## 本机踩过的坑
+
+### dev URL 带 base 前缀
+
+`vite.config.ts` 里 `base: '/TavernGame/'`（为 GitHub Pages 子目录部署），
+所以**开发地址也是**：
+
+```
+http://localhost:3000/TavernGame/    ✅
+http://localhost:3000/               ❌ 404
+```
+
+### Vite 8 默认只绑 IPv6
+
+实测 `lsof -nP -iTCP:3000 -sTCP:LISTEN` 显示监听在 `[::1]:3000`，
+于是 `curl http://127.0.0.1:3000` 返回 **000**（看起来像服务没起来）。
+已在配置里固定 `host: 'localhost'`。**判断服务活没活，用 `curl localhost`。**
+
+### Node 22+ 自带坏掉的原生 localStorage
+
+`localStorage` 存在但取值是 `undefined`（不给 `--localstorage-file` 时），
+直接用会抛 `Cannot read properties of undefined (reading 'setItem')`。
+测试里要用 `Object.defineProperty` **覆盖**它，只赋值不生效。
+
+### 路径大小写
+
+仓库在 macOS 上（默认大小写不敏感），但 GitHub Actions 在 Linux 上跑（**敏感**）。
+引资源时大小写必须与磁盘一致，否则本地过、线上 404。
+
+## 常用命令
+
+```bash
+npm run dev        # 开发服务器（URL 见上）
+npm run verify     # 类型检查 + 49 项测试 + 构建
+npm run build      # 产物到 dist/（已 git 忽略）
+npm run preview    # 预览构建产物（同样在 /TavernGame/ 下）
+```
