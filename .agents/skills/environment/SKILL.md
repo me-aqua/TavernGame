@@ -43,6 +43,19 @@ http://localhost:3000/               ❌ 404
 直接用会抛 `Cannot read properties of undefined (reading 'setItem')`。
 测试里要用 `Object.defineProperty` **覆盖**它，只赋值不生效。
 
+### TypeScript 只能停在 6.x（不能升 7）
+
+实测（2026-09-14，每个版本都真跑过 `vue-tsc`）：
+
+| TS | 结果 |
+| --- | --- |
+| 7.0.2（npm 上的 latest） | ❌ `vue-tsc` 报 `ERR_PACKAGE_PATH_NOT_EXPORTED: './lib/tsc'` —— 它还在 require TS 的内部路径，而 TS 7 已不导出；TS 7 还移除了 `baseUrl` |
+| 6.0.3 | ✅ 通过（已采用） |
+| 5.9.3 | ✅ 通过 |
+
+结论：**TS 的版本上限由 vue-tsc 决定，不能只看它自己的 latest。**
+升级前先跑 `npm run verify` —— 不兼容会当场暴露。
+
 ### 路径大小写
 
 仓库在 macOS 上（默认大小写不敏感），但 GitHub Actions 在 Linux 上跑（**敏感**）。
