@@ -1,6 +1,6 @@
 ---
 name: testing
-description: 测试纪律与框架用法——单元/组件/覆盖率/e2e 各自测什么、门禁在哪里、以及「新增功能必须新增测试」是怎么被强制的。
+description: 测试纪律与框架用法——单元/组件故事/功能冒烟/视觉巡检各自测什么、门禁在哪里、以及「新增功能必须新增测试」是怎么被强制的。
 whenToUse: 写新功能、改现有行为、或需要判断「改坏没有」时。
 ---
 
@@ -9,7 +9,7 @@ whenToUse: 写新功能、改现有行为、或需要判断「改坏没有」时
 ## 一条命令
 
 ```bash
-npm run verify     # 类型检查 → 223 项测试 + 覆盖率门禁 → 构建 → 25 项 e2e
+npm run verify     # 类型检查 → 单测 + 覆盖率门禁 → 构建 → 功能冒烟（Playwright）
 ```
 
 分开跑：
@@ -18,7 +18,10 @@ npm run verify     # 类型检查 → 223 项测试 + 覆盖率门禁 → 构建
 | --- | --- |
 | `npm test` | 单元 + 组件测试（vitest） |
 | `npm run test:coverage` | 带覆盖率与门禁 |
-| `npm run e2e` | 构建 + 真实 Chrome 跑构建产物 |
+| `npm run e2e` | 功能冒烟：Playwright 跑构建产物（9 条） |
+| `npm run stories` | 组件故事巡检：Storybook 构建 + 每故事 × 主题 × 语言（76 张） |
+| `npm run visual` | 状态 × 屏幕矩阵（50 张，含 8 张像素基线） |
+| `npm run storybook` | 组件工作台（人看的地方，6006） |
 
 ## 各层测什么（别串层）
 
@@ -26,7 +29,25 @@ npm run verify     # 类型检查 → 223 项测试 + 覆盖率门禁 → 构建
 | --- | --- | --- | --- |
 | 单元 | `tests/*.test.ts` | node | `src/game`、`src/agent`、`src/utils`、`src/stores` 的逻辑与边界 |
 | 组件 | `tests/components.test.ts` | jsdom | 渲染出的契约、点击后 emit 什么（**不测样式**） |
-| e2e | `e2e/smoke.mjs` | 真实 Chrome（CDP） | 构建产物真能打开、能交互、无异常无 4xx |
+| 组件故事 | `src/components/*.stories.ts` + `e2e/stories.spec.ts` | Storybook + Playwright | 每个 props 状态在真浏览器里的渲染（结构检查 + 截图） |
+| 功能冒烟 | `e2e/smoke.spec.ts` | Playwright（chromium） | 玩家点得出来的路径：设置、语言、主题、坏存档、跑一个回合、无异常无 4xx |
+| 视觉矩阵 | `e2e/visual.spec.ts` | Playwright | 10 个状态 × 5 种屏幕：结构检查 + 少量像素基线 |
+
+### e2e 的三条约定
+
+1. **假模型走 `page.route`**（见 `e2e/fixtures.ts` 的 `fakeLlm`），不注入脚本改 `window.fetch`
+   —— 注入那条路踩过「注册顺序错了就静默不生效」，而且没法按用例控制延迟/500。
+2. **结构判据只写一份**（`e2e/probe.ts`）：横向溢出、元素伸出视口、点按目标 < 24×24
+   （WCAG 2.5.8，含行内链接例外）。组件故事与整页矩阵共用它。
+3. **截图基线要显式刷新**：`npx playwright test e2e/visual.spec.ts --update-snapshots`。
+   基线是 macOS 录的（文件名带 `-darwin`），换平台要么重录，要么让 CI 跳过。
+
+### 看图的习惯（用户明确要求过）
+
+巡检会生成两张总览页：`artifacts/screenshots/index.html`（状态 × 屏幕）与
+`artifacts/stories/index.html`（组件故事）。**改完 UI 要真的看图**，
+不要只看「结构检查通过」——那句话只保证没有溢出和点不到的按钮，
+保证不了「好不好看、够不够沉浸」。
 
 ## 共享夹具（tests/support/）
 

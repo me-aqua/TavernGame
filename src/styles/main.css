@@ -118,3 +118,42 @@ input {
   background: var(--color-line);
   border-radius: 4px;
 }
+
+/* ---------- 沉浸感：动效 ---------- */
+
+/* 新进来的一行：淡入 + 轻微上浮。慢一点、幅度小一点 —— 是"翻页"不是"弹窗" */
+.row-enter-active {
+  transition:
+    opacity 420ms ease-out,
+    transform 420ms ease-out;
+}
+.row-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+/* 离场（换局时）走快一点，别拖住界面 */
+.row-leave-active {
+  transition: opacity 180ms ease-in;
+  position: absolute;
+}
+.row-leave-to {
+  opacity: 0;
+}
+
+/* 故事区的背景：一道极淡的光晕，避免"整片死灰 = 办公软件" */
+.story-bg {
+  background:
+    radial-gradient(
+      120% 70% at 50% 0%,
+      color-mix(in oklab, var(--color-accent) 7%, transparent),
+      transparent 70%
+    ),
+    var(--color-page);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-enter-active,
+  .row-leave-active {
+    transition: none;
+  }
+}

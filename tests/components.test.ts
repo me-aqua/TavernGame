@@ -9,7 +9,6 @@ import { mount } from '@vue/test-utils'
 import StoryPanel from '../src/components/StoryPanel.vue'
 import AppSidebar from '../src/components/AppSidebar.vue'
 import GameComposer from '../src/components/GameComposer.vue'
-import AppHeader from '../src/components/AppHeader.vue'
 import SettingsDrawer from '../src/components/SettingsDrawer.vue'
 import type { Row, Status } from '../src/stores/game'
 import { i18n, t } from '../src/i18n'
@@ -38,7 +37,6 @@ const TIMELINE_FROM = realCalendar.formatShort(new Date(2026, 8, 12, 9, 0, 0).to
 const TIMELINE_TO = realCalendar.formatShort(new Date(2026, 8, 13, 20, 0, 0).toISOString())
 const TIMELINE_REASON = 'slept through the night'
 const PLAYER_INPUT = 'I head to the docks'
-const STATUS_TEXT = 'connected'
 
 /**
  * Mount a component with the real i18n instance attached.
@@ -147,9 +145,9 @@ describe('AppSidebar', () => {
       },
     })
     expect(w.find('.time-display').text()).toBe(TIME_LABEL)
-    expect(w.find('.scene-name').text()).toBe(SCENE_NAME)
-    expect(w.text()).toContain(t('sidebar.turnCount'))
-    expect(w.text()).toContain('3')
+    expect(w.find('.scene-name').text()).toContain(SCENE_NAME)
+    expect(w.find('[data-turn]').text()).toBe('3')
+    expect(w.find('.timeline').exists()).toBe(false)
   })
 
   it('renders the start point of a timeline entry (intentional design, not a bug)', () => {
@@ -198,68 +196,6 @@ describe('GameComposer', () => {
     const w = render(GameComposer, { props: { disabled: true, configured: false } })
     expect(w.text()).toContain(t('composer.hintBefore'))
     expect(w.find('textarea').attributes('disabled')).toBeDefined()
-  })
-})
-
-describe('AppHeader', () => {
-  it('shows the status light in its ok and error states', async () => {
-    const w = render(AppHeader, {
-      props: { light: 'ok', statusText: STATUS_TEXT, theme: 'system', debug: false, debugToggle: false },
-    })
-    expect(w.find('.bg-accent').exists()).toBe(true)
-    await w.setProps({ light: 'err' })
-    expect(w.find('.bg-danger').exists()).toBe(true)
-  })
-
-  it('gives a debug switch on dev hosts, and says which state it is in', async () => {
-    const w = render(AppHeader, {
-      props: { light: 'ok', statusText: STATUS_TEXT, theme: 'system', debug: true, debugToggle: true },
-    })
-    const toggle = w.find('[data-debug]')
-    expect(toggle.text()).toBe(t('header.debugToggleOn'))
-
-    await toggle.trigger('click')
-    expect(w.emitted('toggleDebug')).toHaveLength(1)
-
-    await w.setProps({ debug: false })
-    expect(w.find('[data-debug]').text()).toBe(t('header.debugToggleOff'))
-  })
-
-  it('shows a static debug mark when there is no switch but debug is on', () => {
-    const w = render(AppHeader, {
-      props: { light: 'ok', statusText: STATUS_TEXT, theme: 'system', debug: true, debugToggle: false },
-    })
-    expect(w.find('[data-debug]').text()).toBe(t('header.debug'))
-    expect(w.find('button[data-debug]').exists()).toBe(false)
-  })
-
-  it('shows nothing at all when debug is off and there is no switch', () => {
-    const w = render(AppHeader, {
-      props: { light: 'ok', statusText: STATUS_TEXT, theme: 'system', debug: false, debugToggle: false },
-    })
-    expect(w.find('[data-debug]').exists()).toBe(false)
-  })
-
-  it('every header button emits its event (theme and language toggles included)', async () => {
-    const w = render(AppHeader, {
-      props: {
-        light: 'ok',
-        statusText: '',
-        theme: 'system',
-        language: 'system',
-        debug: false,
-        debugToggle: false,
-      },
-    })
-    const btns = w.findAll('header button')
-    expect(btns).toHaveLength(6)
-    for (const b of btns) await b.trigger('click')
-    expect(w.emitted('toggleTheme')).toHaveLength(1)
-    expect(w.emitted('toggleLanguage')).toHaveLength(1)
-    expect(w.emitted('export')).toHaveLength(1)
-    expect(w.emitted('import')).toHaveLength(1)
-    expect(w.emitted('reset')).toHaveLength(1)
-    expect(w.emitted('settings')).toHaveLength(1)
   })
 })
 

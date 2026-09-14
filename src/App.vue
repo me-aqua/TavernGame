@@ -1,9 +1,12 @@
 <script setup lang="ts">
 /**
- * App.vue —— 应用外壳
+ * App.vue —— 应用外壳（沉浸式布局）
  *
- * 这里是唯一的「事件编排层」：子组件只 emit 意图，具体动作在这里做。
- * 样式几乎全在子组件里（Tailwind 工具类），这个文件只管布局。
+ * 分工只有一句话：**文字是主线，控件都浮在它上面**。
+ *   · 故事区占满整屏（它是主角）
+ *   · 输入框浮在底部
+ *   · 状态（时间 / 地点 / 回合 + 最近一次时间跳跃）浮在左上角
+ *   · 设置与调试浮在右上角：主题、语言、存档、服务商全在设置面板里
  *
  * ⚠️ 界面上的每一行都属于三类之一，各有各的家（见 stores/game.ts）：
  *    · 事件流（故事 + 调试痕迹）—— rows 是它的投影，由 StoryPanel 渲染
@@ -11,7 +14,6 @@
  *    所以这里**不往事件流里写任何东西**：没有「写进去等会儿再删」的行。
  */
 import { computed, onMounted, ref, watch } from 'vue'
-import AppHeader from './components/AppHeader.vue'
 import StoryPanel from './components/StoryPanel.vue'
 import GameComposer from './components/GameComposer.vue'
 import AppSidebar from './components/AppSidebar.vue'
@@ -20,7 +22,7 @@ import { storeDebug, useGame } from './stores/game'
 import { useTheme } from './composables/useTheme'
 import { useLanguage } from './composables/useLanguage'
 import { useI18n } from 'vue-i18n'
-import { loadConfig, isConfigured, PRESETS } from './agent/config'
+import { isConfigured } from './agent/config'
 import { downloadText, pickFile } from './composables/useDownload'
 
 const {
@@ -43,8 +45,8 @@ const {
 } = useGame()
 
 const { t } = useI18n()
-const { mode: themeMode, cycle: toggleTheme } = useTheme()
-const { mode: languageMode, cycle: toggleLanguage, select: selectLanguage } = useLanguage()
+const { mode: themeMode, select: selectTheme } = useTheme()
+const { mode: languageMode, select: selectLanguage } = useLanguage()
 
 const settingsOpen = ref(false)
 const configState = ref(isConfigured())
@@ -52,38 +54,25 @@ const statusLight = ref<'ok' | 'warn' | 'err'>('warn')
 
 const configured = computed(() => configState.value)
 
-/**
- * 顶栏状态文字。
- *
- * ⚠️ 必须是 computed，不能算好存进 ref：
- * 文案跟随界面语言，玩家切语言时它必须跟着变；
- * 存成快照就会留下上一门语言的提示。
- */
-const statusText = computed(() => {
-  if (!configState.value) return t('app.statusUnconfigured')
-  const cfg = loadConfig()
-  const label = PRESETS[cfg.provider] ? t(`provider.${cfg.provider}`) : cfg.provider
-  return `${label} - ${cfg.model}`
-})
+/** 右上角那颗状态点的颜色：配好了是主题色，没配是暖色，出错是红色 */
+const lightColor = computed(() => ({ ok: 'bg-accent', warn: 'bg-warn', err: 'bg-danger' })[statusLight.value])
 
-/** 刷新顶栏状态灯。成功的回合要把报错时的红灯恢复回来 */
+/** 刷新连接状态灯。成功的回合要把报错时的红灯恢复回来 */
 function refreshConfigStatus() {
   configState.value = isConfigured()
   statusLight.value = configState.value ? 'ok' : 'warn'
 }
 
 /**
- * 切换调试模式（顶栏那个开关）。
- *
- * 显式选择会被记住：关掉之后刷新页面不会再自己打开，
- * 这样才能看到「非调试的正常界面」。
+ * 切换调试模式（右上角那个小开关，只在本机开发出现）。
+ * 显式选择会被记住：关掉之后刷新不会再自己打开。
  */
 function toggleDebug() {
   debugMode.value = !debugMode.value
   storeDebug(debugMode.value)
 }
 
-// debugMode：本机开发默认打开；顶栏开关或控制台 __DEBUG = true/false 都能改
+// debugMode：本机开发默认打开；开关或控制台 __DEBUG = true/false 都能改
 watch(debugMode, (on) => {
   notify(on ? t('app.debugOn') : t('app.debugOff'))
   window.__DEBUG = on
@@ -108,7 +97,7 @@ async function submitAction(text: string) {
     await runTurnAction(text)
   } catch (err) {
     // 错误正文已由 runTurnAction 报给玩家（见 stores/turn.ts），
-    // 这里只负责把顶栏状态灯变红 —— 不是吞掉
+    // 这里只负责把状态点变红 —— 不是吞掉
     if ((err as Error).name !== 'AbortError') statusLight.value = 'err'
   }
 }
@@ -117,8 +106,7 @@ async function submitAction(text: string) {
  * 跑开场。
  *
  * ⚠️ 这里**自己消化错误**（显示给玩家），所以调用点可以安全地不等它。
- *    没有占位行需要清理：「正在生成开场…」是 status 从 phase 算出来的，
- *    回合一开始就在、一结束就没。
+ *    没有占位行需要清理：「正在生成开场…」是 status 从 phase 算出来的。
  */
 async function startNewGame() {
   try {
@@ -138,7 +126,7 @@ function doExport() {
   notify(t('app.saveExported'))
 }
 
-/** 从文件导入存档（故事区跟着日志变，不需要额外「恢复」） */
+/** 从文件导入存档（故事跟着事件流变，不需要额外「恢复」） */
 async function doImport() {
   const file = await pickFile()
   if (!file) return
@@ -159,11 +147,10 @@ function resetAll() {
 }
 
 /**
- * Save-file actions coming from the settings drawer.
+ * 设置面板里的动作（存档三件套）。
  *
- * The drawer only emits the intent; the action runs here, like every other child
- * component in this app. That is why the drawer does not import the game store —
- * one orchestrator, no second copy of the game logic.
+ * 面板只发意图，动作在这里执行 —— 和别的子组件一样：
+ * 这就是为什么面板不 import store，只有一处编排。
  */
 function onDrawerAction(name: 'export' | 'import' | 'reset') {
   if (name === 'export') return doExport()
@@ -172,11 +159,10 @@ function onDrawerAction(name: 'export' | 'import' | 'reset') {
   resetAll()
 }
 
-/** 设置保存后：刷新顶栏状态，首局则顺手把开场跑出来 */
+/** 设置保存后：刷新状态点，首局则顺手把开场跑出来 */
 function onSettingsSaved() {
   refreshConfigStatus()
   notify(t('app.settingsSaved'))
-  // 全新的游戏（没回合、事件流里也没有故事）时，保存配置后顺手把开场跑出来
   if (turn.value === 0 && !hasStory.value && !busy.value) void startNewGame()
 }
 
@@ -192,8 +178,7 @@ onMounted(() => {
     return
   }
 
-  // 故事不用「恢复」：渲染的就是事件流本身，接着上次玩是**默认行为**，
-  // 不需要再播报一句（回合数侧栏一直显示着，而且它才是响应式的）。
+  // 故事不用「恢复」：渲染的就是事件流本身。
   // 启动时只剩两件事要说：配好了就开场，没配就先告诉玩家去哪儿配。
   if (isConfigured()) {
     if (turn.value === 0) void startNewGame()
@@ -204,37 +189,59 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col">
-    <AppHeader
-      :light="statusLight"
-      :status-text="statusText"
-      :theme="themeMode"
-      :language="languageMode"
-      :debug="debugMode"
-      :debug-toggle="devHost"
-      @toggle-debug="toggleDebug"
-      @export="doExport"
-      @import="doImport"
-      @reset="resetAll"
-      @settings="settingsOpen = true"
-      @toggle-theme="toggleTheme"
-      @toggle-language="toggleLanguage"
-    />
-
-    <div class="flex min-h-0 flex-1 flex-col lg:flex-row">
-      <main class="flex min-h-0 flex-1 flex-col">
-        <StoryPanel :rows="rows" :status="status" />
-        <GameComposer :disabled="busy" :configured="configured" @submit="submitAction" />
-      </main>
-
-      <AppSidebar :time-label="timeLabel" :timeline="timeline" :scene="scene" :turn="turn" />
+  <div class="story-bg flex h-full flex-col overflow-hidden">
+    <!--
+      三段式：上带（浮层）/ 故事（占满剩下的高度，自己滚）/ 下带（输入卡片）。
+      ⚠️ 浮层有自己的**带**，不是绝对定位压在正文上 —— 文字滚到哪儿都不会被挡
+      （e2e/probe.ts 有一条「正文不许被悬浮控件压住」在守着）。
+    -->
+    <div class="flex shrink-0 items-start justify-between gap-2 px-3 pt-3">
+      <AppSidebar
+        class="max-w-[62%] sm:max-w-[46%] lg:max-w-[26rem]"
+        :time-label="timeLabel"
+        :timeline="timeline"
+        :scene="scene"
+        :turn="turn"
+      />
+      <button
+        v-if="devHost"
+        data-debug
+        :title="t('header.debugToggleTitle')"
+        class="hidden shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium backdrop-blur transition-colors sm:inline-block"
+        :class="
+          debugMode
+            ? 'border-warn/40 bg-warn-soft/90 text-warn'
+            : 'border-line bg-surface/80 text-faint hover:text-muted'
+        "
+        @click="toggleDebug"
+      >
+        {{ debugMode ? t('header.debugToggleOn') : t('header.debugToggleOff') }}
+      </button>
+      <button
+        data-settings
+        :title="t('header.settings')"
+        :aria-label="t('header.settings')"
+        class="flex shrink-0 items-center gap-2 rounded-full border border-line bg-surface/80 px-3 py-1.5 text-[12.5px] text-muted shadow-sm backdrop-blur transition-colors hover:text-text"
+        @click="settingsOpen = true"
+      >
+        <span class="size-2 rounded-full" :class="lightColor" />
+        {{ t('header.settings') }}
+      </button>
     </div>
+
+    <!-- 主线：故事（占满剩下的高度，只有它滚动） -->
+    <StoryPanel class="min-h-0 flex-1" :rows="rows" :status="status" />
+
+    <!-- 下带：输入卡片（在流里，但视觉上浮起） -->
+    <GameComposer :disabled="busy" :configured="configured" @submit="submitAction" />
 
     <SettingsDrawer
       v-model:open="settingsOpen"
       :language="languageMode"
+      :theme="themeMode"
       @saved="onSettingsSaved"
       @language="selectLanguage"
+      @theme="selectTheme"
       @action="onDrawerAction"
     />
   </div>

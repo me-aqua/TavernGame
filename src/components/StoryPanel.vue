@@ -57,30 +57,40 @@ watch(
 </script>
 
 <template>
-  <div ref="storyEl" class="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-5">
-    <template v-for="row in rows" :key="row.id">
-      <!-- 调试行带原始内容（模型请求体 / 响应体）：用原生 <details> 折叠 -->
-      <details
-        v-if="row.debug && row.detail !== undefined"
-        class="trace cursor-pointer rounded-lg border border-line bg-surface-2/60 px-3.5 py-2"
-        :class="row.kind"
-      >
-        <summary class="text-[12.5px] text-muted">{{ row.text }}{{ t('story.rawToggle') }}</summary>
-        <pre class="story-text mt-2 text-[12px] leading-relaxed text-faint">{{ row.detail }}</pre>
-      </details>
-      <p v-else-if="row.debug" class="trace max-w-[70ch]" :class="[row.kind, debugStyles[row.kind]]">
-        {{ row.text }}
-      </p>
-      <p
-        v-else
-        class="line story-text max-w-[70ch] text-[15px] leading-[1.85]"
-        :class="[row.kind, storyStyles[row.kind]]"
-      >
-        {{ row.text }}
-      </p>
-    </template>
+  <div ref="storyEl" class="flex h-full flex-col gap-4 overflow-y-auto px-5 py-4 sm:px-8">
+    <TransitionGroup name="row" tag="div" class="mx-auto flex w-full max-w-[68ch] flex-col gap-4">
+      <template v-for="row in rows" :key="row.id">
+        <!-- 调试行带原始内容（模型请求体 / 响应体）：用原生 <details> 折叠 -->
+        <details
+          v-if="row.debug && row.detail !== undefined"
+          class="trace cursor-pointer rounded-lg border border-line bg-surface-2/60 px-3.5 py-1.5"
+          :class="row.kind"
+        >
+          <!-- 折叠条本身就是点击目标：给它 24px 高（可访问性的最小尺寸） -->
+          <summary class="min-h-6 py-1 text-[12.5px] text-muted">
+            {{ row.text }}{{ t('story.rawToggle') }}
+          </summary>
+          <pre class="story-text mt-2 text-[12px] leading-relaxed text-faint">{{ row.detail }}</pre>
+        </details>
+        <p v-else-if="row.debug" class="trace max-w-[70ch]" :class="[row.kind, debugStyles[row.kind]]">
+          {{ row.text }}
+        </p>
+        <p
+          v-else
+          class="line story-text w-full text-[15px] leading-[1.85]"
+          :class="[row.kind, storyStyles[row.kind]]"
+        >
+          {{ row.text }}
+        </p>
+      </template>
+    </TransitionGroup>
 
-    <p v-if="status" :class="statusStyles[status.kind]" :data-status="status.kind">
+    <p
+      v-if="status"
+      class="mx-auto w-full max-w-[68ch]"
+      :class="statusStyles[status.kind]"
+      :data-status="status.kind"
+    >
       <template v-if="status.kind === 'busy'">
         <span class="size-1.5 animate-pulse rounded-full bg-accent" />
         <span class="size-1.5 animate-pulse rounded-full bg-accent [animation-delay:0.2s]" />

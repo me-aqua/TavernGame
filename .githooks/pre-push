@@ -15,7 +15,8 @@ if (process.env.SKIP_DISCIPLINE === '1') {
 const tasks = [
   { name: '覆盖率门禁', command: 'npm run -s test:coverage' },
   { name: '构建', command: 'npm run -s build' },
-  { name: '端到端（真浏览器）', command: 'node e2e/smoke.mjs' },
+  { name: '端到端（真浏览器，Playwright）', command: 'npx playwright test e2e/smoke.spec.ts' },
+  { name: '组件故事（Storybook + Playwright）', command: 'npm run stories' },
 ]
 
 const failures = []

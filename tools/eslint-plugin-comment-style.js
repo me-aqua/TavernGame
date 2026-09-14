@@ -102,7 +102,8 @@ export default {
             fn.body.type !== 'BlockStatement'
           if (oneLiner) return
           // 测试文件里的行内回调：用例标题已经说明了它在干什么
-          const inTest = context.filename.includes('/tests/')
+          // （tests/ = 单元与组件测试，e2e/ = Playwright 的用例）
+          const inTest = context.filename.includes('/tests/') || context.filename.includes('/e2e/')
           const inlineCallback = fn?.parent?.type === 'CallExpression'
           if (inTest && inlineCallback) return
           const above = commentAbove(sourceCode, node, node.parent)

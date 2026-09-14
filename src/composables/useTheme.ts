@@ -61,5 +61,10 @@ export function useTheme() {
     mode.value = mode.value === 'system' ? 'light' : mode.value === 'light' ? 'dark' : 'system'
   }
 
-  return { mode, cycle }
+  /** 直接选（设置面板用），与 useLanguage 的 select 同构 */
+  function select(next: ThemeMode): void {
+    mode.value = next
+  }
+
+  return { mode, cycle, select }
 }

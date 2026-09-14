@@ -23,7 +23,7 @@ whenToUse: 需要跑命令、连服务、配环境，或遇到「连不上 / 找
 
 | 项 | 值 | 原因 |
 | --- | --- | --- |
-| 调试模式 | **localhost 上默认打开，顶栏有开关可随时关掉**（关掉后刷新仍然关着，为了看正常界面） | 判定在 `src/main.ts`（`isDevHost` + 记住的选择），线上域名既没有开关也不会打开 |
+| 调试模式 | **localhost 上默认打开，顶栏有开关可随时关掉**（<sm 的窄屏收起，用控制台 `__DEBUG = true`） | 判定在 `src/main.ts`（`isDevHost` + 记住的选择），线上域名既没有开关也不会打开 |
 | 故事区内容 | 叙事与玩家行动；调试模式下还会**夹着**模型 I/O 与工具调用 | 都在同一条事件流 `data.events` 里，顺序天然正确（doc/DESIGN.md 决定 #22） |
 | 故事区选择器 | `.line` = 故事，`.trace` = 调试痕迹（按发生顺序交错），`[data-status]` = 进行中/通知 | 查「界面是不是卡住了」看状态行，别在故事行里找 |
 
@@ -100,7 +100,16 @@ Windows 开发者建议设 `git config --global core.autocrlf true`
 
 ```bash
 npm run dev        # 开发服务器（URL 见上）
-npm run verify     # 类型检查 + 测试与覆盖率门禁 + 构建 + e2e
+npm run verify     # 类型检查 + 测试与覆盖率门禁 + 构建 + 功能冒烟
 npm run build      # 产物到 dist/（已 git 忽略）
 npm run preview    # 预览构建产物（同样在 /TavernGame/ 下）
+
+npm run storybook  # 组件工作台（6006）
+npm run stories    # 组件故事巡检（Storybook 构建 + Playwright，76 张）
+npm run e2e        # 功能冒烟（Playwright，9 条）
+npm run visual     # 状态 × 屏幕矩阵（50 张 + 8 张像素基线）
 ```
+
+**浏览器由 Playwright 管理**：chromium 缓存在 `~/Library/Caches/ms-playwright`
+（约 94MB，不进仓库），所以代码里没有也不该有 Chrome 的绝对路径。
+视觉基线是 **macOS 上录的**（文件名带 `-darwin`）：换平台要么重录，要么让 CI 跳过。

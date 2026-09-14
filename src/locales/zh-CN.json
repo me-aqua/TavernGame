@@ -43,7 +43,6 @@
   "composer": {
     "placeholder": "你想做什么？",
     "submit": "行动",
-    "hintKeys": "Enter 发送 · Shift+Enter 换行",
     "hintBefore": "还没配置 API key —— 点右上角",
     "hintAfter": "填一下就能开始"
   },
@@ -91,6 +90,11 @@
     "appName": "你自己的浏览器",
     "providerLabel": "服务商",
     "modelLabel": "模型名（modelName）",
+    "theme": "主题",
+    "themeSystem": "跟随系统",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "themeNote": "只影响这台设备，不影响存档",
     "language": "语言",
     "languageNote": "模型也会用这个语言写作。",
     "languageSystem": "跟随系统",

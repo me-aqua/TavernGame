@@ -9,18 +9,26 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { PRESETS, loadConfig, saveConfig, clearConfig, maskKey } from '../agent/config'
 import type { LanguageMode } from '../i18n'
+import type { ThemeMode } from '../composables/useTheme'
 import { testConnection as testApiConnection } from '../agent/llm'
 
 const { t } = useI18n()
 
-const props = defineProps<{ open: boolean; language: LanguageMode }>()
+const props = defineProps<{ open: boolean; language: LanguageMode; theme: ThemeMode }>()
 const emit = defineEmits<{
   'update:open': [v: boolean]
   saved: []
   language: [mode: LanguageMode]
+  theme: [mode: ThemeMode]
   /** Save-file actions live in the drawer on small screens (no room in the header) */
   action: [name: 'export' | 'import' | 'reset']
 }>()
+
+const THEMES: { mode: ThemeMode; label: string }[] = [
+  { mode: 'system', label: 'settings.themeSystem' },
+  { mode: 'light', label: 'settings.themeLight' },
+  { mode: 'dark', label: 'settings.themeDark' },
+]
 
 const LANGUAGES: { mode: LanguageMode; label: string }[] = [
   { mode: 'system', label: 'settings.languageSystem' },
@@ -145,7 +153,27 @@ const hintText = 'mt-1.5 text-[11.5px] leading-relaxed text-faint'
     >
       <h2 class="text-[17px] font-semibold text-text">{{ t('settings.title') }}</h2>
 
+      <!-- 主题与语言：顶栏收起来之后，这两件事归设置面板管（同一个面板、同一套三态） -->
       <div class="mt-4 flex flex-wrap items-center gap-2">
+        <span :class="fieldLabel + ' mb-0'">{{ t('settings.theme') }}</span>
+        <button
+          v-for="entry in THEMES"
+          :key="entry.mode"
+          data-theme-option
+          class="rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors"
+          :class="
+            theme === entry.mode
+              ? 'border-accent-line bg-accent-soft text-accent'
+              : 'border-line bg-surface-2 text-muted hover:text-text'
+          "
+          @click="emit('theme', entry.mode)"
+        >
+          {{ t(entry.label) }}
+        </button>
+        <span class="w-full text-[11.5px] text-faint">{{ t('settings.themeNote') }}</span>
+      </div>
+
+      <div class="mt-3 flex flex-wrap items-center gap-2">
         <span :class="fieldLabel + ' mb-0'">{{ t('settings.language') }}</span>
         <button
           v-for="entry in LANGUAGES"

@@ -18,6 +18,14 @@ build/
 # --- 测试覆盖率报告（HTML 报告有几百个文件，属于生成物）---
 coverage/
 
+# --- 巡检产物：截图与总览页，随时可以用 npm run visual / npm run stories 重新生成 ---
+artifacts/
+
+# --- Storybook 的构建产物与 Playwright 的报告（都是生成物）---
+storybook-static/
+playwright-report/
+test-results/
+
 # --- 本地工具与临时备份（属于个人环境，不需要上传）---
 .tools/
 PATH-backup.txt

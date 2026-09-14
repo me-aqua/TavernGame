@@ -10,7 +10,17 @@ import commentStyle from './tools/eslint-plugin-comment-style.js'
 
 export default tseslint.config(
   // 这些目录不是我们的源码，不该被 lint
-  { ignores: ['dist/**', 'coverage/**', 'node_modules/**', 'playwright-report/**'] },
+  {
+    ignores: [
+      'dist/**',
+      'coverage/**',
+      'node_modules/**',
+      'playwright-report/**',
+      'test-results/**',
+      'storybook-static/**',
+      'artifacts/**',
+    ],
+  },
 
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -71,7 +81,7 @@ export default tseslint.config(
 
   {
     // 测试与脚本允许更松：要打印、要 any
-    files: ['tests/**/*.ts', 'e2e/**/*.mjs', '*.config.ts', '*.config.js'],
+    files: ['tests/**/*.ts', 'e2e/**/*.{ts,mjs}', '*.config.ts', '*.config.js'],
     rules: {
       'no-console': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
