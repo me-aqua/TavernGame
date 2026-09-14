@@ -17,6 +17,48 @@ const PORT = 4173
 const URL = `http://localhost:${PORT}/TavernGame/`
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+const LIGHT_BG = 'rgb(242, 244, 247)'
+
+/**
+ * Pin the UI language in localStorage before every navigation.
+ *
+ * ⚠️ Without this the app follows navigator.language, which in headless Chrome is
+ * en-US — the previous version of this file asserted Chinese text and therefore
+ * only passed because it never pinned anything and the assertions were wrong.
+ * The UI language also decides the *model* language, so pinning keeps both sides
+ * of the assertions on one locale.
+ */
+const LANG = 'zh-CN'
+const SET_LANGUAGE = (mode) => `localStorage.setItem('tavernGame.lang', '${mode}')`
+
+/**
+ * Navigate, with localStorage writes applied on the app's own origin first.
+ *
+ * ⚠️ localStorage is denied on about:blank (opaque origin), so the very first
+ * navigation must happen before anything is stored; every later one can seed
+ * state and refresh.
+ */
+async function openWith(seed) {
+  if (!seed.datasetReady) {
+    await send('Page.navigate', { url: URL })
+    await sleep(1500)
+    seed.datasetReady = true
+  }
+  for (const stmt of seed.statements) await evaluate(stmt)
+  await send('Page.navigate', { url: URL })
+  await sleep(seed.waitMs ?? 2500)
+}
+
+/**
+ * Translate through the app's own table, read out of the running page.
+ *
+ * The locale tables are not importable from Node (they are app sources), so the
+ * strings are fetched over CDP instead of being copied here. A wording change
+ * therefore cannot leave this suite asserting stale text.
+ */
+const T = async (key, named) =>
+  evaluate(`window.__dshE2E.i18n.global.t(${JSON.stringify(key)}, ${JSON.stringify(named ?? {})})`)
+
 /** Assertion collector: run everything, then report — one failure must not hide the rest */
 const results = []
 function check(name, ok, detail = '') {
@@ -24,7 +66,7 @@ function check(name, ok, detail = '') {
 }
 
 if (!existsSync('dist/index.html')) {
-  console.error('✖ 没有 dist/ —— 先跑 npm run build')
+  console.error('[e2e] no dist/ - run `npm run build` first')
   process.exit(1)
 }
 
@@ -75,7 +117,7 @@ for (let i = 0; i < 40 && !wsUrl; i += 1) {
   }
 }
 if (!wsUrl) {
-  console.error('✖ 连不上 Chrome 的调试端口')
+  console.error('[e2e] cannot reach the Chrome debug port')
   cleanup()
   process.exit(1)
 }
@@ -116,7 +158,7 @@ const send = (method, params = {}) =>
 const evaluate = async (expr) => {
   const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true })
   if (r.result?.exceptionDetails) {
-    throw new Error(r.result.exceptionDetails.exception?.description ?? '求值失败')
+    throw new Error(r.result.exceptionDetails.exception?.description ?? 'evaluate failed')
   }
   return r.result?.result?.value
 }
@@ -126,8 +168,9 @@ await send('Network.enable')
 await send('Page.enable')
 
 // ---------- case 1: first paint ----------
-await send('Page.navigate', { url: URL })
-await sleep(4000)
+// Pin the language first: the app otherwise follows navigator.language, and the
+// model language follows the UI language, so both must be decided explicitly.
+await openWith({ statements: [SET_LANGUAGE(LANG)], waitMs: 4000 })
 
 const firstPaint = await evaluate(`(() => {
   const q = (s) => document.querySelector(s)
@@ -142,24 +185,32 @@ const firstPaint = await evaluate(`(() => {
   }
 })()`)
 
-check('页面挂载成功', firstPaint.mounted === true)
+check('app mounts', firstPaint.mounted === true)
 check(
-  '侧栏是时间/地点/回合',
-  JSON.stringify(firstPaint.sidebar) === JSON.stringify(['时间', '地点', '回合']),
+  'sidebar shows time/place/turn',
+  JSON.stringify(firstPaint.sidebar) ===
+    JSON.stringify([await T('sidebar.time'), await T('sidebar.place'), await T('sidebar.turn')]),
   JSON.stringify(firstPaint.sidebar),
 )
+// The concrete date text is produced by the calendar, so it is checked as a
+// shape: year/month/day + weekday + segment, in the pinned locale (zh-CN).
 check(
-  '时间显示为公历格式',
+  'time renders in the calendar format',
   /^\d{4} 年 \d+ 月 \d+ 日 · 星期[日一二三四五六] · (上午|下午|晚上)$/.test(firstPaint.time ?? ''),
   firstPaint.time,
 )
-check('未配置时状态栏提示未配置', firstPaint.status === '未配置', firstPaint.status)
-check('存档与设置按钮都在', firstPaint.buttons.length === 5, JSON.stringify(firstPaint.buttons))
-check('首屏有欢迎提示', firstPaint.storyLines >= 1, `${firstPaint.storyLines} 行`)
+check(
+  'status bar says not-configured',
+  firstPaint.status === (await T('app.statusUnconfigured')),
+  firstPaint.status,
+)
+check('all header buttons are present', firstPaint.buttons.length === 6, JSON.stringify(firstPaint.buttons))
+check('first paint shows a welcome line', firstPaint.storyLines >= 1, `${firstPaint.storyLines} lines`)
 
 // ---------- case 2: settings drawer ----------
 await evaluate(
-  `[...document.querySelectorAll('header button')].find((b) => b.textContent.includes('设置'))?.click()`,
+  `[...document.querySelectorAll('header button')]
+     .find((b) => b.hasAttribute('data-settings'))?.click()`,
 )
 await sleep(500)
 const drawer = await evaluate(`(() => {
@@ -169,56 +220,100 @@ const drawer = await evaluate(`(() => {
     open: true,
     providerCount: d.querySelectorAll('select option').length,
     labelCount: d.querySelectorAll('label').length,
-    hasTestButton: [...d.querySelectorAll('button')].some((b) => b.textContent.includes('测试连接')),
+    // Collected as raw values and compared in Node: the page has no i18n helper
+    // of its own, and comparing here keeps the assertion in one place.
+    hasTestButton: !!d.querySelector('button[data-test-connection]'),
   }
 })()`)
-check('设置面板能打开', drawer.open === true)
-check('六个服务商可选', drawer.providerCount === 6, String(drawer.providerCount))
-check('配置项够用（服务商+密钥+地址+模型+步数）', drawer.labelCount >= 5, String(drawer.labelCount))
-check('有「测试连接」按钮', drawer.hasTestButton === true)
+check('settings drawer opens', drawer.open === true)
+check('six providers selectable', drawer.providerCount === 6, String(drawer.providerCount))
+check('settings has provider/key/url/model/steps fields', drawer.labelCount >= 5, String(drawer.labelCount))
+check('has a test-connection button', drawer.hasTestButton === true)
 
 // ---------- case 3: close the drawer ----------
 await evaluate(`document.querySelector('.drawer')?.click()`)
 await sleep(400)
-check('点遮罩能关闭面板', (await evaluate(`!!document.querySelector('.drawer')`)) === false)
+check(
+  'clicking the backdrop closes the drawer',
+  (await evaluate(`!!document.querySelector('.drawer')`)) === false,
+)
 
 // ---------- case 4: a corrupted save must not blank the page ----------
-await evaluate(`localStorage.setItem('tavernGame.save.v3', '{这不是合法 JSON')`)
-await send('Page.navigate', { url: URL })
-await sleep(3500)
+await openWith({
+  statements: [SET_LANGUAGE(LANG), `localStorage.setItem('tavernGame.save.v3', '{not valid json')`],
+  waitMs: 3500,
+})
 const corrupted = await evaluate(`(() => ({
   mounted: !!document.querySelector('#app')?.firstElementChild,
   errorLines: [...document.querySelectorAll('.line.error')].map((d) => d.textContent.slice(0, 40)),
   backups: Object.keys(localStorage).filter((k) => k.includes('.broken-')).length,
 }))()`)
-check('损坏存档不白屏', corrupted.mounted === true)
-check('界面说明了存档损坏', corrupted.errorLines.length === 1, JSON.stringify(corrupted.errorLines))
-check('坏数据被备份', corrupted.backups === 1, String(corrupted.backups))
+check('corrupted save does not blank the page', corrupted.mounted === true)
+check(
+  'the UI explains the save is corrupted',
+  corrupted.errorLines.length === 1,
+  JSON.stringify(corrupted.errorLines),
+)
+check('bad data is backed up', corrupted.backups === 1, String(corrupted.backups))
 
 // ---------- case 5: theme switching ----------
-await evaluate(`localStorage.setItem('tavernGame.theme', 'dark')`)
-await send('Page.navigate', { url: URL })
-await sleep(2500)
+await openWith({ statements: [SET_LANGUAGE(LANG), `localStorage.setItem('tavernGame.theme', 'dark')`] })
 const dark = await evaluate(`(() => ({
   hasDarkClass: document.documentElement.classList.contains('dark'),
   pageBg: getComputedStyle(document.body).backgroundColor,
 }))()`)
-check('深色模式生效（html 上有 .dark）', dark.hasDarkClass === true)
-check('深色背景与浅色不同', dark.pageBg !== 'rgb(242, 244, 247)', dark.pageBg)
+check('dark mode applies (.dark on <html>)', dark.hasDarkClass === true)
+check('dark background differs from light', dark.pageBg !== LIGHT_BG, dark.pageBg)
 
-await evaluate(`localStorage.setItem('tavernGame.theme', 'light')`)
-await send('Page.navigate', { url: URL })
-await sleep(2500)
+await openWith({ statements: [SET_LANGUAGE(LANG), `localStorage.setItem('tavernGame.theme', 'light')`] })
 const light = await evaluate(`(() => ({
   hasDarkClass: document.documentElement.classList.contains('dark'),
   pageBg: getComputedStyle(document.body).backgroundColor,
 }))()`)
-check('浅色模式生效', light.hasDarkClass === false)
-check('浅色背景正确', light.pageBg === 'rgb(242, 244, 247)', light.pageBg)
+check('light mode applies', light.hasDarkClass === false)
+check('light background is correct', light.pageBg === LIGHT_BG, light.pageBg)
+
+// ---------- case 6: the language toggle actually switches the UI ----------
+// The model language follows the UI language, so this is a functional switch,
+// not cosmetics (see doc/DESIGN.md). It also covers "the stored choice wins over
+// navigator.language" — headless Chrome reports en-US, the store says zh-CN.
+const snapshotUi = () =>
+  evaluate(`(() => ({
+    htmlLang: document.documentElement.lang,
+    headings: [...document.querySelectorAll('aside h2')].map((h) => h.textContent),
+    settingsLabel: document.querySelector('header button[aria-label]')?.getAttribute('aria-label'),
+  }))()`)
+const clickLanguage = () =>
+  evaluate(`
+    [...document.querySelectorAll('header button')]
+      .find((b) => b.hasAttribute('data-language'))?.click()`)
+
+await openWith({ statements: [SET_LANGUAGE('zh-CN')] })
+const zhUi = await snapshotUi()
+check('stored language wins over navigator.language', zhUi.htmlLang === 'zh-CN', zhUi.htmlLang)
+check(
+  'UI renders in Chinese when zh-CN is pinned',
+  zhUi.headings[0] === '时间',
+  JSON.stringify(zhUi.headings),
+)
+
+await clickLanguage()
+await sleep(600)
+const enUi = await snapshotUi()
+check(
+  'language button switches the UI to English',
+  enUi.headings[0] === 'Time',
+  JSON.stringify(enUi.headings),
+)
+check('switching language updates <html lang>', enUi.htmlLang === 'en', enUi.htmlLang)
+check(
+  'language choice is persisted for the next visit',
+  (await evaluate(`localStorage.getItem('tavernGame.lang')`)) === 'en',
+)
 
 // ---------- global assertions ----------
-check('没有运行时异常', runtimeErrors.length === 0, runtimeErrors.join(' | '))
-check('没有 4xx/5xx 请求', badRequests.length === 0, badRequests.join(' | '))
+check('no runtime exceptions', runtimeErrors.length === 0, runtimeErrors.join(' | '))
+check('no 4xx/5xx responses', badRequests.length === 0, badRequests.join(' | '))
 
 // ---------- report ----------
 cleanup()
@@ -226,5 +321,5 @@ const failed = results.filter((r) => !r.ok)
 for (const r of results) {
   console.log(`${r.ok ? '✓' : '✖'} ${r.name}${r.detail && !r.ok ? ' —— ' + r.detail : ''}`)
 }
-console.log(`\n${results.length - failed.length}/${results.length} 通过`)
+console.log(`\n${results.length - failed.length}/${results.length} passed`)
 process.exit(failed.length ? 1 : 0)
