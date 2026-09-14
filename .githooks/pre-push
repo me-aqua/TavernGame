@@ -1,0 +1,43 @@
+#!/usr/bin/env node
+// 推送前检查：跑那些「秒级钩子里放不下」的重活。
+//
+// 为什么分层：
+//   pre-commit 要快（每次提交都跑）→ 语法/格式化/lint/类型/单测
+//   pre-push 可以慢（每次推送才跑）→ 覆盖率门禁/构建/端到端
+// 这样既保证「不把坏东西推上去」，又不让每次提交等十几秒。
+import { execSync } from 'node:child_process'
+
+if (process.env.SKIP_DISCIPLINE === '1') {
+  console.log('⚠ SKIP_DISCIPLINE=1 —— 推送前检查已跳过')
+  process.exit(0)
+}
+
+const 任务 = [
+  { 名: '覆盖率门禁', 命令: 'npm run -s test:coverage' },
+  { 名: '构建', 命令: 'npm run -s build' },
+  { 名: '端到端（真浏览器）', 命令: 'node e2e/smoke.mjs' },
+]
+
+const 失败 = []
+for (const t of 任务) {
+  process.stdout.write(`⟳ ${t.名} … `)
+  try {
+    execSync(t.命令, { stdio: 'pipe' })
+    console.log('✓')
+  } catch (err) {
+    console.log('✖')
+    失败.push({ ...t, 输出: String(err.stdout || err.message) })
+  }
+}
+
+if (失败.length) {
+  console.error('\n✖ 推送前检查未通过：\n')
+  for (const f of 失败) {
+    console.error(`【${f.名}】`)
+    console.error(f.输出.split('\n').slice(-15).map((l) => '  ' + l).join('\n'))
+    console.error('')
+  }
+  console.error('修好后重试，或用 SKIP_DISCIPLINE=1 git push 跳过（需说明理由）。\n')
+  process.exit(1)
+}
+console.log('✓ 推送前检查全部通过')
