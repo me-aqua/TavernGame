@@ -24,9 +24,9 @@ import { chat } from './llm'
 import { runTool, toolSchemas } from './tools'
 import {
   buildSystemPrompt,
-  OPENING_INSTRUCTION,
-  FORCED_NARRATION_INSTRUCTION,
-  TOOL_CALLS_WITHOUT_NARRATION,
+  openingInstruction,
+  forcedNarrationInstruction,
+  toolCallsWithoutNarration,
 } from './prompts'
 import { loadConfig } from './config'
 import type { ChatMessage } from '../types/state'
@@ -112,7 +112,7 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
 
   const userContent = action
     ? t('agent.playerAction', { action })
-    : t('agent.gameStart', { instruction: OPENING_INSTRUCTION })
+    : t('agent.gameStart', { instruction: openingInstruction() })
 
   // 先把玩家的行动记入日志。
   // 必须在拼装消息之前做 —— snapshot() 会读日志，这样模型就能看到
@@ -224,8 +224,8 @@ async function forceNarration(
   messages.push({
     role: 'user',
     content: messages.some((m) => m.tool_call_id)
-      ? TOOL_CALLS_WITHOUT_NARRATION
-      : FORCED_NARRATION_INSTRUCTION,
+      ? toolCallsWithoutNarration()
+      : forcedNarrationInstruction(),
   })
 
   const reply = await chat(messages, { signal }) // 不传 tools

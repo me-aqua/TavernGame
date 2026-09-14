@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { GameState } from '../src/game/GameState'
-import { createInitialState, normalize } from '../src/game/json'
+import { createInitialState, normalize } from '../src/game/save'
 import { SAVE_KEY } from '../src/utils/storage'
 import { i18n, t } from '../src/i18n'
 

@@ -108,11 +108,16 @@ for (const file of staged.filter((f) => /composables\/|utils?\/|helpers?\//.test
 
 // ---------- check 5: defensive validation outside boundaries ----------
 // Rule: validate only at system boundaries (user input, external API, network).
-for (const file of textFiles.filter((f) => /\.(ts|vue)$/.test(f) && !/^src\/core\//.test(f))) {
+// ⚠️ 豁免范围跟着目录结构走：改目录时必须同步这里，否则规则会**悄悄失效**
+//    （src/core 消失后，这条曾对外层代码全部放行过一阵）。
+const BOUNDARY = /^src\/(game\/save|utils\/storage|utils\/calendar|agent\/llm|agent\/config)\.ts$/
+for (const file of textFiles.filter((f) => /\.(ts|vue)$/.test(f) && !BOUNDARY.test(f))) {
   const lines = contentOf(file).split('\n')
   lines.forEach((line, i) => {
     if (/typeof\s+\w+\s*===\s*'(string|object|number)'/.test(line) && !/unknown/.test(line)) {
-      problems.push(`[防御性校验] ${file}:${i + 1} —— 内部代码在做 typeof 校验；边界校验只属于 core/ 的存档与网络层`)
+      problems.push(
+        `[防御性校验] ${file}:${i + 1} —— 内部代码在做 typeof 校验；边界校验只属于系统边界（存档校验、存储适配、模型接口）`,
+      )
     }
   })
 }

@@ -92,7 +92,7 @@ Windows 开发者建议设 `git config --global core.autocrlf true`
 
 ```bash
 npm run dev        # 开发服务器（URL 见上）
-npm run verify     # 类型检查 + 49 项测试 + 构建
+npm run verify     # 类型检查 + 测试与覆盖率门禁 + 构建 + e2e
 npm run build      # 产物到 dist/（已 git 忽略）
 npm run preview    # 预览构建产物（同样在 /TavernGame/ 下）
 ```

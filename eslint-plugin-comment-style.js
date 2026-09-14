@@ -80,6 +80,7 @@ export default {
           missing: '函数缺少说明注释：在上一行写一行中文，说清它做什么',
           history: '注释里的历史对比删掉（「{{word}}」这类说法对新读者没有信息量，只描述现在的做法）',
           scriptTag: '文件头注释要放进 <script setup> 里面（标签外面像排版噪音，读的人容易以为是 HTML 注释）',
+          stacked: '两个注释叠在一起了：合并成一个（旧的那份往往是改代码时留下的）',
         },
       },
       create(context) {
@@ -163,9 +164,31 @@ export default {
             }
           },
 
-          // 历史对比：扫所有注释，不只函数上方
+          // 连续注释块：allowed 与上一个注释之间没有代码 —— 多半是改代码时留下的旧注释
           'Program:exit'() {
-            for (const comment of sourceCode.getAllComments()) {
+            const all = sourceCode.getAllComments()
+            for (let i = 1; i < all.length; i += 1) {
+              const prev = all[i - 1]
+              const cur = all[i]
+
+              // 判据：**两条块注释直接相邻**（中间只有空白）。
+              // 来源几乎只有一种：把单行注释改写成文档注释时旧的那条忘了删，
+              // 或者注释对应的声明被移走了（孤儿注释）。
+              //
+              // 不报的正常写法：JSDoc 后紧跟给声明的注释、// 分组标题 + 块注释、
+              // // 注释的续行（值以空格开头，不是新注释）。
+              if (!isBlockComment(prev) || !isBlockComment(cur)) continue
+              // 文件头注释的后面跟「声明注释」是正常写法（头部说明文件，紧跟的那条说明声明）
+              if (prev === all[0]) continue
+              // 上一行是 JSDoc 的收尾，说明两条注释其实同属一条
+              if (sourceCode.text.slice(prev.range[1]).trimStart().startsWith('*/')) continue
+              const between = sourceCode.text.slice(prev.range[1], cur.range[0])
+              if (!/^\s*$/.test(between)) continue
+              context.report({ loc: cur.loc, messageId: 'stacked' })
+            }
+
+            // 历史对比：扫所有注释，不只函数上方
+            for (const comment of all) {
               const m = comment.value.match(HISTORY)
               if (!m) continue
               context.report({

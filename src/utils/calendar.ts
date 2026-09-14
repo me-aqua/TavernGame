@@ -26,13 +26,10 @@
  * 这样以后真要换历法，同一时刻能直接换个显示方式，不用迁移存档。
  */
 
-/** 一天的时段 */
 import { t } from '../i18n'
 
 /** 时段键（协议/内部用）；显示名走 locale 的 calendar.segment.* */
 export const SEGMENTS = ['morning', 'afternoon', 'evening'] as const
-
-/** 时段名 */
 
 /** 时间单位（历法只认这些） */
 export type TimeUnit = 'segment' | 'hour' | 'day' | 'week' | 'month' | 'year'
@@ -225,8 +222,15 @@ export function advanceTime(iso: string, step: unknown, unit: unknown, currentLa
     }
   }
 
-  const raw = Number(step)
-  const n = Number.isFinite(raw) ? Math.round(raw) : 1
+  // 不填（undefined）按 1 处理；填了但非法（"many" / NaN / Infinity）→ 回传结构化错误，
+  // 让模型自己改。静默当成 1 属于「替模型决定」，违反「出错就回传」。
+  if (step !== undefined && !Number.isFinite(Number(step))) {
+    return {
+      ok: false,
+      message: 'Invalid step: ' + JSON.stringify(step) + ' is not a number. Current time: ' + currentLabel,
+    }
+  }
+  const n = step === undefined ? 1 : Math.round(Number(step))
 
   if (n <= 0) {
     const why = n < 0 ? 'time cannot move backwards' : 'time cannot stand still'

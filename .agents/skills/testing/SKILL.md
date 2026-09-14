@@ -9,7 +9,7 @@ whenToUse: 写新功能、改现有行为、或需要判断「改坏没有」时
 ## 一条命令
 
 ```bash
-npm run verify     # 类型检查 → 224 项测试 + 覆盖率门禁 → 构建 → 25 项 e2e
+npm run verify     # 类型检查 → 223 项测试 + 覆盖率门禁 → 构建 → 25 项 e2e
 ```
 
 分开跑：
@@ -24,7 +24,7 @@ npm run verify     # 类型检查 → 224 项测试 + 覆盖率门禁 → 构建
 
 | 层 | 位置 | 环境 | 测什么 |
 | --- | --- | --- | --- |
-| 单元 | `tests/*.test.ts` | node | `src/core`、`src/stores` 的逻辑与边界 |
+| 单元 | `tests/*.test.ts` | node | `src/game`、`src/agent`、`src/utils`、`src/stores` 的逻辑与边界 |
 | 组件 | `tests/components.test.ts` | jsdom | 渲染出的契约、点击后 emit 什么（**不测样式**） |
 | e2e | `e2e/smoke.mjs` | 真实 Chrome（CDP） | 构建产物真能打开、能交互、无异常无 4xx |
 
@@ -33,13 +33,13 @@ npm run verify     # 类型检查 → 224 项测试 + 覆盖率门禁 → 构建
 
 ## 覆盖率门禁
 
-阈值写在 `vitest.config.ts`，统计范围是 `src/core` + `src/stores`：
+阈值写在 `vitest.config.ts`，统计范围是 `src/game` + `src/agent` + `src/utils` + `src/stores`：
 
 ```
 statements 99 / branches 94 / functions 100 / lines 99
 ```
 
-**低于阈值就失败。** 数值是实测后留余量定的（实测 99.78 / 95.11 / 100 / 99.77），
+**低于阈值就失败。** 数值是实测后留余量定的（实测 99.78 / 96.68 / 100 / 99.75），
 作用是「新增功能不写测试就过不去」。
 
 ## 「新增功能必须新增测试」是怎么强制的

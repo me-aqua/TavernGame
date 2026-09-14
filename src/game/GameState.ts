@@ -17,7 +17,7 @@
  */
 
 import { realCalendar, segmentName, advanceTime } from '../utils/calendar'
-import { parseSave, createInitialState, normalize, MAX_LOG, MAX_TIMELINE } from '../game/json'
+import { parseSave, createInitialState, normalize, MAX_LOG, MAX_TIMELINE } from './save'
 import { localStorageStore, backupBrokenSave, type GameStore, type StorageLike } from '../utils/storage'
 import { t } from '../i18n'
 import type { ChatMessage, GameData, LogEntry } from '../types/state'
@@ -102,7 +102,7 @@ export class GameState {
     return JSON.stringify(this.data, null, 2)
   }
 
-  /** 从 JSON 文本导入存档（解析与校验在 persistence 里），并落盘 */
+  /** 从 JSON 文本导入存档（解析与校验在 game/save.ts），并落盘 */
   importFile(json: string): void {
     this.data = parseSave(json)
     this.save()

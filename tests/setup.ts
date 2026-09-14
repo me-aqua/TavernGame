@@ -62,4 +62,7 @@ config.global.plugins = [i18n]
 
 beforeEach(() => {
   storage.clear()
+  // ⚠️ 每个用例都把语言重置回参考语言：模型提示词现在按 locale 选（模型语言跟随界面
+  //    语言），一个用例切到 'en' 不还原，后面所有用例都会拿到英文提示词而失败。
+  ;(i18n.global.locale as unknown as { value: string }).value = 'zh-CN'
 })

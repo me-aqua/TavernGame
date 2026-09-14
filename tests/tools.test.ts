@@ -15,7 +15,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { runTool, TOOLS, toolSchemas } from '../src/agent/tools'
 import { i18n, t } from '../src/i18n'
 import { GameState } from '../src/game/GameState'
-import { createInitialState } from '../src/game/json'
+import { createInitialState } from '../src/game/save'
 
 beforeAll(() => {
   i18n.global.locale.value = 'zh-CN'

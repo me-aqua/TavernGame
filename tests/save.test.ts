@@ -1,10 +1,10 @@
 /**
- * persistence 测试 —— 外部数据的**纯校验**：初始状态、导入解析、字段补齐。
+ * save 测试 —— 外部数据的**纯校验**：初始状态、导入解析、字段补齐。
  *
  * localStorage 的读写与坏档备份在 tests/storage.test.ts。
  */
 import { describe, expect, it } from 'vitest'
-import { createInitialState, normalize, parseSave } from '../src/game/json'
+import { createInitialState, normalize, parseSave } from '../src/game/save'
 import { t } from '../src/i18n'
 
 // Fixtures: a player name and the garbage values the system boundary has to reject.

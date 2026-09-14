@@ -10,7 +10,7 @@
  *      所以别在公用电脑上填。
  */
 
-import { isRecord } from '../game/json'
+import { isRecord } from '../game/save'
 import { t } from '../i18n'
 
 const STORAGE_KEY = 'tavernGame.config'

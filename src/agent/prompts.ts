@@ -1,32 +1,38 @@
 /**
  * src/agent/prompts.ts —— 提示词装配器
  *
- * ⚠️ **这里不放任何提示词内容。** 内容全部在 `prompts/*.md`。
- * 这个文件的职责只有两件：
- *   1. 用 Vite 的 `?raw` 在构建期把提示词读成字符串（无运行时请求）
- *   2. 把占位符填上，并**确认没有漏填**
+ * ⚠️ **这里不放任何提示词内容。** 内容全部在 `prompts/<lang>/*.md`。
+ * 这个文件的职责只有三件：
+ *   1. 把构建期编码的提示词（虚拟模块）解码成字符串
+ *   2. **按当前界面语言选那一套**（模型语言跟随界面语言，见 doc/DESIGN.md 决定 #19）
+ *   3. 把占位符填上，并**确认没有漏填**
  *
- * 为什么单独放文件：提示词是这个项目的"游戏逻辑"（见 doc/DESIGN.md），
- * 改动的频率与重要性不低于代码；混在字符串里没法评审、没法 diff，
- * 而且 `\n` 拼接的排版远不如 Markdown 干净。
+ * 为什么提示词单独放文件：它是这个项目的"游戏逻辑"，
+ * 改动的频率与重要性不低于代码；混在字符串里没法评审、没法 diff。
  */
 
-// 提示词以 base64 随包发布：源文件是 prompts/*.md，由 vite-plugins/prompts.ts
+// 提示词以 base64 随包发布：源文件 prompts/<lang>/*.md，由 vite-plugins/prompts.ts
 // 在**构建期**转成虚拟模块（不产生中间文件，所以没有「忘了重新编码」这种失败模式）。
-// 为什么编码：见 prompts/README.md —— 主要是**彻底避开转义坑**
-// （反引号/换行/引号/中文）。
+// 为什么编码：见 prompts/README.md —— 主要是**彻底避开转义坑**（反引号/换行/引号/中文）。
 // ⚠️ 这是编码不是加密：客户端字符串永远拿得到，别把需要保密的东西放进来。
-//
-// 模块 id 约定：virtual:prompt/<lang>/<name>（语言段来自 prompts/<lang>/ 目录名）。
-// 当前固定取 zh-CN；i18n 那一步会按玩家语言在 zh-CN / en 之间选。
-import { t } from '../i18n'
-import systemTemplateB64 from 'virtual:prompt/zh-CN/system'
-import toolsTemplateB64 from 'virtual:prompt/zh-CN/tools'
-import openingInstructionB64 from 'virtual:prompt/zh-CN/opening'
-import forcedNarrationInstructionB64 from 'virtual:prompt/zh-CN/forced-narration'
-import toolCallsWithoutNarrationB64 from 'virtual:prompt/zh-CN/tool-calls-without-narration'
-import connectionTestB64 from 'virtual:prompt/zh-CN/connection-test'
-import calendarNoteB64 from 'virtual:prompt/zh-CN/calendar'
+import { t, i18n, type Locale } from '../i18n'
+import systemZh from 'virtual:prompt/zh-CN/system'
+import systemEn from 'virtual:prompt/en/system'
+import toolsZh from 'virtual:prompt/zh-CN/tools'
+import toolsEn from 'virtual:prompt/en/tools'
+import calendarZh from 'virtual:prompt/zh-CN/calendar'
+import calendarEn from 'virtual:prompt/en/calendar'
+import openingZh from 'virtual:prompt/zh-CN/opening'
+import openingEn from 'virtual:prompt/en/opening'
+import forcedZh from 'virtual:prompt/zh-CN/forced-narration'
+import forcedEn from 'virtual:prompt/en/forced-narration'
+import noNarrationZh from 'virtual:prompt/zh-CN/tool-calls-without-narration'
+import noNarrationEn from 'virtual:prompt/en/tool-calls-without-narration'
+import connectionTestZh from 'virtual:prompt/zh-CN/connection-test'
+import connectionTestEn from 'virtual:prompt/en/connection-test'
+
+import type { GameState } from '../game/GameState'
+import type { ChatMessage } from '../types/state'
 
 /**
  * 解码提示词：虚拟模块导出的就是**纯 base64 字符串**（无注释、无包装）。
@@ -44,22 +50,21 @@ function decodePrompt(b64: string): string {
   return new TextDecoder('utf-8').decode(bytes)
 }
 
-const systemTemplate = decodePrompt(systemTemplateB64)
-const toolsTemplate = decodePrompt(toolsTemplateB64)
-const calendarNote = decodePrompt(calendarNoteB64)
+/** 每种提示词的两种语言版本；取用时按当前界面语言选 */
+const TEMPLATES = {
+  system: { 'zh-CN': decodePrompt(systemZh), en: decodePrompt(systemEn) },
+  tools: { 'zh-CN': decodePrompt(toolsZh), en: decodePrompt(toolsEn) },
+  calendar: { 'zh-CN': decodePrompt(calendarZh), en: decodePrompt(calendarEn) },
+  opening: { 'zh-CN': decodePrompt(openingZh), en: decodePrompt(openingEn) },
+  forcedNarration: { 'zh-CN': decodePrompt(forcedZh), en: decodePrompt(forcedEn) },
+  noNarration: { 'zh-CN': decodePrompt(noNarrationZh), en: decodePrompt(noNarrationEn) },
+  connectionTest: { 'zh-CN': decodePrompt(connectionTestZh), en: decodePrompt(connectionTestEn) },
+} satisfies Record<string, Record<Locale, string>>
 
-/** 开场指令（代码里引用它，内容在 prompts/opening.md） */
-export const OPENING_INSTRUCTION = decodePrompt(openingInstructionB64)
-/** 一整个回合没写叙事时的补写指令（prompts/forced-narration.md） */
-export const FORCED_NARRATION_INSTRUCTION = decodePrompt(forcedNarrationInstructionB64)
-/** 连接测试用的最小 system 提示词（prompts/connection-test.md） */
-export const CONNECTION_TEST_PROMPT = decodePrompt(connectionTestB64)
-/** 模型只调工具、不写叙事时的催稿指令（prompts/tool-calls-without-narration.md） */
-export const TOOL_CALLS_WITHOUT_NARRATION = decodePrompt(toolCallsWithoutNarrationB64)
-
-import { SEGMENTS } from '../utils/calendar'
-import type { GameState } from '../game/GameState'
-import type { ChatMessage } from '../types/state'
+/** 当前界面语言（模型语言跟随它） */
+function locale(): Locale {
+  return (i18n.global.locale as unknown as { value: Locale }).value
+}
 
 /**
  * 填占位符。
@@ -67,7 +72,7 @@ import type { ChatMessage } from '../types/state'
  * **填不干净就抛错** —— 宁可在这里失败，也不要把 `{{SNAPSHOT}}` 这种字样
  * 发给模型（那会让提示词静默失效，而且很难发现）。
  */
-export function renderPrompt(template: string, values: Record<string, string>): string {
+export function renderPrompt(template: string, values: Record<string, string> = {}): string {
   let filled = template
   for (const [key, value] of Object.entries(values)) {
     filled = filled.replaceAll(`{{${key}}}`, value)
@@ -84,7 +89,7 @@ export function renderPrompt(template: string, values: Record<string, string>): 
 
 /** 工具说明（含调用格式与示例） */
 export function toolsPrompt(): string {
-  return renderPrompt(toolsTemplate, { SEGMENTS: SEGMENTS.join(t('tools.segmentListSeparator')) })
+  return renderPrompt(TEMPLATES.tools[locale()])
 }
 
 /**
@@ -94,11 +99,32 @@ export function toolsPrompt(): string {
  * 所以在这里装配，而不是写死在提示词文件里。
  */
 export function buildSystemPrompt(state: GameState, history: ChatMessage[] = []): string {
-  return renderPrompt(systemTemplate, {
+  const lang = locale()
+  return renderPrompt(TEMPLATES.system[lang], {
     TOOLS: toolsPrompt(),
-    CALENDAR: calendarNote,
+    CALENDAR: renderPrompt(TEMPLATES.calendar[lang]),
     SNAPSHOT: state.snapshot(history),
   })
+}
+
+/** 开场指令（内容是 prompts/<lang>/opening.md） */
+export function openingInstruction(): string {
+  return renderPrompt(TEMPLATES.opening[locale()])
+}
+
+/** 一整个回合没写叙事时的补写指令 */
+export function forcedNarrationInstruction(): string {
+  return renderPrompt(TEMPLATES.forcedNarration[locale()])
+}
+
+/** 模型只调工具、不写叙事时的催稿指令 */
+export function toolCallsWithoutNarration(): string {
+  return renderPrompt(TEMPLATES.noNarration[locale()])
+}
+
+/** 连接测试用的最小 system 提示词 */
+export function connectionTestPrompt(): string {
+  return renderPrompt(TEMPLATES.connectionTest[locale()])
 }
 
 // 工具结果以 role:'tool' 的协议消息回传（协议自带 id 关联），

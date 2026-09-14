@@ -25,15 +25,18 @@
 
 ### 新增
 - **标准前端项目结构**（此前根目录散着 index.html / core/ / assets/ / 4 个 .md）
-  - `src/core/` 游戏逻辑 · `src/components/` 界面 · `src/stores/` 状态桥接
+  - `src/game/` 游戏实体 · `src/agent/` 模型侧 · `src/utils/` 纯函数 ·
+    `src/stores/` 状态桥接 · `src/components/` 界面
+  - 分层约定见 doc/DESIGN.md 决定 #21：**界面 = f(GameState)**，
+    Vue 只出现在 `src/stores/`（实体与模型侧都能在 Node 里直接测）
   - `src/types/state.ts` —— 存档字段的**唯一真相**（以前只存在于注释里）
   - `public/` 静态资源（about.html 与头像，构建时原样拷贝）
   - `doc/` 全部文档（AGENTS / DESIGN / CHANGELOG）
   - 根目录只剩配置文件和 README
-- **TypeScript（strict 全开）** —— `core/*.js` 全部转 `src/core/*.ts`：
+- **TypeScript（strict 全开）** —— `core/*.js` 全部转成 `src/` 下的 TypeScript：
   这是本项目第一次让**编译器**替我们盯着状态字段；以前靠注释与防御性代码，
   现在字段名写错在构建期就报错
-- **测试**（`tests/`，49 项，`npm test`）—— 这是**全历史第一次把测试提交进仓库**：
+- **测试**（`tests/`，223 项，`npm test`）—— 这是**全历史第一次把测试提交进仓库**：
   - 日期边界（闰年 / 月末溢出 / 跨年）、时长文案（防「每满一年多 5 天」回归）
   - 脏存档净化（null / 字符串 / 非法时刻 / 字符串回合数）
   - 推进把关（倒退 / 原地 / 未知单位 / 手滑超大跨度）
@@ -52,7 +55,7 @@
 
 ### 移除
 - `dev-server.js`（163 行，自写的禁用缓存静态服务器）—— Vite dev server 自带 HMR
-- `core/`（原生 JS 版）—— 已全部迁入 `src/core/` 的 TS 版本
+- `core/`（原生 JS 版）—— 已全部迁入 `src/` 的 TS 版本
 
 ### 修复
 - **`URL.revokeObjectURL` 紧跟 `a.click()`**（v0.5.4 审查遗留的 #6）——

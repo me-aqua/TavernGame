@@ -155,8 +155,7 @@
       "step": "How many units to advance; a positive integer. Defaults to 1",
       "unit": "Time unit. Defaults to segment (one part of the day, about 4 hours)",
       "reason": "Why time passes (recorded on the timeline)"
-    },
-    "segmentListSeparator": " -> "
+    }
   },
   "snapshot": {
     "turn": "[Turn {turn}]",
@@ -173,7 +172,6 @@
     "timelineLineNoReason": "- {to}"
   },
   "save": {
-    "missingPlayer": "Save is missing the player field",
     "notValid": "Not a valid save file",
     "corrupted": "Corrupted local save: {message}"
   },

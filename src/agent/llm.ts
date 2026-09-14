@@ -18,7 +18,7 @@
 
 import { loadConfig, PRESETS } from './config'
 import { t } from '../i18n'
-import { CONNECTION_TEST_PROMPT } from './prompts'
+import { connectionTestPrompt } from './prompts'
 import type { ChatMessage } from '../types/state'
 
 /** OpenAI 兼容的工具声明 */
@@ -180,7 +180,7 @@ interface TestResult {
 export async function testConnection(): Promise<TestResult> {
   const started = Date.now()
   const reply = await chat([
-    { role: 'system', content: CONNECTION_TEST_PROMPT },
+    { role: 'system', content: connectionTestPrompt() },
     { role: 'user', content: 'OK' },
   ])
   return {

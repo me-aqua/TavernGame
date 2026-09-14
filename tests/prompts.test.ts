@@ -13,20 +13,23 @@ import {
   renderPrompt,
   toolsPrompt,
   buildSystemPrompt,
-  OPENING_INSTRUCTION,
-  FORCED_NARRATION_INSTRUCTION,
-  TOOL_CALLS_WITHOUT_NARRATION,
-  CONNECTION_TEST_PROMPT,
+  openingInstruction,
+  forcedNarrationInstruction,
+  toolCallsWithoutNarration,
+  connectionTestPrompt,
 } from '../src/agent/prompts'
 import { GameState } from '../src/game/GameState'
-import { createInitialState } from '../src/game/json'
-import { t } from '../src/i18n'
+import { createInitialState } from '../src/game/save'
+import { i18n, t } from '../src/i18n'
 
-// 测试直接读源文件：断言的是**内容本身**（中文版，与 src/core/prompts.ts 当前取的语言一致）
+// 测试直接读源文件：断言的是**内容本身**（与 src/agent/prompts.ts 取的语言一致）
 // 注意：提示词按语言分目录（prompts/<lang>/），路径必须带语言段。
 // en/ 与 zh-CN/ 文件同名：正文语义用 ASCII 的英文版断言，
 // 中文版用来核对 src 导出的常量（常量就是文件原文）。
-const readPrompt = (lang: string, name: string): string => readFileSync(`prompts/${lang}/${name}.md`, 'utf8')
+// 末尾的 .trim() 是关键：renderPrompt 的契约是「填完占位符后 trim」，
+// 所以装配结果与文件原文会差一个末尾换行 —— 这里对奇两侧的形状。
+const readPrompt = (lang: string, name: string): string =>
+  readFileSync(`prompts/${lang}/${name}.md`, 'utf8').trim()
 
 const systemMarkdown = readPrompt('zh-CN', 'system')
 const toolsMarkdown = readPrompt('zh-CN', 'tools')
@@ -136,15 +139,15 @@ describe('assembled prompt', () => {
 
 describe('standalone instructions', () => {
   it('the opening instruction starts the story directly, without meta questions', () => {
-    expect(OPENING_INSTRUCTION).toBe(openingMarkdown)
+    expect(openingInstruction()).toBe(openingMarkdown)
     expect(openingMarkdownEn).toContain('Do not ask meta questions')
     expect(openingMarkdownEn).toContain('just start the story')
   })
 
   it('both narration-repair instructions ask for narration only', () => {
     for (const [instruction, markdown, markdownEn] of [
-      [FORCED_NARRATION_INSTRUCTION, forcedNarrationMarkdown, forcedNarrationMarkdownEn],
-      [TOOL_CALLS_WITHOUT_NARRATION, toolCallsWithoutNarrationMarkdown, toolCallsWithoutNarrationMarkdownEn],
+      [forcedNarrationInstruction(), forcedNarrationMarkdown, forcedNarrationMarkdownEn],
+      [toolCallsWithoutNarration(), toolCallsWithoutNarrationMarkdown, toolCallsWithoutNarrationMarkdownEn],
     ] as const) {
       expect(instruction).toBe(markdown)
       expect(markdownEn).toContain('narration only')
@@ -153,17 +156,75 @@ describe('standalone instructions', () => {
   })
 
   it('keeps the connection test prompt short (token budget)', () => {
-    expect(CONNECTION_TEST_PROMPT.length).toBeLessThan(60)
+    expect(connectionTestPrompt().length).toBeLessThan(60)
   })
 
   it('standalone instructions contain no placeholders (they take no arguments)', () => {
     for (const text of [
-      OPENING_INSTRUCTION,
-      FORCED_NARRATION_INSTRUCTION,
-      TOOL_CALLS_WITHOUT_NARRATION,
-      CONNECTION_TEST_PROMPT,
+      openingInstruction(),
+      forcedNarrationInstruction(),
+      toolCallsWithoutNarration(),
+      connectionTestPrompt(),
     ]) {
       expect(text).not.toMatch(/\{\{[A-Z_]+\}\}/)
     }
+  })
+})
+
+describe('model language follows the UI language', () => {
+  /**
+   * ⚠️ 这条测试是补上一个**假通过**：早先只断言「en 与 zh 两版不同」，
+   * 而 buildSystemPrompt 里的快照标签走 t()，光靠它就能让两版不同 ——
+   * 提示词正文其实一直写死 zh-CN。所以这里必须断言**正文本身**。
+   */
+  it('switches the whole system prompt body when the locale changes', () => {
+    const state = new GameState(createInitialState())
+    const set = (v: string) => ((i18n.global.locale as unknown as { value: string }).value = v)
+
+    set('zh-CN')
+    const zh = buildSystemPrompt(state)
+    const zhTools = toolsPrompt()
+    const zhSnapshotTurn = t('snapshot.turn', { turn: 0 })
+
+    set('en')
+    const en = buildSystemPrompt(state)
+    const enTools = toolsPrompt()
+    const enSnapshotTurn = t('snapshot.turn', { turn: 0 })
+
+    expect(
+      zhSnapshotTurn,
+      'the snapshot label must differ per locale, or the assertions below are vacuous',
+    ).not.toBe(enSnapshotTurn)
+
+    // 正文：中文版有中文字符，英文版没有（工具名 advance_time 两边都有）
+    expect(zhTools, 'zh tools must contain CJK').toMatch(/[\u4e00-\u9fff]/)
+    expect(enTools, 'en tools must be ASCII English').not.toMatch(/[\u4e00-\u9fff]/)
+    expect(zh, 'zh system must contain CJK').toMatch(/[\u4e00-\u9fff]/)
+    expect(en, 'en system must be ASCII English').not.toMatch(/[\u4e00-\u9fff]/)
+
+    // 两边都必须带上工具名与世界状态（换语言不能丢掉结构）。
+    // ⚠️ 世界状态的文字本身也跟随语言（时间标签、场景名都走 t()），
+    //    所以这里用「各自语言下该有的那份」来断言，而不是同一个值。
+    expect(zhTools).toContain('advance_time')
+    expect(enTools).toContain('advance_time')
+    expect(zh, 'the zh prompt must still carry the world-state heading').toContain(zhSnapshotTurn)
+    expect(en, 'the en prompt must still carry the world-state heading').toContain(enSnapshotTurn)
+  })
+
+  it('picks the matching language for the standalone instructions too', () => {
+    const set = (v: string) => ((i18n.global.locale as unknown as { value: string }).value = v)
+
+    set('zh-CN')
+    expect(openingInstruction()).toMatch(/[\u4e00-\u9fff]/)
+    set('en')
+    expect(openingInstruction()).not.toMatch(/[\u4e00-\u9fff]/)
+
+    set('zh-CN')
+    expect(forcedNarrationInstruction()).toMatch(/[\u4e00-\u9fff]/)
+    set('en')
+    expect(forcedNarrationInstruction()).not.toMatch(/[\u4e00-\u9fff]/)
+
+    set('en')
+    expect(connectionTestPrompt().length).toBeLessThan(60)
   })
 })

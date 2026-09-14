@@ -1,11 +1,11 @@
 /**
  * storage 测试 —— localStorage 适配层：读写、坏档报告、备份。
  *
- * 读写已从 core/persistence.ts 移到这里（键名与备份策略都属于存储层）。
+ * 键名与备份策略都属于存储层，形状校验在 game/save.ts。
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { localStorageStore, backupBrokenSave, SAVE_KEY } from '../src/utils/storage'
-import { createInitialState } from '../src/game/json'
+import { createInitialState } from '../src/game/save'
 import { t } from '../src/i18n'
 
 /** 存档写入失败时用的假实现（隐私模式 / 配额满） */

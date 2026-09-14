@@ -8,11 +8,11 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GameState } from '../src/game/GameState'
-import { createInitialState } from '../src/game/json'
+import { createInitialState } from '../src/game/save'
 import { runTurn, type AgentEvent } from '../src/agent/agent'
 import { saveConfig } from '../src/agent/config'
 import { t } from '../src/i18n'
-import { FORCED_NARRATION_INSTRUCTION, TOOL_CALLS_WITHOUT_NARRATION } from '../src/agent/prompts'
+import { forcedNarrationInstruction, toolCallsWithoutNarration } from '../src/agent/prompts'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 
 /** ASCII fixtures */
@@ -106,8 +106,8 @@ describe('choosing the forced-narration instruction', () => {
     const lastCall = fake.calls.at(-1)
     const lastMessage = lastCall?.body.messages?.at(-1)
     // 走的是 tool_call_id 分支：必须用「只写叙事」那条，而不是通用催稿那条
-    expect(lastMessage?.content).toBe(TOOL_CALLS_WITHOUT_NARRATION)
-    expect(lastMessage?.content).not.toBe(FORCED_NARRATION_INSTRUCTION)
+    expect(lastMessage?.content).toBe(toolCallsWithoutNarration())
+    expect(lastMessage?.content).not.toBe(forcedNarrationInstruction())
     expect(lastCall?.body.tools).toBeUndefined()
   })
 })

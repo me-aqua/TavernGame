@@ -155,8 +155,7 @@
       "step": "推进的数量，正整数。默认 1",
       "unit": "时间单位。默认 segment（一个时段，约 4 小时）",
       "reason": "为什么时间会流逝（会记录在时间线里）"
-    },
-    "segmentListSeparator": " → "
+    }
   },
   "snapshot": {
     "turn": "【第 {turn} 回合】",
@@ -173,7 +172,6 @@
     "timelineLineNoReason": "- {to}"
   },
   "save": {
-    "missingPlayer": "存档缺少 player 字段",
     "notValid": "这不是有效的存档文件",
     "corrupted": "本地存档已损坏：{message}"
   },
