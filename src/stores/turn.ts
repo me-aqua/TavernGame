@@ -15,6 +15,10 @@
  * 点「重来」/「导入」，会同时跑两个回合 —— 旧回合的日志/时间/落盘
  * 全作用在**新游戏**上，于是新存档里混进旧剧情、回合数对不上。
  *
+ * ⚠️ 回合的阶段是显式的（src/game/lifecycle.ts 的迁移表）：引擎事件翻译成迁移输入，
+ *    提交与回滚是这里的时刻，非法转移会当场抛错。「回合在飞」不再靠一个手写赋值的变量，
+ *    界面看到的状态行就是这个状态的投影（决定 #22）。
+ *
  * ⚠️ 一轮是一个事务（决定 #27/#39）：开跑前把权威数据深拷成**工作副本**，引擎、工具、
  * 调试痕迹全都只写副本；跑到终点的成功回合才把副本一次性写回权威状态
  * （一次赋值 → 响应式一次触发）并落盘。失败与取消丢弃副本 —— 内存与存档都不留痕，
@@ -32,11 +36,9 @@
 import { toRaw, type Ref } from 'vue'
 import { t } from '../i18n'
 import { runTurn, type AgentEvent } from '../agent/agent'
+import { advance, isRunning, type TurnEvent, type TurnState } from '../game/lifecycle'
 import type { ChatMessage, EventKind } from '../types/state'
 import type { GameState } from '../game/state'
-
-/** 回合阶段：null = 空闲。界面据此决定状态行写「正在生成开场…」还是「思考中…」 */
-export type Phase = 'opening' | 'turn' | null
 
 /** 通知的严重程度（决定状态行的样式） */
 export type NoticeLevel = 'info' | 'error'
@@ -56,7 +58,8 @@ interface TurnDeps {
   save: () => boolean
   /** 对话历史（回合间共享） */
   history: Ref<ChatMessage[]>
-  phase: Ref<Phase>
+  /** 回合的生命周期状态：界面据此决定状态行，回合入口据此挡住重入 */
+  phase: Ref<TurnState>
   /** 调试模式：记录模型输入输出与工具调用 */
   debugMode: Ref<boolean>
 }
@@ -69,6 +72,28 @@ interface TurnDeps {
  */
 function draftOf(source: GameState): GameState {
   return { ...source, data: structuredClone(toRaw(source.data)) }
+}
+
+/**
+ * 把引擎事件翻译成状态机的输入。
+ *
+ * ⚠️ 只有真正换阶段的才翻译：叙事、模型 I/O、节点进度与警告都发生在某个阶段**里面**，
+ *    不构成迁移。补写的请求不带 tools，引擎为此专门回传了 forcing —— 没有它，
+ *    「步数用尽强制收尾」这个阶段在事件流里就无影无踪。
+ */
+function lifecycleEventOf(evt: AgentEvent): TurnEvent | null {
+  switch (evt.type) {
+    case 'thinking':
+      return { type: 'request-model' }
+    case 'tool':
+      return { type: 'call-tools' }
+    case 'toolResult':
+      return { type: 'tools-returned' }
+    case 'forcing':
+      return { type: 'force-narration' }
+    default:
+      return null
+  }
 }
 
 /** 造一组回合动作（闭包持有中止用的 controller） */
@@ -87,12 +112,15 @@ export function createTurnRunner(deps: TurnDeps): {
   }
 
   /**
-   * 把 agent 循环抛出的事件翻译成调试痕迹，写进**目标状态**（本轮是工作副本）。
+   * 先把引擎事件按迁移表推进一步，再（调试模式下）把它翻译成调试痕迹写进**目标状态**
+   * （本轮是工作副本）。
    *
    * 叙事不在这里处理 —— 引擎已经把它写进目标状态的事件流了（界面渲染的就是它）。
    * 调试关掉时一条痕迹都不产生：玩家不该在故事里看到工具调用与原始 JSON。
    */
   function handleEvent(target: GameState, evt: AgentEvent) {
+    const step = lifecycleEventOf(evt)
+    if (step) phase.value = advance(phase.value, step)
     if (!debugMode.value) return
     switch (evt.type) {
       case 'node':
@@ -134,8 +162,9 @@ export function createTurnRunner(deps: TurnDeps): {
    * @param action 玩家输入；不传表示开新游戏（开场）
    */
   async function runTurnAction(action?: string): Promise<void> {
-    if (phase.value) return
-    phase.value = action ? 'turn' : 'opening'
+    // 重入保护：一次只能跑一个回合，状态机只接受从空闲起步
+    if (isRunning(phase.value)) return
+    phase.value = advance(phase.value, { type: 'start', mode: action ? 'turn' : 'opening' })
     // 回合一开始，上一条通知就过时了（「继续游戏」「导出完成」都不该跨回合存在）
     notify(null)
 
@@ -157,13 +186,17 @@ export function createTurnRunner(deps: TurnDeps): {
           onEvent: (evt) => handleEvent(draft, evt),
         },
       )
+      // 收尾文字到手 —— 只有这个阶段允许提交
+      phase.value = advance(phase.value, { type: 'closing-text' })
       // 提交：一次赋值 → 响应式一次触发；随后的 save() 读到的就是刚写回的副本
       state.data = draft.data
       history.value = result.history
+      phase.value = advance(phase.value, { type: 'commit' })
       if (!result.text) notify(t('store.noText'))
       if (!save()) notify(t('agent.saveFailed'), 'error')
     } catch (err) {
       // 失败与取消都在这里丢弃副本：不写回也不落盘，内存与存档一个字节都不变
+      phase.value = advance(phase.value, { type: 'rollback' })
       const e = err as Error
       if (e.name === 'AbortError') {
         notify(t('store.cancelled'))
@@ -173,7 +206,7 @@ export function createTurnRunner(deps: TurnDeps): {
       throw err // 交给调用方决定要不要提示
     } finally {
       controller = null
-      phase.value = null
+      phase.value = advance(phase.value, { type: 'reset' })
     }
   }
 

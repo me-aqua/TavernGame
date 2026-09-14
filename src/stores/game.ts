@@ -21,7 +21,8 @@ import { computed, reactive, ref } from 'vue'
 import * as game from '../game/state'
 import { initialState } from '../game/state'
 import { isStoryKind } from '../game/save'
-import { createTurnRunner, type NoticeLevel, type Phase } from './turn'
+import { IDLE, isRunning, statusKeyOf, type TurnState } from '../game/lifecycle'
+import { createTurnRunner, type NoticeLevel } from './turn'
 import { localStorageStore, type GameStore } from '../utils/storage'
 import { t } from '../i18n'
 import type { ChatMessage, EventKind, StoryKind } from '../types/state'
@@ -115,8 +116,8 @@ game.hydrateFromSave(state, localStorage)
 
 /** 跨回合的对话历史（引擎要用，但不属于存档） */
 const history = ref<ChatMessage[]>([])
-/** 回合阶段：非 null 表示有回合在飞 */
-const phase = ref<Phase>(null)
+/** 回合的生命周期状态：空闲表示没有回合在飞（重入判据与状态行都由它派生） */
+const phase = ref<TurnState>(IDLE)
 /** 单槽通知：后一条覆盖前一条，回合开始即清空 —— 它不会堆积 */
 const notice = ref<{ text: string; level: NoticeLevel } | null>(null)
 /**
@@ -163,19 +164,16 @@ export function useGame() {
   const hasStory = computed(() => state.data.events.some((event) => isStoryKind(event.kind)))
 
   /** 有回合在飞：输入框禁用，也是重入保护的唯一判据 */
-  const busy = computed(() => phase.value !== null)
+  const busy = computed(() => isRunning(phase.value))
 
   /**
    * 底部状态行。进行中优先于通知 —— 回合一跑起来，上一条通知就过时了。
-   * 两者都是**算出来的**：没有哪一行需要谁记得删掉。
+   * 两者都是**算出来的**：进行中那一条是生命周期状态的投影（文案键由状态给出，
+   * 见 game/lifecycle.ts），没有哪一行需要谁记得删掉。
    */
   const status = computed<Status | null>(() => {
-    if (phase.value) {
-      return {
-        kind: 'busy',
-        text: phase.value === 'opening' ? t('app.generatingOpening') : t('story.thinking'),
-      }
-    }
+    const key = statusKeyOf(phase.value)
+    if (key) return { kind: 'busy', text: t(key) }
     return notice.value ? { kind: notice.value.level, text: notice.value.text } : null
   })
 

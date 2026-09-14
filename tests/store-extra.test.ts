@@ -7,6 +7,7 @@
  *   - handleEvent 的 tool / toolResult / warn / raw 分支（调试痕迹，不是故事）
  *   - 回合没产出文字、存档写不进去时的通知分支
  *   - 一轮 = 一次事务：失败的回合一字节都不写回、不落盘
+ *   - 强制收尾阶段（forcing）玩家侧看不出区别：状态行与禁用输入都不变
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useGame } from '../src/stores/game'
@@ -267,5 +268,39 @@ describe('one turn = one transaction (the composition root commits)', () => {
     // 被中止的那一轮在存档里也没留下东西：换上的是一局干净的新游戏
     const saved = JSON.parse(localStorage.getItem(SAVE_KEY) as string) as { events: unknown[] }
     expect(saved.events).toEqual([])
+  })
+})
+
+describe('the forced closing is the same status line the player already saw', () => {
+  /**
+   * ⚠️ 补写是生命周期里的一个独立阶段（引擎专门回传 forcing），但玩家侧**必须没有区别**：
+   *    阶段再细分，状态行还是「思考中…」，输入框还是禁用。阶段是否真的到了 forcing
+   *    由 tests/turn.test.ts 的 watcher 证明，这里证明它没有漏到界面上。
+   */
+  it('still says thinking while the forced closing request is in flight', async () => {
+    let forcedStarted = () => {}
+    const inForcedClosing = new Promise<void>((resolve) => {
+      forcedStarted = () => resolve()
+    })
+    // 六次调用起（前五次已经由 replies 用掉）才是补写：挂住它，让这个阶段可断言
+    fake = installFakeLlmThen([...STEP_LIMIT_REPLIES], (init) => {
+      forcedStarted()
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+      })
+    })
+
+    const g = useGame()
+    const pending = g.runTurnAction(KEEP_WAITING_ACTION)
+    await inForcedClosing
+
+    // 前五步原样跑完（假模型只记到第五次），第六次请求正在等模型补写
+    expect(fake.calls).toHaveLength(MAX_STEPS)
+    expect(g.status.value).toEqual({ kind: 'busy', text: t('story.thinking') })
+    expect(g.busy.value).toBe(true)
+
+    g.resetGame()
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    expect(g.busy.value).toBe(false)
   })
 })

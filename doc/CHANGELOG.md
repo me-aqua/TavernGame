@@ -41,6 +41,9 @@
   声明一次（节点里的 `序号` 删掉，不再有第二份顺序）。节点约定里那 9 行逐节点上游改由
   `tools/render-card.mjs` 从拓扑现推 —— 人读的 `cards/晨风镇.md` 里一行不少。
   理由见 `doc/DESIGN.md` 决定 #40
+- **回合生命周期显式化（阶段 5）** —— 新 `src/game/lifecycle.ts`：`idle` + 运行中四阶段
+  （`prompting` / `executing` / `forcing` / `finishing`）+ 终态 `committed` / `rolled-back`
+  是一张迁移表，非法转移当场抛错；状态行与输入禁用都变成这个状态的投影（决定 #41）
 
 ### 修复
 - 示例卡《晨风镇》的 `常见物`：新加的【女人家的东西】里有 **7 个词已存在于别的表**

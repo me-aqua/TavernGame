@@ -9,10 +9,14 @@
  * 这里直接驱动 createTurnRunner：取消只有一个入口（abortRunningTurn），
  * store 把它藏在 resetGame / importSave 后面 —— 那两条路都会换掉整份 data，
  * 证明不了「取消不留痕」。store 那一层另有一条端到端用例（tests/store-extra.test.ts）。
+ *
+ * 末尾另有一组用例盯**生命周期**：迁移表本身由 tests/lifecycle.test.ts 走通，
+ * 这里证明真实回合确实按那张表走（引擎事件真的驱动了状态）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ref } from 'vue'
-import { createTurnRunner, type Phase } from '../src/stores/turn'
+import { ref, watch, type Ref } from 'vue'
+import { createTurnRunner } from '../src/stores/turn'
+import { IDLE, type TurnPhase, type TurnState } from '../src/game/lifecycle'
 import { addEvent, endTurn, initialState, save, snapshot, type GameState } from '../src/game/state'
 import { configureFakeProvider } from './support/game-fixtures'
 import { installFakeLlm, installFakeLlmThen, type FakeLlm } from './support/fakeLlm'
@@ -28,6 +32,9 @@ const TOOL_STEP = {
   content: DRAFT_STEP,
   toolCalls: [{ name: 'advance_time', arguments: ADVANCE_ARGS }],
 }
+/** 只调工具、一个字都不写的回复：用它把步数耗光，逼出强制收尾 */
+const TOOL_ONLY_STEP = { toolCalls: [{ name: 'advance_time', arguments: ADVANCE_ARGS }] }
+const TOOL_BUDGET = 2
 const NETWORK_ERROR = 'network down'
 
 let fake: FakeLlm | null = null
@@ -51,7 +58,7 @@ function createRunner(state: GameState = initialState()) {
   const write = vi.fn((_data: GameData) => true)
   const store: SaveStore = { save: write }
   const history = ref<ChatMessage[]>([])
-  const phase = ref<Phase>(null)
+  const phase = ref<TurnState>(IDLE)
   const debugMode = ref(false)
   const runner = createTurnRunner({
     state,
@@ -84,7 +91,7 @@ describe('a turn that never reaches the end leaves no trace', () => {
     expect(fake.calls).toHaveLength(1)
     expect(JSON.stringify(state.data)).toBe(before)
     expect(write).not.toHaveBeenCalled()
-    expect(phase.value).toBeNull()
+    expect(phase.value.phase).toBe('idle')
     expect(history.value).toEqual([])
   })
 
@@ -113,7 +120,7 @@ describe('a turn that never reaches the end leaves no trace', () => {
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
     expect(JSON.stringify(state.data)).toBe(before)
     expect(write).not.toHaveBeenCalled()
-    expect(phase.value).toBeNull()
+    expect(phase.value.phase).toBe('idle')
     expect(history.value).toEqual([])
   })
 })
@@ -143,5 +150,59 @@ describe('a successful turn commits the draft', () => {
     expect(state.data.events.map((e) => e.kind)).toEqual(['action', 'narration', 'narration'])
     expect(state.data.timeline).toHaveLength(1)
     expect(state.data.time.iso).not.toBe(startIso)
+  })
+})
+
+describe('the runner drives the lifecycle table', () => {
+  /**
+   * 观察真实回合走过的阶段：迁移表本身在 tests/lifecycle.test.ts 里逐条走通，
+   * 这里盯的是「引擎事件真的在推它」—— 表再对，没接上也等于没有。
+   */
+  function trackPhases(phase: Ref<TurnState>) {
+    const seen: TurnPhase[] = []
+    watch(phase, (state) => seen.push(state.phase), { flush: 'sync' })
+    return seen
+  }
+
+  it('a tool turn walks prompting -> executing -> prompting -> finishing -> committed -> idle', async () => {
+    fake = installFakeLlm([TOOL_STEP, SECOND_DRAFT])
+    const { phase, runTurnAction } = createRunner()
+    const seen = trackPhases(phase)
+
+    await runTurnAction(LOOK_ACTION)
+
+    // 相邻重复的阶段合成一次（每一步模型请求都会重新进入 prompting）
+    expect(seen.filter((p, i) => p !== seen[i - 1])).toEqual([
+      'prompting',
+      'executing',
+      'prompting',
+      'finishing',
+      'committed',
+      'idle',
+    ])
+  })
+
+  it('a turn that spends its whole budget on tools passes through the forced closing', async () => {
+    configureFakeProvider(TOOL_BUDGET)
+    fake = installFakeLlm([TOOL_ONLY_STEP, TOOL_ONLY_STEP, SECOND_DRAFT])
+    const { phase, runTurnAction } = createRunner()
+    const seen = trackPhases(phase)
+
+    await runTurnAction(LOOK_ACTION)
+
+    // 强制补写是独立阶段（引擎专门回传 forcing 事件），不是又一个 prompting
+    expect(seen).toContain('forcing')
+  })
+
+  it('a failed turn ends in idle with no terminal phase left behind', async () => {
+    fake = installFakeLlm([TOOL_STEP])
+    fake.failNextWith(new Error(NETWORK_ERROR))
+    const { phase, runTurnAction } = createRunner()
+    const seen = trackPhases(phase)
+
+    await expect(runTurnAction(LOOK_ACTION)).rejects.toThrow(NETWORK_ERROR)
+
+    expect(seen).toContain('rolled-back')
+    expect(seen.at(-1)).toBe('idle')
   })
 })

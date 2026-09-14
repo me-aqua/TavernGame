@@ -53,6 +53,14 @@ export type AgentEvent =
   /** 图执行器进入了哪个节点（进度的来源；写不写成痕迹由界面侧决定，见决定 #38） */
   | { type: 'node'; id: string }
   | { type: 'thinking'; step: number }
+  /**
+   * 步数用尽、正在补写收尾（start of forceNarration）。
+   *
+   * ⚠️ 补写那次请求**不带 tools**，所以它既没有 thinking 也没有 model —— 阶段状态机
+   *    只有靠这个事件才知道「现在在强制收尾」。它是瞬态进度：不写日志、不改游戏数据，
+   *    调试痕迹与玩家看到的东西一个字节都不变（与 thinking / node 同类）。
+   */
+  | { type: 'forcing' }
   /** 模型这一步的输入与输出（调试模式展示用；输入是实际发出去的请求体） */
   | { type: 'model'; step: number; reply: ChatReply }
   | { type: 'narration'; text: string }
@@ -254,6 +262,8 @@ async function forceNarration(
   signal: AbortSignal | undefined,
   onEvent: (evt: AgentEvent) => void,
 ): Promise<string | null> {
+  // 先报阶段再记警告：调用方的状态机据此进入「强制收尾」，警告才是给人看的那一行
+  onEvent({ type: 'forcing' })
   onEvent({ type: 'warn', message: t('agent.forcingNarration') })
   messages.push({
     role: 'user',
