@@ -113,6 +113,11 @@ test.describe('组件故事', () => {
           await page.goto(`/iframe.html?id=${story.id}&globals=theme:${theme};locale:${locale}`)
           await expect(page.locator('#storybook-root > *').first()).toBeVisible()
 
+          // 主题类要等它真的落到 <html> 上再 probe/截图 ——
+          // 否则「深色」那一半截图其实全是浅色（32 对 PNG 的 sha256 一模一样，实测发现）
+          if (theme === 'dark') await expect(page.locator('html')).toHaveClass(/dark/)
+          else await expect(page.locator('html')).not.toHaveClass(/dark/)
+
           const probe = (await page.evaluate(PROBE)) as Probe
           const file = `${story.id.replace(/[^a-zA-Z0-9]+/g, '-')}--${theme}--${locale}.png`
           await page.screenshot({ path: `${OUT}/${file}`, animations: 'disabled' })
