@@ -51,7 +51,6 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-/** 造一次 advance_time 的协议层调用 */
 function advanceCall(args: string) {
   return { name: 'advance_time', arguments: args }
 }

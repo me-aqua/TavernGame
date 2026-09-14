@@ -36,7 +36,6 @@ export function readStoredLanguage(): LanguageMode {
   return raw === 'zh-CN' || raw === 'en' || raw === 'system' ? raw : 'system'
 }
 
-/** 记住玩家选的语言 */
 export function storeLanguage(mode: LanguageMode): void {
   localStorage.setItem(STORAGE_KEY, mode)
 }

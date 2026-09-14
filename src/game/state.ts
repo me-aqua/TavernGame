@@ -41,24 +41,20 @@ export interface GameState {
   loadError: string | null
 }
 
-/** 新开局：没有存储、没有读档，纯粹的一份初始状态 */
 export function initialState(): GameState {
   return { data: createInitialState(), loadError: null }
 }
 
 // ---------- 读 ----------
 
-/** 回合数 */
 export function turn(s: GameState): number {
   return s.data.meta.turn
 }
 
-/** 当前时刻（ISO） */
 export function iso(s: GameState): string {
   return s.data.time.iso
 }
 
-/** 完整时间标签，由历法决定格式 */
 export function timeLabel(s: GameState): string {
   return realCalendar.format(s.data.time.iso)
 }

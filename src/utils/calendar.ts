@@ -184,7 +184,6 @@ const YEARS_PER_UNIT: Record<TimeUnit, number> = {
 
 type AdvanceOutcome = { ok: true; iso: string; elapsedMs: number } | { ok: false; message: string }
 
-/** 单位是否是协议枚举里的规范值 */
 function isTimeUnit(value: unknown): value is TimeUnit {
   return typeof value === 'string' && (TIME_UNITS as readonly string[]).includes(value)
 }

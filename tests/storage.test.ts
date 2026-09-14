@@ -13,7 +13,6 @@ function throwingStorage(): Storage {
   return {
     ...localStorage,
     getItem: () => null,
-    /** 写入永远失败（模拟配额满 / 隐私模式） */
     setItem: () => {
       throw new Error('QuotaExceededError')
     },

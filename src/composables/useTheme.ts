@@ -19,7 +19,6 @@ const STORAGE_KEY = 'tavernGame.theme'
 const mode = ref<ThemeMode>('system')
 let initialized = false
 
-/** 系统当前是否偏好深色 */
 function systemPrefersDark(): boolean {
   return typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches
 }
@@ -56,7 +55,6 @@ export function useTheme() {
     }
   }
 
-  /** 三态循环：system → light → dark → system */
   function cycle(): void {
     mode.value = mode.value === 'system' ? 'light' : mode.value === 'light' ? 'dark' : 'system'
   }

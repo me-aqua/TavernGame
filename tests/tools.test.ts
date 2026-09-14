@@ -18,7 +18,6 @@ beforeAll(() => {
   i18n.global.locale.value = 'zh-CN'
 })
 
-/** 取某个名字对应的「没有这个工具」文案（来自 locale 表） */
 function unknownToolMessage(name: string): string {
   return t('tools.unknown', { name, available: Object.keys(TOOLS).join(', ') })
 }

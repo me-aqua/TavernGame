@@ -74,7 +74,6 @@ function trimKind(events: GameEvent[], pick: (kind: EventKind) => boolean, max: 
   }
 }
 
-/** 能安全取属性的普通对象（null / 数组都不算） */
 export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }

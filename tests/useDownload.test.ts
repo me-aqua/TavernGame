@@ -73,7 +73,6 @@ describe('pickFile', () => {
       accept: '',
       onchange: null as null | (() => void),
       files: [file],
-      /** 模拟用户选了文件：点击后立刻触发 change */
       click() {
         this.onchange?.()
       },

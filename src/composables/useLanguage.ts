@@ -32,12 +32,10 @@ export function useLanguage() {
     })
   }
 
-  /** 三态循环：system → zh-CN → en */
   function cycle(): void {
     mode.value = mode.value === 'system' ? 'zh-CN' : mode.value === 'zh-CN' ? 'en' : 'system'
   }
 
-  /** 直接选（设置面板用），与 useTheme 的 select 同构 */
   function select(next: LanguageMode): void {
     mode.value = next
   }

@@ -59,7 +59,6 @@ const TEMPLATES = {
   connectionTest: { 'zh-CN': decodePrompt(connectionTestZh), en: decodePrompt(connectionTestEn) },
 } satisfies Record<string, Record<Locale, string>>
 
-/** 当前界面语言（模型语言跟随它） */
 function locale(): Locale {
   return (i18n.global.locale as unknown as { value: Locale }).value
 }
@@ -85,7 +84,6 @@ export function renderPrompt(template: string, values: Record<string, string> = 
   return filled.replace(/\n{3,}/g, '\n\n').trim()
 }
 
-/** 工具说明（含调用格式与示例） */
 export function toolsPrompt(): string {
   return renderPrompt(TEMPLATES.tools[locale()])
 }
@@ -105,22 +103,18 @@ export function buildSystemPrompt(world: AgentContext, history: ChatMessage[] = 
   })
 }
 
-/** 开场指令 */
 export function openingInstruction(): string {
   return renderPrompt(TEMPLATES.opening[locale()])
 }
 
-/** 一整个回合没写叙事时的补写指令 */
 export function forcedNarrationInstruction(): string {
   return renderPrompt(TEMPLATES.forcedNarration[locale()])
 }
 
-/** 模型只调工具、不写叙事时的催稿指令 */
 export function toolCallsWithoutNarration(): string {
   return renderPrompt(TEMPLATES.noNarration[locale()])
 }
 
-/** 连接测试用的最小 system 提示词 */
 export function connectionTestPrompt(): string {
   return renderPrompt(TEMPLATES.connectionTest[locale()])
 }

@@ -47,12 +47,10 @@ function render<C>(component: C, options: Record<string, unknown> = {}) {
   )
 }
 
-/** 造一行故事数据（事件流的投影） */
 function makeLine(over: Partial<Extract<Row, { debug: false }>> = {}): Row {
   return { id: 1, kind: 'narration', text: DEFAULT_LINE_TEXT, debug: false, ...over }
 }
 
-/** 造一行调试数据（模型 I/O、工具调用、警告） */
 function makeDebug(over: Partial<Extract<Row, { debug: true }>> = {}): Row {
   return { id: 1, kind: 'tool', text: DEFAULT_LINE_TEXT, debug: true, ...over }
 }

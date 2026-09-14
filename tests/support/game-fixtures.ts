@@ -48,10 +48,6 @@ export function createGame(seed?: (s: game.GameState) => void): game.GameState {
   return s
 }
 
-/**
- * 造一局并接上真 localStorage 的存档读写器。
- * 需要验证「落盘 / 读档」的用例用它。
- */
 export function createPersistedGame(): { state: game.GameState; store: SaveStore } {
   return { state: game.initialState(), store: localStorageStore(localStorage) }
 }

@@ -10,7 +10,6 @@ import { i18n } from '../src/i18n'
 const storage = new Map<string, string>()
 
 const localStorageShim: Storage = {
-  /** 键的数量 */
   get length() {
     return storage.size
   },
