@@ -3,7 +3,7 @@
 // request written in a doc, it is a check that runs.
 // Escape hatch: SKIP_DISCIPLINE=1 git commit ... (explain the reason in the message)
 import { execSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 
 const git = (cmd) => execSync('git ' + cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 
@@ -27,30 +27,42 @@ const readOutput = (err) => {
   return (decode(err.stdout) || decode(err.stderr) || decode(err.message)).trim()
 }
 
+/** 整页层面的改动：布局、样式 token、文案（会影响所有组件） */
+const UI_PAGE = /^(src\/App\.vue|src\/styles\/|src\/locales\/)/
+/** 单个组件：src/components/<Name>.vue */
+const UI_COMPONENT = /^src\/components\/([A-Za-z0-9]+)\.vue$/
+
 /**
- * 视觉提醒（**不阻塞**，只是提醒）。
+ * 视觉提醒（**不阻塞**，而且**只在动过界面时**才打印）。
  *
- * 为什么要有它：单元测试与结构探针都只能证明「没坏」，证明不了「看着对」——
- * 遮挡、拥挤、比例失衡这些只有看图才发现。改界面就必须真的看一眼截图。
- * 用户 2026-09-14 明确要求：每次提交都提醒 agent 做这一步。
+ * 为什么要有它：单测与结构探针只能证明「没坏」，证明不了「看着对」——
+ * 遮挡、拥挤、比例失衡只有看图才发现。用户 2026-09-14 的要求：
+ * **改了 UI 就要做对应的视觉检查**，所以提醒按改了什么来给具体命令：
+ *   · 整页（App.vue / 样式 / 文案）→ 跑整个矩阵
+ *   · 某个组件 → 只跑那个组件的故事（并检查它到底有没有故事文件）
  */
-const UI_TOUCHED = /^(src\/App\.vue|src\/components\/|src\/styles\/|src\/locales\/)/
 function remindVisualCheck(files) {
-  const uiFiles = files.filter((f) => UI_TOUCHED.test(f))
-  if (!uiFiles.length) {
-    console.log('👀 视觉检验：这次没动界面文件；若你其实改过 UI，记得 npm run visual')
-    return
-  }
+  const pageLevel = files.filter((f) => UI_PAGE.test(f))
+  const components = [...new Set(files.map((f) => UI_COMPONENT.exec(f)?.[1]).filter(Boolean))]
+  if (!pageLevel.length && !components.length) return
+
   console.log('')
-  console.log('👀 视觉检验（这次动了界面，别只看检查通过）：')
-  console.log('   npm run visual     # 10 状态 × 5 屏：渲染 + 遮挡/溢出/点按目标检查')
-  console.log('   npm run stories    # 组件故事 × 浅深 × 中英')
-  console.log('   然后**真的看图**：artifacts/screenshots/index.html 与 artifacts/stories/index.html')
-  console.log('   检查通过 ≠ 好看：结构判据只保证没溢出、没被压住、点得到。')
-  console.log('   有意改外观时：npx playwright test e2e/visual.spec.ts --update-snapshots')
-  console.log(
-    `   （界面文件 ${uiFiles.length} 个：${uiFiles.slice(0, 3).join(', ')}${uiFiles.length > 3 ? ' …' : ''}）`,
-  )
+  console.log('👀 这次动了界面 —— 提交前做一次**对应的**视觉检查（检查通过 ≠ 好看）：')
+  if (pageLevel.length) {
+    const shown = pageLevel.slice(0, 3).join(', ') + (pageLevel.length > 3 ? ' …' : '')
+    console.log(`   整页层面动了（${shown}）→ npm run visual`)
+    console.log('   然后打开 artifacts/screenshots/index.html 逐张看：遮挡 / 拥挤 / 比例')
+  }
+  if (components.length) {
+    console.log(`   组件动了（${components.join(', ')}）→ npm run stories`)
+    console.log(
+      `   只看改动的那几个：npx playwright test e2e/stories.spec.ts -g "${components.join('|').toLowerCase()}"`,
+    )
+    console.log('   截图在 artifacts/stories/index.html（每个故事 × 浅深 × 中英）')
+    const missing = components.filter((name) => !existsSync(`src/components/${name}.stories.ts`))
+    if (missing.length) console.log(`   ⚠️ 这些组件还没有故事文件，巡检覆盖不到：${missing.join(', ')}`)
+  }
+  console.log('   有意改外观时刷新基线：npx playwright test e2e/visual.spec.ts --update-snapshots')
   console.log('')
 }
 
