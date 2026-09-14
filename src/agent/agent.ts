@@ -50,6 +50,8 @@ export interface AgentContext {
 
 /** agent 循环里抛给界面的事件（界面据此实时渲染） */
 export type AgentEvent =
+  /** 图执行器进入了哪个节点（进度的来源；写不写成痕迹由界面侧决定，见决定 #38） */
+  | { type: 'node'; id: string }
   | { type: 'thinking'; step: number }
   /** 模型这一步的输入与输出（调试模式展示用；输入是实际发出去的请求体） */
   | { type: 'model'; step: number; reply: ChatReply }
@@ -152,8 +154,9 @@ export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promis
    * 默认图 = 1 个节点：这唯一的节点就是整个 agent 循环，产出是本回合的叙事正文。
    * 将来接卡里的九个节点时，节点各自产出短 JSON，由执行器按顺序累加进上游。
    *
-   * ⚠️ 执行器回传的 node 事件**不转给界面**：进度仍由循环自己的 thinking 表达，
-   *    界面收到的事件里没有图添的那一条。
+   * ⚠️ 执行器的 node 事件**原样转发**给调用方（决定 #38）：引擎不认识调试模式，
+   *    也不该认识 —— 「谁能看到」由界面侧的投影决定（决定 #22）。它只是瞬态的进度，
+   *    不写日志、不改状态：调试关掉时，事件流与玩家看到的东西一个字节都不变。
    */
   const graph: Graph = {
     nodes: [
@@ -214,7 +217,7 @@ export async function runTurn(ctx: AgentContext, opts: TurnOptions = {}): Promis
     ],
   }
 
-  await executeGraph(graph, { signal })
+  await executeGraph(graph, { signal, onEvent })
 
   const text = narrations.join('\n\n')
   const appended: ChatMessage[] = [

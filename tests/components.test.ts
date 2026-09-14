@@ -8,7 +8,7 @@ import { defineComponent } from 'vue'
 import { mount } from '@vue/test-utils'
 import StoryPanel from '../src/components/StoryPanel.vue'
 import CardGraph from '../src/components/CardGraph.vue'
-import cardGraphStory from '../src/components/CardGraph.stories'
+import cardGraphStory, { Failed, Running } from '../src/components/CardGraph.stories'
 import AppSidebar from '../src/components/AppSidebar.vue'
 import GameComposer from '../src/components/GameComposer.vue'
 import SettingsDrawer from '../src/components/SettingsDrawer.vue'
@@ -267,6 +267,44 @@ describe('CardGraph', () => {
     expect(nodes.map((node) => node.id)).toEqual(graph.nodes.map((node) => node.id))
     expect(nodes[0].data.label).toBe(graph.nodes[0].label)
     expect(flow.props('edges')).toHaveLength(graph.edges.length)
+  })
+
+  /**
+   * 交给 vue-flow 的那份节点数据 —— 高亮是样式，组件测试不测样式，
+   * 所以断言的是数据里的标记（模板按它上色）。
+   */
+  function flowNodes(props: Record<string, unknown> = {}) {
+    const w = render(CardGraph, { props, global: { stubs: { VueFlow: VueFlowStub } } })
+    return w.findComponent(VueFlowStub).props('nodes') as Array<{
+      id: string
+      data: { active: boolean; failed: boolean }
+    }>
+  }
+
+  it('flags exactly the running node, and nothing when the props are omitted', () => {
+    const running = graph.nodes[4].id
+
+    const nodes = flowNodes({ active: running })
+    expect(nodes.filter((node) => node.data.active).map((node) => node.id)).toEqual([running])
+    expect(nodes.every((node) => !node.data.failed)).toBe(true)
+
+    const plain = flowNodes()
+    expect(plain.every((node) => !node.data.active && !node.data.failed)).toBe(true)
+  })
+
+  it('flags the failed node, and failure wins over running', () => {
+    const broken = graph.nodes[2].id
+    // 挂掉的节点同时就是「正在跑」的那一个：只该亮失败色
+    const nodes = flowNodes({ active: broken, failed: broken })
+
+    expect(nodes.filter((node) => node.data.failed).map((node) => node.id)).toEqual([broken])
+    expect(nodes.filter((node) => node.data.active)).toEqual([])
+  })
+
+  it('highlights nodes that exist in the card (the stories do not hardcode ids)', () => {
+    for (const id of [Running.args?.active, Failed.args?.failed]) {
+      expect(graph.nodes.map((node) => node.id)).toContain(id)
+    }
   })
 
   it('spells the node and edge counts in the story title, counted from the card', () => {

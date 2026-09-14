@@ -53,8 +53,8 @@ const COLUMN_STEP = 230
 /** 行距（像素）—— 要比节点本身高，虚线才不会压在字上 */
 const ROW_STEP = 170
 
-/** 图里的一个节点：显示用的两行字 + 算好的坐标 */
-export interface GraphNode {
+/** 图里的一个节点：显示用的两行字 + 算好的坐标（画图用的，与执行器的 GraphNode 无关） */
+export interface LayoutNode {
   id: string
   label: string
   sublabel: string
@@ -68,9 +68,14 @@ export interface GraphEdge {
   label: string
 }
 
-/** 一张卡的图 */
-export interface Graph {
-  nodes: GraphNode[]
+/**
+ * 一张卡摊开后的显示模型。
+ *
+ * ⚠️ 名字带 Card：agent/graph.ts 里另有一组执行用的 Graph/GraphNode —— 两组类型同名不同义，
+ *    同一个文件里都 import 时极易看错（这里只有 id、文字与坐标，节点怎么跑与它无关）。
+ */
+export interface CardGraphLayout {
+  nodes: LayoutNode[]
   edges: GraphEdge[]
 }
 
@@ -128,7 +133,7 @@ function orderedNodes(card: CardData): Array<Record<string, unknown>> {
 }
 
 /** 把一张卡摊成图：节点按拓扑排，边来自相邻关系与「节点约定」里写明的上游 */
-export function toGraph(card: CardData): Graph {
+export function toGraph(card: CardData): CardGraphLayout {
   const ids = card[K.KEY_TOPOLOGY] as string[]
   const nodes = orderedNodes(card).map((node, index) => {
     const id = node[K.KEY_ID] as string

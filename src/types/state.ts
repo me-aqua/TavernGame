@@ -29,6 +29,8 @@ export type EventKind =
   | 'toolResult'
   /** 调试类：引擎警告（步数用尽、只调工具没写叙事…） */
   | 'warn'
+  /** 调试类：图执行器进入了哪个节点（一轮的进度，只有调试模式看得见） */
+  | 'node'
 
 /** 故事类事件的 kind（引擎只写这三种；玩家与模型看到的也都是它们） */
 export type StoryKind = 'narration' | 'action' | 'system'

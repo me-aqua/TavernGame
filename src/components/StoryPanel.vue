@@ -36,6 +36,7 @@ const debugStyles: Record<DebugRowKind, string> = {
   tool: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
   toolResult: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
   warn: 'rounded-lg border border-warn/40 bg-warn-soft px-3.5 py-2 text-[12.5px] text-warn',
+  node: 'rounded-lg border border-accent-line bg-accent-soft px-3.5 py-2 text-[12.5px] text-text',
 }
 
 /** 状态行的外观：进行中是三个点，通知是一行提示，错误用红色边 */

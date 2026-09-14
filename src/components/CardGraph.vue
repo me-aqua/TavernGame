@@ -7,6 +7,7 @@
  *
  * ⚠️ 只被 story 引用：App 与 main.ts 都不引它 —— vue-flow 是 devDependency，不进 dist。
  */
+import { computed } from 'vue'
 import { VueFlow, MarkerType, Position } from '@vue-flow/core'
 import type { Edge, Node } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
@@ -15,24 +16,43 @@ import { parseCard } from '../game/card'
 import { READ_LABEL, toGraph } from '../dev/card-graph'
 import cardJson from '../../cards/morningwind.json?raw'
 
-/** 节点框里的两行字 */
+/** 节点框里的两行字 + 高亮标记（哪一个在跑、哪一个失败了） */
 interface CardNodeData {
   label: string
   sublabel: string
+  active: boolean
+  failed: boolean
 }
+
+const props = defineProps<{
+  /** 正在跑的节点 id；不传 = 没有节点在跑 */
+  active?: string | null
+  /** 失败的节点 id；不传 = 没有节点失败 */
+  failed?: string | null
+}>()
 
 /** 示例卡的图：读卡 → 校验（通不过就抛，绝不画一张错的图）→ 摊平 */
 const graph = toGraph(parseCard(cardJson))
 
-/** 边一律从左往右走；节点用自定义类型，好把副标题摆在名字下面 */
-const nodes: Node<CardNodeData>[] = graph.nodes.map((node) => ({
-  id: node.id,
-  type: 'card',
-  position: node.position,
-  sourcePosition: Position.Right,
-  targetPosition: Position.Left,
-  data: { label: node.label, sublabel: node.sublabel },
-}))
+/**
+ * 节点一律从左往右走，用自定义类型好把副标题摆在名字下面。
+ * 高亮由 props 决定：失败的节点同时还是在跑的那一个，所以 failed 压过 active。
+ */
+const nodes = computed<Node<CardNodeData>[]>(() =>
+  graph.nodes.map((node) => ({
+    id: node.id,
+    type: 'card',
+    position: node.position,
+    sourcePosition: Position.Right,
+    targetPosition: Position.Left,
+    data: {
+      label: node.label,
+      sublabel: node.sublabel,
+      failed: node.id === props.failed,
+      active: node.id === props.active && node.id !== props.failed,
+    },
+  })),
+)
 
 /** 读边（label 是 READ_LABEL）走卡图那套虚线与强调色，主干边是普通实线 */
 const edges: Edge[] = graph.edges.map((edge, index) => ({
@@ -58,7 +78,16 @@ const edges: Edge[] = graph.edges.map((edge, index) => ({
       :elements-selectable="false"
     >
       <template #node-card="{ data }">
-        <div class="w-[200px] rounded-lg border border-line bg-surface px-3 py-2 text-left">
+        <div
+          class="w-[200px] rounded-lg border bg-surface px-3 py-2 text-left"
+          :class="
+            data.failed
+              ? 'border-danger bg-danger-soft'
+              : data.active
+                ? 'border-accent-line bg-accent-soft'
+                : 'border-line'
+          "
+        >
           <div class="text-[13px] font-semibold text-text">{{ data.label }}</div>
           <div class="mt-0.5 text-[11px] leading-snug text-muted">{{ data.sublabel }}</div>
         </div>

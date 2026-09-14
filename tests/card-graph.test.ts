@@ -9,11 +9,12 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parseCard, validateCard } from '../src/game/card'
 import { KEY_DUTY, KEY_NODES, KEY_NODE_NAME, KEY_TOPOLOGY } from '../src/game/card-keys'
-import { READ_LABEL, toGraph } from '../src/dev/card-graph'
+import { READ_LABEL, toGraph, type CardGraphLayout } from '../src/dev/card-graph'
 import { EXAMPLE_CARD, NODE_A, NODE_B, minimalCard } from './support/card-fixtures'
 
 const card = parseCard(readFileSync(EXAMPLE_CARD, 'utf8'))
-const graph = toGraph(card)
+// 显示模型的类型带 Card 前缀：它与执行器的 Graph 同名不同义（agent/graph.ts）
+const graph: CardGraphLayout = toGraph(card)
 
 /** 拓扑里的节点 id —— 顺序就是卡的执行顺序 */
 const topology = card[KEY_TOPOLOGY] as string[]

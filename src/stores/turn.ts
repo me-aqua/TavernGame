@@ -7,7 +7,7 @@
  *
  * ⚠️ 故事不在这里产生：叙事由引擎写进事件流，界面渲染的就是事件流的投影。
  *    这里只经手两样，都是**只有界面需要**的：
- *      · 调试痕迹（模型输入输出、工具调用与结果）—— 调试模式才写，
+ *      · 调试痕迹（节点进度、模型输入输出、工具调用与结果）—— 调试模式才写，
  *        写进**同一个事件流**（同一个数组 = 顺序天然正确，痕迹就插在它发生的叙事之间）
  *      · 通知（保存失败、被取消、回合失败）—— 瞬态单槽，后一条覆盖前一条
  *
@@ -75,6 +75,10 @@ export function createTurnRunner(deps: TurnDeps): {
   function handleEvent(evt: AgentEvent) {
     if (!debugMode.value) return
     switch (evt.type) {
+      case 'node':
+        // 图执行器的进度：每进一个节点一行，位置就在它发生的地方（本轮第一个事件）
+        addEvent('node', t('store.nodeLine', { node: evt.id }))
+        break
       case 'model':
         // 输入与输出成对写：先请求体，再响应体 —— 顺序就是这次调用的顺序
         addEvent(

@@ -18,7 +18,7 @@ const story = (id: number, kind: 'narration' | 'action', text: string): Row => (
 /** 造一行调试数据（模型输入/输出、工具调用、警告） */
 const debugRow = (
   id: number,
-  kind: 'request' | 'reply' | 'tool' | 'warn',
+  kind: 'request' | 'reply' | 'tool' | 'warn' | 'node',
   text: string,
   detail?: string,
 ): Row => ({
@@ -72,12 +72,13 @@ export const ErrorNotice: Story = {
 export const Debug: Story = {
   args: {
     rows: [
-      debugRow(0, 'request', '📤 模型输入（2 条消息）', '{ "model": "demo-model", "messages": [ … ] }'),
-      debugRow(1, 'reply', '🔍 模型原始回复（1 次工具调用）', '{ "choices": [ … ] }'),
-      story(2, 'action', '我推开酒馆的门，看看里面都有谁。'),
-      debugRow(3, 'tool', '⚙ 调用 advance_time({"step":1,"unit":"day"})'),
-      debugRow(4, 'warn', '⚠ 模型这一步只调用了工具，没有写叙事文字（第 1 步）'),
-      story(5, 'narration', '门轴发出一声长叹。暖黄的光从屋里涌出来，混着麦酒和湿羊毛的味道。'),
+      debugRow(0, 'node', '🧩 节点：agent-loop'),
+      debugRow(1, 'request', '📤 模型输入（2 条消息）', '{ "model": "demo-model", "messages": [ … ] }'),
+      debugRow(2, 'reply', '🔍 模型原始回复（1 次工具调用）', '{ "choices": [ … ] }'),
+      story(3, 'action', '我推开酒馆的门，看看里面都有谁。'),
+      debugRow(4, 'tool', '⚙ 调用 advance_time({"step":1,"unit":"day"})'),
+      debugRow(5, 'warn', '⚠ 模型这一步只调用了工具，没有写叙事文字（第 1 步）'),
+      story(6, 'narration', '门轴发出一声长叹。暖黄的光从屋里涌出来，混着麦酒和湿羊毛的味道。'),
     ],
   },
 }

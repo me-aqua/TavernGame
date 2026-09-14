@@ -31,6 +31,8 @@ const BROKEN_SAVE = '{broken'
 const RAW_REPLY = 'raw output sample'
 const PLAIN_REPLY = 'plain output'
 const LOOK_ACTION = 'look around'
+/** 默认图（src/agent/agent.ts）里唯一那个节点的 id：链路用例断言的就是这一行痕迹 */
+const AGENT_NODE = 'agent-loop'
 
 let fake: FakeLlm | null = null
 
@@ -180,6 +182,37 @@ describe('debugMode', () => {
     expect(payloads[1].detail).toContain(RAW_REPLY)
     expect(storyRows(g).map((row) => row.text)).not.toContain(payloads[1].text)
     g.debugMode.value = false
+  })
+
+  it('with debug on, entering a graph node writes one trace line before the model I/O', async () => {
+    const g = useGame()
+    g.debugMode.value = true
+    fake = installFakeLlm([RAW_REPLY])
+    await g.runTurnAction(LOOK_ACTION)
+    fake.restore()
+    fake = null
+
+    // 默认图只有一个节点（决定 #38）：进它的时候写下这一轮的第一条痕迹
+    const traces = debugRows(g)
+    expect(traces.map((row) => row.kind)).toEqual(['node', 'request', 'reply'])
+    expect(traces[0].text).toBe(t('store.nodeLine', { node: AGENT_NODE }))
+    // 玩家看到的仍然只有故事
+    expect(storyRows(g).map((row) => row.text)).not.toContain(traces[0].text)
+    g.debugMode.value = false
+  })
+
+  it('with debug off, the node event never reaches the event stream', async () => {
+    const g = useGame()
+    g.debugMode.value = false
+    fake = installFakeLlm([PLAIN_REPLY])
+    await g.runTurnAction(LOOK_ACTION)
+    fake.restore()
+    fake = null
+
+    // 源头上就没有：不是「写了但界面藏起来」（与模型 I/O 同一条规则）
+    expect(debugRows(g)).toEqual([])
+    const saved = JSON.parse(g.exportSave()) as { events: Array<{ kind: string }> }
+    expect(saved.events.map((event) => event.kind)).not.toContain('node')
   })
 
   it('when off, no debug event is written at all', async () => {
@@ -340,12 +373,13 @@ describe('one event stream: debug rows are interleaved where they happened', () 
     fake.restore()
     fake = null
 
-    // 形状就是「谁在什么时候发生」：行动 → 第 1 步的输入/输出 → 叙事 → 工具调用与结果
-    // → 第 2 步的输入/输出 → 叙事
+    // 形状就是「谁在什么时候发生」：行动 → 进节点 → 第 1 步的输入/输出 → 叙事
+    // → 工具调用与结果 → 第 2 步的输入/输出 → 叙事
     const shape = g.rows.value.map((row) => (row.debug ? row.kind : 'story:' + row.kind))
     g.debugMode.value = false
     expect(shape).toEqual([
       'story:action',
+      'node',
       'request',
       'reply',
       'story:narration',
@@ -388,7 +422,7 @@ describe('the event stream is the store: it survives a reload', () => {
     const g = await runWithDebug()
 
     const saved = JSON.parse(g.exportSave()) as { events: Array<{ kind: string; detail?: string }> }
-    expect(saved.events.map((e) => e.kind)).toEqual(['action', 'request', 'reply', 'narration'])
+    expect(saved.events.map((e) => e.kind)).toEqual(['action', 'node', 'request', 'reply', 'narration'])
     expect(saved.events.some((e) => e.detail?.includes(RAW_REPLY))).toBe(true)
   })
 
@@ -402,7 +436,11 @@ describe('the event stream is the store: it survives a reload', () => {
     expect(g.debugMode.value).toBe(false)
     expect(g.rows.value.every((row) => !row.debug)).toBe(true)
     g.debugMode.value = true
-    expect(g.rows.value.filter((row) => row.debug).map((row) => row.kind)).toEqual(['request', 'reply'])
+    expect(g.rows.value.filter((row) => row.debug).map((row) => row.kind)).toEqual([
+      'node',
+      'request',
+      'reply',
+    ])
   })
 
   it('resetGame clears them so a new game does not inherit the old traces', async () => {

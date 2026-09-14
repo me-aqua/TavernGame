@@ -60,6 +60,7 @@
   "store": {
     "rawRequest": "📤 Model input ({count} messages)",
     "rawReply": "🔍 Raw model reply ({count} tool calls)",
+    "nodeLine": "🧩 node: {node}",
     "noText": "(The model returned no text — it may have only called tools)",
     "cancelled": "This turn was cancelled",
     "failed": "Something went wrong:\n{message}",

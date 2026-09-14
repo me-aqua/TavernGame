@@ -37,6 +37,7 @@ const EVENT_KINDS: Record<EventKind, true> = {
   tool: true,
   toolResult: true,
   warn: true,
+  node: true,
 }
 
 /**

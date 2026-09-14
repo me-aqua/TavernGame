@@ -38,6 +38,8 @@ const ACTION_STEP_ONE = 'first step'
 const ACTION_STEP_TWO = 'second step'
 const ACTION_LATE = 'too late'
 const ACTION_TRY = 'try it'
+/** 默认图（src/agent/agent.ts）里唯一那个节点的 id：进度事件带着它回传 */
+const AGENT_NODE = 'agent-loop'
 
 let fake: FakeLlm
 
@@ -70,6 +72,18 @@ describe('runTurn -- main path', () => {
     // 请求里带了工具声明（协议契约）
     expect(fake.calls[0].body.tools).toBeDefined()
     expect(events.filter((e) => e.type === 'narration')).toHaveLength(1)
+  })
+
+  it('reports entering the graph node first, before the loop reports its first step', async () => {
+    fake = installFakeLlm([REPLY_PLAIN])
+    const ctx = createAgentContext()
+    const events: AgentEvent[] = []
+
+    await runTurn(ctx, { action: ACTION_LOOK_OUT, onEvent: (e) => events.push(e) })
+
+    // 引擎只把执行器的 node 事件原样转发（决定 #38）；写不写痕迹由界面侧决定
+    expect(events[0]).toEqual({ type: 'node', id: AGENT_NODE })
+    expect(events[1]).toEqual({ type: 'thinking', step: 1 })
   })
 
   it('tool call then finishing reply loops twice and really advances time', async () => {
