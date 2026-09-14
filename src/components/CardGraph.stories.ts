@@ -11,7 +11,8 @@ import cardJson from '../../cards/morningwind.json?raw'
  *    标题里放表达式会被它拒掉（CSF: unexpected dynamic title）。所以这两个数由
  *    tests/components.test.ts 拿卡里现数的结果对一遍 —— 卡改了，标题对不上就红。
  *
- * 实线是拓扑的先后；标「读」的虚线是谁读了谁的产出（「节点约定」里逐行写明的上游）。
+ * 实线 = 拓扑的先后（相邻两个节点一条）；虚线不写字 = 读上游，
+ * 上游就是拓扑里排在它前面的**全部**节点（决定 #26）—— 故事上方那一行就是图例。
  *
  * 高亮故事从卡里**现取**节点 id：写死一个 id 会在卡改名后指到一个不存在的节点。
  */
@@ -26,8 +27,14 @@ const RUNNING_INDEX = 4
 const FAILED_INDEX = 2
 
 const meta = {
-  title: '组件/CardGraph（9 节点 / 43 边）',
+  title: '组件/CardGraph（9 节点 / 44 边）',
   component: CardGraph,
+  decorators: [
+    () => ({
+      template:
+        '<div class="bg-page p-3"><p class="mb-2 text-xs text-muted">实线 = 拓扑的先后　｜　虚线 = 读上游：拓扑里排在它前面的全部节点（不写字）</p><story /></div>',
+    }),
+  ],
 } satisfies Meta<typeof CardGraph>
 
 export default meta

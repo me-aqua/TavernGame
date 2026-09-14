@@ -4,16 +4,19 @@
  * 卡是**外部数据**（作者手写、从别人那儿导入），按纪律只有系统边界才做校验，
  * 所以卡的校验集中在这里；将来照图跑的引擎只管「校验通过之后」的行为。
  *
- * ⚠️ 只认 card/1。格式不认识就直接拒 —— 不做字段改名、不做版本迁移：
+ * ⚠️ 只认 card/2。格式不认识就直接拒 —— 不做字段改名、不做版本迁移：
  *    产品未发布，没有旧卡要兼容。
+ *
+ * 顶层按「谁读」分三块：声明（引擎读）、提示词（模型读）、说明（人读）。
+ * 执行顺序只由「声明.图.拓扑」声明一次 —— 节点里没有序号，也不看数组顺序。
  *
  * 校验分两种，两种都必须能**证伪**：
  *   · 形状 —— 字段在不在、类型对不对；
  *   · 自洽 —— 卡里两处各自声明的东西必须互相对得上：「N 个地点」跟地点数、
- *     节点约定提到的节点跟拓扑、「N 块设定」跟给AI 的块数、说明里的段名跟 schema 的键。
+ *     「N 块设定」跟提示词.设定的块数、说明里的段名跟 schema 的键。
  *   只判存在性的检查抓不到自相矛盾的卡，所以第二组才是重点。
  *
- * 失败一律抛错并带 JSON 路径（如「节点[3].序号」），绝不静默纠正：在这里「纠正」
+ * 失败一律抛错并带 JSON 路径（如「声明.图.节点.psych.序号」），绝不静默纠正：在这里「纠正」
  * 等于替作者改卡，下一轮谁也不知道卡里原本写的是什么。
  */
 
@@ -21,11 +24,11 @@ import { isRecord } from './save'
 /** 卡格式的键名与标点 —— 源码必须 ASCII，转义都收在 card-keys 里 */
 import * as K from './card-keys'
 
-/** 通过校验的卡数据：顶层 12 键都在，各块按卡格式解释 */
+/** 通过校验的卡数据：顶层 4 键都在，各块按卡格式解释 */
 export type CardData = Record<string, unknown>
 
 /** 卡格式版本 —— 「卡.格式」不是它就直接拒（这个字段就是干这个的） */
-const CARD_FORMAT = 'card/1'
+const CARD_FORMAT = 'card/2'
 
 /** 卡 ID：小写字母 / 数字 / 连字符，中间一个点（作者名.卡名） */
 const CARD_ID = /^[a-z0-9-]+\.[a-z0-9-]+$/
@@ -65,8 +68,24 @@ const DIGITS: Record<string, number> = {
   [K.CN_NINE]: 9,
 }
 
-/** 每个节点必须齐备的六个键 */
-const NODE_KEYS = [K.KEY_NODE_NAME, K.KEY_ORDER, K.KEY_DUTY, K.KEY_PROMPT, K.KEY_OUTPUT, K.KEY_ID]
+/** 声明必须齐备的六个键 —— 顺序不限，顺序由拓扑说了算 */
+const DECLARATION_KEYS = [
+  K.KEY_GRAPH,
+  K.KEY_STATE,
+  K.KEY_WORLD,
+  K.KEY_GENERATORS,
+  K.KEY_OPENING,
+  K.KEY_DISPLAY,
+]
+
+/** 提示词必须齐备的五个键 */
+const PROMPT_KEYS = [K.KEY_SETTING, K.KEY_SCRIPT, K.KEY_CONVENTION, K.KEY_NODES, K.KEY_OPENING_REQUIREMENTS]
+
+/** 说明必须齐备的三块 */
+const NOTE_KEYS = [K.KEY_STATE, K.KEY_SCRIPT, K.KEY_OPENING]
+
+/** 图里的节点只有这三个键 —— 位置由拓扑定，没有 id，也没有序号 */
+const NODE_KEYS = [K.KEY_NODE_NAME, K.KEY_DUTY, K.KEY_OUTPUT]
 
 /** 路径拼接：父路径 + 一级键名（顶层传空串，于是路径就是键名本身） */
 function at(base: string, key: string): string {
@@ -107,6 +126,16 @@ function requireTextList(parent: Record<string, unknown>, key: string, base: str
   return value
 }
 
+/** 键集必须正好是这些键：少一个、多一个都拒（没人读的键多半是写错了名字） */
+function checkKeys(record: Record<string, unknown>, keys: string[], base: string): void {
+  for (const key of keys) {
+    if (!Object.hasOwn(record, key)) fail(base, 'missing key "' + key + '"')
+  }
+  for (const key of Object.keys(record)) {
+    if (!keys.includes(key)) fail(at(base, key), 'unknown key')
+  }
+}
+
 /** 读出文本里的第一个汉字数字（1–99：一 / 十 / 十二 / 二十）；读不出来返回 null */
 function chineseNumber(text: string): number | null {
   const match = new RegExp('[' + NUMERALS + ']+').exec(text)
@@ -120,16 +149,15 @@ function chineseNumber(text: string): number | null {
   return tens * 10 + ones
 }
 
-/** 顶层 12 键：一个不少、类型对，且没有不认识的键（没人读的块多半是写错了名字） */
+/** 顶层 4 键：一个不少、都是对象，且没有不认识的键（没人读的块多半是写错了名字） */
 function checkTopLevel(card: Record<string, unknown>): void {
-  for (const [key, kind] of K.TOP_LEVEL_KEYS) {
+  for (const key of K.TOP_LEVEL_KEYS) {
     const value = card[key]
     if (value === undefined) fail('', 'missing top-level key "' + key + '"')
-    const ok = kind === 'object' ? isRecord(value) : Array.isArray(value)
-    if (!ok) fail('', '"' + key + '" must be ' + (kind === 'object' ? 'an object' : 'an array'))
+    if (!isRecord(value)) fail('', '"' + key + '" must be an object')
   }
   for (const key of Object.keys(card)) {
-    if (!K.TOP_LEVEL_KEYS.some(([known]) => known === key)) fail('', 'unknown top-level key "' + key + '"')
+    if (!K.TOP_LEVEL_KEYS.includes(key)) fail('', 'unknown top-level key "' + key + '"')
   }
 }
 
@@ -160,77 +188,108 @@ function checkMeta(card: Record<string, unknown>): void {
   if (!SEMVER.test(version)) fail(at(K.KEY_CARD, K.KEY_VERSION), 'must be a semver like 1.2.3')
 }
 
-/** 给AI：五块设定、顺序固定、每块都是非空的行数组 */
-function checkGiven(card: Record<string, unknown>): void {
-  const given = requireRecord(card, K.KEY_GIVEN, '')
-  const keys = Object.keys(given)
-  if (keys.length !== K.GIVEN_BLOCKS.length) {
-    fail(K.KEY_GIVEN, 'must have exactly ' + K.GIVEN_BLOCKS.length + ' blocks, got ' + keys.length)
+/** 顶层三块内部的键集必须齐备 —— 声明 6 个、提示词 5 个、说明 3 个 */
+function checkBlocks(card: Record<string, unknown>): void {
+  checkKeys(requireRecord(card, K.KEY_DECL, ''), DECLARATION_KEYS, K.KEY_DECL)
+  checkKeys(requireRecord(card, K.KEY_PROMPT, ''), PROMPT_KEYS, K.KEY_PROMPT)
+  checkKeys(requireRecord(card, K.KEY_NOTES, ''), NOTE_KEYS, K.KEY_NOTES)
+}
+
+/** 提示词.设定：五块、顺序固定、每块都是非空的行数组 */
+function checkSetting(card: Record<string, unknown>): void {
+  const prompts = requireRecord(card, K.KEY_PROMPT, '')
+  const setting = requireRecord(prompts, K.KEY_SETTING, K.KEY_PROMPT)
+  const base = at(K.KEY_PROMPT, K.KEY_SETTING)
+  const keys = Object.keys(setting)
+  if (keys.length !== K.SETTING_BLOCKS.length) {
+    fail(base, 'must have exactly ' + K.SETTING_BLOCKS.length + ' blocks, got ' + keys.length)
   }
-  K.GIVEN_BLOCKS.forEach((block, index) => {
-    if (keys[index] !== block) fail(K.KEY_GIVEN, 'block #' + (index + 1) + ' must be "' + block + '"')
-    requireTextList(given, block, K.KEY_GIVEN)
+  K.SETTING_BLOCKS.forEach((block, index) => {
+    if (keys[index] !== block) fail(base, 'block #' + (index + 1) + ' must be "' + block + '"')
+    requireTextList(setting, block, base)
   })
 }
 
-/** 节点：非空、六键齐备、id 与名唯一、序号等于下标；返回按序的 id */
-function checkNodes(card: Record<string, unknown>): string[] {
-  const nodes = requireArray(card, K.KEY_NODES, '')
-  if (nodes.length === 0) fail(K.KEY_NODES, 'must have at least one node')
+/** 说明：三块人读的说明都非空 —— 空说明等于没写 */
+function checkNotes(card: Record<string, unknown>): void {
+  const notes = requireRecord(card, K.KEY_NOTES, '')
+  for (const key of NOTE_KEYS) requireText(notes, key, K.KEY_NOTES)
+}
+
+/** 图：拓扑里每个 id 恰好一次，节点对象的键集正好是拓扑，每个节点只有三个键 */
+function checkGraph(card: Record<string, unknown>): string[] {
+  const decl = requireRecord(card, K.KEY_DECL, '')
+  const graph = requireRecord(decl, K.KEY_GRAPH, K.KEY_DECL)
+  const base = at(K.KEY_DECL, K.KEY_GRAPH)
+  const topology = requireArray(graph, K.KEY_TOPOLOGY, base)
+  if (topology.length === 0) fail(at(base, K.KEY_TOPOLOGY), 'must have at least one node')
   const ids: string[] = []
+  topology.forEach((id, index) => {
+    const where = at(base, K.KEY_TOPOLOGY) + '[' + index + ']'
+    if (typeof id !== 'string' || id.length === 0) fail(where, 'must be a non-empty node id')
+    if (ids.includes(id)) fail(where, 'duplicate node id "' + id + '"')
+    ids.push(id)
+  })
+  const nodes = requireRecord(graph, K.KEY_NODES, base)
+  const nodeBase = at(base, K.KEY_NODES)
+  for (const id of Object.keys(nodes)) {
+    if (!ids.includes(id)) fail(at(nodeBase, id), 'is not in ' + at(base, K.KEY_TOPOLOGY))
+  }
   const names: string[] = []
-  nodes.forEach((node, index) => {
-    const where = K.KEY_NODES + '[' + index + ']'
+  for (const id of ids) {
+    const where = at(nodeBase, id)
+    if (!Object.hasOwn(nodes, id)) fail(nodeBase, 'has no node "' + id + '"')
+    const node = nodes[id]
     if (!isRecord(node)) fail(where, 'must be an object')
-    for (const key of NODE_KEYS) {
-      if (!Object.hasOwn(node, key)) fail(where, 'missing key "' + key + '"')
-    }
-    const id = requireText(node, K.KEY_ID, where)
+    checkKeys(node, NODE_KEYS, where)
     const name = requireText(node, K.KEY_NODE_NAME, where)
     requireText(node, K.KEY_DUTY, where)
-    requireTextList(node, K.KEY_PROMPT, where)
-    requireRecord(node, K.KEY_OUTPUT, where)
-    if (node[K.KEY_ORDER] !== index) {
-      fail(at(where, K.KEY_ORDER), 'must be ' + index + ' (its position in ' + K.KEY_NODES + ')')
-    }
-    if (ids.includes(id)) fail(at(where, K.KEY_ID), 'duplicate node id "' + id + '"')
+    const output = requireRecord(node, K.KEY_OUTPUT, where)
+    if (Object.keys(output).length === 0) fail(at(where, K.KEY_OUTPUT), 'must not be empty')
     if (names.includes(name)) fail(at(where, K.KEY_NODE_NAME), 'duplicate node name "' + name + '"')
-    ids.push(id)
     names.push(name)
-  })
+  }
   return ids
 }
 
-/** 拓扑与节点 id 等长且逐位对应 —— 引擎照拓扑跑，两处不一致就是跑错节点 */
-function checkTopology(card: Record<string, unknown>, ids: string[]): void {
-  const topology = requireArray(card, K.KEY_TOPOLOGY, '')
-  if (topology.length !== ids.length) {
-    const counts = ids.length + ' nodes, ' + topology.length + ' entries'
-    fail(K.KEY_TOPOLOGY, 'must list every node id once (' + counts + ')')
+/** 提示词.节点：键集必须正好是拓扑，每个值是非空的行数组 */
+function checkNodePrompts(card: Record<string, unknown>, ids: string[]): void {
+  const prompts = requireRecord(card, K.KEY_PROMPT, '')
+  const nodes = requireRecord(prompts, K.KEY_NODES, K.KEY_PROMPT)
+  const base = at(K.KEY_PROMPT, K.KEY_NODES)
+  const topology = at(at(K.KEY_DECL, K.KEY_GRAPH), K.KEY_TOPOLOGY)
+  for (const id of Object.keys(nodes)) {
+    if (!ids.includes(id)) fail(at(base, id), 'is not a node in ' + topology)
   }
-  topology.forEach((id, index) => {
-    if (id !== ids[index]) fail(K.KEY_TOPOLOGY + '[' + index + ']', 'must be "' + ids[index] + '"')
-  })
+  for (const id of ids) {
+    if (!Object.hasOwn(nodes, id)) fail(base, 'has no prompts for node "' + id + '"')
+    requireTextList(nodes, id, base)
+  }
 }
 
-/** 开局.初始位置：键集必须正好是 {区域, 地点, 场景} */
+/** 声明.开局.初始位置：键集必须正好是 {区域, 地点, 场景} */
 function checkOpening(card: Record<string, unknown>): void {
-  const opening = requireRecord(card, K.KEY_OPENING, '')
-  const start = requireRecord(opening, K.KEY_START, K.KEY_OPENING)
+  const decl = requireRecord(card, K.KEY_DECL, '')
+  const opening = requireRecord(decl, K.KEY_OPENING, K.KEY_DECL)
+  const base = at(K.KEY_DECL, K.KEY_OPENING)
+  const start = requireRecord(opening, K.KEY_START, base)
   const wanted = [K.KEY_AREA, K.KEY_PLACE, K.KEY_SCENE].sort().join(' ')
   if (Object.keys(start).sort().join(' ') !== wanted) {
     const keys = K.KEY_AREA + ' / ' + K.KEY_PLACE + ' / ' + K.KEY_SCENE
-    fail(at(K.KEY_OPENING, K.KEY_START), 'keys must be exactly ' + keys)
+    fail(at(base, K.KEY_START), 'keys must be exactly ' + keys)
   }
 }
 
 /** 状态 schema：数值项是 {类型:number,初值:number,范围:[min,max]} 且初值落在范围内；层级初值属于取值 */
 function checkSchema(card: Record<string, unknown>): void {
-  const state = requireRecord(card, K.KEY_STATE, '')
-  const role = requireRecord(state, K.KEY_ROLE, K.KEY_STATE)
-  const inherent = requireRecord(role, K.KEY_INHERENT, at(K.KEY_STATE, K.KEY_ROLE))
+  const decl = requireRecord(card, K.KEY_DECL, '')
+  const state = requireRecord(decl, K.KEY_STATE, K.KEY_DECL)
+  const stateBase = at(K.KEY_DECL, K.KEY_STATE)
+  const role = requireRecord(state, K.KEY_ROLE, stateBase)
+  const roleBase = at(stateBase, K.KEY_ROLE)
+  const inherent = requireRecord(role, K.KEY_INHERENT, roleBase)
   for (const [field, spec] of Object.entries(inherent)) {
-    const where = at(K.KEY_STATE, K.KEY_ROLE) + '.' + K.KEY_INHERENT + '.' + field
+    const where = at(roleBase, K.KEY_INHERENT) + '.' + field
     if (!isRecord(spec)) fail(where, 'must be an object')
     if (spec[K.KEY_TYPE] !== TYPE_NUMBER) continue
     const initial = spec[K.KEY_INITIAL]
@@ -242,39 +301,56 @@ function checkSchema(card: Record<string, unknown>): void {
       fail(at(where, K.KEY_INITIAL), 'is outside ' + JSON.stringify(range))
     }
   }
-  const tier = requireRecord(role, K.KEY_TIER, at(K.KEY_STATE, K.KEY_ROLE))
+  const tier = requireRecord(role, K.KEY_TIER, roleBase)
   const values = tier[K.KEY_VALUES]
   if (!Array.isArray(values) || !values.includes(tier[K.KEY_INITIAL])) {
-    fail(at(at(K.KEY_STATE, K.KEY_ROLE), K.KEY_TIER) + '.' + K.KEY_VALUES, 'must list the initial value')
+    fail(at(roleBase, K.KEY_TIER) + '.' + K.KEY_VALUES, 'must list the initial value')
   }
+  const player = requireRecord(state, K.KEY_PLAYER, stateBase)
+  const playerBase = at(stateBase, K.KEY_PLAYER)
+  requireRecord(player, K.KEY_PROFILE, playerBase)
+  requireArray(player, K.KEY_PROFILE_INITIAL, playerBase)
 }
 
-/** 世界.历法：引擎只认识自己实现过的历法 */
+/** 声明.世界.历法：引擎只认识自己实现过的历法 */
 function checkWorld(card: Record<string, unknown>): void {
-  const world = requireRecord(card, K.KEY_WORLD, '')
+  const decl = requireRecord(card, K.KEY_DECL, '')
+  const world = requireRecord(decl, K.KEY_WORLD, K.KEY_DECL)
+  const base = at(K.KEY_DECL, K.KEY_WORLD)
   if (!CALENDARS.has(world[K.KEY_CALENDAR] as string)) {
-    fail(at(K.KEY_WORLD, K.KEY_CALENDAR), 'unknown calendar ' + JSON.stringify(world[K.KEY_CALENDAR]))
+    fail(at(base, K.KEY_CALENDAR), 'unknown calendar ' + JSON.stringify(world[K.KEY_CALENDAR]))
   }
 }
 
-/** 核心剧本.阶段：阶段号从 1 起、连续（跳号就等于有一段永远演不到） */
+/** 提示词.剧本：非空，阶段号从 1 起、连续（跳号就等于有一段永远演不到） */
 function checkScript(card: Record<string, unknown>): void {
-  const script = requireRecord(card, K.KEY_SCRIPT, '')
-  const stages = requireArray(script, K.KEY_STAGES, K.KEY_SCRIPT)
+  const prompts = requireRecord(card, K.KEY_PROMPT, '')
+  const script = requireRecord(prompts, K.KEY_SCRIPT, K.KEY_PROMPT)
+  const base = at(K.KEY_PROMPT, K.KEY_SCRIPT)
+  if (Object.keys(script).length === 0) fail(base, 'must not be empty')
+  const stages = requireArray(script, K.KEY_STAGES, base)
   stages.forEach((stage, index) => {
-    const where = K.KEY_SCRIPT + '.' + K.KEY_STAGES + '[' + index + ']'
+    const where = base + '.' + K.KEY_STAGES + '[' + index + ']'
     if (!isRecord(stage)) fail(where, 'must be an object')
     if (stage[K.KEY_STAGES] !== index + 1) fail(at(where, K.KEY_STAGES), 'must be ' + (index + 1))
   })
 }
 
-/** 显示.侧栏：区块名唯一（同一个块挂两次，界面就不知道该信哪个） */
+/** 提示词.开局要求：非空的行数组 —— 第一轮该怎么开场，不能空着 */
+function checkOpeningRequirements(card: Record<string, unknown>): void {
+  const prompts = requireRecord(card, K.KEY_PROMPT, '')
+  requireTextList(prompts, K.KEY_OPENING_REQUIREMENTS, K.KEY_PROMPT)
+}
+
+/** 声明.显示.侧栏：区块名唯一（同一个块挂两次，界面就不知道该信哪个） */
 function checkDisplay(card: Record<string, unknown>): void {
-  const display = requireRecord(card, K.KEY_DISPLAY, '')
-  const sidebar = requireArray(display, K.KEY_SIDEBAR, K.KEY_DISPLAY)
+  const decl = requireRecord(card, K.KEY_DECL, '')
+  const display = requireRecord(decl, K.KEY_DISPLAY, K.KEY_DECL)
+  const base = at(K.KEY_DECL, K.KEY_DISPLAY)
+  const sidebar = requireArray(display, K.KEY_SIDEBAR, base)
   const blocks: string[] = []
   sidebar.forEach((block, index) => {
-    const where = K.KEY_DISPLAY + '.' + K.KEY_SIDEBAR + '[' + index + ']'
+    const where = base + '.' + K.KEY_SIDEBAR + '[' + index + ']'
     if (!isRecord(block)) fail(where, 'must be an object')
     const name = requireText(block, K.KEY_BLOCK, where)
     if (blocks.includes(name)) fail(at(where, K.KEY_BLOCK), 'duplicate block "' + name + '"')
@@ -282,71 +358,58 @@ function checkDisplay(card: Record<string, unknown>): void {
   })
 }
 
-/** 节点约定里写死的「N 块设定」必须等于 给AI 的块数 */
-function checkGivenCount(lines: string[], count: number): void {
+/** 节点约定里写死的「N 块设定」必须等于 提示词.设定的块数 */
+function checkSettingCount(lines: string[], count: number, base: string): void {
   const declared: number[] = []
   for (const line of lines) {
     const match = new RegExp('[' + NUMERALS + ']+' + K.KEY_BLOCK).exec(line)
     if (match) declared.push(chineseNumber(match[0]) ?? -1)
   }
   if (declared.length !== 1) {
-    fail(
-      K.KEY_CONVENTION,
-      'must declare the number of setting blocks exactly once (found ' + declared.length + ')',
-    )
+    fail(base, 'must declare the number of setting blocks exactly once (found ' + declared.length + ')')
   }
   if (declared[0] !== count) {
-    fail(K.KEY_CONVENTION, 'declares ' + declared[0] + ' setting blocks but ' + K.KEY_GIVEN + ' has ' + count)
+    const real = at(K.KEY_PROMPT, K.KEY_SETTING)
+    fail(base, 'declares ' + declared[0] + ' setting blocks but ' + real + ' has ' + count)
   }
 }
 
-/** 节点约定：提到的节点 id 与先后顺序必须正好是拓扑（每个节点都要被点到） */
-function checkConvention(card: Record<string, unknown>, ids: string[]): void {
-  const lines = requireTextList(card, K.KEY_CONVENTION, '')
-  const seen: string[] = []
-  for (const line of lines) {
-    const hits: Array<[number, string]> = []
-    for (const id of ids) {
-      const found = line.search(new RegExp('(?<![a-z0-9-])' + id + '(?![a-z0-9-])'))
-      if (found >= 0) hits.push([found, id])
-    }
-    hits.sort((left, right) => left[0] - right[0])
-    for (const [, id] of hits) {
-      if (!seen.includes(id)) seen.push(id)
-    }
-  }
-  if (seen.join(' ') !== ids.join(' ')) {
-    const told = 'topology: ' + ids.join(' ') + '; mentioned: ' + seen.join(' ')
-    fail(K.KEY_CONVENTION, 'must mention every node id in topology order (' + told + ')')
-  }
-  checkGivenCount(lines, Object.keys(requireRecord(card, K.KEY_GIVEN, '')).length)
+/** 提示词.节点约定：非空的行数组，写死的「N 块设定」必须跟 提示词.设定 对得上 */
+function checkConvention(card: Record<string, unknown>): void {
+  const prompts = requireRecord(card, K.KEY_PROMPT, '')
+  const lines = requireTextList(prompts, K.KEY_CONVENTION, K.KEY_PROMPT)
+  const setting = requireRecord(prompts, K.KEY_SETTING, K.KEY_PROMPT)
+  checkSettingCount(lines, Object.keys(setting).length, at(K.KEY_PROMPT, K.KEY_CONVENTION))
 }
 
 /** 生成器第一条原则里写的「N 个地点」必须等于第一个区域的必有地点数 —— 两处声明互证 */
 function checkGeneratorPlaces(card: Record<string, unknown>): void {
-  const generators = requireArray(card, K.KEY_GENERATORS, '')
+  const decl = requireRecord(card, K.KEY_DECL, '')
+  const generators = requireArray(decl, K.KEY_GENERATORS, K.KEY_DECL)
+  const base = at(K.KEY_DECL, K.KEY_GENERATORS)
   const first = generators[0]
-  if (!isRecord(first)) fail(K.KEY_GENERATORS + '[0]', 'must be an object')
-  const principles = requireTextList(first, K.KEY_PRINCIPLE, K.KEY_GENERATORS + '[0]')
+  if (!isRecord(first)) fail(base + '[0]', 'must be an object')
+  const principles = requireTextList(first, K.KEY_PRINCIPLE, base + '[0]')
   const declared = chineseNumber(principles[0])
-  const where = K.KEY_GENERATORS + '[0].' + K.KEY_PRINCIPLE + '[0]'
+  const where = base + '[0].' + K.KEY_PRINCIPLE + '[0]'
   if (declared === null) fail(where, 'no chinese numeral to check the place count against')
-  const world = requireRecord(card, K.KEY_WORLD, '')
-  const areas = requireArray(world, K.KEY_AREA, K.KEY_WORLD)
+  const world = requireRecord(decl, K.KEY_WORLD, K.KEY_DECL)
+  const worldBase = at(K.KEY_DECL, K.KEY_WORLD)
+  const areas = requireArray(world, K.KEY_AREA, worldBase)
   const area = areas[0]
-  if (!isRecord(area)) fail(K.KEY_WORLD + '.' + K.KEY_AREA + '[0]', 'must be an object')
-  const places = requireArray(area, K.KEY_PLACES, K.KEY_WORLD + '.' + K.KEY_AREA + '[0]')
+  if (!isRecord(area)) fail(worldBase + '.' + K.KEY_AREA + '[0]', 'must be an object')
+  const places = requireArray(area, K.KEY_PLACES, worldBase + '.' + K.KEY_AREA + '[0]')
   if (declared !== places.length) {
-    const real = K.KEY_WORLD + '.' + K.KEY_AREA + '[0].' + K.KEY_PLACES
+    const real = worldBase + '.' + K.KEY_AREA + '[0].' + K.KEY_PLACES
     fail(where, 'says ' + declared + ' places but ' + real + ' has ' + places.length)
   }
 }
 
-/** 状态.说明 里声明的「N 段：…」必须跟 状态.角色 的键对得上（说明与 schema 不能各说各话） */
+/** 说明.状态 里声明的「N 段：…」必须跟 声明.状态.角色 的键对得上（说明与 schema 不能各说各话） */
 function checkStateNote(card: Record<string, unknown>): void {
-  const state = requireRecord(card, K.KEY_STATE, '')
-  const note = requireText(state, K.KEY_NOTE, K.KEY_STATE)
-  const where = at(K.KEY_STATE, K.KEY_NOTE)
+  const notes = requireRecord(card, K.KEY_NOTES, '')
+  const note = requireText(notes, K.KEY_STATE, K.KEY_NOTES)
+  const where = at(K.KEY_NOTES, K.KEY_STATE)
   const colon = note.indexOf(K.PUNCT_COLON)
   if (colon < 0) fail(where, 'must list the segments after a "' + K.PUNCT_COLON + '"')
   const period = note.indexOf(K.PUNCT_PERIOD, colon + 1)
@@ -358,10 +421,13 @@ function checkStateNote(card: Record<string, unknown>): void {
     .split('/')
     .map((name) => name.trim())
   if (declared !== names.length) fail(where, 'says ' + declared + ' segments but lists ' + names.length)
-  const role = requireRecord(state, K.KEY_ROLE, K.KEY_STATE)
+  const state = requireRecord(requireRecord(card, K.KEY_DECL, ''), K.KEY_STATE, K.KEY_DECL)
+  const role = requireRecord(state, K.KEY_ROLE, at(K.KEY_DECL, K.KEY_STATE))
   for (const name of names) {
-    if (!Object.hasOwn(role, name))
-      fail(where, '"' + name + '" is not a key of ' + at(K.KEY_STATE, K.KEY_ROLE))
+    if (!Object.hasOwn(role, name)) {
+      const real = at(at(K.KEY_DECL, K.KEY_STATE), K.KEY_ROLE)
+      fail(where, '"' + name + '" is not a key of ' + real)
+    }
   }
 }
 
@@ -370,15 +436,18 @@ export function validateCard(data: unknown): CardData {
   if (!isRecord(data)) fail('', 'must be a JSON object')
   checkTopLevel(data)
   checkMeta(data)
-  checkGiven(data)
-  const ids = checkNodes(data)
-  checkTopology(data, ids)
+  checkBlocks(data)
+  checkSetting(data)
+  const ids = checkGraph(data)
+  checkNodePrompts(data, ids)
   checkOpening(data)
   checkSchema(data)
   checkWorld(data)
   checkScript(data)
+  checkOpeningRequirements(data)
   checkDisplay(data)
-  checkConvention(data, ids)
+  checkNotes(data)
+  checkConvention(data)
   checkGeneratorPlaces(data)
   checkStateNote(data)
   return data

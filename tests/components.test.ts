@@ -14,7 +14,7 @@ import GameComposer from '../src/components/GameComposer.vue'
 import SettingsDrawer from '../src/components/SettingsDrawer.vue'
 import type { Row, Status } from '../src/stores/game'
 import { parseCard } from '../src/game/card'
-import { READ_LABEL, toGraph } from '../src/dev/card-graph'
+import { toGraph } from '../src/dev/card-graph'
 import { EXAMPLE_CARD } from './support/card-fixtures'
 import { i18n, t } from '../src/i18n'
 import { realCalendar } from '../src/utils/calendar'
@@ -319,11 +319,13 @@ describe('CardGraph', () => {
     expect(cardGraphStory.title).toBe(expected)
   })
 
-  it('marks read edges for the dashed style and leaves the rest solid', () => {
+  it('marks read edges for the dashed style, leaves the rest solid, and writes no labels', () => {
     const w = render(CardGraph, { global: { stubs: { VueFlow: VueFlowStub } } })
-    const edges = w.findComponent(VueFlowStub).props('edges') as Array<{ class: string }>
-    const reads = graph.edges.filter((edge) => edge.label === READ_LABEL).length
+    const edges = w.findComponent(VueFlowStub).props('edges') as Array<{ class: string; label?: string }>
+    const reads = graph.edges.filter((edge) => edge.read).length
     expect(edges.filter((edge) => edge.class === 'card-graph-read')).toHaveLength(reads)
     expect(edges.filter((edge) => edge.class === 'card-graph-flow')).toHaveLength(graph.edges.length - reads)
+    // 虚线不写字：上游是拓扑前缀推出来的，边上没有文字
+    expect(edges.every((edge) => edge.label === undefined)).toBe(true)
   })
 })

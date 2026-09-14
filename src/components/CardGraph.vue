@@ -3,7 +3,7 @@
  * 卡图查看器：把示例卡画成节点图（作者 / 调试工具，只在 Storybook 与 dev 里用）。
  *
  * 卡是唯一事实来源 —— 这里只做「读卡 → 校验 → 摊成图 → 交给 vue-flow 画」，
- * 不认得任何一张具体的卡。实线是拓扑的先后，虚线（标「读」）是谁读了谁的产出。
+ * 不认得任何一张具体的卡。实线是拓扑的先后，虚线不写字：谁读了谁的产出。
  *
  * ⚠️ 只被 story 引用：App 与 main.ts 都不引它 —— vue-flow 是 devDependency，不进 dist。
  */
@@ -13,7 +13,7 @@ import type { Edge, Node } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import { parseCard } from '../game/card'
-import { READ_LABEL, toGraph } from '../dev/card-graph'
+import { toGraph } from '../dev/card-graph'
 import cardJson from '../../cards/morningwind.json?raw'
 
 /** 节点框里的两行字 + 高亮标记（哪一个在跑、哪一个失败了） */
@@ -54,13 +54,12 @@ const nodes = computed<Node<CardNodeData>[]>(() =>
   })),
 )
 
-/** 读边（label 是 READ_LABEL）走卡图那套虚线与强调色，主干边是普通实线 */
+/** 读边（read）走卡图那套虚线与强调色，主干边是普通实线 */
 const edges: Edge[] = graph.edges.map((edge, index) => ({
   id: 'edge-' + index,
   source: edge.source,
   target: edge.target,
-  label: edge.label,
-  class: edge.label === READ_LABEL ? 'card-graph-read' : 'card-graph-flow',
+  class: edge.read ? 'card-graph-read' : 'card-graph-flow',
   markerEnd: MarkerType.ArrowClosed,
 }))
 </script>
