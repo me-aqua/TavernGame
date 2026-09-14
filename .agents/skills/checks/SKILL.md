@@ -1,23 +1,40 @@
 ---
 name: checks
-description: 自动化检查体系——三道 git 钩子各跑什么、工具怎么配、以及踩过的坑（报错顺序、Buffer 空值、阈值校准）。
+description: 自动化检查体系——三层门禁（两道钩子 + CI）各跑什么、工具怎么配、以及踩过的坑（报错顺序、Buffer 空值、阈值校准）。
 whenToUse: 改动钩子、配置 lint/format、或提交被拦下来需要判断「这是不是误报」时。
 ---
 
 # 自动化检查体系
 
-## 三层分工
+## 三层门禁
 
-| 钩子 | 时机 | 耗时 | 内容 |
+| 层 | 时机 | 耗时 | 内容 |
 | --- | --- | --- | --- |
-| `pre-commit` | 每次提交 | ~5s | 密钥 → 换行/编码/BOM → 语法 → ASCII → 英文标识符 → 提示词未内联 → ESLint → 类型 + 单测（并行）→ Prettier |
-| `pre-push` | 每次推送 | ~12s | 覆盖率门禁 → 构建 → e2e |
+| `pre-commit` | 每次提交 | ~2s | 密钥 → 换行/编码/BOM → 语法 → ASCII → 英文标识符 → 提示词未内联 → 调试残留 → 吞错误 → 体积 → ESLint → **相关单测** → Prettier |
+| `pre-push` | 每次推送 | ~6s | 类型检查 → 全量单测 → 覆盖率门禁 → 构建 |
 | `commit-msg` | 每次提交 | <1s | 约定式提交前缀 |
+| CI（`.github/workflows/ui.yml`） | PR 与 push 到 main | 分钟级 | `npm run check` → 覆盖率门禁 → 构建 → e2e 冒烟 → 组件故事 → 整页结构巡检（截图当工件上传） |
 
-**为什么分层**：pre-commit 每次提交都跑，必须快；重活（覆盖率、构建、e2e）放 pre-push。
-这样既不把坏东西推上去，也不让人等十几秒。
+**为什么分层**：pre-commit 每次提交都跑，必须秒级 —— 所以它只留**代码与文本层**，
+类型检查与全量单测交给 pre-push（仍是秒级）。浏览器那一侧单机一次几十秒
+（e2e ~10s、stories ~19s、visual ~50s），搬去 CI：不占开发者的等待时间，换台机器也照样跑。
 
-跳过：`SKIP_DISCIPLINE=1 git commit ...`（须在提交信息里说明理由）。
+**相关单测不是门禁**（`vitest related <暂存文件>`）：只有暂存了 `src/` 或 `tests/` 才跑，
+只覆盖被这些文件牵连到的用例，而且按**工作区**内容跑。没被任何测试引用的新模块由
+「新增源码必须配测试」拦，全量口径由 pre-push 兜底。没用 `vitest --changed` 的原因：
+它按工作区与 HEAD 的差异算，会把**没暂存的**旁人改动一并算进来（实测多跑了 4 个文件）。
+
+**重活怎么防漏**：CI 是新的强制点，但它**只有分支保护要求它通过时才真拦得住** ——
+`main` 目前没有开保护（见 release skill），也就是说现在仍可绕过 CI 直推 main。
+要不要开保护是**需要用户拍板**的事（开了之后 me-aqua 自己也不能直推 main）。
+
+**像素基线在 CI 上**：CI 跑整页巡检用 `npx playwright test e2e/visual.spec.ts --ignore-snapshots`
+—— 结构判据照跑，像素基线不比。8 张基线是 macOS 录的（文件名带 `-darwin`），
+Linux 的字体渲染必然不同；基线必须有人看过再重录，所以留本机维护，CI 把截图与两张
+总览页当工件传上来给人看。
+
+跳过：`SKIP_DISCIPLINE=1 git commit ...` / `SKIP_DISCIPLINE=1 git push ...`
+（须在提交信息里说明理由）。
 
 ## 工具
 
@@ -28,7 +45,8 @@ whenToUse: 改动钩子、配置 lint/format、或提交被拦下来需要判断
 | commitlint | 提交信息前缀 | `commitlint.config.js` |
 | 自定义脚本 | `checks/` 下六个：密钥 `secrets.mjs`、语法 `syntax.mjs`、ASCII `ascii.mjs`、标识符 `identifiers.mjs`、提示词 `prompts.mjs` | `.githooks/checks/` |
 
-一条命令：`npm run check`（typecheck + lint + format + 单测）；全量 `npm run verify`。
+一条命令：`npm run check`（typecheck + lint + format + 单测）；本地全量 `npm run verify`
+（再加快照覆盖率与 e2e）；CI 跑的就是这些 + 组件故事 + 整页结构巡检。
 
 ## 坑（都实测过）
 
@@ -41,7 +59,8 @@ Prettier 块会 `process.exit(1)` 让开发者「再 commit 一次」。
 ### 2. execSync 的 stdout/stderr 是 Buffer，且**空 Buffer 也是 truthy**
 
 `String(err.stdout || err.stderr)` 会选到空 Buffer，把真正内容吞掉
-（表现为「密钥报错变成空条目」）。必须显式解码再按长度挑：
+（表现为「密钥报错变成空条目」）。pre-push 一度写的是 `String(err.stdout || err.message)`，
+同一个坑：任务失败时只打印一个空条目，看不到真正的报错。必须显式解码再按长度挑：
 
 ```js
 const 读输出 = (err) => {

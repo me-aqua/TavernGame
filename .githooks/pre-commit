@@ -1,6 +1,14 @@
 #!/usr/bin/env node
 // 提交时强制执行：违规就拦下提交 —— 纪律不是写在文档里的请求，而是一条真会跑的检查。
 // 逃生口：SKIP_DISCIPLINE=1 git commit ...（并在提交信息里说明理由）
+//
+// 分工（2026-09：重型检查搬去 CI，本钩子只留代码与文本层）：
+//   本钩子（每次提交，秒级）：密钥 / 换行编码 / 语法 / ASCII / 标识符 / 提示词 /
+//                             调试残留 / 吞错误 / 体积 / ESLint / 相关单测 / Prettier
+//   pre-push（每次推送，秒级）：类型检查 / 全量单测 / 覆盖率门禁 / 构建
+//   CI（PR 与 push 到 main，分钟级）：上面全部 + e2e 冒烟 + 组件故事 + 整页结构巡检
+//                                     （.github/workflows/ui.yml；像素基线仍由本机维护）
+// 文件末尾的视觉提醒不阻塞：CI 的结构检查保证不了「好不好看」，它是这件事的主要防线。
 import { execSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 
@@ -330,38 +338,32 @@ if (lintTargets.length) {
   })
 }
 
-// ---------- 检查 14：类型检查 + 单元测试（并行跑，缩短等待）----------
-const needsHeavy = staged.some((f) => /\.(ts|vue)$/.test(f)) || /package\.json|tsconfig/.test(staged.join(' '))
-const heavyTasks = []
-if (needsHeavy) {
-  heavyTasks.push(
-    new Promise((resolve) => {
+// ---------- 检查 14：只跑与本次改动相关的单测（与 ESLint 并行）----------
+// 类型检查与全量单测搬去 pre-push（那里仍是秒级）与 CI —— 提交这一步只做轻量预警。
+// 用 `vitest related <暂存文件>` 而不是 `--changed`：后者按工作区与 HEAD 的差异算，
+// 会把**没暂存的**旁人改动一并算进来（实测工作区有别的改动时多跑了 4 个文件）。
+// 局限（诚实说清，不要装成门禁）：它按工作区内容跑，只覆盖被暂存文件牵连到的用例；
+// 没被任何测试引用的新模块由上面的「新增源码必须配测试」拦，全量口径由 pre-push 兜底。
+const testTargets = allStaged.filter((f) => /^(src|tests)\/.*\.(ts|vue)$/.test(f))
+const relatedTests = testTargets.length
+  ? new Promise((resolve) => {
       try {
-        execSync('npm run -s typecheck', { stdio: 'pipe' })
+        execSync(
+          'npx vitest related --run --passWithNoTests ' + testTargets.map((f) => '"' + f + '"').join(' '),
+          { stdio: 'pipe' },
+        )
         resolve(null)
       } catch (err) {
-        resolve('typecheck：\n' + readOutput(err).split('\n').slice(0, 10).join('\n'))
+        resolve('相关单测：\n' + readOutput(err).split('\n').slice(-12).join('\n'))
       }
-    }),
-  )
-  // 单元测试很快（<1s）—— 在这里抓到坏掉，比留到推送时更好
-  heavyTasks.push(
-    new Promise((resolve) => {
-      try {
-        execSync('npm run -s test', { stdio: 'pipe' })
-        resolve(null)
-      } catch (err) {
-        resolve('测试：\n' + readOutput(err).split('\n').slice(-12).join('\n'))
-      }
-    }),
-  )
-}
+    })
+  : null
 
-if (lintPromise || heavyTasks.length) {
-  const results = await Promise.all([lintPromise, ...heavyTasks])
+if (lintPromise || relatedTests) {
+  const results = await Promise.all([lintPromise, relatedTests])
   for (const result of results) {
     if (!result) continue
-    if (result.startsWith('typecheck') || result.startsWith('测试')) {
+    if (result.startsWith('相关单测')) {
       problems.push('[' + result.split('：')[0] + '] ' + result.split('\n').slice(1).join('\n     '))
     } else {
       problems.push('[lint]\n' + result.split('\n').map((l) => '     ' + l).join('\n'))

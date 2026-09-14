@@ -23,6 +23,21 @@ npm run verify     # 类型检查 → 单测 + 覆盖率门禁 → 构建 → �
 | `npm run visual` | 状态 × 屏幕矩阵（50 张，含 8 张像素基线） |
 | `npm run storybook` | 组件工作台（人看的地方，6006） |
 
+> 本地把 UI 那几层跑齐：`npm run e2e && npm run stories && npm run visual`（慢，改界面时才值得跑）。
+
+## 门禁在哪里（2026-09：重型检查搬去 CI）
+
+| 层 | 本地 | 谁强制 |
+| --- | --- | --- |
+| 单元 / 组件 | 提交时只跑**与暂存文件相关的**；推送时跑全量 | pre-commit（预警）/ pre-push（门禁） |
+| 覆盖率 | 推送时 | pre-push |
+| 构建 | 推送时 | pre-push |
+| 功能冒烟 / 组件故事 / 整页结构 | 手动（`npm run e2e` / `stories` / `visual`） | CI（`.github/workflows/ui.yml`，PR 与 push 到 main） |
+
+浏览器那几层不进本地钩子（单机一次几十秒），但 CI 每次都会跑，截图当工件上传供人看。
+⚠️ CI 只有在**分支保护要求它通过**时才拦得住 —— `main` 目前没开保护，这条是需要用户拍板的取舍。
+整页像素基线仍由本机维护（CI 只跑结构判据），理由见 checks skill。
+
 ## 各层测什么（别串层）
 
 | 层 | 位置 | 环境 | 测什么 |
@@ -43,7 +58,8 @@ npm run verify     # 类型检查 → 单测 + 覆盖率门禁 → 构建 → �
 2. **结构判据只写一份**（`e2e/probe.ts`）：横向溢出、元素伸出视口、点按目标 < 24×24
    （WCAG 2.5.8，含行内链接例外）。组件故事与整页矩阵共用它。
 3. **截图基线要显式刷新**：`npx playwright test e2e/visual.spec.ts --update-snapshots`。
-   基线是 macOS 录的（文件名带 `-darwin`），换平台要么重录，要么让 CI 跳过。
+   基线是 macOS 录的（文件名带 `-darwin`）。CI 正是跳过像素比对的那条路
+   （`--ignore-snapshots`，只跑结构判据），换平台想比像素就得重录一套基线。
 
 ### 看图的习惯（用户明确要求过）
 

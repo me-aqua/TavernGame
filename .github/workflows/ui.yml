@@ -1,0 +1,94 @@
+# ============================================================
+#  UI / 测试检查 —— 本地钩子之外的新强制点
+#
+#  分工（2026-09：重型检查从本地钩子搬到这里）：
+#    pre-commit（每次提交，秒级）：密钥 / 换行编码 / 语法 / ASCII / 标识符 / 提示词 /
+#                                 调试残留 / 吞错误 / 体积 / ESLint / 相关单测 / Prettier
+#    pre-push（每次推送，秒级）：类型检查 / 全量单测 / 覆盖率门禁 / 构建
+#    本工作流（PR 与 push 到 main，分钟级）：npm run check → 覆盖率门禁 → 构建
+#                                 → e2e 冒烟 → 组件故事 → 整页结构巡检
+#
+#  整页像素基线为什么不在 CI 上比（采用方案 a：CI 只跑结构检查并上传截图工件）：
+#    8 张基线是 macOS 上录的（文件名带 -darwin），Linux 的字体与抗锯齿渲染必然
+#    不同，直接比只会永远红。基线是「人看过并认可」的锚点，重录必须有人当场看图，
+#    所以基线继续由本机维护（npm run visual / --update-snapshots）；CI 用
+#    --ignore-snapshots 只跑与平台无关的结构判据（溢出 / 出界 / 点按目标 / 遮挡），
+#    并把截图与两张总览页当工件传上来供人看。
+#    改成方案 b（基线加平台维度）之前先想清楚：macOS 与 Linux 两份基线要同步维护。
+#
+#  ⚠️ 本工作流只有在**分支保护要求它通过**时才真拦得住 —— main 目前没有开保护
+#     （见 .agents/skills/release/SKILL.md），也就是说现在仍可绕过它直推 main。
+# ============================================================
+name: UI checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# 同一分支只保留最新一次：连续推送时旧的那次自动取消
+concurrency:
+  group: ui-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          # 与 deploy.yml 一致：部署用哪个版本，检查就跑哪个版本
+          node-version: 26
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install chromium
+        run: npx playwright install --with-deps chromium
+
+      # 便宜的先跑：单元层红了就不必等浏览器
+      - name: Check (typecheck / lint / format / unit tests)
+        run: npm run check
+
+      - name: Coverage gate
+        run: npm run test:coverage
+
+      - name: Build
+        run: npm run build
+
+      - name: E2E smoke
+        run: npm run e2e
+
+      - name: Component stories
+        run: npm run stories
+
+      - name: Full page structure check (pixel baselines stay on macOS)
+        run: npx playwright test e2e/visual.spec.ts --ignore-snapshots
+
+      # 截图与总览页始终上传：改界面的人要在这里看图，绿了也要看
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots
+          path: |
+            artifacts/screenshots
+            artifacts/stories
+          if-no-files-found: ignore
+
+      # 失败现场：trace（含失败时的截图）等 test-results
+      - name: Upload failure traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: traces
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore

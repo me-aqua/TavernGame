@@ -1,10 +1,16 @@
 #!/usr/bin/env node
-// pre-push 检查：塞不进亚秒级 pre-commit 的重活。
+// pre-push 检查：只留秒级的本地门禁 —— 类型 / 全量单测 / 覆盖率 / 构建。
 //
-// 为什么分层：
-//   pre-commit 每次提交都跑 → 语法 / 格式 / lint / 类型 / 单元测试
-//   pre-push   每次推送都跑 → 覆盖率门槛 / 构建 / 端到端
-// 这样「绝不推送坏东西」不必让每次提交都等。
+// 分工（2026-09：重型检查搬去 CI）：
+//   pre-commit（每次提交，秒级）：密钥 / 换行编码 / 语法 / ASCII / 标识符 / 提示词 /
+//                                调试残留 / 吞错误 / 体积 / ESLint / 相关单测 / Prettier
+//   本文件（每次推送，秒级）：类型检查 / 全量单测 / 覆盖率门禁 / 构建
+//   CI（PR 与 push 到 main，分钟级）：上面全部 + e2e 冒烟 + 组件故事 + 整页结构巡检
+//                                     （.github/workflows/ui.yml，失败时传截图与 trace）
+//
+// 浏览器检查为什么不在本地钩子里：单机一次几十秒（e2e ~10s、stories ~19s、visual ~50s），
+// 而 CI 每次都会跑；想看界面时手动 npm run e2e / npm run stories / npm run visual。
+// ⚠️ CI 只有在**分支保护要求它通过**时才真拦得住；main 目前没开保护（见 checks skill）。
 import { execSync } from 'node:child_process'
 
 if (process.env.SKIP_DISCIPLINE === '1') {
@@ -12,11 +18,22 @@ if (process.env.SKIP_DISCIPLINE === '1') {
   process.exit(0)
 }
 
+/**
+ * 把失败的 execSync 输出读成文本。
+ *
+ * ⚠️ 与 pre-commit 同一个坑：err.stdout / err.stderr 是 Buffer，而**空 Buffer 为真** ——
+ *    `String(err.stdout || err.message)` 会挑中空 Buffer，把真正的报错吞成空白。
+ */
+const readOutput = (err) => {
+  const decode = (v) => (Buffer.isBuffer(v) ? v.toString('utf8') : String(v ?? ''))
+  return (decode(err.stdout) || decode(err.stderr) || decode(err.message)).trim()
+}
+
 const tasks = [
+  { name: '类型检查', command: 'npm run -s typecheck' },
+  { name: '全量单测', command: 'npm run -s test' },
   { name: '覆盖率门禁', command: 'npm run -s test:coverage' },
   { name: '构建', command: 'npm run -s build' },
-  { name: '端到端（真浏览器，Playwright）', command: 'npx playwright test e2e/smoke.spec.ts' },
-  { name: '组件故事（Storybook + Playwright）', command: 'npm run stories' },
 ]
 
 const failures = []
@@ -27,7 +44,7 @@ for (const task of tasks) {
     console.log('✓')
   } catch (err) {
     console.log('✖')
-    failures.push({ ...task, output: String(err.stdout || err.message) })
+    failures.push({ ...task, output: readOutput(err) })
   }
 }
 
