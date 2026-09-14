@@ -35,6 +35,12 @@
 
 一条命令跑完全部把关：`npm run verify`
 
+### 提示词
+
+**禁止把提示词内联在代码里** —— 内容放 `prompts/*.md`，代码只用 `renderPrompt()` 装配。
+由 `.githooks/checks/prompts.mjs` 强制（超 30 字的中文串会被拦，UI 文案标注 `// 允许：理由` 即可）。
+占位符没填完会抛错，绝不会把 `{{SNAPSHOT}}` 发给模型。
+
 ### 测试
 
 **新增功能必须新增测试** —— 由 `.githooks/pre-commit` 强制：

@@ -15,7 +15,12 @@
 
 import { chat } from './llm'
 import { runTool, parseToolCalls } from './tools'
-import { buildSystemPrompt, OPENING_INSTRUCTION } from './prompts'
+import {
+  buildSystemPrompt,
+  OPENING_INSTRUCTION,
+  FORCED_NARRATION_INSTRUCTION,
+  toolResultsPrompt,
+} from './prompts'
 import { loadConfig } from './config'
 import type { GameState } from './state'
 import type { ChatMessage } from '../types/state'
@@ -77,14 +82,7 @@ async function 补写叙事(
   onEvent: (evt: AgentEvent) => void,
 ): Promise<string | null> {
   onEvent({ type: 'warn', message: '这一回合没有产生叙事文字，正在要求 GM 补写…' })
-  messages.push({
-    role: 'user',
-    content:
-      '你刚才只调用了工具，没有输出任何叙事文字，玩家现在看到的是一片空白。\n\n' +
-      '请**只写叙事**，不要再调用任何工具。\n' +
-      '基于已经发生的事，把这个场景写给玩家看：他身处何处、看到什么、' +
-      '听到什么、有什么处境。两到三段。',
-  })
+  messages.push({ role: 'user', content: FORCED_NARRATION_INSTRUCTION })
 
   const forced = await chat(messages, { signal })
   const text = parseToolCalls(forced).clean || forced.trim()
@@ -175,14 +173,7 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
     }
 
     // 把真实执行结果回传给模型，让它据此继续写
-    messages.push({
-      role: 'user',
-      content:
-        `以下是工具的实际执行结果（这是真实数据，请以此为准继续叙事）：\n\n` +
-        resultLines.join('\n\n') +
-        `\n\n请继续描写接下来发生的事。如果还有需要改变的状态，继续调用工具；` +
-        `如果本回合已经写完，就不要再输出工具块。`,
-    })
+    messages.push({ role: 'user', content: toolResultsPrompt(resultLines.join('\n\n')) })
   }
 
   // 步数用尽
@@ -206,6 +197,7 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
   if (!state.save()) {
     onEvent({
       type: 'warn',
+      // 允许：给玩家看的状态提示，不是给模型的提示词
       message: '存档写入失败（可能是隐私模式或空间已满）—— 这一回合的进度重启后会丢失',
     })
   }

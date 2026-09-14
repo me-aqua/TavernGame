@@ -172,7 +172,10 @@ for (const f of textFiles.filter((f) => /\.(ts|vue)$/.test(f))) {
   })
 }
 // 统计净增行时排除锁文件：那是 npm 生成的依赖清单，不是「我写的代码」
-const stat = git('diff --cached --shortstat -- . ":(exclude)package-lock.json"')
+// 排除生成物：锁文件与提示词编码（.b64 由 npm run prompts:encode 生成，不是手写的）
+const stat = git(
+  'diff --cached --shortstat -- . ":(exclude)package-lock.json" ":(exclude)prompts/*.b64"',
+)
 const net = Number(stat.match(/(\d+) insertion/)?.[1] ?? 0)
 if (net > SIZE.net)
   problems.push(`[体积] 本次改动 +${net} 行（上限 ${SIZE.net}）—— 拆成多次提交，或解释为什么必须一次改这么多`)
@@ -243,6 +246,19 @@ if (可查语法.length) {
           .slice(-4)
           .join(' / '),
     )
+  }
+}
+
+// ---------- 检查 10.5：提示词不得内联在代码里 ----------
+// 规则：内容进 prompts/*.md，代码用 renderPrompt() 装配（用户明确要求）
+const 可查提示词 = staged.filter((f) => /^src\/.*\.(ts|vue)$/.test(f))
+if (可查提示词.length) {
+  try {
+    execSync('node .githooks/checks/prompts.mjs ' + 可查提示词.map((f) => '"' + f + '"').join(' '), {
+      stdio: 'pipe',
+    })
+  } catch (err) {
+    problems.push(读输出(err))
   }
 }
 

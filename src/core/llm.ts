@@ -9,6 +9,7 @@
  */
 
 import { loadConfig, PRESETS } from './config'
+import { CONNECTION_TEST_PROMPT } from './prompts'
 import type { ChatMessage } from '../types/state'
 
 export interface ChatOptions {
@@ -110,7 +111,7 @@ export interface TestResult {
 export async function testConnection(): Promise<TestResult> {
   const started = Date.now()
   const reply = await chat([
-    { role: 'system', content: '你是一个测试助手。' },
+    { role: 'system', content: CONNECTION_TEST_PROMPT },
     { role: 'user', content: '只回复两个字：可用' },
   ])
   return {

@@ -11,53 +11,24 @@
  * 真正改状态、并且拦住非法推进（倒退、手滑的超大跨度）的都是这里。
  */
 
-import { SEGMENTS } from './calendar'
 import type { GameState } from './state'
 
-/** 一个工具的参数说明：参数名 → 说明文字 */
-export type ToolArgsDoc = Record<string, string>
-
+/**
+ * 一个工具。
+ *
+ * ⚠️ 这里**只有执行体**：给模型看的说明（参数含义、调用示例、何时该调用）
+ * 全在 `prompts/tools.md`。提示词与代码分离 —— 改玩法不用改代码。
+ */
 export interface ToolDef {
-  desc: string
-  args: ToolArgsDoc
   run(state: GameState, args: Record<string, unknown>): string
 }
 
 export const TOOLS: Record<string, ToolDef> = {
+  // ⚠️ 这里**只放执行逻辑**。给模型看的说明（参数含义、调用示例、
+  //    什么时候该调用）全在 prompts/tools.md —— 提示词与代码分离。
   advance_time: {
-    desc:
-      '推进故事内的时间。**只在剧情确实经过了一段时间时才调用** ' +
-      '（例如：赶路、交谈很久、睡了一觉、等到天黑、修养数日）。\n' +
-      '如果这一回合只是几句话、几个动作，就**不要调用**。\n' +
-      '跨度没有上限 —— 「等了七天」「修养一个月」都是正常剧情。',
-    args: {
-      step: '推进的数量，正整数。默认 1',
-      unit:
-        '单位，可选：`segment`（一个时段，默认，约 4 小时）/ `hour`（小时）/ ' +
-        '`day`（天）/ `week`（周）/ `month`（月）/ `year`（年）。\n' +
-        '例如「等了七天」用 {step: 1, unit: "week"}；' +
-        '「睡了三天」用 {step: 3, unit: "day"}；' +
-        '「到了下午」用 {step: 1}',
-      reason: '为什么时间会流逝（会记录在时间线里，例如「连夜赶路」）',
-    },
     run: (state, a) => state.advanceTime(a.step, a.unit, typeof a.reason === 'string' ? a.reason : ''),
   },
-}
-
-/** 生成给模型看的工具说明 */
-export function toolsPrompt(): string {
-  const lines = ['## 你可以调用的工具', '']
-  for (const [name, t] of Object.entries(TOOLS)) {
-    lines.push(`### ${name}`)
-    lines.push(t.desc)
-    for (const [arg, desc] of Object.entries(t.args)) {
-      lines.push(`- \`${arg}\`：${desc}`)
-    }
-    lines.push('')
-  }
-  lines.push(`一天分三段：${SEGMENTS.join(' → ')}。`)
-  lines.push('')
-  return lines.join('\n')
 }
 
 /**
@@ -74,13 +45,6 @@ export function runTool(state: GameState, name: unknown, args: Record<string, un
     return `❌ 没有名为「${String(name)}」的工具。可用工具：${Object.keys(TOOLS).join('、')}`
   }
   const tool = TOOLS[name]
-
-  // advance_time 的 step 有默认值，所以空参数是合法的
-  const keys = Object.keys(args || {})
-  if (keys.length === 0 && name !== 'advance_time') {
-    const need = Object.keys(tool.args).join('、')
-    return `❌ ${name} 没有收到任何参数，所以什么都没做。\n   需要提供：${need}`
-  }
 
   try {
     return String(tool.run(state, args || {}))

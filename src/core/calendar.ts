@@ -46,8 +46,8 @@ export interface Calendar {
   advance(iso: string, step: number, unit: TimeUnit): AdvanceResult
   /** 把毫秒差说成人话 */
   describeElapsed(ms: number): string
-  /** 给模型看的历法说明 */
-  prompt(): string
+  // ⚠️ 这里**没有**「给模型看的历法说明」—— 提示词内容一律在
+  //    prompts/calendar.md（提示词与代码分离，由 prompts.ts 装配）
 }
 
 /** 把小时数映射到时段索引 */
@@ -155,17 +155,6 @@ export const realCalendar: Calendar = {
     if (months) parts.push(`${months} 个月`)
     if (remDays) parts.push(`${remDays} 天`)
     return `过去了 ${parts.join(' ')}`
-  },
-
-  prompt(): string {
-    return [
-      '## 时间设定',
-      '',
-      '- 这个世界使用**现实世界的公历**（12 个月，每月 28–31 天，有闰年）',
-      '- 一天分三段：上午 / 下午 / 晚上',
-      '- 需要提到日期、星期、季节时，**以状态里的时间为准**，不要自己编造',
-      '',
-    ].join('\n')
   },
 }
 

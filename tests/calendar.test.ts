@@ -112,10 +112,7 @@ describe('未覆盖分支补测', () => {
     expect(s).toMatch(/^\d+ 月 \d+ 日 · (上午|下午|晚上)$/)
   })
 
-  it('prompt() 说明里包含公历与三段', () => {
-    expect(realCalendar.prompt()).toContain('公历')
-    expect(realCalendar.prompt()).toContain('上午 / 下午 / 晚上')
-  })
+  // 历法说明是提示词，已移到 prompts/calendar.md（那里的断言在 tests/prompts.test.ts）
 })
 
 describe('历法注册表', () => {

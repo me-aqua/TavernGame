@@ -1,140 +1,103 @@
 /**
- * src/core/prompts.ts —— 提示词集中管理
+ * src/core/prompts.ts —— 提示词装配器
  *
- * 提示词单独放一个文件，而不是散在代码里，原因是：
- *   - 调玩法时 90% 的时间在改这里，不该每次翻代码
- *   - 提示词是最容易改出效果、也最容易改坏的地方，要能一眼看到全文
+ * ⚠️ **这里不放任何提示词内容。** 内容全部在 `prompts/*.md`。
+ * 这个文件的职责只有两件：
+ *   1. 用 Vite 的 `?raw` 在构建期把提示词读成字符串（无运行时请求）
+ *   2. 把占位符填上，并**确认没有漏填**
  *
- * ⚠️ 写这里的铁律（血泪教训）：
- *   **示例必须是「正确输出的完整形态」，不能是简化片段或占位符。**
- *   模型跟着示例走，不跟说明走。用占位符当示例，
- *   模型就会输出空参数；把工具块单独展示，模型就会以为工具是单独一条消息。
+ * 为什么单独放文件：提示词是这个项目的"游戏逻辑"（见 doc/DESIGN.md），
+ * 改动的频率与重要性不低于代码；混在字符串里没法评审、没法 diff，
+ * 而且 `\n` 拼接的排版远不如 Markdown 干净。
  */
 
-import { toolsPrompt } from './tools'
+// 提示词以 base64 形式随包发布（源文件是 prompts/*.md，由 npm run prompts:encode 生成）。
+// 为什么编码：见 prompts/README.md —— 主要是**彻底避开转义坑**
+// （反引号/换行/引号/中文），同时产物里不再是可读明文。
+// ⚠️ 这是编码不是加密：客户端字符串永远拿得到，别把需要保密的东西放进来。
+import 系统模板b64 from '../../prompts/system.md.b64?raw'
+import 工具模板b64 from '../../prompts/tools.md.b64?raw'
+import 开场指令b64 from '../../prompts/opening.md.b64?raw'
+import 补写指令b64 from '../../prompts/forced-narration.md.b64?raw'
+import 工具结果模板b64 from '../../prompts/tool-results.md.b64?raw'
+import 连接测试b64 from '../../prompts/connection-test.md.b64?raw'
+import 历法说明b64 from '../../prompts/calendar.md.b64?raw'
+
+/**
+ * .b64 文件是「带注释的一小段 JS」，真实载荷是导出的字符串。
+ * 这里只取引号之间的内容，避免依赖 eval / import 副作用。
+ */
+function 解码提示词(原始: string): string {
+  const m = 原始.match(/"([\s\S]*)"/)
+  if (!m) throw new Error('提示词编码文件格式不对（找不到 base64 字符串）')
+  const b64 = m[1]
+  // 浏览器与 Node 18+ 都有 atob / TextDecoder，所以不需要任何 Node 专用 API。
+  // base64 → 字节 → UTF-8：中文必须走这一步，直接 atob 得到的是乱码。
+  const 二进制 = atob(b64)
+  const 字节 = new Uint8Array(二进制.length)
+  for (let i = 0; i < 二进制.length; i += 1) 字节[i] = 二进制.charCodeAt(i)
+  return new TextDecoder('utf-8').decode(字节)
+}
+
+const 系统模板 = 解码提示词(系统模板b64)
+const 工具模板 = 解码提示词(工具模板b64)
+const 开场指令 = 解码提示词(开场指令b64)
+const 补写指令 = 解码提示词(补写指令b64)
+const 工具结果模板 = 解码提示词(工具结果模板b64)
+const 连接测试 = 解码提示词(连接测试b64)
+const 历法说明 = 解码提示词(历法说明b64)
+
+import { SEGMENTS } from './calendar'
 import type { GameState } from './state'
 import type { ChatMessage } from '../types/state'
 
+export {
+  开场指令 as OPENING_INSTRUCTION,
+  补写指令 as FORCED_NARRATION_INSTRUCTION,
+  连接测试 as CONNECTION_TEST_PROMPT,
+}
+
 /**
- * GM（游戏主持）的核心人设与规则 —— 与历法无关的固定部分。
+ * 填占位符。
  *
- * 历法说明是动态的（取决于玩家用哪套历法），
- * 所以用 buildSystemPrompt() 拼装，不要在这里写死。
+ * **填不干净就抛错** —— 宁可在这里失败，也不要把 `{{SNAPSHOT}}` 这种字样
+ * 发给模型（那会让提示词静默失效，而且很难发现）。
  */
-export const SYSTEM_PROMPT = `你是一个文字冒险游戏的主持人（GM），为一位玩家运行一个持续的世界。
+export function renderPrompt(模板: string, 值: Record<string, string>): string {
+  let 结果 = 模板
+  for (const [键, 替换] of Object.entries(值)) {
+    结果 = 结果.replaceAll(`{{${键}}}`, 替换)
+  }
+  // 匹配任意 {{...}}：占位符名字不该有格式限制，漏填才是要拦的事
+  const 没填 = 结果.match(/\{\{[^{}]+\}\}/g)
+  if (没填) {
+    throw new Error(`提示词有未填的占位符：${[...new Set(没填)].join('、')}`)
+  }
+  // 折叠连续空行：各提示词文件自带末尾换行，拼接后会留下 \n\n\n 这类空隙。
+  // 发给模型的东西要干净（也省 token）—— 这是装配层的职责，不必要求每个文件都精确收尾。
+  return 结果.replace(/\n{3,}/g, '\n\n').trim()
+}
 
-## 你的职责
-
-1. **推进叙事**：用第二人称（「你」）描写玩家经历的事，像小说一样有画面感。
-2. **保持连贯**：参考「最近发生的事」，不要忘记玩家之前做过什么。
-3. **给玩家选择的空间**：描述完场景后，可以暗示有哪几条路可走，
-   但**不要替玩家做决定**。
-4. **控制节奏**：该紧张时短句、该舒缓时铺陈。不要每段都一个调子。
-
-## 写作要求
-
-- **长度**：每次回复 2～4 段。不要写长篇大论，也不要只有一句话。
-- **语言**：始终用中文。
-- **不要替玩家说话**：只写世界和 NPC 的反应，玩家的行动由玩家自己决定。
-- **不要重复状态**：时间和地点界面会单独显示，你只要写好故事。
-- **有细节**：气味、声音、温度、光线。这些比形容词更能让人进入场景。
-
-## 关于成败
-
-你现在**没有掷骰工具**，判断成败由你自己写 —— 但要遵循两条：
-
-- **不要总是成功**。一直顺利就没有张力了。该失败、该付出代价的时候就写。
-- **代价要具体**：受伤、丢东西、惊动别人、错过时机 —— 而不是含糊的「你失败了」。
-
-${toolsPrompt()}
-
-## 工具调用格式
-
-### 🔴 一次回复 = 叙事 + （可选的）工具块
-
-**工具块是叙事的一部分，附在叙事末尾 —— 不是单独的一条消息。**
-
-也就是说：同一段回复里，前面是故事，最后几行是工具块。
-
-下面是一个**完整的回复长什么样**：
-
----
-
-你推开藏书阁的木门，灰尘在斜射的光柱里翻滚。架上的书脊大多已经开裂，
-你一本本抽出来看，指腹被纸边割出几道细口子。
-
-天色从窗棂的东侧挪到西侧，油灯续了两次。当你合上最后一本时，
-楼下已经传来打更人的梆子声。
-
-\`\`\`tool
-{"tool": "advance_time", "args": {"step": 1, "reason": "在藏书阁翻找了一整个下午"}}
-\`\`\`
-
----
-
-❌ **这是错的** —— 工具块之前一个字都没有，玩家只会看到一片空白：
-
-\`\`\`tool
-{"tool": "advance_time", "args": {"step": 1}}
-\`\`\`
-
-**记住：永远先写故事，工具块只出现在最后。**
-
-### 什么时候必须调用 \`advance_time\`
-
-**规则很简单：你的叙事里跨过了时间，就必须调用它。**
-
-不管是一个下午、一整夜，还是整整七天 ——
-只要故事里的时间往前走了，就要在工具块里如实记下来。
-**这不是可选项。** 如果你写了「七天后」，却没调用工具，
-界面上显示的时间就会停在原地，和你的故事对不上。
-
-判断方法：写完叙事之后问自己一句 ——
-「我这段文字里，时间过去了吗？」过去了，就补上工具块。
-
-### 这些情况**不要**调用
-
-- 几句话、几个动作、一次简短的对话（时间没有明显流逝）
-- 纯粹的心理描写、回忆、说明
-
-### 跨度可以很大，别客气
-
-时间是**没有上限**的，需要跳多久就跳多久 ——
-**不要**把「等了七天」拆成七次「过了一天」。
-
-- 过了半个下午 → \`{"step": 1}\`
-- 睡了一觉，到第二天 → \`{"step": 1, "unit": "day"}\`
-- 闭关三天 → \`{"step": 3, "unit": "day"}\`
-- 等待七天 → \`{"step": 1, "unit": "week"}\`
-- 修养一个月 → \`{"step": 1, "unit": "month"}\`
-- 一别三年 → \`{"step": 3, "unit": "year"}\`
-
-**跳跃前后要有交代**：跳跃前说清楚「你决定等下去」，
-跳跃后描写「醒来时已经是……」，别让玩家莫名其妙就到了别的时间。
-`
+/** 工具说明（含调用格式与示例） */
+export function toolsPrompt(): string {
+  return renderPrompt(工具模板, { SEGMENTS: SEGMENTS.join(' → ') })
+}
 
 /**
  * 拼装完整的 system 提示词。
  *
- * 把历法说明插进来，这样模型才知道这个世界怎么算日子 ——
- * 换历法（做卡时）不用改这个文件。
+ * 历法与工具说明都是动态的（换历法、加工具时不一样），
+ * 所以在这里装配，而不是写死在提示词文件里。
  */
 export function buildSystemPrompt(state: GameState, history: ChatMessage[] = []): string {
-  return `${SYSTEM_PROMPT}
-
-${state.calendar.prompt()}
-## 当前世界状态
-${state.snapshot(history)}`
+  return renderPrompt(系统模板, {
+    TOOLS: toolsPrompt(),
+    CALENDAR: 历法说明,
+    SNAPSHOT: state.snapshot(history),
+  })
 }
 
-/** 开新游戏时给 GM 的额外指令 */
-export const OPENING_INSTRUCTION = `这是一个新游戏的开始。
-
-请为玩家开一个头：
-1. 用两三段描写他醒来（或抵达）时看到、听到、闻到什么。
-2. 给出一个明确的处境或悬念，让他有事可做。
-3. 注意状态里给出的**当前时间**，让开场的氛围与它相称
-   （清晨、正午、黄昏、深夜，给人的感觉完全不同）。
-
-不要问「你想扮演谁」之类的元问题 —— 直接开始故事。
-`
+/** 工具执行结果回传给模型时的外套文案 */
+export function toolResultsPrompt(结果: string): string {
+  return renderPrompt(工具结果模板, { RESULTS: 结果 })
+}
