@@ -43,6 +43,17 @@ try {
  */
 config.global.plugins = [i18n]
 
+/*
+ * Pin the locale for every test. The app starts at 'en' and useLanguage() applies
+ * the real choice on mount, but tests evaluate core modules directly, so the
+ * locale must be explicit or assertions would depend on the host machine.
+ *
+ * zh-CN is pinned because it is the reference language: English falls back to
+ * printing the key name, which would let a missing key pass a "not Chinese" check.
+ * Chinese literals in test files are checked by .githooks/checks/ascii.mjs.
+ */
+;(i18n.global.locale as unknown as { value: string }).value = 'zh-CN'
+
 beforeEach(() => {
   storage.clear()
 })

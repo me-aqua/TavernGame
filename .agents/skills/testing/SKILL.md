@@ -9,7 +9,7 @@ whenToUse: 写新功能、改现有行为、或需要判断「改坏没有」时
 ## 一条命令
 
 ```bash
-npm run verify     # 类型检查 → 142 项测试 + 覆盖率门禁 → 构建 → 16 项 e2e
+npm run verify     # 类型检查 → 224 项测试 + 覆盖率门禁 → 构建 → 25 项 e2e
 ```
 
 分开跑：
@@ -36,10 +36,11 @@ npm run verify     # 类型检查 → 142 项测试 + 覆盖率门禁 → 构建
 阈值写在 `vitest.config.ts`，统计范围是 `src/core` + `src/stores`：
 
 ```
-statements 90 / branches 84 / functions 88 / lines 90
+statements 99 / branches 94 / functions 100 / lines 99
 ```
 
-**低于阈值就失败。** 数值是实测后留余量定的，作用是「新增功能不写测试就过不去」。
+**低于阈值就失败。** 数值是实测后留余量定的（实测 99.78 / 95.11 / 100 / 99.77），
+作用是「新增功能不写测试就过不去」。
 
 ## 「新增功能必须新增测试」是怎么强制的
 
@@ -58,3 +59,9 @@ statements 90 / branches 84 / functions 88 / lines 90
    用 `String.fromCharCode(96)` 拼出反引号。
 5. **localStorage 垫片必须在 `vitest.config.ts` 的 `setupFiles` 注册** ——
    漏注册就会静默假通过（见 verification skill）。
+6. **语言是测试环境的一部分**：`tests/setup.ts` 把 locale 钉在 `zh-CN`，
+   断言产品文案要走 `t('key', {参数})` 而不是抄一份中文字面量 ——
+   抄字面量既会在换文案时假红，又会被 ASCII 检查拦下（`tests/` 也在检查范围内）。
+   数据 fixture（模型回复、玩家行动）用 ASCII 命名常量。
+7. **选元素用 `data-*` 钩子**（`data-settings` / `data-language` / `data-export`…）：
+   界面文案随语言变，按文字找元素等于把测试钉在一种语言上。

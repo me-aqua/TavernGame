@@ -7,6 +7,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { GameState } from '../src/core/state'
 import { createInitialState, normalize, loadState, SAVE_KEY } from '../src/core/persistence'
+import { i18n, t } from '../src/i18n'
 
 /** 数一数有几个 .broken- 备份键（垫片是普通对象，只能用它的 key()） */
 function countBackupKeys(): number {
@@ -19,8 +20,34 @@ function countBackupKeys(): number {
   return n
 }
 
-describe('初始状态', () => {
-  it('包含全部必需字段', () => {
+/** 坏存档内容：JSON.parse 必然失败（测试自己编的 fixture） */
+const CORRUPT_SAVE_RAW = '{not valid JSON'
+
+/** Date.parse 不接受的时刻（测试 fixture） */
+const INVALID_TIME = 'not-a-valid-time'
+
+/** 一条正常日志的文本（测试 fixture） */
+const NORMAL_LOG_TEXT = 'a normal log entry'
+
+/** 灌满日志用的填充文本（只验证条数，不关心内容） */
+const FILLER_LOG_TEXT = 'filler'
+
+/** 非规范时间单位：未收录 / 复数 / 全大写 / 另一个未收录 / 首字母大写 / 空串 */
+const NON_CANONICAL_UNITS = ['lightyear', 'days', 'DAY', 'fortnight', 'Segment', '']
+
+/** 推进时间时给出的原因（测试 fixture） */
+const WAITED_A_WEEK = 'waited a week'
+
+/** 玩家行动与模型回复（测试 fixture） */
+const PLAYER_ACTION = 'I take a look'
+const GM_REPLY = 'You push the door open.'
+
+/** 日志与时间线里用的叙事文本（测试 fixture） */
+const STORY_LOG_TEXT = 'a bit of story'
+const SLEPT_THROUGH_THE_NIGHT = 'slept through the night'
+
+describe('initial state', () => {
+  it('contains every required field', () => {
     const s = createInitialState()
     expect(Object.keys(s).sort()).toEqual(['log', 'meta', 'player', 'scene', 'time', 'timeline'])
     expect(Number.isNaN(Date.parse(s.time.iso))).toBe(false)
@@ -29,23 +56,23 @@ describe('初始状态', () => {
   })
 })
 
-describe('load —— 存档读写', () => {
-  it('没有存档时返回 null（由调用方决定开新局）', () => {
+describe('load - reading and writing the save', () => {
+  it('returns null when there is no save (the caller starts a new game)', () => {
     const { data, error } = loadState()
     expect(data).toBeNull()
     expect(error).toBeNull()
   })
 
-  it('存档损坏时不静默开新局：返回 error 并备份坏数据', () => {
-    localStorage.setItem('tavernGame.save.v3', '{这不是合法 JSON')
+  it('a corrupted save does not silently start a new game: it returns an error and backs up the bad data', () => {
+    localStorage.setItem('tavernGame.save.v3', CORRUPT_SAVE_RAW)
     const { data, error } = loadState()
     expect(data).toBeNull()
-    expect(error).toContain('本地存档已损坏')
+    expect(error).toContain(t('save.corrupted', { message: '' }).replace('{message}', '').trim())
     // 坏数据必须留一份，否则玩家连导出抢救的机会都没有
     expect(countBackupKeys()).toBe(1)
   })
 
-  it('save 失败返回 false 而不是假装成功', () => {
+  it('a failed save returns false instead of pretending to succeed', () => {
     const gs = new GameState(createInitialState())
     // 垫片是普通对象（不是 Storage 实例），所以要打它自己的方法
     const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
@@ -56,82 +83,85 @@ describe('load —— 存档读写', () => {
   })
 })
 
-describe('normalize —— 脏存档净化', () => {
-  it('null / 数组 / 字符串都不会让它抛错', () => {
+describe('normalize - sanitizing a dirty save', () => {
+  it('null / arrays / strings never make it throw', () => {
     for (const bad of [null, undefined, [], 'x', 42, true]) {
       expect(() => normalize(bad)).not.toThrow()
     }
   })
 
-  it('完全空的输入也会补成完整的初始状态', () => {
+  it('a completely empty input is filled in as a full initial state', () => {
     const d = normalize({})
     expect(Object.keys(d).sort()).toEqual(['log', 'meta', 'player', 'scene', 'time', 'timeline'])
   })
 
-  it('非法时刻回退到当前时间（否则侧栏会永久显示 NaN 年，时间工具每次都失败）', () => {
-    const d = normalize({ time: { iso: '这不是时间' } })
+  it('an invalid instant falls back to now (otherwise the sidebar shows NaN years forever and every time tool fails)', () => {
+    const d = normalize({ time: { iso: INVALID_TIME } })
     expect(Number.isNaN(Date.parse(d.time.iso))).toBe(false)
   })
 
-  it('log 里的 null / 字符串元素被过滤，不留下会让 snapshot 抛错的东西', () => {
+  it('null / string entries in log are filtered out, leaving nothing that makes snapshot throw', () => {
     const d = normalize({
-      log: [null, 'abc', 42, { kind: 'narration', text: '正常的一条' }],
+      log: [null, 'abc', 42, { kind: 'narration', text: NORMAL_LOG_TEXT }],
     })
     expect(d.log).toHaveLength(1)
-    expect(d.log[0].text).toBe('正常的一条')
+    expect(d.log[0].text).toBe(NORMAL_LOG_TEXT)
   })
 
-  it('timeline 里的脏元素被过滤并补齐字段', () => {
+  it('dirty entries in timeline are filtered out and their fields are filled in', () => {
     const d = normalize({ timeline: [null, { from: 'a' }] })
     expect(d.timeline).toHaveLength(1)
     expect(d.timeline[0].reason).toBe('')
     expect(d.timeline[0].elapsedMs).toBe(0)
   })
 
-  it('回合数被强制成数字（字符串会被 endTurn 拼成 "51"）', () => {
+  it('the turn count is coerced to a number (a string would make endTurn concatenate "51")', () => {
     expect(normalize({ meta: { turn: '7' } }).meta.turn).toBe(7)
     expect(normalize({ meta: { turn: 'abc' } }).meta.turn).toBe(0)
     expect(normalize({ meta: { turn: -5 } }).meta.turn).toBe(0)
   })
 
-  it('log 有上限，不会无限增长', () => {
-    const many = Array.from({ length: 200 }, (_, i) => ({ kind: 'narration', text: '第' + i }))
+  it('log has a cap and does not grow without bound', () => {
+    const many = Array.from({ length: 200 }, (_, i) => ({
+      kind: 'narration',
+      text: `${FILLER_LOG_TEXT}-${i}`,
+    }))
     expect(normalize({ log: many }).log.length).toBeLessThanOrEqual(80)
   })
 })
 
-describe('advanceTime —— 拦住非法输入', () => {
+describe('advanceTime - rejecting invalid input', () => {
   function fresh() {
     return new GameState(createInitialState())
   }
 
-  it('拒绝倒退', () => {
+  it('rejects a step that moves backwards', () => {
     const s = fresh()
     const before = s.iso
     expect(s.advanceTime(-1)).toContain('backwards')
     expect(s.iso).toBe(before)
   })
 
-  it('拒绝原地不动', () => {
+  it('rejects a step that stands still', () => {
     const s = fresh()
     const before = s.iso
     expect(s.advanceTime(0)).toContain('stand still')
     expect(s.iso).toBe(before)
   })
 
-  it('拒绝非规范单位，且时间不动（不再有任何容错猜测）', () => {
+  it('rejects non-canonical units and leaves the time untouched (no tolerance guessing left)', () => {
     // 旧版本靠一张别名表把「days / 天 / DAY」猜成 day；原生 tool calling 之后
     // 协议层用 enum 挡住了这些，引擎只认 6 个规范值。
-    for (const bad of ['光年', 'days', 'DAY', '天', 'Segment', '']) {
+    for (const bad of NON_CANONICAL_UNITS) {
       const s = fresh()
       const before = s.iso
       const msg = s.advanceTime(1, bad)
-      expect(msg, `单位「${bad}」不该被接受`).toContain('Unknown time unit')
-      expect(s.iso, `单位「${bad}」不该改动时间`).toBe(before)
+      expect(msg, `unit "${bad}" must not be accepted`).toContain('Unknown time unit')
+      expect(s.iso, `unit "${bad}" must not change the time`).toBe(before)
     }
   })
 
-  it('只认 6 个规范单位，各自的推进量都对', () => {
+  it('accepts only the 6 canonical units, each with the correct amount of elapsed time', () => {
     const expected: Record<string, number> = {
       segment: 4 * 3600000,
       hour: 3600000,
@@ -150,30 +180,32 @@ describe('advanceTime —— 拦住非法输入', () => {
         expect(elapsed).toBeGreaterThanOrEqual(28 * 86400000)
         expect(elapsed).toBeLessThanOrEqual(31 * 86400000)
       } else {
-        expect(elapsed, `单位 ${unit} 的推进量`).toBe(ms)
+        expect(elapsed, `elapsed ms for unit ${unit}`).toBe(ms)
       }
     }
   })
 
-  it('拦住「推十万年」这类手滑输入', () => {
+  it('blocks slip-of-the-hand input such as advancing a hundred thousand years', () => {
     const s = fresh()
     const before = s.iso
     expect(s.advanceTime(99999, 'year')).toContain('Step too large')
     expect(s.iso).toBe(before)
   })
 
-  it('成功推进：时间前进、写入时间线，且时间线的起点不等于终点', () => {
+  it('a successful advance moves the clock, writes the timeline, and its start differs from its end', () => {
     const s = fresh()
-    const msg = s.advanceTime(1, 'week', '等了七天')
-    expect(msg).toContain('时间推进')
-    expect(msg).toContain('等了七天')
+    const before = s.timeLabel
+    const msg = s.advanceTime(1, 'week', WAITED_A_WEEK)
+    const after = s.timeLabel
+    expect(msg).toContain(t('tools.advanceResult', { before, after }))
+    expect(msg).toContain(t('tools.advanceReason', { reason: WAITED_A_WEEK }))
     expect(s.data.timeline).toHaveLength(1)
     // 防回归：曾经 from 用的是推进后的时刻，导致 from === to
     expect(s.data.timeline[0].from).not.toBe(s.data.timeline[0].to)
-    expect(s.data.timeline[0].reason).toBe('等了七天')
+    expect(s.data.timeline[0].reason).toBe(WAITED_A_WEEK)
   })
 
-  it('默认单位是 segment（4 小时），并且能进时间线', () => {
+  it('defaults to the segment unit (4 hours) and still reaches the timeline', () => {
     const s = fresh()
     const before = Date.parse(s.iso)
     s.advanceTime(1)
@@ -183,15 +215,20 @@ describe('advanceTime —— 拦住非法输入', () => {
   })
 })
 
-describe('未覆盖分支补测', () => {
-  it('存档里的时刻被手改成非法值时，推进返回失败文案而不是抛异常', () => {
+describe('extra coverage for uncovered branches', () => {
+  it('advancing returns the failure text instead of throwing when the saved instant was hand-edited to an invalid value', () => {
     const s = new GameState(createInitialState())
-    s.data.time.iso = '不是时间'
+    s.data.time.iso = INVALID_TIME
     const out = s.advanceTime(1, 'day')
-    expect(out).toContain('推进失败')
+    // 文案来自 locale 表，不能手写；RangeError 的文本由 JS 引擎给，也不能硬编码
+    const messages = i18n.global.getLocaleMessage(String(i18n.global.locale.value)) as {
+      tools: Record<string, string>
+    }
+    expect(out).toContain(messages.tools.advanceFailed.split('{message}')[0])
+    expect(out).toContain(s.timeLabel)
   })
 
-  it('GameState.save 失败返回 false（写不进去也不崩）', () => {
+  it('GameState.save returns false when the write fails (a failed write does not crash)', () => {
     const s = new GameState(createInitialState())
     const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceededError')
@@ -200,64 +237,64 @@ describe('未覆盖分支补测', () => {
     spy.mockRestore()
   })
 
-  it('没有日志也没有历史时，快照只给时间与地点', () => {
+  it('with neither log nor history the snapshot only carries time and place', () => {
     const s = new GameState(createInitialState())
     const snap = s.snapshot()
-    expect(snap).not.toContain('最近发生的事')
-    expect(snap).not.toContain('timeline')
+    expect(snap).not.toContain(t('snapshot.recent'))
+    expect(snap).not.toContain(t('snapshot.timeline'))
   })
 
-  it('时间线里的空 to 会被跳过（不让提示词出现空行）', () => {
+  it('timeline entries with an empty to are skipped (no blank line in the prompt)', () => {
     const s = new GameState(createInitialState())
     s.data.timeline = [{ from: 'a', to: '', reason: '', elapsedMs: 0, at: '' }]
-    expect(s.snapshot()).not.toContain('### timeline')
+    expect(s.snapshot()).not.toContain(t('snapshot.timeline'))
   })
 })
 
-describe('snapshot —— 拼提示词用，绝不能抛错', () => {
-  it('正常状态包含时间 / 地点 / 回合', () => {
+describe('snapshot - built for the prompt, must never throw', () => {
+  it('a normal state carries time / place / turn', () => {
     const s = new GameState(createInitialState())
     const snap = s.snapshot()
-    expect(snap).toContain('【第 0 回合】')
-    expect(snap).toContain('时间：')
-    expect(snap).toContain('地点：')
+    expect(snap).toContain(t('snapshot.turn', { turn: 0 }))
+    expect(snap).toContain(t('snapshot.time', { time: s.timeLabel }))
+    expect(snap).toContain(t('snapshot.place', { name: s.scene.name }))
   })
 
-  it('脏数据不会抛错（它一抛，之后每一回合都在同一处崩）', () => {
+  it('dirty data does not throw (if it did, every following turn would crash in the same place)', () => {
     const s = new GameState(createInitialState())
     s.data.log = [null, 'x', { text: 'ok' }] as never
     s.data.timeline = [null, { to: '' }] as never
     expect(() => s.snapshot()).not.toThrow()
   })
 
-  it('传入历史时优先用历史', () => {
+  it('history wins over the log when it is provided', () => {
     const s = new GameState(createInitialState())
     const snap = s.snapshot([
-      { role: 'user', content: '我去看看' },
-      { role: 'assistant', content: '你推开门。' },
+      { role: 'user', content: PLAYER_ACTION },
+      { role: 'assistant', content: GM_REPLY },
     ])
-    expect(snap).toContain('最近发生的事')
-    expect(snap).toContain('玩家：我去看看')
+    expect(snap).toContain(t('snapshot.recent'))
+    expect(snap).toContain(t('snapshot.recentLine', { who: t('snapshot.player'), text: PLAYER_ACTION }))
   })
 })
 
 describe('import / export', () => {
-  it('导出再导入是幂等的', () => {
+  it('exporting and importing again is idempotent', () => {
     const s = new GameState(createInitialState())
-    s.addLog('narration', '一段故事')
-    s.advanceTime(1, 'day', '睡了一觉')
+    s.addLog('narration', STORY_LOG_TEXT)
+    s.advanceTime(1, 'day', SLEPT_THROUGH_THE_NIGHT)
     const json = s.export()
 
     const s2 = new GameState(createInitialState())
     s2.import(json)
-    expect(s2.data.log.at(-1)?.text).toBe('一段故事')
+    expect(s2.data.log.at(-1)?.text).toBe(STORY_LOG_TEXT)
     expect(s2.data.timeline).toHaveLength(1)
     expect(s2.iso).toBe(s.iso)
   })
 
-  it('拒绝不是存档的 JSON', () => {
+  it('rejects JSON that is not a save', () => {
     const s = new GameState(createInitialState())
-    expect(() => s.import('{"player": 1}')).toThrow('不是有效的存档文件')
-    expect(() => s.import('[]')).toThrow('不是有效的存档文件')
+    expect(() => s.import('{"player": 1}')).toThrow(t('save.notValid'))
+    expect(() => s.import('[]')).toThrow(t('save.notValid'))
   })
 })

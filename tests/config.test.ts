@@ -4,6 +4,10 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadConfig, saveConfig, clearConfig, isConfigured, maskKey, PRESETS } from '../src/core/config'
+import { t } from '../src/i18n'
+
+// 测试自己编的垃圾值：模拟用户在 localStorage 里手改出来的坏存档
+const BROKEN_JSON = '{broken'
 
 beforeEach(() => {
   clearConfig()
@@ -11,7 +15,7 @@ beforeEach(() => {
 })
 
 describe('loadConfig', () => {
-  it('没有配置时给默认值（deepseek）', () => {
+  it('returns the defaults when nothing is stored (deepseek)', () => {
     const c = loadConfig()
     expect(c.provider).toBe('deepseek')
     expect(c.apiBase).toBe(PRESETS.deepseek.apiBase)
@@ -19,18 +23,18 @@ describe('loadConfig', () => {
     expect(c.maxAgentSteps).toBeGreaterThan(0)
   })
 
-  it('存档里是坏 JSON 时回退到默认，而不是抛错', () => {
-    localStorage.setItem('tavernGame.config', '{坏掉的')
+  it('falls back to the defaults on broken JSON instead of throwing', () => {
+    localStorage.setItem('tavernGame.config', BROKEN_JSON)
     expect(() => loadConfig()).not.toThrow()
     expect(loadConfig().provider).toBe('deepseek')
   })
 
-  it('存档里是数组时也不崩（不是对象）', () => {
+  it('survives a stored array (which is not an object)', () => {
     localStorage.setItem('tavernGame.config', '[1,2,3]')
     expect(loadConfig().provider).toBe('deepseek')
   })
 
-  it('用户存过的值会覆盖默认值', () => {
+  it('lets values stored by the user override the defaults', () => {
     saveConfig({ provider: 'ollama', model: 'qwen2.5', temperature: 1.2 })
     const c = loadConfig()
     expect(c.provider).toBe('ollama')
@@ -38,7 +42,7 @@ describe('loadConfig', () => {
     expect(c.temperature).toBe(1.2)
   })
 
-  it('部分更新不会丢掉其他字段', () => {
+  it('keeps the other fields on a partial update', () => {
     saveConfig({ apiKey: 'k1' })
     saveConfig({ model: 'm2' })
     expect(loadConfig().apiKey).toBe('k1')
@@ -47,24 +51,24 @@ describe('loadConfig', () => {
 })
 
 describe('isConfigured', () => {
-  it('缺 key 时未配置', () => {
+  it('is not configured when the key is missing', () => {
     saveConfig({ provider: 'deepseek', apiKey: '', apiBase: 'https://x', model: 'm' })
     expect(isConfigured()).toBe(false)
   })
 
-  it('三项齐全才算配置好', () => {
+  it('is configured only when all three fields are present', () => {
     saveConfig({ provider: 'deepseek', apiKey: 'k', apiBase: 'https://x', model: 'm' })
     expect(isConfigured()).toBe(true)
   })
 
-  it('Ollama 这类不需要 key 的服务：有地址和模型就算配好', () => {
+  it('counts a keyless service such as Ollama as configured with a base URL and a model', () => {
     saveConfig({ provider: 'ollama', apiKey: '', apiBase: 'http://localhost:11434/v1', model: 'qwen2.5' })
     expect(isConfigured()).toBe(true)
   })
 })
 
-describe('saveConfig —— 写不进去时', () => {
-  it('localStorage 抛错也不崩，仍返回合并后的配置（隐私模式/配额满）', () => {
+describe('saveConfig when the write fails', () => {
+  it('does not throw and still returns the merged config (private mode / quota full)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceededError')
@@ -80,19 +84,19 @@ describe('saveConfig —— 写不进去时', () => {
 })
 
 describe('maskKey', () => {
-  it('未设置时的文案', () => {
-    expect(maskKey('')).toBe('（未设置）')
+  it('returns the locale message when no key is set', () => {
+    expect(maskKey('')).toBe(t('config.notSet'))
   })
 
-  it('短 key 整体打码（不泄漏长度细节）', () => {
+  it('masks a short key entirely (without leaking its length)', () => {
     expect(maskKey('short')).toBe('***')
   })
 
-  it('长 key 只露头尾', () => {
+  it('shows only the head and the tail of a long key', () => {
     const masked = maskKey('sk-1234567890abcdef')
     expect(masked.startsWith('sk-123')).toBe(true)
     expect(masked.endsWith('cdef')).toBe(true)
-    expect(masked).toContain('…')
+    expect(masked).toContain('...')
     expect(masked).not.toContain('4567890')
   })
 })
