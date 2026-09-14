@@ -150,7 +150,7 @@ for (const file of staged.filter((f) => /composables\/|utils?\/|helpers?\//.test
 // 规则：只在校验边界（用户输入、外部 API、网络）做校验。
 // ⚠️ 豁免范围跟着目录结构走：改目录时必须同步这里，否则规则会**悄悄失效**
 //    （src/core 消失后，这条曾对外层代码全部放行过一阵）。
-const BOUNDARY = /^src\/(game\/save|utils\/storage|utils\/calendar|agent\/llm|agent\/config)\.ts$/
+const BOUNDARY = /^src\/(game\/(save|card)|utils\/storage|utils\/calendar|agent\/llm|agent\/config)\.ts$/
 for (const file of textFiles.filter((f) => /\.(ts|vue)$/.test(f) && !BOUNDARY.test(f))) {
   const lines = contentOf(file).split('\n')
   lines.forEach((line, i) => {

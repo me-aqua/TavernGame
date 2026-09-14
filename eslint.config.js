@@ -89,7 +89,7 @@ export default tseslint.config(
 
   {
     // Node 侧脚本需要 node 全局变量
-    files: ['e2e/**/*.mjs', '.githooks/**/*', 'scripts/**/*.mjs', '*.config.js'],
+    files: ['e2e/**/*.mjs', '.githooks/**/*', 'scripts/**/*.mjs', 'tools/**/*.{js,mjs}', '*.config.js'],
     languageOptions: {
       globals: {
         process: 'readonly',
