@@ -136,6 +136,48 @@ const stat = git('diff --cached --shortstat -- . ":(exclude)package-lock.json"')
 const net = Number(stat.match(/(\d+) insertion/)?.[1] ?? 0)
 if (net > SIZE.net) problems.push(`[体积] 本次改动 +${net} 行（上限 ${SIZE.net}）—— 拆成多次提交，或解释为什么必须一次改这么多`)
 
+
+// ---------- 检查 7：换行 / BOM / 编码（三平台同时开发） ----------
+// 规则：仓库（索引）里一律 LF；Windows 脚本（.bat/.cmd）在工作区必须是 CRLF；不带 BOM。
+//
+// 判据用 `git ls-files --eol` —— git 自己的权威输出，一次给出索引侧与工作区侧：
+//   i/lf w/crlf attr/text eol=crlf   start.bat      ← 正常
+//   i/lf w/lf   attr/text eol=crlf   start.bat      ← 坏了（Windows 会执行出错）
+//   i/lf w/mixed attr/text eol=lf    note.md        ← 混用换行
+//
+// ⚠️ 为什么不自己数换行：git add 会按 .gitattributes 规范化，
+//    「工作区被改成 LF 的 .bat」在 git diff 里可能完全不出现（归一化后与 HEAD 相同），
+//    自己数会漏判。git 的 eol 判定才是权威。
+const 全部暂存 = git('diff --cached --name-only --diff-filter=ACM').split('\n').filter(Boolean)
+const 换行报告 = git('ls-files --eol').split('\n').filter(Boolean)
+for (const f of 全部暂存) {
+  const 行 = 换行报告.find((l) => l.endsWith("\t" + f))
+  if (!行) continue
+  const 索引侧 = 行.match(/i\/(\S+)/)?.[1]
+  const 工作区侧 = 行.match(/w\/(\S+)/)?.[1]
+  const 期望 = 行.match(/eol=(\w+)/)?.[1]
+
+  // 索引：任何文本文件都必须是 lf（否则 clone 到别的平台会不一致）
+  if (索引侧 === 'crlf' || 索引侧 === 'mixed') {
+    problems.push('[换行] ' + f + ' —— 索引里是 ' + 索引侧 + '；git 要求索引一律 lf' )
+  }
+  // 工作区：.bat/.cmd 必须 crlf，其余必须 lf
+  const 期望工作区 = 期望 === 'crlf' ? 'crlf' : 'lf'
+  if (工作区侧 !== 期望工作区) {
+    problems.push('[换行] ' + f + ' —— 工作区是 ' + 工作区侧 + '，应为 ' + 期望工作区 +
+      (期望工作区 === 'crlf' ? '（Windows 脚本用 LF 会执行出错）' : '（Windows 编辑器默认写 CRLF，请改成 LF）'))
+  }
+
+  // BOM 与编码：必须在工作区查（索引会被 git 规范化掉，查不到）
+  const 工作区内容 = contentOf(f)
+  if (工作区内容.charCodeAt(0) === 0xfeff) {
+    problems.push('[BOM] ' + f + ' —— 带 UTF-8 BOM；脚本类文件会因为多出三个字节而报错')
+  }
+  if (工作区内容.includes('\uFFFD')) {
+    problems.push('[编码] ' + f + ' —— 不是合法 UTF-8（保存时请确认编码为 UTF-8，不要用 GBK）')
+  }
+}
+
 // ---------- 结果 ----------
 if (problems.length) {
   console.error('\n✖ 纪律检查未通过：\n')

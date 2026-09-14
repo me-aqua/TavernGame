@@ -35,7 +35,8 @@ const chrome = spawn(
   CHROME,
   [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-    '--user-data-dir=/tmp/taverngame-e2e', '--remote-debugging-port=9444', 'about:blank',
+    // 每次运行用独立 profile：复用 profile 会让「备份键数量」这类断言被历史状态污染
+    `--user-data-dir=/tmp/taverngame-e2e-${process.pid}`, '--remote-debugging-port=9444', 'about:blank',
   ],
   { stdio: 'ignore', detached: true },
 )

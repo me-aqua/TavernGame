@@ -115,6 +115,20 @@ describe('loadState —— 启动路径', () => {
     expect(data?.meta.turn).toBe(3)
   })
 
+  it('反复读损坏存档不会堆积备份（否则配额会被吃光）', () => {
+    localStorage.setItem(SAVE_KEY, '{坏的')
+    loadState()
+    loadState()
+    loadState()
+    let n = 0
+    for (let i = 0; ; i += 1) {
+      const k = localStorage.key(i)
+      if (k === null) break
+      if (k.startsWith(`${SAVE_KEY}.broken-`)) n += 1
+    }
+    expect(n).toBe(1)
+  })
+
   it('损坏的存档：返回错误 + 备份坏数据（玩家还有机会导出抢救）', () => {
     localStorage.setItem(SAVE_KEY, '{这不是合法 JSON')
     const { data, error } = loadState()
