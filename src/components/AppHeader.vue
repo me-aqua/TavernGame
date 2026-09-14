@@ -47,14 +47,42 @@ header {
   flex-shrink: 0;
 }
 
-.logo { font-weight: 700; letter-spacing: 0.08em; font-size: 13.5px; color: var(--accent); }
+.logo {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-size: 13.5px;
+  color: var(--accent);
+}
 
-.status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
+.status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dim);
+}
 
-.light { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); transition: background 0.3s; }
-.light.ok   { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
-.light.warn { background: var(--warn);   box-shadow: 0 0 8px var(--warn); }
-.light.err  { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+.light {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
+  transition: background 0.3s;
+}
+.light.ok {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+.light.warn {
+  background: var(--warn);
+  box-shadow: 0 0 8px var(--warn);
+}
+.light.err {
+  background: var(--danger);
+  box-shadow: 0 0 8px var(--danger);
+}
 
-.spacer { margin-left: auto; }
+.spacer {
+  margin-left: auto;
+}
 </style>

@@ -60,9 +60,11 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
     if (err instanceof TypeError) {
       throw new Error(
         `请求发不出去。可能原因：\n` +
-        `• 该服务商不允许浏览器直连（CORS 拦截）\n` +
-        `• 接口地址写错了：${url}\n` +
-        `• 网络不通或需要代理`
+          `• 该服务商不允许浏览器直连（CORS 拦截）\n` +
+          `• 接口地址写错了：${url}\n` +
+          `• 网络不通或需要代理`,
+        // 带上原始错误：否则控制台里只剩我们这句话，看不到底层原因
+        { cause: err },
       )
     }
     throw err

@@ -81,7 +81,9 @@ describe('AppSidebar', () => {
     const w = mount(AppSidebar, {
       props: {
         timeLabel: '现在',
-        timeline: [{ from: '9 月 12 日 · 上午', to: '9 月 13 日 · 晚上', reason: '睡了一觉', elapsedMs: 1, at: '' }],
+        timeline: [
+          { from: '9 月 12 日 · 上午', to: '9 月 13 日 · 晚上', reason: '睡了一觉', elapsedMs: 1, at: '' },
+        ],
         scene: { name: 'a', description: 'b' },
         turn: 1,
       },

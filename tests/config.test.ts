@@ -3,9 +3,7 @@
  * 配置是系统边界（用户手改 localStorage），所以脏数据必须被兜住。
  */
 import { beforeEach, describe, expect, it } from 'vitest'
-import {
-  loadConfig, saveConfig, clearConfig, isConfigured, maskKey, PRESETS,
-} from '../src/core/config'
+import { loadConfig, saveConfig, clearConfig, isConfigured, maskKey, PRESETS } from '../src/core/config'
 
 beforeEach(() => {
   clearConfig()

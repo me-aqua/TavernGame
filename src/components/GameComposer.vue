@@ -26,13 +26,14 @@ function 自适应高度() {
   el.style.height = `${Math.min(el.scrollHeight, 130)}px`
 }
 
-watch(文本, () => nextTick(自适应高度))
+watch(文本, () => void nextTick(自适应高度))
 
 function 提交() {
   const t = 文本.value.trim()
   if (!t) return
   文本.value = ''
-  nextTick(自适应高度)
+  // 有意不等待：高度调整是纯视觉的，下一帧做就行
+  void nextTick(自适应高度)
   emit('submit', t)
 }
 </script>
@@ -51,9 +52,7 @@ function 提交() {
       <button class="primary" :disabled="disabled" @click="提交">行动</button>
     </div>
     <div class="hint">
-      <template v-if="!configured">
-        还没配置 API key —— 点右上角 <b>⚙ 设置</b> 填一下就能开始
-      </template>
+      <template v-if="!configured"> 还没配置 API key —— 点右上角 <b>⚙ 设置</b> 填一下就能开始 </template>
       <template v-else>Enter 发送 · Shift+Enter 换行</template>
     </div>
   </div>
@@ -66,15 +65,40 @@ function 提交() {
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
-.composer-row { display: flex; gap: 9px; align-items: flex-end; }
-textarea {
-  flex: 1; resize: none; min-height: 42px; max-height: 130px;
-  padding: 11px 13px; border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--panel-2); color: var(--text); font-family: inherit;
-  font-size: 14px; line-height: 1.5; outline: none; transition: border-color 0.2s;
+.composer-row {
+  display: flex;
+  gap: 9px;
+  align-items: flex-end;
 }
-textarea:focus { border-color: rgba(110, 231, 183, 0.5); }
-textarea::placeholder { color: var(--faint); }
-.hint { margin-top: 7px; font-size: 11px; color: var(--faint); min-height: 14px; }
-b { color: var(--text); }
+textarea {
+  flex: 1;
+  resize: none;
+  min-height: 42px;
+  max-height: 130px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  outline: none;
+  transition: border-color 0.2s;
+}
+textarea:focus {
+  border-color: rgba(110, 231, 183, 0.5);
+}
+textarea::placeholder {
+  color: var(--faint);
+}
+.hint {
+  margin-top: 7px;
+  font-size: 11px;
+  color: var(--faint);
+  min-height: 14px;
+}
+b {
+  color: var(--text);
+}
 </style>

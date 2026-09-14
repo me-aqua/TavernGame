@@ -55,7 +55,14 @@ describe('runTool', () => {
 
 describe('parseToolCalls', () => {
   it('解析标准工具块，并从正文里删掉', () => {
-    const text = ['你等了很久。', '', '```tool', '{"tool":"advance_time","args":{"step":1,"unit":"week"}}', '```', ''].join(NL)
+    const text = [
+      '你等了很久。',
+      '',
+      '```tool',
+      '{"tool":"advance_time","args":{"step":1,"unit":"week"}}',
+      '```',
+      '',
+    ].join(NL)
     const { blocks, clean, errors } = parseToolCalls(text)
     expect(blocks).toHaveLength(1)
     expect(blocks[0].tool).toBe('advance_time')
@@ -68,7 +75,13 @@ describe('parseToolCalls', () => {
     expect(parseToolCalls(text).blocks).toHaveLength(1)
   })
   it('支持数组形式的多个工具', () => {
-    const text = ['叙事', '```tool', '[{"tool":"advance_time","args":{"step":1}},{"tool":"advance_time","args":{"step":2}}]', '```', ''].join(NL)
+    const text = [
+      '叙事',
+      '```tool',
+      '[{"tool":"advance_time","args":{"step":1}},{"tool":"advance_time","args":{"step":2}}]',
+      '```',
+      '',
+    ].join(NL)
     expect(parseToolCalls(text).blocks).toHaveLength(2)
   })
   it('JSON 解析失败要出声，并且不把裸 JSON 留在正文里', () => {

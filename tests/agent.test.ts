@@ -12,14 +12,19 @@ import { saveConfig } from '../src/core/config'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 import type { AgentEvent } from '../src/core/agent'
 
-const 工具块 = (args: string) =>
-  '```tool\n{"tool":"advance_time","args":' + args + '}\n```'
+const 工具块 = (args: string) => '```tool\n{"tool":"advance_time","args":' + args + '}\n```'
 
 let fake: FakeLlm
 
 beforeEach(() => {
   // agent 依赖配置里的 maxAgentSteps/temperature 等
-  saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://example.test/v1', model: 'm', maxAgentSteps: 5 })
+  saveConfig({
+    provider: 'custom',
+    apiKey: 'k',
+    apiBase: 'https://example.test/v1',
+    model: 'm',
+    maxAgentSteps: 5,
+  })
 })
 
 afterEach(() => {
@@ -119,12 +124,12 @@ describe('runTurn —— 兜底与边界', () => {
     // 关键：**每一步都带工具块**，循环才会耗尽步数、一次叙事都没产生。
     // 如果某一步只回文字，循环就直接结束了 —— 那测的是正常路径，不是兜底。
     fake = installFakeLlm([
-      工具块('{"step":1}'),   // 第 1 步
-      工具块('{"step":1}'),   // 第 2 步
-      工具块('{"step":1}'),   // 第 3 步
-      工具块('{"step":1}'),   // 第 4 步
-      工具块('{"step":1}'),   // 第 5 步（maxAgentSteps=5，到此耗尽）
-      '补写的场景描写。',       // 第 6 次：兜底请求
+      工具块('{"step":1}'), // 第 1 步
+      工具块('{"step":1}'), // 第 2 步
+      工具块('{"step":1}'), // 第 3 步
+      工具块('{"step":1}'), // 第 4 步
+      工具块('{"step":1}'), // 第 5 步（maxAgentSteps=5，到此耗尽）
+      '补写的场景描写。', // 第 6 次：兜底请求
     ])
     const state = freshState()
     const events: AgentEvent[] = []
@@ -169,9 +174,7 @@ describe('runTurn —— 兜底与边界', () => {
     const controller = new AbortController()
     controller.abort()
 
-    await expect(
-      runTurn(state, { action: '晚了', signal: controller.signal }),
-    ).rejects.toThrow(/已取消/)
+    await expect(runTurn(state, { action: '晚了', signal: controller.signal })).rejects.toThrow(/已取消/)
     expect(fake.calls).toHaveLength(0)
   })
 
@@ -185,10 +188,7 @@ describe('runTurn —— 兜底与边界', () => {
   })
 
   it('空参数的工具调用走默认单位（segment）', async () => {
-    fake = installFakeLlm([
-      '过了半个下午。\n' + 工具块('{}'),
-      '天黑了。',
-    ])
+    fake = installFakeLlm(['过了半个下午。\n' + 工具块('{}'), '天黑了。'])
     const state = freshState()
     const before = Date.parse(state.iso)
     await runTurn(state, { action: '待一下' })

@@ -128,7 +128,7 @@ export function readSave(): unknown | null {
       }
       return parsed
     } catch (err) {
-      throw new Error(`本地存档已损坏：${(err as Error).message}`)
+      throw new Error(`本地存档已损坏：${(err as Error).message}`, { cause: err })
     }
   }
   for (const key of LEGACY_KEYS) {
@@ -182,7 +182,10 @@ export function loadState(): { data: GameData | null; error: string | null } {
     const raw = readSave()
     if (raw === null) return { data: null, error: null }
     if (typeof raw === 'object' && raw !== null && '__legacy' in raw) {
-      return { data: migrateLegacy((raw as { __legacy: unknown }).__legacy, createInitialState()), error: null }
+      return {
+        data: migrateLegacy((raw as { __legacy: unknown }).__legacy, createInitialState()),
+        error: null,
+      }
     }
     return { data: normalize(raw, createInitialState()), error: null }
   } catch (err) {
