@@ -164,6 +164,37 @@ describe('advanceTime —— 拦住非法输入', () => {
   })
 })
 
+describe('未覆盖分支补测', () => {
+  it('存档里的时刻被手改成非法值时，推进返回失败文案而不是抛异常', () => {
+    const s = new GameState(createInitialState())
+    s.data.time.iso = '不是时间'
+    const out = s.advanceTime(1, 'day')
+    expect(out).toContain('推进失败')
+  })
+
+  it('GameState.save 失败返回 false（写不进去也不崩）', () => {
+    const s = new GameState(createInitialState())
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError')
+    })
+    expect(s.save()).toBe(false)
+    spy.mockRestore()
+  })
+
+  it('没有日志也没有历史时，快照只给时间与地点', () => {
+    const s = new GameState(createInitialState())
+    const snap = s.snapshot()
+    expect(snap).not.toContain('最近发生的事')
+    expect(snap).not.toContain('时间线')
+  })
+
+  it('时间线里的空 to 会被跳过（不让提示词出现空行）', () => {
+    const s = new GameState(createInitialState())
+    s.data.timeline = [{ from: 'a', to: '', reason: '', elapsedMs: 0, at: '' }]
+    expect(s.snapshot()).not.toContain('### 时间线')
+  })
+})
+
 describe('snapshot —— 拼提示词用，绝不能抛错', () => {
   it('正常状态包含时间 / 地点 / 回合', () => {
     const s = new GameState(createInitialState())

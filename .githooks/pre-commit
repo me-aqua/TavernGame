@@ -41,24 +41,27 @@ for (const f of textFiles) {
 for (const f of textFiles.filter((f) => /\.(ts|vue|js|mjs)$/.test(f))) {
   const lines = contentOf(f).split('\n')
   lines.forEach((line, i) => {
-    // 空 catch / 只打日志的 catch。
-    // ⚠️ core/ 不做豁免：实测「吞掉错误」正好都发生在那里
-    const emptyCatch = /catch\s*(\([^)]*\))?\s*\{\s*(\/\*.*?\*\/\s*)?\}/
-    if (emptyCatch.test(line)) {
-      // 例外：catch 体里写了 // 说明的，属于「分支语义」而非吞错
-      // （例：期望 JSON 却拿到 HTML 错误页 → 走另一个分支给出正文）
-      const body = lines[i + 1] ?? ''
-      const documented = /^\s*\/\//.test(body)
-      if (!documented) {
-        problems.push(`[吞错误] ${f}:${i + 1} —— 空 catch，错误被静默丢掉`)
+    // 吞错误的判据：**catch 块体内**既没有 throw / return，也没有任何注释说明。
+    //   - 只打 console.warn 就往下走 = 调用方以为成功了（正是要拦的）
+    //   - 写了 throw 或注释的属于「内部错误处理 / 分支语义」，不该报
+    // 必须按花括号配对取块体：否则 catch 之后的 return 会被误当成出口
+    const catchAt = line.indexOf('catch')
+    if (catchAt < 0) return
+    const 从catch起 = lines.slice(i).join('\n').slice(catchAt)
+    const 块体 = (() => {
+      let depth = 0
+      let started = false
+      for (let k = 0; k < 从catch起.length; k += 1) {
+        const c = 从catch起[k]
+        if (c === '{') { depth += 1; started = true; continue }
+        if (c !== '}') continue
+        depth -= 1
+        if (started && depth === 0) return 从catch起.slice(0, k + 1)
       }
-    }
-    // catch 里只打日志、不抛出、不处理
-    if (/catch\s*\(/.test(line)) {
-      const rest = lines.slice(i, i + 3).join(' ')
-      if (!/throw|return|problems|process\.exit/.test(rest) && /console\.(warn|error|log)/.test(lines[i + 1] ?? '')) {
-        problems.push(`[吞错误] ${f}:${i + 1} —— catch 里只打日志，之后照常往下走`)
-      }
+      return 从catch起
+    })()
+    if (!/throw|return/.test(块体) && !/\/\/|\/\*/.test(块体)) {
+      problems.push(`[吞错误] ${f}:${i + 1} —— catch 块里既没抛出也没说明，错误被吞掉`)
     }
   })
 }
@@ -82,10 +85,33 @@ for (const f of textFiles.filter((f) => /\.(ts|vue)$/.test(f) && !/^src\/core\//
   })
 }
 
-// ---------- 检查 5：体积（最小代码） ----------
+// ---------- 检查 5：新增源码必须配测试 ----------
+// 规则：以后每次新增功能都必须新增相应的测试。
+// 判据：每个 src 模块都要在 tests/ 里被提到；提不到就说明它没测试。
+const SRC = /^src\/(?!types\/|main\.ts$).*\.(ts|vue)$/
+const 测试目录内容 = (() => {
+  try {
+    return execSync('git ls-files tests', { encoding: 'utf8' }).trim().split('\n')
+      .map((f) => (f.endsWith('.md') ? '' : readFileSync(f, 'utf8')))
+      .join('\n')
+  } catch {
+    return ''
+  }
+})()
+
+for (const f of textFiles.filter((f) => SRC.test(f))) {
+  const 模块名 = f.replace(/^src\//, '').replace(/\.(ts|vue)$/, '').split('/').pop()
+  if (!测试目录内容.includes(模块名)) {
+    problems.push(`[缺测试] ${f} —— tests/ 里没有任何地方提到「${模块名}」；新增功能必须配测试`)
+  }
+}
+
+// ---------- 检查 6：体积（最小代码） ----------
 const SIZE = { file: 260, func: 150, net: 500 }
 const countLines = (s) => s.split('\n').length
-for (const f of textFiles) {
+// 生成物不算「我写的代码」：锁文件由 npm 维护，体积没有意义
+const 生成物 = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/
+for (const f of textFiles.filter((f) => !生成物.test(f))) {
   const n = countLines(contentOf(f))
   if (n > SIZE.file) problems.push(`[体积] ${f} —— ${n} 行（上限 ${SIZE.file}）`)
 }
@@ -105,7 +131,8 @@ for (const f of textFiles.filter((f) => /\.(ts|vue)$/.test(f))) {
     if (len > SIZE.func) problems.push(`[体积] ${f}:${i + 1} —— 函数 ${len} 行（上限 ${SIZE.func}）`)
   })
 }
-const stat = git('diff --cached --shortstat')
+// 统计净增行时排除锁文件：那是 npm 生成的依赖清单，不是「我写的代码」
+const stat = git('diff --cached --shortstat -- . ":(exclude)package-lock.json"')
 const net = Number(stat.match(/(\d+) insertion/)?.[1] ?? 0)
 if (net > SIZE.net) problems.push(`[体积] 本次改动 +${net} 行（上限 ${SIZE.net}）—— 拆成多次提交，或解释为什么必须一次改这么多`)
 

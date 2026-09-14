@@ -95,6 +95,29 @@ describe('describeElapsed —— 时长换算', () => {
   })
 })
 
+describe('未覆盖分支补测', () => {
+  it('advance 遇到不认识的时间单位会抛错（联合类型之外的输入）', () => {
+    expect(() => realCalendar.advance('2026-09-10T02:00:00.000Z', 1, '光年' as never)).toThrow(
+      /不认识的时间单位/,
+    )
+  })
+
+  it('describeElapsed 在 1 个月以上仍要带天数', () => {
+    // 45 天 = 1 个月 15 天
+    expect(realCalendar.describeElapsed(45 * 86400000)).toBe('过去了 1 个月 15 天')
+  })
+
+  it('formatShort 是简短格式（不含年份）', () => {
+    const s = realCalendar.formatShort('2026-09-10T02:00:00.000Z')
+    expect(s).toMatch(/^\d+ 月 \d+ 日 · (上午|下午|晚上)$/)
+  })
+
+  it('prompt() 说明里包含公历与三段', () => {
+    expect(realCalendar.prompt()).toContain('公历')
+    expect(realCalendar.prompt()).toContain('上午 / 下午 / 晚上')
+  })
+})
+
 describe('历法注册表', () => {
   it('未知历法回退到默认而不是抛错', () => {
     expect(getCalendar('不存在的历法').id).toBe('real')

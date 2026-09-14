@@ -209,14 +209,14 @@ export class GameState {
       }
     }
 
-    if (timeline.length) {
-      lines.push('', '### 时间线')
-      for (const t of timeline.slice(-5)) {
-        if (!t || typeof t !== 'object') continue
-        const time = String(t.to ?? '')
-        if (!time) continue
-        lines.push(`- ${time}${t.reason ? `（${t.reason}）` : ''}`)
-      }
+    // 先筛出有效记录再决定要不要打印标题：
+    // 存档被手改后可能出现 to 为空的记录，那样会留下一个空标题，误导模型
+    const 时间线条目 = timeline
+      .slice(-5)
+      .filter((t) => t && typeof t === 'object' && String(t.to ?? ''))
+      .map((t) => `- ${t.to}${t.reason ? `（${t.reason}）` : ''}`)
+    if (时间线条目.length) {
+      lines.push('', '### 时间线', ...时间线条目)
     }
 
     return lines.join('\n')
