@@ -95,7 +95,7 @@ export function runTool(state: GameState, name: string, rawArguments: string): s
     })
   }
 
-  // 没有 try/catch：唯一的工具 advance_time 内部已把失败转成告警文案（见 state.advanceTime），
+  // 没有 try/catch：唯一的工具 advance_time 内部已把失败转成告警文案（见 game/state.ts 的 advanceTime），
   // 不会抛到这里。为「不可能发生」的场景写兜底违反项目纪律 —— 真抛了就让上层看见
   // （runTurn 会把它作为回合错误暴露，而不是静默变成一句工具输出）。
   return String(TOOLS[name].run(state, args))
