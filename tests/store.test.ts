@@ -4,7 +4,7 @@
  * 只通过公开 API 驱动：store 的实例是模块级的，
  * 所以每个用例开头都「resetGame」清空（数据、日志、历史、调试痕迹、通知一起清）。
  */
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { watchEffect } from 'vue'
 import { isDevHost, useGame } from '../src/stores/game'
 import { initialState, hydrateFromSave, turn } from '../src/game/state'
@@ -295,6 +295,63 @@ describe('status line: in-progress and notices are computed, never stored', () =
 
     expect(g.lines.value.map((l) => l.text)).not.toContain(t('app.generatingOpening'))
     expect(g.lines.value.map((l) => l.kind)).toEqual(['narration'])
+  })
+})
+
+describe('debug traces survive a reload (their own key, never the save)', () => {
+  /** 与 store 里的 TRACE_KEY 同名：写错了这里会当场变红（读不到东西） */
+  const TRACE_KEY = 'tavernGame.trace'
+
+  /** 跑一个带调试痕迹的回合（调试开 → 有模型原始响应） */
+  async function runWithTrace() {
+    const g = useGame()
+    g.debugMode.value = true
+    fake = installFakeLlm([RAW_REPLY])
+    await g.runTurnAction(LOOK_ACTION)
+    fake.restore()
+    fake = null
+    g.debugMode.value = false
+    return g
+  }
+
+  it('writes them to their own key, and never into the save file', async () => {
+    const g = await runWithTrace()
+
+    const stored = JSON.parse(localStorage.getItem(TRACE_KEY) ?? '[]') as unknown[]
+    expect(stored).toHaveLength(g.trace.value.length)
+    // 痕迹里存的是协议响应（含 choices 字段的原始 JSON）
+    expect(JSON.stringify(stored)).toContain(RAW_REPLY)
+    expect(JSON.stringify(stored)).toContain('choices')
+    // 存档是给模型看的记忆（快照会读它），调试垃圾不许混进去
+    expect(g.exportSave()).not.toContain('choices')
+  })
+
+  it('loads them back on the next startup (module reload = F5)', async () => {
+    await runWithTrace()
+
+    vi.resetModules()
+    const reloaded = await import('../src/stores/game')
+
+    expect(reloaded.useGame().trace.value.length).toBeGreaterThan(0)
+  })
+
+  it('treats a corrupt stored value as no traces at all', async () => {
+    localStorage.setItem(TRACE_KEY, '{not json')
+
+    vi.resetModules()
+    const reloaded = await import('../src/stores/game')
+
+    expect(reloaded.useGame().trace.value).toEqual([])
+  })
+
+  it('resetGame clears them so a new game does not inherit the old traces', async () => {
+    const g = await runWithTrace()
+    expect(g.trace.value.length).toBeGreaterThan(0)
+
+    g.resetGame()
+
+    expect(g.trace.value).toEqual([])
+    expect(localStorage.getItem(TRACE_KEY)).toBe('[]')
   })
 })
 

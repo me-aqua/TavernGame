@@ -20,6 +20,7 @@
 import { computed, reactive, ref } from 'vue'
 import * as game from '../game/state'
 import { initialState } from '../game/state'
+import { isRecord } from '../game/save'
 import { createTurnRunner, type NoticeLevel, type Phase, type TraceKind } from './turn'
 import { localStorageStore, type GameStore } from '../utils/storage'
 import { t } from '../i18n'
@@ -56,6 +57,50 @@ export function isDevHost(host: string): boolean {
   return host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
 }
 
+/**
+ * 调试痕迹的键与保留上限。
+ *
+ * ⚠️ 单独一个键，**不进存档**：存档是给模型看的记忆（快照会读它），
+ *    工具调用与原始响应混进去会把上下文冲掉；导出存档时也不该带上调试垃圾。
+ *    但它**要能扛住刷新** —— 排查问题时最需要看的就是上一个回合发生了什么。
+ */
+const TRACE_KEY = 'tavernGame.trace'
+const MAX_TRACE = 100
+
+/** 存储里的痕迹是不是我们要的形状（外部数据，读的时候必须当 unknown） */
+function isTraceLine(v: unknown): v is TraceLine {
+  return isRecord(v) && typeof v.text === 'string' && typeof v.kind === 'string'
+}
+
+/**
+ * 读回上次会话留下的调试痕迹。
+ *
+ * ⚠️ 读不出来就当没有：痕迹只是调试信息，没有理由为它打扰玩家
+ *    （存档正相反 —— 读不出来必须说清楚，见 game/state.ts 的 loadError）。
+ */
+function readStoredTrace(): TraceLine[] {
+  try {
+    const raw = localStorage.getItem(TRACE_KEY)
+    if (!raw) return []
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(isTraceLine).slice(-MAX_TRACE)
+  } catch {
+    // 坏值（手改 / 格式变了）当作没有痕迹：调试数据不值得让整页出错
+    return []
+  }
+}
+
+/** 把痕迹写回存储。写不进去只影响「刷新后还看不看得到」，游戏照常 */
+function storeTrace(lines: TraceLine[]): void {
+  try {
+    localStorage.setItem(TRACE_KEY, JSON.stringify(lines))
+  } catch (err) {
+    // 配额满 / 隐私模式：丢掉调试痕迹可以接受（它本来就不是玩家数据）
+    console.warn('[store] trace save failed', err)
+  }
+}
+
 /** 存档读写器（模块级建一次） */
 const saveStore: GameStore = localStorageStore(localStorage)
 
@@ -69,9 +114,9 @@ const history = ref<ChatMessage[]>([])
 const phase = ref<Phase>(null)
 /** 单槽通知：后一条覆盖前一条，回合开始即清空 —— 它不会堆积 */
 const notice = ref<{ text: string; level: NoticeLevel } | null>(null)
-/** 调试痕迹：只在调试模式产生，不进存档、刷新即空 */
-const trace = ref<TraceLine[]>([])
-let nextTraceId = 0
+/** 调试痕迹：只在调试模式产生；单独一个键，刷新后还在（见 TRACE_KEY） */
+const trace = ref<TraceLine[]>(readStoredTrace())
+let nextTraceId = trace.value.reduce((max, line) => Math.max(max, line.id), 0)
 /**
  * 调试模式：记录模型输入输出与工具调用。
  *
@@ -125,9 +170,13 @@ export function useGame() {
     notice.value = text === null ? null : { text, level }
   }
 
-  /** 追加一行调试痕迹（回合编排调用） */
+  /** 追加一行调试痕迹（回合编排调用）；超出上限丢最旧的，并立刻落盘 */
   const addTrace = (kind: TraceKind, text: string, raw?: string) => {
     trace.value.push({ id: ++nextTraceId, kind, text, raw })
+    if (trace.value.length > MAX_TRACE) {
+      trace.value.splice(0, trace.value.length - MAX_TRACE)
+    }
+    storeTrace(trace.value)
   }
 
   // ---------- 回合（编排在 stores/turn.ts） ----------
@@ -151,6 +200,7 @@ export function useGame() {
     abortRunningTurn()
     history.value = []
     trace.value = []
+    storeTrace(trace.value)
     notify(null)
   }
 
