@@ -18,6 +18,7 @@ import { loadConfig, isConfigured, PRESETS } from './core/config'
 import { downloadText, pickFile } from './composables/useDownload'
 
 const {
+  启动错误,
   时间标签, 时间线, 场景, 回合数,
   消息流, 正在跑, 调试模式,
   追加, 清空消息流, 恢复日志, 执行回合,
@@ -116,10 +117,16 @@ function 设置已保存() {
 onMounted(() => {
   刷新配置状态()
 
+  // 存档坏了要说清楚，不能装作无事发生（坏数据已另存一份备份）
+   if (启动错误) {
+    追加('error', `本地存档已损坏，本次从空白开始：\n${启动错误}\n\n原存档已备份到浏览器存储中（key 以 .broken- 开头），可在控制台导出。`)
+     状态灯.value = 'err'
+   }
+
   // 恢复上次的叙事日志：叙事与玩家行动都按日志顺序原样输出。
   // 刷新时界面是空的，所以不存在重复问题 —— 日志里每条都是唯一的。
   // system 类不恢复（本次加载会重新生成提示）。
-  恢复日志()
+  if (!启动错误) 恢复日志()
 
   if (isConfigured()) {
     if (回合数.value === 0) {

@@ -15,6 +15,7 @@
 
 import { computed, ref, shallowRef, triggerRef } from 'vue'
 import { GameState } from '../core/state'
+import { loadState, createInitialState } from '../core/persistence'
 import { runTurn, type AgentEvent } from '../core/agent'
 import type { ChatMessage } from '../types/state'
 
@@ -36,7 +37,19 @@ function 新行(kind: StoryLine['kind'], text: string, extra: Partial<StoryLine>
 // ⚠️ GameState.load() 返回的**已经是 GameState 实例**，
 //    不能再 `new GameState(...)` 包一层 —— 那样 this.data 会变成
 //    { data: GameState }，所有 getter（timeLabel / calendar）全崩。
-const state = shallowRef(GameState.load())
+/**
+ * 启动时读档。
+ *
+ * ⚠️ 存档损坏不让整页打不开（那样玩家连导出坏数据的机会都没有），
+ *    但也**不静默开新局** —— 把坏数据的原文留一份，并让调用方拿到错误去提示玩家。
+ */
+function 启动读档(): { state: GameState; error: string | null } {
+  const { data, error } = loadState()
+  return { state: new GameState(data ?? createInitialState()), error }
+}
+
+const 启动结果 = 启动读档()
+const state = shallowRef(启动结果.state)
 const 消息流 = ref<StoryLine[]>([])
 const 对话历史 = ref<ChatMessage[]>([])
 const 正在跑 = ref(false)
@@ -166,6 +179,8 @@ export function useGame() {
   }
 
   return {
+    /** 启动时读档失败的说明；null = 正常 */
+    启动错误: 启动结果.error,
     // 状态
     时间标签, 时间线, 场景, 回合数,
     消息流, 正在跑, 调试模式,
