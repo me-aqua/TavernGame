@@ -216,11 +216,11 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
   }
 
   // 维护对话历史（供下一回合拼接）
-  const newHistory: ChatMessage[] = [
-    ...history.slice(-6),
+  const appended: ChatMessage[] = [
     { role: 'user', content: userContent },
     { role: 'assistant', content: narrations.join('\n\n') },
-  ].slice(-8)
+  ]
+  const newHistory: ChatMessage[] = [...history.slice(-6), ...appended].slice(-8)
 
   return {
     text: narrations.join('\n\n'),

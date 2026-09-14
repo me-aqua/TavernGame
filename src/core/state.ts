@@ -21,9 +21,9 @@
  * 类型标注在这里**不能当验证手段**，它只描述「校验通过之后」的形状。
  */
 
-import { getCalendar, nowIso, DEFAULT_CALENDAR_ID, SEGMENTS, type Calendar } from './calendar'
+import { getCalendar, SEGMENTS, type Calendar } from './calendar'
 import { advanceTime } from './time'
-import { writeSave, parseSave } from './persistence'
+import { writeSave, parseSave, createInitialState } from './persistence'
 import type { ChatMessage, GameData, LogEntry } from '../types/state'
 
 /** 最后一次「大跨度跳跃」的显示阈值：超过半年就不显示「过去了多久」 */
