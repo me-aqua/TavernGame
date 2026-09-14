@@ -150,8 +150,8 @@ for (const file of textFiles.filter((f) => SRC.test(f))) {
 // That is the formatter's style, not bloated code, so the limit follows the new baseline.
 const SIZE = { file: 400, func: 150, net: 500 }
 const countLines = (s) => s.split('\n').length
-// Generated files are not "code I wrote": lockfiles, prompt encodings
-const generated = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$|\.b64$/
+// Generated files are not "code I wrote": lockfiles
+const generated = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/
 // Docs are not bound by code line limits: DESIGN.md is a design derivation, long by nature
 const notDocs = (f) => !/^doc\//.test(f) && !/^(README|AGENTS)\.md$/.test(f)
 for (const file of textFiles.filter((f) => !generated.test(f) && notDocs(f))) {
@@ -175,7 +175,7 @@ for (const file of textFiles.filter((f) => /\.(ts|vue)$/.test(f))) {
   })
 }
 // Net additions exclude generated files
-const stat = git('diff --cached --shortstat -- . ":(exclude)package-lock.json" ":(exclude)*.b64"')
+const stat = git('diff --cached --shortstat -- . ":(exclude)package-lock.json"')
 const net = Number(stat.match(/(\d+) insertion/)?.[1] ?? 0)
 if (net > SIZE.net) {
   problems.push(`[体积] 本次改动 +${net} 行（上限 ${SIZE.net}）—— 拆成多次提交，或解释为什么必须一次改这么多`)

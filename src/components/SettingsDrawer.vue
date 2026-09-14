@@ -7,8 +7,11 @@
  * 现在只是模板里的 {{ }}，自动转义。
  */
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { PRESETS, loadConfig, saveConfig, clearConfig, maskKey } from '../core/config'
 import { testConnection as testApiConnection } from '../core/llm'
+
+const { t } = useI18n()
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [v: boolean]; saved: [] }>()
@@ -56,9 +59,9 @@ function syncProviderFields() {
 
 const corsHint = computed(() => {
   const c = currentPreset.value?.corsOk
-  if (c === false) return '⚠️ 该服务商实测不允许浏览器直连（CORS），用不了'
-  if (c === true) return '✅ 实测支持浏览器直连'
-  return '未实测，可能需要代理'
+  if (c === false) return t('settings.corsNo')
+  if (c === true) return t('settings.corsYes')
+  return t('settings.corsUnknown')
 })
 
 function save() {
@@ -83,15 +86,15 @@ async function testConnectionAction() {
   })
   testing.value = true
   testStatus.value = ''
-  testResult.value = '测试中…' // 允许：给玩家看的 UI 文案
+  testResult.value = t('settings.testing')
   try {
     const r = await testApiConnection()
     testStatus.value = 'ok'
-    testResult.value = `✅ 连接成功（${r.ms}ms）· 回复：${r.reply}`
+    testResult.value = t('settings.testOk', { ms: r.ms, reply: r.reply })
   } catch (err) {
     // 边界：这是「测试连接」按钮，失败本身就是结果 —— 显示给用户，不是吞掉
     testStatus.value = 'bad'
-    testResult.value = `❌ 失败\n${(err as Error).message}`
+    testResult.value = t('settings.testFailed', { message: (err as Error).message })
   } finally {
     testing.value = false
     // 测试连接会把配置写进 localStorage，顶栏状态要跟着刷新
@@ -100,11 +103,11 @@ async function testConnectionAction() {
 }
 
 function forgetKey() {
-  if (!confirm('清除浏览器里保存的 API key？')) return
+  if (!confirm(t('settings.confirmForget'))) return
   clearConfig()
   apiKey.value = ''
   testStatus.value = ''
-  testResult.value = '已清除'
+  testResult.value = t('settings.cleared')
   emit('saved')
 }
 
@@ -123,22 +126,22 @@ const hintText = 'mt-1.5 text-[11.5px] leading-relaxed text-faint'
     <div
       class="sheet max-h-[88vh] w-full max-w-[540px] overflow-y-auto rounded-2xl border border-line bg-surface p-6 shadow-2xl"
     >
-      <h2 class="text-[17px] font-semibold text-text">设置</h2>
+      <h2 class="text-[17px] font-semibold text-text">{{ t('settings.title') }}</h2>
       <p class="mt-1.5 mb-5 text-[13px] leading-relaxed text-muted">
-        纯前端运行 —— 你的 API key 只保存在<b class="text-text">你自己的浏览器</b>里，
-        不会上传到任何服务器。请求直接从浏览器发往服务商。
+        {{ t('settings.introBefore') }}<b class="text-text">{{ t('settings.appName') }}</b
+        >{{ t('settings.introAfter') }}
       </p>
 
       <div class="mb-4">
         <label :class="fieldLabel">provider</label>
         <select v-model="provider" :class="textareaRef" @change="syncProviderFields">
-          <option v-for="(v, k) in PRESETS" :key="k" :value="k">{{ v.label }}</option>
+          <option v-for="(_preset, k) in PRESETS" :key="k" :value="k">{{ t(`provider.${k}`) }}</option>
         </select>
         <p :class="hintText">{{ corsHint }}</p>
       </div>
 
       <div class="mb-4">
-        <label :class="fieldLabel">API Key</label>
+        <label :class="fieldLabel">{{ t('settings.apiKey') }}</label>
         <input
           v-model="apiKey"
           type="password"
@@ -148,7 +151,7 @@ const hintText = 'mt-1.5 text-[11.5px] leading-relaxed text-faint'
           :class="textareaRef"
         />
         <p :class="hintText">
-          <template v-if="currentPreset?.noKey">这个服务不需要 key</template>
+          <template v-if="currentPreset?.noKey">{{ t('settings.noKeyNeeded') }}</template>
           <template v-else>
             <a
               v-if="currentPreset?.keyUrl"
@@ -157,15 +160,15 @@ const hintText = 'mt-1.5 text-[11.5px] leading-relaxed text-faint'
               rel="noopener"
               class="text-info hover:underline"
             >
-              在这里获取：{{ currentPreset.keyUrl }}
+              {{ t('settings.keyUrlPrefix') }}{{ currentPreset.keyUrl }}
             </a>
           </template>
-          <br />当前：{{ maskKey(loadConfig().apiKey) }}
+          <br />{{ t('settings.currentKey', { masked: maskKey(loadConfig().apiKey) }) }}
         </p>
       </div>
 
       <div class="mb-4">
-        <label :class="fieldLabel">接口地址（Base URL）</label>
+        <label :class="fieldLabel">{{ t('settings.apiBase') }}</label>
         <input
           v-model="apiBase"
           type="text"
@@ -184,9 +187,9 @@ const hintText = 'mt-1.5 text-[11.5px] leading-relaxed text-faint'
       </div>
 
       <div class="mb-4">
-        <label :class="fieldLabel">每回合最多思考步数：{{ steps }}</label>
+        <label :class="fieldLabel">{{ t('settings.stepsLimit', { count: steps }) }}</label>
         <input v-model.number="steps" type="range" min="1" max="20" class="w-full accent-accent" />
-        <p :class="hintText">防止模型陷入循环把额度烧光。</p>
+        <p :class="hintText">{{ t('settings.stepsNote') }}</p>
       </div>
 
       <div class="mt-5 flex flex-wrap gap-2">
@@ -195,19 +198,19 @@ const hintText = 'mt-1.5 text-[11.5px] leading-relaxed text-faint'
           :disabled="testing"
           @click="testConnectionAction"
         >
-          测试连接
+          {{ t('settings.test') }}
         </button>
         <button
           class="rounded-lg bg-accent px-4 py-2 text-[13px] font-semibold text-page transition-opacity hover:opacity-90"
           @click="save"
         >
-          保存
+          {{ t('settings.save') }}
         </button>
         <button
           class="ml-auto rounded-lg px-3 py-2 text-[13px] text-muted transition-colors hover:text-danger"
           @click="forgetKey"
         >
-          清除密钥
+          {{ t('settings.forget') }}
         </button>
       </div>
 

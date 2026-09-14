@@ -12,5 +12,11 @@
     "skipLibCheck": true
   },
   // 所有构建/配置文件都要包含：否则类型感知 linting 找不到它们
-  "include": ["vite.config.ts", "vitest.config.ts", "eslint.config.js", "commitlint.config.js"]
+  "include": [
+    "vite.config.ts",
+    "vitest.config.ts",
+    "eslint.config.js",
+    "commitlint.config.js",
+    "vite-plugins/**/*.ts"
+  ]
 }

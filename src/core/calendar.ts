@@ -19,7 +19,10 @@
  */
 
 /** 一天的时段 */
-export const SEGMENTS = ['上午', '下午', '晚上'] as const
+import { t } from '../i18n'
+
+/** 时段键（协议/内部用）；显示名走 locale 的 calendar.segment.* */
+export const SEGMENTS = ['morning', 'afternoon', 'evening'] as const
 
 /** 时段名 */
 export type SegmentName = (typeof SEGMENTS)[number]
@@ -52,30 +55,37 @@ export interface Calendar {
 
 /** 把小时数映射到时段索引 */
 export function hourToSegment(hour: number): number {
-  if (hour < 12) return 0 // 上午
-  if (hour < 18) return 1 // 下午
-  return 2 // 晚上
+  if (hour < 12) return 0 // morning
+  if (hour < 18) return 1 // afternoon
+  return 2 // evening
 }
 
-const WEEKDAY_CN = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
+/** Localized segment label for an hour */
+export function segmentName(hour: number): string {
+  const key = SEGMENTS[hourToSegment(hour)]
+  return t(`calendar.segment.${key}`)
+}
 
 /** 日历预设：现实公历 */
 export const realCalendar: Calendar = {
   id: 'real',
-  label: '现实日历',
-  description: '按真实世界的公历走，从你开始玩的那一刻算起。',
+  label: 'real',
+  description: 'real',
 
   format(iso: string): string {
     const d = new Date(iso)
-    return (
-      `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日 · ` +
-      `${WEEKDAY_CN[d.getDay()]} · ${SEGMENTS[hourToSegment(d.getHours())]}`
-    )
+    const date = t('calendar.yearMonthDay', {
+      year: d.getFullYear(),
+      month: d.getMonth() + 1,
+      day: d.getDate(),
+    })
+    return `${date} · ${t(`calendar.weekday.${d.getDay()}`)} · ${segmentName(d.getHours())}`
   },
 
   formatShort(iso: string): string {
     const d = new Date(iso)
-    return `${d.getMonth() + 1} 月 ${d.getDate()} 日 · ${SEGMENTS[hourToSegment(d.getHours())]}`
+    const date = t('calendar.monthDay', { month: d.getMonth() + 1, day: d.getDate() })
+    return `${date} · ${segmentName(d.getHours())}`
   },
 
   advance(iso: string, step: number, unit: TimeUnit = 'segment'): AdvanceResult {
@@ -106,9 +116,10 @@ export const realCalendar: Calendar = {
         d.setFullYear(d.getFullYear() + step)
         break
       default: {
-        // 联合类型让这里理论上不可达；真被绕过（比如从 as any 调进来）时也要出声
-        const bad: never = unit
-        throw new Error(`不认识的时间单位「${String(bad)}」`)
+        // Exhaustiveness check: if the TimeUnit union ever grows without a case here,
+        // `unit` stops being assignable to never and this line fails the build.
+        const impossible: never = unit
+        throw new Error(`Unknown time unit: ${String(impossible)}`)
       }
     }
 
@@ -132,8 +143,8 @@ export const realCalendar: Calendar = {
     const hours = Math.floor((totalMinutes % 1440) / 60)
 
     if (days === 0) {
-      if (hours > 0) return `过去了 ${hours} 小时`
-      return totalMinutes > 0 ? `过去了 ${totalMinutes} 分钟` : ''
+      if (hours > 0) return t('calendar.elapsedHours', { hours })
+      return totalMinutes > 0 ? t('calendar.elapsedMinutes', { minutes: totalMinutes }) : ''
     }
 
     // 不足一年：按月 + 天
@@ -141,9 +152,9 @@ export const realCalendar: Calendar = {
       const months = Math.floor(days / 30)
       const remDays = days % 30
       const parts: string[] = []
-      if (months) parts.push(`${months} 个月`)
-      if (remDays) parts.push(`${remDays} 天`)
-      return `过去了 ${parts.join(' ')}`
+      if (months) parts.push(t('calendar.months', { months }))
+      if (remDays) parts.push(t('calendar.days', { days: remDays }))
+      return t('calendar.elapsed', { parts: parts.join(' ') })
     }
 
     // 一年以上：年 + 月 + 天，逐级从余数里剥，谁都不重复吃
@@ -151,10 +162,10 @@ export const realCalendar: Calendar = {
     const afterYears = days % 365
     const months = Math.floor(afterYears / 30)
     const remDays = afterYears % 30
-    const parts: string[] = [`${years} 年`]
-    if (months) parts.push(`${months} 个月`)
-    if (remDays) parts.push(`${remDays} 天`)
-    return `过去了 ${parts.join(' ')}`
+    const parts: string[] = [t('calendar.years', { years })]
+    if (months) parts.push(t('calendar.months', { months }))
+    if (remDays) parts.push(t('calendar.days', { days: remDays }))
+    return t('calendar.elapsed', { parts: parts.join(' ') })
   },
 }
 
@@ -171,7 +182,7 @@ export function getCalendar(id?: string): Calendar {
   if (!id) return CALENDARS[DEFAULT_CALENDAR_ID]
   const found = CALENDARS[id]
   if (!found) {
-    console.warn(`未知历法「${id}」，已回退到「${DEFAULT_CALENDAR_ID}」`)
+    console.warn(t('calendar.unknownCalendar', { id, fallback: DEFAULT_CALENDAR_ID }))
     return CALENDARS[DEFAULT_CALENDAR_ID]
   }
   return found

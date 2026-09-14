@@ -2,7 +2,7 @@
  * 配置测试 —— 此前 0% 覆盖。
  * 配置是系统边界（用户手改 localStorage），所以脏数据必须被兜住。
  */
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadConfig, saveConfig, clearConfig, isConfigured, maskKey, PRESETS } from '../src/core/config'
 
 beforeEach(() => {
@@ -60,6 +60,22 @@ describe('isConfigured', () => {
   it('Ollama 这类不需要 key 的服务：有地址和模型就算配好', () => {
     saveConfig({ provider: 'ollama', apiKey: '', apiBase: 'http://localhost:11434/v1', model: 'qwen2.5' })
     expect(isConfigured()).toBe(true)
+  })
+})
+
+describe('saveConfig —— 写不进去时', () => {
+  it('localStorage 抛错也不崩，仍返回合并后的配置（隐私模式/配额满）', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError')
+    })
+
+    const result = saveConfig({ model: 'still-here' })
+    expect(result.model).toBe('still-here')
+    expect(warn).toHaveBeenCalled()
+
+    spy.mockRestore()
+    warn.mockRestore()
   })
 })
 

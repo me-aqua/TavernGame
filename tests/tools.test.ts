@@ -80,9 +80,16 @@ describe('runTool', () => {
     expect(runTool(fresh(), 'advance_time', '"字符串"')).toContain('必须是 JSON 对象')
   })
 
-  it('单位不认识时把错误交给模型（引擎不猜、不静默纠正）', () => {
-    const out = runTool(fresh(), 'advance_time', '{"step":1,"unit":"光年"}')
-    expect(out).toContain('不认识的时间单位')
+  it('单位不是 enum 值时把结构化错误交给模型（引擎不猜、不静默纠正）', () => {
+    // 协议 schema 里有 enum，但客户端仍可能收到越界值（服务商宽松、手改等），
+    // 所以引擎必须给出**可重试的**错误，而不是猜一个单位用
+    for (const bad of ['光年', 'days', '天', 'HOUR']) {
+      const s = fresh()
+      const before = s.iso
+      const out = runTool(s, 'advance_time', `{"step":1,"unit":"${bad}"}`)
+      expect(out, `单位「${bad}」应被拒绝`).toContain('Unknown time unit')
+      expect(s.iso, `单位「${bad}」不该改动时间`).toBe(before)
+    }
   })
 
   it('工具执行抛错时被兜住，返回错误文案', () => {

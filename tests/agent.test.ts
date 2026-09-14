@@ -141,9 +141,9 @@ describe('runTurn —— 把错误交回模型（不自己兜）', () => {
     // 时间**没有**被推进（引擎不猜）
     expect(Date.parse(state.iso)).toBe(before)
     // 但错误进了工具结果，模型看得到
-    expect(result.toolResults[0]).toContain('不认识的时间单位')
+    expect(result.toolResults[0]).toContain('Unknown time unit')
     const toolMsg = (fake.calls[1].body.messages ?? []).find((m) => m.role === 'tool')
-    expect(toolMsg?.content).toContain('不认识的时间单位')
+    expect(toolMsg?.content).toContain('Unknown time unit')
   })
 
   it('参数不是合法 JSON → 同样回传错误而不是崩掉', async () => {

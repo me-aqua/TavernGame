@@ -6,7 +6,7 @@
   "description": "一个用 agent 循环驱动的文字游戏（纯前端，浏览器里直接玩）",
   "scripts": {
     "dev": "vite",
-    "build": "npm run typecheck && npm run prompts:encode && vite build",
+    "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json",
     "lint": "eslint .",
@@ -17,9 +17,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "e2e": "npm run build && node e2e/smoke.mjs",
-    "prompts:encode": "node scripts/encode-prompts.mjs",
-    "prompts:check": "node scripts/encode-prompts.mjs --check",
-    "check": "npm run prompts:check && npm run typecheck && npm run lint && npm run format:check && npm test",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
     "verify": "npm run check && npm run test:coverage && npm run build && node e2e/smoke.mjs",
     "hooks": "git config --local core.hooksPath .githooks",
     "prepare": "npm run hooks"
@@ -39,6 +37,7 @@
     "@commitlint/cli": "21.2.2",
     "@commitlint/config-conventional": "21.2.2",
     "@eslint/js": "10.0.1",
+    "@intlify/unplugin-vue-i18n": "^11.2.5",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.5.1",
     "@vitejs/plugin-vue": "6.0.8",
@@ -55,6 +54,7 @@
     "vite": "8.3.0",
     "vitest": "5.0.0",
     "vue-eslint-parser": "10.4.1",
+    "vue-i18n": "^11.4.10",
     "vue-tsc": "3.3.11"
   }
 }

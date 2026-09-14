@@ -11,28 +11,32 @@
  * 而且 `\n` 拼接的排版远不如 Markdown 干净。
  */
 
-// 提示词以 base64 形式随包发布（源文件是 prompts/*.md，由 npm run prompts:encode 生成）。
+// 提示词以 base64 随包发布：源文件是 prompts/*.md，由 vite-plugins/prompts.ts
+// 在**构建期**转成虚拟模块（不产生中间文件，所以没有「忘了重新编码」这种失败模式）。
 // 为什么编码：见 prompts/README.md —— 主要是**彻底避开转义坑**
-// （反引号/换行/引号/中文），同时产物里不再是可读明文。
+// （反引号/换行/引号/中文）。
 // ⚠️ 这是编码不是加密：客户端字符串永远拿得到，别把需要保密的东西放进来。
-import systemTemplateB64 from '../../prompts/system.md.b64?raw'
-import toolsTemplateB64 from '../../prompts/tools.md.b64?raw'
-import openingInstructionB64 from '../../prompts/opening.md.b64?raw'
-import forcedNarrationInstructionB64 from '../../prompts/forced-narration.md.b64?raw'
-import toolCallsWithoutNarrationB64 from '../../prompts/tool-calls-without-narration.md.b64?raw'
-import connectionTestB64 from '../../prompts/connection-test.md.b64?raw'
-import calendarNoteB64 from '../../prompts/calendar.md.b64?raw'
+//
+// 模块 id 约定：virtual:prompt/<lang>/<name>（语言段来自 prompts/<lang>/ 目录名）。
+// 当前固定取 zh-CN；i18n 那一步会按玩家语言在 zh-CN / en 之间选。
+import systemTemplateB64 from 'virtual:prompt/zh-CN/system'
+import toolsTemplateB64 from 'virtual:prompt/zh-CN/tools'
+import openingInstructionB64 from 'virtual:prompt/zh-CN/opening'
+import forcedNarrationInstructionB64 from 'virtual:prompt/zh-CN/forced-narration'
+import toolCallsWithoutNarrationB64 from 'virtual:prompt/zh-CN/tool-calls-without-narration'
+import connectionTestB64 from 'virtual:prompt/zh-CN/connection-test'
+import calendarNoteB64 from 'virtual:prompt/zh-CN/calendar'
 
 /**
- * .b64 文件是「带注释的一小段 JS」，真实载荷是导出的字符串。
- * 这里只取引号之间的内容，避免依赖 eval / import 副作用。
+ * 解码提示词：虚拟模块导出的就是**纯 base64 字符串**（无注释、无包装）。
+ *
+ * 浏览器与 Node 18+ 都有 atob / TextDecoder，所以不需要任何 Node 专用 API。
+ * base64 → bytes → UTF-8：中文必须走这一步，直接 atob 得到的是乱码。
  */
-function decodePrompt(原始: string): string {
-  const m = 原始.match(/"([\s\S]*)"/)
-  if (!m) throw new Error('提示词编码文件格式不对（找不到 base64 字符串）')
-  const b64 = m[1]
-  // 浏览器与 Node 18+ 都有 atob / TextDecoder，所以不需要任何 Node 专用 API。
-  // base64 → bytes → UTF-8：中文必须走这一步，直接 atob 得到的是乱码。
+function decodePrompt(b64: string): string {
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(b64)) {
+    throw new Error('提示词模块不是合法 base64 —— 检查 vite-plugins/prompts.ts 的输出')
+  }
   const binary = atob(b64)
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)

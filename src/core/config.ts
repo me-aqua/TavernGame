@@ -12,9 +12,8 @@
 
 const STORAGE_KEY = 'tavernGame.config'
 
-/** 一个服务商的预设 */
+/** A provider preset (label text lives in src/locales) */
 export interface ProviderPreset {
-  label: string
   apiBase: string
   models: string[]
   keyUrl: string
@@ -41,35 +40,30 @@ export interface GameConfig {
  */
 export const PRESETS: Record<string, ProviderPreset> = {
   deepseek: {
-    label: 'DeepSeek 官方',
     apiBase: 'https://api.deepseek.com',
     models: ['deepseek-chat', 'deepseek-reasoner'],
     keyUrl: 'https://platform.deepseek.com/api_keys',
     corsOk: true,
   },
   siliconflow: {
-    label: '硅基流动 SiliconFlow',
     apiBase: 'https://api.siliconflow.cn/v1',
     models: ['deepseek-ai/DeepSeek-V3', 'Qwen/Qwen2.5-72B-Instruct'],
     keyUrl: 'https://cloud.siliconflow.cn/account/ak',
     corsOk: true,
   },
   openrouter: {
-    label: 'OpenRouter',
     apiBase: 'https://openrouter.ai/api/v1',
     models: ['deepseek/deepseek-chat', 'anthropic/claude-3.5-sonnet'],
     keyUrl: 'https://openrouter.ai/keys',
     corsOk: true,
   },
   mistral: {
-    label: 'Mistral',
     apiBase: 'https://api.mistral.ai/v1',
     models: ['mistral-large-latest'],
     keyUrl: 'https://console.mistral.ai/api-keys/',
     corsOk: true,
   },
   ollama: {
-    label: '本地 Ollama（零成本）',
     apiBase: 'http://localhost:11434/v1',
     models: ['qwen2.5', 'llama3.1'],
     keyUrl: 'https://ollama.com/download',
@@ -77,7 +71,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     noKey: true,
   },
   custom: {
-    label: '自定义（任意 OpenAI 兼容接口）',
     apiBase: '',
     models: [],
     keyUrl: '',

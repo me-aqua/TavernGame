@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 /**
  * 顶栏：品牌 + 连接状态 + 主题切换 + 存档操作 + 设置入口。
  *
@@ -7,6 +8,8 @@
  * 所以深浅色切换不需要改这个文件。
  */
 import { computed } from 'vue'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   /** statusLight */
@@ -32,9 +35,9 @@ const themeIcon = computed(() => (props.theme === 'system' ? '🖥' : props.them
 const themeHint = computed(
   () =>
     ({
-      system: '主题：跟随系统（点击切换）',
-      dark: '主题：深色（点击切换）',
-      light: '主题：浅色（点击切换）',
+      system: t('header.themeSystem'),
+      dark: t('header.themeDark'),
+      light: t('header.themeLight'),
     })[props.theme],
 )
 
@@ -60,14 +63,18 @@ const secondaryButton =
       >
         {{ themeIcon }}
       </button>
-      <button :class="secondaryButton" title="导出存档文件" @click="$emit('export')">doExport</button>
-      <button :class="secondaryButton" title="从文件导入存档" @click="$emit('import')">doImport</button>
+      <button :class="secondaryButton" :title="t('header.exportTitle')" @click="$emit('export')">
+        doExport
+      </button>
+      <button :class="secondaryButton" :title="t('header.importTitle')" @click="$emit('import')">
+        doImport
+      </button>
       <button :class="secondaryButton" title="resetGame" @click="$emit('reset')">resetAll</button>
       <button
         class="ml-1 rounded-lg border border-accent-line bg-accent-soft px-3 py-1.5 text-[13px] font-medium text-accent transition-opacity hover:opacity-80"
         @click="$emit('settings')"
       >
-        ⚙ 设置
+        {{ t('header.settings') }}
       </button>
     </span>
   </header>
