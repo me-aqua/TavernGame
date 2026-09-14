@@ -21,8 +21,14 @@ const cardTitle = 'mb-2.5 text-[10.5px] font-semibold tracking-[0.14em] text-fai
 </script>
 
 <template>
-  <aside class="flex flex-col gap-3 overflow-y-auto bg-surface px-3.5 py-4 lg:w-[280px]">
-    <section class="rounded-xl border border-line bg-surface-2 p-3.5">
+  <!--
+    Phones: the three cards sit at the bottom in two columns (time + turn), so the
+    story keeps the screen. From lg up it is the classic right-hand column.
+  -->
+  <aside
+    class="grid shrink-0 grid-cols-2 gap-3 overflow-y-auto border-t border-line bg-surface px-3.5 py-4 lg:flex lg:w-[280px] lg:flex-col lg:border-t-0 lg:border-l"
+  >
+    <section class="col-span-2 rounded-xl border border-line bg-surface-2 p-3.5 lg:col-span-1">
       <h2 :class="cardTitle">{{ t('sidebar.time') }}</h2>
       <p class="time-display text-[16px] font-semibold tracking-wide text-accent tabular-nums">
         {{ timeLabel }}
@@ -34,19 +40,19 @@ const cardTitle = 'mb-2.5 text-[10.5px] font-semibold tracking-[0.14em] text-fai
       -->
       <ul v-if="timeline.length" class="timeline mt-2.5 space-y-1 text-[11.5px] leading-relaxed text-faint">
         <li v-for="(entry, i) in timeline" :key="i">
-          ↑ {{ entry.from }}
+          {{ t('sidebar.timelineArrow') }} {{ entry.from }}
           <span v-if="entry.reason" class="block pl-3 opacity-70">{{ entry.reason }}</span>
         </li>
       </ul>
     </section>
 
-    <section class="rounded-xl border border-line bg-surface-2 p-3.5">
+    <section class="col-span-2 rounded-xl border border-line bg-surface-2 p-3.5 lg:col-span-1">
       <h2 :class="cardTitle">{{ t('sidebar.place') }}</h2>
       <p class="scene-name mb-1 text-[13px] font-medium text-accent">{{ scene.name }}</p>
       <p class="text-[12.5px] leading-relaxed text-muted">{{ scene.description }}</p>
     </section>
 
-    <section class="rounded-xl border border-line bg-surface-2 p-3.5">
+    <section class="col-span-2 rounded-xl border border-line bg-surface-2 p-3.5 lg:col-span-1">
       <h2 :class="cardTitle">{{ t('sidebar.turn') }}</h2>
       <p class="flex items-baseline justify-between text-[13px]">
         <span class="text-muted">{{ t('sidebar.turnCount') }}</span>

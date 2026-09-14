@@ -10,6 +10,8 @@
  *      所以别在公用电脑上填。
  */
 
+import { t } from '../i18n'
+
 const STORAGE_KEY = 'tavernGame.config'
 
 /** A provider preset (label text lives in src/locales) */
@@ -116,7 +118,7 @@ export function saveConfig(patch: Partial<GameConfig>): GameConfig {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cache))
   } catch (err) {
-    console.warn('配置保存失败（可能是隐私模式）：', err)
+    console.warn('[config] save failed (private mode?)', err)
   }
   return cache
 }
@@ -141,7 +143,7 @@ export function isConfigured(): boolean {
 
 /** 把 key 打码，用于界面显示 */
 export function maskKey(key: string): string {
-  if (!key) return '（未设置）'
+  if (!key) return t('config.notSet')
   if (key.length <= 10) return '***'
-  return `${key.slice(0, 6)}…${key.slice(-4)}`
+  return `${key.slice(0, 6)}...${key.slice(-4)}`
 }

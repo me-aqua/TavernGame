@@ -11,10 +11,11 @@
  *    不再有「文本协议 + JSON 代码块」，也**没有解析器**了。
  *    理由见 llm.ts 顶部注释：解析模型输出本质上是在猜格式，
  *    而工具调用应该是协议层的契约。
- *    给模型看的**说明**（何时该调用）在 prompts/tools.md；
- *    给模型看的**参数契约**就是下面的 TOOL_SCHEMAS。
+ *    给模型看的**说明**（何时该调用）在 prompts/<lang>/tools.md；
+ *    给模型看的**参数契约**在这里，描述文字从 locales 取（见下）。
  */
 
+import { t } from '../i18n'
 import type { GameState } from './state'
 import type { ToolSchema } from './llm'
 
@@ -22,7 +23,7 @@ export interface ToolDef {
   run(state: GameState, args: Record<string, unknown>): string
 }
 
-/** 工具的实现。说明文字在 prompts/，参数契约在下面的 TOOL_SCHEMAS。 */
+/** 工具的实现。说明文字在 prompts/，参数契约在下面的 toolSchemas()。 */
 export const TOOLS: Record<string, ToolDef> = {
   advance_time: {
     run: (state, a) => state.advanceTime(a.step, a.unit, typeof a.reason === 'string' ? a.reason : ''),
@@ -32,34 +33,33 @@ export const TOOLS: Record<string, ToolDef> = {
 /**
  * 声明给模型的工具契约（OpenAI 兼容格式）。
  *
- * 描述文字是**游戏语言**的一部分（会直接影响模型对世界的理解），
- * 所以这里是中文；将来做 i18n 时按语言取不同的一份。
+ * ⚠️ 描述文字是**给模型看的**，所以跟随界面语言（不需要 locale 文件之外的中文）——
+ * 用 getter 而不是常量数组：locale 可以在运行时切换，常量只会在模块加载时求值一次。
  */
-export const TOOL_SCHEMAS: ToolSchema[] = [
-  {
-    type: 'function',
-    function: {
-      name: 'advance_time',
-      description:
-        '推进故事内的时间。只在剧情确实经过了一段时间时才调用' +
-        '（赶路、交谈很久、睡了一觉、等到天黑、修养数日）。' +
-        '如果这一回合只是几句话、几个动作，就不要调用。跨度没有上限。',
-      parameters: {
-        type: 'object',
-        properties: {
-          step: { type: 'integer', description: '推进的数量，正整数。默认 1', minimum: 1 },
-          unit: {
-            type: 'string',
-            description: '时间单位。默认 segment（一个时段，约 4 小时）',
-            enum: ['segment', 'hour', 'day', 'week', 'month', 'year'],
+export function toolSchemas(): ToolSchema[] {
+  return [
+    {
+      type: 'function',
+      function: {
+        name: 'advance_time',
+        description: t('tools.advanceTime.description'),
+        parameters: {
+          type: 'object',
+          properties: {
+            step: { type: 'integer', description: t('tools.advanceTime.step'), minimum: 1 },
+            unit: {
+              type: 'string',
+              description: t('tools.advanceTime.unit'),
+              enum: ['segment', 'hour', 'day', 'week', 'month', 'year'],
+            },
+            reason: { type: 'string', description: t('tools.advanceTime.reason') },
           },
-          reason: { type: 'string', description: '为什么时间会流逝（会记录在时间线里）' },
+          required: [],
         },
-        required: [],
       },
     },
-  },
-]
+  ]
+}
 
 /**
  * 执行一个工具。
@@ -74,21 +74,24 @@ export function runTool(state: GameState, name: string, rawArguments: string): s
   // 会从 Object.prototype 上取到**真值**，绕过「没有这个工具」的判断，
   // 随后抛 TypeError；而这个异常会穿出 runTurn，让 endTurn/save/addLog 全不执行。
   if (!Object.hasOwn(TOOLS, name)) {
-    return `❌ 没有名为「${name}」的工具。可用工具：${Object.keys(TOOLS).join('、')}`
+    return t('tools.unknown', { name, available: Object.keys(TOOLS).join(', ') })
   }
 
   let args: Record<string, unknown>
   try {
     const parsed: unknown = JSON.parse(rawArguments || '{}')
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      return `❌ 参数必须是 JSON 对象，收到的是：${rawArguments.slice(0, 120)}`
+      return t('tools.notJsonObject', { got: rawArguments.slice(0, 120) })
     }
     args = parsed as Record<string, unknown>
   } catch (err) {
-    return `❌ 参数不是合法 JSON（${(err as Error).message}）。你给的是：${rawArguments.slice(0, 120)}`
+    return t('tools.invalidJson', {
+      message: (err as Error).message,
+      got: rawArguments.slice(0, 120),
+    })
   }
 
-  // 没有 try/catch：唯一的工具 advance_time 内部已把失败转成 ⚠ 文案（见 state.advanceTime），
+  // 没有 try/catch：唯一的工具 advance_time 内部已把失败转成告警文案（见 state.advanceTime），
   // 不会抛到这里。为「不可能发生」的场景写兜底违反项目纪律 —— 真抛了就让上层看见
   // （runTurn 会把它作为回合错误暴露，而不是静默变成一句工具输出）。
   return String(TOOLS[name].run(state, args))

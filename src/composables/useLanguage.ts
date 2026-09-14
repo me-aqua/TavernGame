@@ -14,7 +14,7 @@ let initialized = false
 
 /** Apply the mode to vue-i18n and the <html lang> attribute */
 function apply(next: LanguageMode): void {
-  const locale = resolveLocale(next)
+  const locale = resolveLocale(next, navigator.language)
   ;(i18n.global.locale as unknown as { value: string }).value = locale
   document.documentElement.lang = locale
 }
@@ -36,7 +36,12 @@ export function useLanguage() {
     mode.value = mode.value === 'system' ? 'zh-CN' : mode.value === 'zh-CN' ? 'en' : 'system'
   }
 
-  return { mode, cycle }
+  /** Pick a language directly (settings drawer), instead of cycling */
+  function select(next: LanguageMode): void {
+    mode.value = next
+  }
+
+  return { mode, cycle, select }
 }
 
 /** Current concrete locale — core modules use it to pick prompts and tool schemas */

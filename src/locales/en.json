@@ -1,7 +1,5 @@
 {
   "app": {
-    "title": "TavernGame",
-    "statusChecking": "Checking config…",
     "statusUnconfigured": "Not configured",
     "debugOn": "🔧 Debug mode on — raw model output will be shown",
     "debugOff": "🔧 Debug mode off",
@@ -24,10 +22,19 @@
     "export": "Export",
     "import": "Import",
     "reset": "Restart",
-    "settings": "⚙ Settings",
+    "settings": "Settings",
     "exportTitle": "Export save file",
     "importTitle": "Import save from file",
-    "resetTitle": "Start over"
+    "resetTitle": "Start over",
+    "themeIconSystem": "🖥",
+    "themeIconDark": "🌙",
+    "themeIconLight": "☀️",
+    "languageSystem": "Language: follow system (click to switch)",
+    "languageZh": "Language: Chinese (click to switch)",
+    "languageEn": "Language: English (click to switch)",
+    "languageIconSystem": "A/文",
+    "languageIconZh": "中",
+    "languageIconEn": "EN"
   },
   "composer": {
     "placeholder": "What do you do?",
@@ -40,7 +47,8 @@
     "time": "Time",
     "place": "Place",
     "turn": "Turn",
-    "turnCount": "Elapsed"
+    "turnCount": "Elapsed",
+    "timelineArrow": "↑"
   },
   "toolbar": {
     "toolCall": "⚙ call {tool}({args})"
@@ -49,14 +57,14 @@
     "rawReply": "🔍 Raw model reply ({count} tool calls)",
     "noText": "(The model returned no text — it may have only called tools)",
     "cancelled": "This turn was cancelled",
-    "failed": "Something went wrong:\n{message}"
+    "failed": "Something went wrong:\n{message}",
+    "toolResultLine": "   -> {result}",
+    "warnLine": "⚠ {message}"
   },
   "settings": {
     "title": "Settings",
-    "provider": "Provider",
     "apiKey": "API Key",
     "apiBase": "Base URL",
-    "model": "Model",
     "stepsLimit": "Max thinking steps per turn: {count}",
     "stepsNote": "Prevents the model from looping and burning your quota.",
     "noKeyNeeded": "This provider needs no key",
@@ -75,7 +83,17 @@
     "corsUnknown": "Not verified; a proxy may be needed",
     "introBefore": "Runs entirely in your browser — your API key is stored only in",
     "introAfter": "and is sent straight to the provider, never to any server of ours.",
-    "appName": "your own browser"
+    "appName": "your own browser",
+    "icon": "",
+    "providerLabel": "Provider",
+    "modelLabel": "Model name (modelName)",
+    "language": "Language",
+    "languageNote": "The GM writes in this language too.",
+    "languageSystem": "Follow system",
+    "saveSection": "Save data",
+    "exportSave": "Export save file",
+    "importSave": "Import save file",
+    "resetGame": "Start over"
   },
   "provider": {
     "deepseek": "DeepSeek (official)",
@@ -103,26 +121,15 @@
     },
     "elapsedHours": "{hours} hours passed",
     "elapsedMinutes": "{minutes} minutes passed",
-    "elapsedDays": "{days} days passed",
     "elapsedMonths": "{months} months passed",
     "elapsedMonthsDays": "{months} months {days} days passed",
-    "elapsedYears": "{years} years passed",
-    "elapsedYearsMonths": "{years} years {months} months passed",
-    "elapsedFull": "{years} years {months} months {days} days passed",
-    "unknownUnit": "Unrecognized time unit \"{unit}\"",
-    "cannotGoBack": "⚠ Time only moves forward; it cannot go back. (Current: {time})",
-    "cannotStay": "⚠ Time must move forward; it cannot stand still. (Current: {time})",
-    "jumpTooLarge": "⚠ Jump too large ({step} {unit}); ignored. Current: {time}",
-    "advanced": "🕐 Time advanced: {from}\n           → {to}",
-    "advancedElapsed": "🕐 Time advanced: {from}\n           → {to}\n   ({elapsed})",
-    "advancedReason": "🕐 Time advanced: {from}\n           → {to}\n   Reason: {reason}",
-    "advancedElapsedReason": "🕐 Time advanced: {from}\n           → {to}\n   ({elapsed})\n   Reason: {reason}",
     "monthDay": "{month}/{day}",
     "months": "{months} months",
     "days": "{days} days",
     "years": "{years} years",
     "elapsed": "{parts} passed",
-    "unknownCalendar": "Unknown calendar {id}; falling back to {fallback}"
+    "unknownCalendar": "Unknown calendar {id}; falling back to {fallback}",
+    "dateSeparator": " · "
   },
   "llm": {
     "missingConfig": "Missing configuration: {items}.\nOpen ⚙ Settings (top right) to fill it in.",
@@ -130,7 +137,6 @@
     "httpError": "HTTP {status} {statusText}\n{detail}",
     "badResponse": "Unrecognized response shape: {body}",
     "emptyResponse": "The reply contained neither text nor tool calls: {body}",
-    "debugSwitchedOn": "🔧 Debug mode on",
     "field": {
       "apiKey": "API Key",
       "apiBase": "base URL",
@@ -138,14 +144,20 @@
     }
   },
   "tools": {
-    "noSuchTool": "❌ No tool named \"{name}\". Available: {available}",
-    "argsNotObject": "❌ Arguments must be a JSON object; got: {raw}",
-    "argsNotJson": "❌ Arguments are not valid JSON ({message}). You sent: {raw}",
-    "runFailed": "❌ Tool execution failed: {message}",
-    "advanceTimeDescription": "Advance in-story time. Call it only when time actually passes (travelling, a long conversation, sleeping, waiting for night, recovering for days). If the turn is just a few words or actions, do not call it. There is no upper bound on the jump.",
-    "stepDescription": "How much to advance; a positive integer. Defaults to 1",
-    "unitDescription": "Time unit. Defaults to segment (one part of the day, about 4 hours)",
-    "reasonDescription": "Why time passes (recorded on the timeline)"
+    "unknown": "❌ There is no tool named \"{name}\". Available tools: {available}",
+    "notJsonObject": "❌ Arguments must be a JSON object; received: {got}",
+    "invalidJson": "❌ Arguments are not valid JSON ({message}). You sent: {got}",
+    "advanceFailed": "⚠ Advance failed: {message} (current: {current})",
+    "advanceResult": "🕐 Time advanced: {before}\n           → {after}",
+    "advanceElapsed": "\n   ({elapsed})",
+    "advanceReason": "\n   Reason: {reason}",
+    "advanceTime": {
+      "description": "Advance in-story time. Call this only when the plot really spans time (travelling, a long conversation, sleeping, waiting for nightfall, recovering for days). If the turn is just a few lines or actions, do not call it. There is no upper bound on the span.",
+      "step": "How many units to advance; a positive integer. Defaults to 1",
+      "unit": "Time unit. Defaults to segment (one part of the day, about 4 hours)",
+      "reason": "Why time passes (recorded on the timeline)"
+    },
+    "segmentListSeparator": " -> "
   },
   "snapshot": {
     "turn": "[Turn {turn}]",
@@ -154,23 +166,47 @@
     "recent": "### Recently",
     "timeline": "### Timeline",
     "player": "Player",
-    "gm": "You (GM)"
+    "gm": "You (GM)",
+    "recentLog": "### Recent events",
+    "sceneDescription": "    {text}",
+    "recentLine": "- {who}: {text}",
+    "timelineLine": "- {to} ({reason})",
+    "timelineLineNoReason": "- {to}"
   },
   "save": {
-    "failed": "Save failed (private mode, or storage full) — this turn will be lost on reload",
-    "corrupted": "Local save is corrupted: {message}",
-    "notValid": "This is not a valid save file"
+    "missingPlayer": "Save is missing the player field",
+    "migrating": "Legacy save detected ({key}); migrating…",
+    "notValid": "Not a valid save file",
+    "corrupted": "Corrupted local save: {message}"
   },
   "agent": {
-    "stepLimit": "Reached the step limit ({max}); turn ended",
-    "toolsOnlyWarning": "The model only called tools and wrote no narration (step {step})",
-    "forcingNarration": "This turn produced no narration; asking the GM to write it…",
+    "stepLimit": "Step limit reached ({max}); the turn ends here",
+    "forcingNarration": "This turn produced no narration; asking the GM to write some…",
     "stillNoText": "The GM still produced no text",
-    "saveFailed": "Save failed (private mode, or storage full) — this turn will be lost on reload",
-    "openingLog": "(a new adventure begins)",
-    "actionPrefix": "Player's action: {action}"
+    "saveFailed": "Failed to write the save (private mode or storage full) — this turn will be lost on restart",
+    "actionPrefix": "Player's action: {action}",
+    "playerAction": "Player's action: {action}",
+    "gameStart": "[GAME START]\n{instruction}",
+    "newAdventure": "(a new adventure begins)",
+    "toolsOnly": "The model only called tools and wrote no narration (step {step})",
+    "turnAdvanced": "Turn +1 (now turn {turn})"
   },
   "story": {
-    "thinking": "Thinking…"
+    "thinking": "Thinking…",
+    "rawToggle": " - click to expand"
+  },
+  "config": {
+    "notSet": "(not set)"
+  },
+  "player": {
+    "defaultName": "Nameless"
+  },
+  "scene": {
+    "unknownPlace": "Unknown place",
+    "unknownPlaceDesc": "You open your eyes with no memory of how you got here."
+  },
+  "prompts": {
+    "badBase64": "Prompt module is not valid base64",
+    "unfilled": "Prompt has unfilled placeholders: {names}"
   }
 }

@@ -13,6 +13,7 @@ import AppSidebar from './components/AppSidebar.vue'
 import SettingsDrawer from './components/SettingsDrawer.vue'
 import { useGame } from './stores/game'
 import { useTheme } from './composables/useTheme'
+import { useLanguage } from './composables/useLanguage'
 import { useI18n } from 'vue-i18n'
 import { loadConfig, isConfigured, PRESETS } from './core/config'
 import { downloadText, pickFile } from './composables/useDownload'
@@ -36,25 +37,32 @@ const {
 
 const { t } = useI18n()
 const { mode: themeMode, cycle: toggleTheme } = useTheme()
+const { mode: languageMode, cycle: toggleLanguage, select: selectLanguage } = useLanguage()
 
 const settingsOpen = ref(false)
 const configState = ref(isConfigured())
 const statusLight = ref<'ok' | 'warn' | 'err'>('warn')
-const statusText = ref(t('app.statusChecking'))
 
 const configured = computed(() => configState.value)
 
+/**
+ * 顶栏状态文字。
+ *
+ * ⚠️ 必须是 computed 而不是在 refreshConfigStatus() 里算好存进 ref：
+ * 文案跟随界面语言，玩家点语言按钮时它必须跟着变。存进 ref 的旧写法
+ * 会在切换语言后留下一句旧语言的提示。
+ */
+const statusText = computed(() => {
+  if (!configState.value) return t('app.statusUnconfigured')
+  const cfg = loadConfig()
+  const label = PRESETS[cfg.provider] ? t(`provider.${cfg.provider}`) : cfg.provider
+  return `${label} - ${cfg.model}`
+})
+
 /** 刷新顶栏状态灯。成功的回合要把报错时的红灯恢复回来 */
 function refreshConfigStatus() {
-  const cfg = loadConfig()
   configState.value = isConfigured()
-  if (!configState.value) {
-    statusLight.value = 'warn'
-    statusText.value = t('app.statusUnconfigured')
-    return
-  }
-  statusLight.value = 'ok'
-  statusText.value = `${PRESETS[cfg.provider] ? t(`provider.${cfg.provider}`) : cfg.provider} · ${cfg.model}`
+  statusLight.value = configState.value ? 'ok' : 'warn'
 }
 
 // debugMode：在控制台执行 __DEBUG = true 即可打开（刷新后失效）
@@ -130,9 +138,23 @@ function resetAll() {
   void startNewGame()
 }
 
+/**
+ * Save-file actions coming from the settings drawer.
+ *
+ * The drawer only emits the intent; the action runs here, like every other child
+ * component in this app. That is why the drawer does not import the game store —
+ * one orchestrator, no second copy of the game logic.
+ */
+function onDrawerAction(name: 'export' | 'import' | 'reset') {
+  if (name === 'export') return doExport()
+  if (name === 'import') return void doImport()
+  settingsOpen.value = false
+  resetAll()
+}
+
 function onSettingsSaved() {
   refreshConfigStatus()
-  append('system', 'onSettingsSaved ✓')
+  append('system', t('app.settingsSaved'))
   // 全新的游戏（没回合、没历史）时，保存配置后顺手把开场跑出来
   if (turn.value === 0 && messages.value.length === 0 && !running.value) void startNewGame()
 }
@@ -170,11 +192,13 @@ onMounted(() => {
       :light="statusLight"
       :status-text="statusText"
       :theme="themeMode"
+      :language="languageMode"
       @export="doExport"
       @import="doImport"
       @reset="resetAll"
       @settings="settingsOpen = true"
       @toggle-theme="toggleTheme"
+      @toggle-language="toggleLanguage"
     />
 
     <div class="flex min-h-0 flex-1 flex-col lg:flex-row">
@@ -183,15 +207,15 @@ onMounted(() => {
         <GameComposer :disabled="running" :configured="configured" @submit="submitAction" />
       </main>
 
-      <AppSidebar
-        :time-label="timeLabel"
-        :timeline="timeline"
-        :scene="scene"
-        :turn="turn"
-        class="shrink-0 border-t border-line lg:border-t-0 lg:border-l"
-      />
+      <AppSidebar :time-label="timeLabel" :timeline="timeline" :scene="scene" :turn="turn" />
     </div>
 
-    <SettingsDrawer v-model:open="settingsOpen" @saved="onSettingsSaved" />
+    <SettingsDrawer
+      v-model:open="settingsOpen"
+      :language="languageMode"
+      @saved="onSettingsSaved"
+      @language="selectLanguage"
+      @action="onDrawerAction"
+    />
   </div>
 </template>

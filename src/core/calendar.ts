@@ -79,13 +79,14 @@ export const realCalendar: Calendar = {
       month: d.getMonth() + 1,
       day: d.getDate(),
     })
-    return `${date} · ${t(`calendar.weekday.${d.getDay()}`)} · ${segmentName(d.getHours())}`
+    const sep = t('calendar.dateSeparator')
+    return `${date}${sep}${t(`calendar.weekday.${d.getDay()}`)}${sep}${segmentName(d.getHours())}`
   },
 
   formatShort(iso: string): string {
     const d = new Date(iso)
     const date = t('calendar.monthDay', { month: d.getMonth() + 1, day: d.getDate() })
-    return `${date} · ${segmentName(d.getHours())}`
+    return `${date}${t('calendar.dateSeparator')}${segmentName(d.getHours())}`
   },
 
   advance(iso: string, step: number, unit: TimeUnit = 'segment'): AdvanceResult {

@@ -18,6 +18,8 @@ const props = defineProps<{
   statusText: string
   /** themeMode（跟随系统 / 浅色 / 深色） */
   theme: 'system' | 'light' | 'dark'
+  /** languageMode（跟随系统 / zh-CN / en） */
+  language: 'system' | 'zh-CN' | 'en'
 }>()
 
 defineEmits<{
@@ -26,11 +28,19 @@ defineEmits<{
   reset: []
   settings: []
   toggleTheme: []
+  toggleLanguage: []
 }>()
 
 const lightColor = computed(() => ({ ok: 'bg-accent', warn: 'bg-warn', err: 'bg-danger' })[props.light])
 
-const themeIcon = computed(() => (props.theme === 'system' ? '🖥' : props.theme === 'dark' ? '🌙' : '☀️'))
+const themeIcon = computed(
+  () =>
+    ({
+      system: t('header.themeIconSystem'),
+      dark: t('header.themeIconDark'),
+      light: t('header.themeIconLight'),
+    })[props.theme],
+)
 
 const themeHint = computed(
   () =>
@@ -41,6 +51,27 @@ const themeHint = computed(
     })[props.theme],
 )
 
+const languageIcon = computed(
+  () =>
+    ({
+      system: t('header.languageIconSystem'),
+      'zh-CN': t('header.languageIconZh'),
+      en: t('header.languageIconEn'),
+    })[props.language],
+)
+
+const languageHint = computed(
+  () =>
+    ({
+      system: t('header.languageSystem'),
+      'zh-CN': t('header.languageZh'),
+      en: t('header.languageEn'),
+    })[props.language],
+)
+
+// data-* hooks: the theme and language buttons both read "(click to switch)", so a
+// test cannot tell them apart by user-facing text. These attributes are selectors
+// for tests only (e2e/smoke.mjs), never for styling or behaviour.
 const secondaryButton =
   'rounded-lg px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-text'
 </script>
@@ -56,6 +87,7 @@ const secondaryButton =
 
     <span class="ml-auto flex items-center gap-1">
       <button
+        data-theme
         :class="secondaryButton"
         :title="themeHint"
         :aria-label="themeHint"
@@ -63,15 +95,43 @@ const secondaryButton =
       >
         {{ themeIcon }}
       </button>
-      <button :class="secondaryButton" :title="t('header.exportTitle')" @click="$emit('export')">
-        doExport
-      </button>
-      <button :class="secondaryButton" :title="t('header.importTitle')" @click="$emit('import')">
-        doImport
-      </button>
-      <button :class="secondaryButton" title="resetGame" @click="$emit('reset')">resetAll</button>
       <button
+        data-language
+        :class="secondaryButton"
+        :title="languageHint"
+        :aria-label="languageHint"
+        @click="$emit('toggleLanguage')"
+      >
+        {{ languageIcon }}
+      </button>
+      <!-- Export/import also live in the settings drawer, so they collapse on phones;
+           reset has no second home and must stay reachable at every width. -->
+      <button
+        :class="secondaryButton + ' hidden sm:block'"
+        :title="t('header.exportTitle')"
+        @click="$emit('export')"
+      >
+        {{ t('header.export') }}
+      </button>
+      <button
+        :class="secondaryButton + ' hidden sm:block'"
+        :title="t('header.importTitle')"
+        @click="$emit('import')"
+      >
+        {{ t('header.import') }}
+      </button>
+      <button
+        :class="secondaryButton"
+        :title="t('header.resetTitle')"
+        :aria-label="t('header.resetTitle')"
+        @click="$emit('reset')"
+      >
+        {{ t('header.reset') }}
+      </button>
+      <button
+        data-settings
         class="ml-1 rounded-lg border border-accent-line bg-accent-soft px-3 py-1.5 text-[13px] font-medium text-accent transition-opacity hover:opacity-80"
+        :aria-label="t('header.settings')"
         @click="$emit('settings')"
       >
         {{ t('header.settings') }}

@@ -50,7 +50,7 @@ watch(
         v-if="line.raw !== undefined"
         class="cursor-pointer rounded-lg border border-line bg-surface-2/60 px-3.5 py-2"
       >
-        <summary class="text-[12.5px] text-muted">{{ line.text }} —— 点击展开</summary>
+        <summary class="text-[12.5px] text-muted">{{ line.text }}{{ t('story.rawToggle') }}</summary>
         <pre class="story-text mt-2 text-[12px] leading-relaxed text-faint">{{ line.raw }}</pre>
       </details>
       <p

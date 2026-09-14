@@ -8,6 +8,7 @@
  */
 
 import { nowIso, DEFAULT_CALENDAR_ID } from './calendar'
+import { t } from '../i18n'
 import type { GameData, LogEntry, TimelineEntry } from '../types/state'
 
 export const SAVE_KEY = 'tavernGame.save.v3'
@@ -124,17 +125,17 @@ export function readSave(): unknown | null {
     try {
       const parsed: unknown = JSON.parse(raw)
       if (!isRecord(parsed) || !isRecord(parsed.player)) {
-        throw new Error('缺少 player 字段')
+        throw new Error(t('save.missingPlayer'))
       }
       return parsed
     } catch (err) {
-      throw new Error(`本地存档已损坏：${(err as Error).message}`, { cause: err })
+      throw new Error(t('save.corrupted', { message: (err as Error).message }), { cause: err })
     }
   }
   for (const key of LEGACY_KEYS) {
     const legacy = localStorage.getItem(key)
     if (legacy) {
-      console.info(`检测到旧存档（${key}），正在迁移…`)
+      console.info(t('save.migrating', { key }))
       return { __legacy: JSON.parse(legacy) as unknown }
     }
   }
@@ -147,7 +148,7 @@ export function writeSave(data: GameData): boolean {
     localStorage.setItem(SAVE_KEY, JSON.stringify(data))
     return true
   } catch (err) {
-    console.warn('存档失败：', err)
+    console.warn('[persistence] save failed', err)
     return false
   }
 }
@@ -161,11 +162,15 @@ export function createInitialState(): GameData {
       turn: 0,
     },
     player: {
-      name: '无名者',
+      name: t('player.defaultName'),
     },
+    // ⚠️ Empty means "no scene yet" — the display name is supplied by the UI
+    // layer (GameState.scene) so it follows the current language. Baking the
+    // default in here froze it into the save: a game created in English kept
+    // showing "Unknown place" after switching the UI to Chinese.
     scene: {
-      name: '未知之地',
-      description: '你睁开眼睛，不记得自己是怎么来到这里的。',
+      name: '',
+      description: '',
     },
     time: {
       iso: nowIso(),
@@ -209,7 +214,7 @@ export function parseSave(json: string): GameData {
   const parsed: unknown = JSON.parse(json)
   // 至少要是个对象、且 player 是对象 —— 只判 player 会放过 {"player": 1}
   if (!isRecord(parsed) || !isRecord(parsed.player)) {
-    throw new Error('这不是有效的存档文件')
+    throw new Error(t('save.notValid'))
   }
   return normalize(parsed, createInitialState())
 }

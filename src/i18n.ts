@@ -20,11 +20,17 @@ export type Locale = 'zh-CN' | 'en'
 
 const STORAGE_KEY = 'tavernGame.lang'
 
-/** Resolve 'system' to a concrete locale */
-export function resolveLocale(mode: LanguageMode): Locale {
+/**
+ * Resolve 'system' to a concrete locale.
+ *
+ * ⚠️ Takes the language tag as an **argument** instead of reading navigator:
+ * the initial locale is evaluated at module load, and tests import this module
+ * long before jsdom/navigator is set up. Reading navigator here made the locale
+ * depend on the machine running the tests.
+ */
+export function resolveLocale(mode: LanguageMode, systemLanguage: string): Locale {
   if (mode === 'zh-CN' || mode === 'en') return mode
-  const browser = typeof navigator !== 'undefined' ? navigator.language : 'en'
-  return browser.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en'
+  return systemLanguage.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en'
 }
 
 export function readStoredLanguage(): LanguageMode {
@@ -45,7 +51,9 @@ export function storeLanguage(mode: LanguageMode): void {
  */
 export const i18n = createI18n({
   legacy: false,
-  locale: resolveLocale('system'),
+  // Starts at the fallback; useLanguage() applies 'system'/the stored choice on
+  // mount. Nothing observable happens before then (App mounts the composable).
+  locale: 'en' satisfies Locale,
   fallbackLocale: 'en',
   messages: { 'zh-CN': zhCN, en },
 })
