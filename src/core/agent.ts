@@ -3,34 +3,41 @@
  *
  * 一次「回合」的完整流程：
  *
- *   玩家输入 → 拼装提示词 → 问模型 → 模型回复 + 申请调用工具
- *          → 引擎执行工具、改状态 → 把结果回传模型 → 模型再回复
- *          → 重复直到模型不再申请工具，或达到步数上限 → 回合结束
+ *   玩家输入 → 拼装提示词 → 问模型（带 tools 声明）
+ *          → 模型要么写故事收尾，要么**在协议层**要求调用工具
+ *          → 引擎执行工具、改状态 → 把**结构化结果**回传
+ *          → 模型据此继续 → 重复直到它不再调工具，或达到步数上限 → 回合结束
  *
  * 关键点：
  *   - **引擎持有一切事实**。模型只能申请，不能直接改。
+ *   - **禁止解析模型输出**（用户 2026-09-14 明确要求）：工具调用走
+ *     OpenAI 兼容的原生 `tools` 协议，我们不猜它写在文字里的 JSON。
+ *   - **出错就回传，让模型自己改**：参数不合法、单位不认识、时间倒退 ——
+ *     这些都作为工具结果回传，模型有契约可依、可以重试正确的一次。
+ *     引擎只拦「绝不能发生」的事，不做静默纠正。
  *   - **步数有上限**，防止模型陷入死循环把 API 额度烧光。
  *   - **可以中途取消**，玩家点了停止就真的停下。
  */
 
 import { chat } from './llm'
-import { runTool, parseToolCalls } from './tools'
+import { runTool, TOOL_SCHEMAS } from './tools'
 import {
   buildSystemPrompt,
   OPENING_INSTRUCTION,
   FORCED_NARRATION_INSTRUCTION,
-  toolResultsPrompt,
+  TOOL_CALLS_WITHOUT_NARRATION,
 } from './prompts'
 import { loadConfig } from './config'
-import type { GameState } from './state'
 import type { ChatMessage } from '../types/state'
+import type { GameState } from './state'
+import type { ChatReply, ToolCallRequest, ToolSchema } from './llm'
 
 /** agent 循环里抛给界面的事件（界面据此实时渲染） */
 export type AgentEvent =
   | { type: 'thinking'; step: number }
-  | { type: 'raw'; text: string; blocks: number; narrationLength: number; replyLength: number }
+  | { type: 'raw'; reply: ChatReply }
   | { type: 'narration'; text: string }
-  | { type: 'tool'; tool: string; args: Record<string, unknown> }
+  | { type: 'tool'; tool: string; args: string }
   | { type: 'toolResult'; tool: string; result: string }
   | { type: 'warn'; message: string }
 
@@ -51,6 +58,8 @@ export interface TurnOptions {
   history?: ChatMessage[]
   signal?: AbortSignal
   onEvent?: (evt: AgentEvent) => void
+  /** 覆盖可用工具；默认是项目唯一的 advance_time */
+  tools?: ToolSchema[]
 }
 
 /**
@@ -65,38 +74,38 @@ function buildMessages(state: GameState, history: ChatMessage[], userContent: st
   for (const h of history.slice(-6)) {
     messages.push(h)
   }
-
   messages.push({ role: 'user', content: userContent })
   return messages
 }
 
 /**
- * 一整个回合一个字都没写时，强制再要一次叙事。
- *
- * 实测会发生的真实情况：模型把步数全花在调用工具上，一次叙事都没输出，
- * 玩家看到的是一片空白。所以这里明确禁止它继续调工具，只能写文字。
+ * 执行一次模型要求的工具调用。
+ * 参数是协议原样给的 JSON 字符串，所以 runTool 会处理「JSON 不合法」
+ * 这类边界，并把错误文案作为结果返回 —— 模型据此重试。
  */
-async function forceNarration(
-  messages: ChatMessage[],
-  signal: AbortSignal | undefined,
+function executeToolCall(
+  state: GameState,
+  call: ToolCallRequest,
   onEvent: (evt: AgentEvent) => void,
-): Promise<string | null> {
-  onEvent({ type: 'warn', message: '这一回合没有产生叙事文字，正在要求 GM 补写…' })
-  messages.push({ role: 'user', content: FORCED_NARRATION_INSTRUCTION })
-
-  const forced = await chat(messages, { signal })
-  const text = parseToolCalls(forced).clean || forced.trim()
-  if (!text) {
-    onEvent({ type: 'warn', message: 'GM 依然没有输出文字' })
-    return null
-  }
-  onEvent({ type: 'narration', text })
-  return text
+): string {
+  onEvent({ type: 'tool', tool: call.name, args: call.arguments })
+  const result = runTool(state, call.name, call.arguments)
+  onEvent({ type: 'toolResult', tool: call.name, result })
+  return result
 }
 
-/** 跑一个回合 */
+/**
+ * 模型一步返回后的处理结果。
+ * 用带 type 的联合而不是布尔，避免「有没有工具调用」这类模糊判断。
+ */
+type StepOutcome =
+  { kind: 'done'; narration: string } | { kind: 'tools'; narration: string; calls: ToolCallRequest[] }
+
+/**
+ * 跑一个回合。
+ */
 export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise<TurnResult> {
-  const { action, history = [], signal, onEvent = () => {} } = opts
+  const { action, history = [], signal, onEvent = () => {}, tools = TOOL_SCHEMAS } = opts
   const cfg = loadConfig()
   const maxSteps = Math.max(1, cfg.maxAgentSteps || 8)
 
@@ -108,72 +117,44 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
   state.addLog(action ? 'action' : 'system', action || '（新的冒险开始了）')
 
   const messages = buildMessages(state, history, userContent)
-
   const toolResults: string[] = []
   const narrations: string[] = []
   let stepCount = 0
 
-  // ---------- agent 循环 ----------
   while (stepCount < maxSteps) {
     if (signal?.aborted) throw new DOMException('已取消', 'AbortError')
     stepCount += 1
-
     onEvent({ type: 'thinking', step: stepCount })
 
-    const reply = await chat(messages, { signal })
+    const reply = await chat(messages, { signal, tools })
+    onEvent({ type: 'raw', reply })
 
-    const { blocks, clean, errors } = parseToolCalls(reply)
+    const outcome = classifyStep(reply, onEvent, stepCount)
+    if (outcome.narration) {
+      narrations.push(outcome.narration)
+      onEvent({ type: 'narration', text: outcome.narration })
+    }
+    if (outcome.kind === 'done') break
 
-    // 把原始回复透出去，供调试模式查看。
-    // 排查「模型为什么不按格式输出」时，这是唯一的一手证据。
-    onEvent({
-      type: 'raw',
-      text: reply,
-      blocks: blocks.length,
-      narrationLength: clean.length,
-      replyLength: reply.length,
+    // 模型这一步要求调工具：先把它自己的输出记进对话（协议要求），
+    // 再逐个执行、把结构化结果回传。
+    messages.push({
+      role: 'assistant',
+      content: reply.content,
+      // 原样回传模型给的 tool_calls（协议要求 id 与 name 一字不差）
+      tool_calls: reply.toolCalls.map((c) => ({
+        id: c.id,
+        type: 'function' as const,
+        function: { name: c.name, arguments: c.arguments },
+      })),
     })
 
-    // 模型只调工具、不写叙事时提示一句。
-    // 这不该发生（提示词要求先叙事），但模型有时候会偷懒。
-    if (!clean && blocks.length > 0) {
-      onEvent({ type: 'warn', message: `模型这一步只调用了工具，没有写叙事文字（第 ${stepCount} 步）` })
+    for (const call of outcome.calls) {
+      const result = executeToolCall(state, call, onEvent)
+      toolResults.push(`[${call.name}] ${result}`)
+      // 工具结果必须以 role:'tool' + tool_call_id 回传，模型才能对应上
+      messages.push({ role: 'tool', tool_call_id: call.id, content: result })
     }
-
-    for (const e of errors) {
-      console.warn('[工具解析]', e)
-      onEvent({ type: 'warn', message: e })
-    }
-
-    if (clean) {
-      narrations.push(clean)
-      onEvent({ type: 'narration', text: clean })
-    }
-
-    // 没有工具调用 → 这一回合说完了
-    if (blocks.length === 0) {
-      // 让最后一步的叙事留在历史里，供下一回合参考
-      messages.push({ role: 'assistant', content: reply })
-      break
-    }
-
-    // 把模型这一轮的输出记入对话
-    messages.push({ role: 'assistant', content: reply })
-
-    // 逐个执行工具（顺序执行，保证「先掷骰再叙事」这类依赖成立）
-    const resultLines: string[] = []
-    for (const call of blocks) {
-      onEvent({ type: 'tool', tool: call.tool, args: call.args })
-
-      const result = runTool(state, call.tool, call.args)
-      toolResults.push(`[${call.tool}] ${result}`)
-      resultLines.push(`### ${call.tool}\n${result}`)
-
-      onEvent({ type: 'toolResult', tool: call.tool, result })
-    }
-
-    // 把真实执行结果回传给模型，让它据此继续写
-    messages.push({ role: 'user', content: toolResultsPrompt(resultLines.join('\n\n')) })
   }
 
   // 步数用尽
@@ -181,9 +162,13 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
     onEvent({ type: 'warn', message: `达到步数上限（${maxSteps}），本回合结束` })
   }
 
+  // ---------- 兜底：一整个回合一个字都没写 ----------
+  // 实测会发生的真实情况：模型把步数全花在调用工具上，一次叙事都没输出，
+  // 玩家看到的是一片空白。所以这里强制再要一次 —— **不给它工具**，
+  // 它就只能写文字（协议层面保证，而不是靠提示词请求它自觉）。
   if (!narrations.length) {
-    const extra = await forceNarration(messages, signal, onEvent)
-    if (extra) narrations.push(extra)
+    const text = await forceNarration(messages, signal, onEvent)
+    if (text) narrations.push(text)
   }
 
   // 把本回合的叙事写进日志，供刷新后恢复。
@@ -192,12 +177,11 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
     state.addLog('narration', narrations.join('\n\n'))
   }
 
-  // 记录回合数并落盘
   state.endTurn()
   if (!state.save()) {
+    // 允许：给玩家看的状态提示，不是给模型的提示词
     onEvent({
       type: 'warn',
-      // 允许：给玩家看的状态提示，不是给模型的提示词
       message: '存档写入失败（可能是隐私模式或空间已满）—— 这一回合的进度重启后会丢失',
     })
   }
@@ -209,10 +193,48 @@ export async function runTurn(state: GameState, opts: TurnOptions = {}): Promise
   ]
   const newHistory: ChatMessage[] = [...history.slice(-6), ...appended].slice(-8)
 
-  return {
-    text: narrations.join('\n\n'),
-    toolResults,
-    steps: stepCount,
-    history: newHistory,
+  return { text: narrations.join('\n\n'), toolResults, steps: stepCount, history: newHistory }
+}
+
+/** 判断模型这一步是「说完了」还是「要调工具」，并顺手处理异常情况 */
+function classifyStep(reply: ChatReply, onEvent: (evt: AgentEvent) => void, stepCount: number): StepOutcome {
+  const narration = reply.content.trim()
+
+  if (!reply.toolCalls.length) {
+    return { kind: 'done', narration }
   }
+  // 只调工具、不写叙事时提示一句（提示词要求先叙事，模型有时会偷懒）
+  if (!narration) {
+    onEvent({ type: 'warn', message: `模型这一步只调用了工具，没有写叙事文字（第 ${stepCount} 步）` })
+  }
+  return { kind: 'tools', narration, calls: reply.toolCalls }
+}
+
+/**
+ * 强制模型补写叙事。
+ *
+ * ⚠️ 这一轮**不提供 tools** —— 协议层保证它无法再调工具，
+ * 比在提示词里请求它「不要再调用工具」可靠得多。
+ */
+async function forceNarration(
+  messages: ChatMessage[],
+  signal: AbortSignal | undefined,
+  onEvent: (evt: AgentEvent) => void,
+): Promise<string | null> {
+  onEvent({ type: 'warn', message: '这一回合没有产生叙事文字，正在要求 GM 补写…' })
+  messages.push({
+    role: 'user',
+    content: messages.some((m) => m.tool_call_id)
+      ? TOOL_CALLS_WITHOUT_NARRATION
+      : FORCED_NARRATION_INSTRUCTION,
+  })
+
+  const reply = await chat(messages, { signal }) // 不传 tools
+  const text = reply.content.trim()
+  if (!text) {
+    onEvent({ type: 'warn', message: 'GM 依然没有输出文字' })
+    return null
+  }
+  onEvent({ type: 'narration', text })
+  return text
 }

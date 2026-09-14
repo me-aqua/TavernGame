@@ -41,8 +41,9 @@ for (const f of files) {
 
   const 所有行 = 内容.split('\n')
   所有行.forEach((行, i) => {
-    // 豁免标记可以写在当行，也可以写在上面两行（长串经常需要单起一行放注释）
-    const 附近 = [行, 所有行[i - 1] ?? '', 所有行[i - 2] ?? ''].join('\n')
+    // 豁免标记可以写在当行，也可以写在上面几行 ——
+    // 多行函数调用（onEvent({\n  message: '…'\n})）会把注释与字符串隔开好几行
+    const 附近 = 所有行.slice(Math.max(0, i - 5), i + 1).join('\n')
     if (附近.includes('// 允许：')) return
     if (行.trimStart().startsWith('//') || 行.trimStart().startsWith('*')) return // 注释不算
 

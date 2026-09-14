@@ -1,33 +1,35 @@
 /**
  * 提示词测试。
  *
- * 提示词是这个项目的「游戏逻辑」（doc/DESIGN.md：提示词 = 作者控制 AI 的代码），
- * 而它最容易改坏的方式是**示例与说明打架**（模型永远跟着示例走）。
- * 所以这里断言的是「示例的完整形态」与「装配不会漏参数」，不是措辞好不好。
+ * 提示词是这个项目的「游戏逻辑」（doc/DESIGN.md：提示词 = 作者控制 AI 的代码）。
  *
- * 提示词内容在 prompts/*.md；这个文件直接读文件来断言内容本身。
+ * ⚠️ 原生 tool calling 之后，提示词里**不再**教模型怎么写工具块 ——
+ *    格式由 API 的 tools schema 约束。所以这里断言的重点变成：
+ *    何时该调用工具（这部分仍在提示词里）、装配不会漏参数、内容编码干净。
  */
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import {
   renderPrompt,
   toolsPrompt,
   buildSystemPrompt,
-  toolResultsPrompt,
   OPENING_INSTRUCTION,
   FORCED_NARRATION_INSTRUCTION,
+  TOOL_CALLS_WITHOUT_NARRATION,
+  CONNECTION_TEST_PROMPT,
 } from '../src/core/prompts'
-// 测试直接读源文件：断言的是**内容本身**（编码是否同步由 npm run prompts:check 负责）
-import { readFileSync } from 'node:fs'
-const systemTemplate = readFileSync('prompts/system.md', 'utf8')
-const toolsTemplate = readFileSync('prompts/tools.md', 'utf8')
 import { GameState } from '../src/core/state'
 import { createInitialState } from '../src/core/persistence'
+
+// 测试直接读源文件：断言的是**内容本身**（编码是否同步由 npm run prompts:check 负责）
+const systemMarkdown = readFileSync('prompts/system.md', 'utf8')
+const toolsMarkdown = readFileSync('prompts/tools.md', 'utf8')
 
 describe('提示词文件（prompts/）', () => {
   it('不含 BOM、不含非法 UTF-8、不含 CRLF', () => {
     for (const [name, text] of [
-      ['system.md', systemTemplate],
-      ['tools.md', toolsTemplate],
+      ['system.md', systemMarkdown],
+      ['tools.md', toolsMarkdown],
     ] as const) {
       expect(text.charCodeAt(0), `${name} 带 BOM`).not.toBe(0xfeff)
       expect(text.includes('\uFFFD'), `${name} 有非法字节`).toBe(false)
@@ -35,24 +37,22 @@ describe('提示词文件（prompts/）', () => {
     }
   })
 
-  it('system.md 的三个占位符都在', () => {
+  it('system.md 的占位符都已声明（TOOLS / CALENDAR / SNAPSHOT）', () => {
     for (const key of ['TOOLS', 'CALENDAR', 'SNAPSHOT']) {
-      expect(systemTemplate).toContain(`{{${key}}}`)
+      expect(systemMarkdown).toContain(`{{${key}}}`)
     }
   })
 
-  it('示例是完整形态：工具块前面必须有叙事文字', () => {
-    // 血泪教训：曾经用孤零零一个工具块当示例，
-    // 模型学到的就是「工具是单独一条消息」，于是干脆不调用
-    const firstFence = toolsTemplate.indexOf('```tool')
-    expect(firstFence).toBeGreaterThan(0)
-    const textBeforeFence = toolsTemplate.slice(0, firstFence)
-    expect(textBeforeFence).toContain('藏书阁') // 是叙事，不是元话术
+  it('⚠️ 不再教模型写工具块的格式（那是 schema 的职责）', () => {
+    // 协议时代提示词里不该再出现「工具块」这类文本协议概念
+    expect(toolsMarkdown).not.toContain('工具块')
+    expect(toolsMarkdown).not.toContain('```tool')
+    expect(toolsMarkdown).not.toContain('工具调用格式')
   })
 
   it('明确写了「时间过去了就必须调用工具」', () => {
-    expect(toolsTemplate).toContain('必须调用')
-    expect(toolsTemplate).toMatch(/不是可选项/)
+    expect(toolsMarkdown).toContain('必须调用')
+    expect(toolsMarkdown).toMatch(/不是可选项/)
   })
 })
 
@@ -76,20 +76,18 @@ describe('装配结果', () => {
     const prompt = buildSystemPrompt(state, [])
     expect(prompt).not.toMatch(/\n{3,}/)
     expect(toolsPrompt()).not.toMatch(/\n{3,}/)
-    expect(toolResultsPrompt('result')).not.toMatch(/\n{3,}/)
   })
 
-  it('toolsPrompt 填好了占位符，且包含唯一的工具名', () => {
+  it('toolsPrompt 填好了占位符，且提到唯一的工具名', () => {
     const result = toolsPrompt()
     expect(result).toContain('advance_time')
-    expect(result).toContain('上午 → 下午 → 晚上')
     expect(result).not.toMatch(/\{\{[A-Z_]+\}\}/)
   })
 
   it('buildSystemPrompt 拼进工具、历法、世界状态', () => {
     const state = new GameState(createInitialState())
     const prompt = buildSystemPrompt(state, [])
-    expect(prompt).toContain('## 你可以调用的工具')
+    expect(prompt).toContain('advance_time')
     expect(prompt).toContain('## 时间设定')
     expect(prompt).toContain('## 当前世界状态')
     expect(prompt).toContain('【第 0 回合】')
@@ -106,13 +104,6 @@ describe('装配结果', () => {
     expect(prompt).toContain('最近发生的事')
     expect(prompt).toContain('玩家：我去码头')
   })
-
-  it('toolResultsPrompt 把结果嵌进外套文案', () => {
-    const result = toolResultsPrompt('🕐 时间推进：上午 → 下午')
-    expect(result).toContain('🕐 时间推进：上午 → 下午')
-    expect(result).toContain('真实数据')
-    expect(result).not.toMatch(/\{\{[A-Z_]+\}\}/)
-  })
 })
 
 describe('独立提示词', () => {
@@ -121,13 +112,24 @@ describe('独立提示词', () => {
     expect(OPENING_INSTRUCTION).toContain('直接开始故事')
   })
 
-  it('补写指令明确禁止继续调工具', () => {
-    expect(FORCED_NARRATION_INSTRUCTION).toContain('只写叙事')
-    expect(FORCED_NARRATION_INSTRUCTION).toContain('不要再调用任何工具')
+  it('两条补写指令都要求只写叙事', () => {
+    for (const text of [FORCED_NARRATION_INSTRUCTION, TOOL_CALLS_WITHOUT_NARRATION]) {
+      expect(text).toContain('只写叙事')
+      expect(text).toContain('不要再调用')
+    }
   })
 
-  it('不含任何占位符（它们没有可填的参数）', () => {
-    for (const text of [OPENING_INSTRUCTION, FORCED_NARRATION_INSTRUCTION]) {
+  it('连接测试提示词很短（省 token）', () => {
+    expect(CONNECTION_TEST_PROMPT.length).toBeLessThan(60)
+  })
+
+  it('独立提示词都不含占位符（它们没有可填的参数）', () => {
+    for (const text of [
+      OPENING_INSTRUCTION,
+      FORCED_NARRATION_INSTRUCTION,
+      TOOL_CALLS_WITHOUT_NARRATION,
+      CONNECTION_TEST_PROMPT,
+    ]) {
       expect(text).not.toMatch(/\{\{[A-Z_]+\}\}/)
     }
   })
