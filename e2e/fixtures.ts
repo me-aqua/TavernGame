@@ -7,6 +7,10 @@
  *   · 取词：检查界面文案时走应用自己的 i18n 表（window.__dshE2E），不抄第二份
  */
 import { expect, type Page } from '@playwright/test'
+// 只读卡的 JSON 与键名常量（不 import 应用模块：那条链会拖进 i18n 的 .json，
+// Playwright 的 ESM 加载器需要 import attribute）
+import cardJson from '../cards/morningwind.json' with { type: 'json' }
+import * as K from '../src/game/card-keys'
 
 export const APP_PATH = '/TavernGame/'
 
@@ -19,15 +23,54 @@ export const DEBUG_KEY = 'tavernGame.debug'
 
 /**
  * 假模型的行为：
- *   narration = 直接写叙事；slow = 拖 5 秒（看得见「正在生成」）
- *   error = 上游 500；tools = 先调一次工具再写叙事
+ *   narration = 每个节点各回一段合法 JSON（时间节点推进一天、故事节点写正文）
+ *   slow      = 第一次调用拖 5 秒（看得见「正在生成开场…」）；error = 上游 500
+ *
+ * ⚠️ 引擎现在是**按卡里的图**跑的：一轮里每个节点各调一次模型，时间节点与故事节点的产出
+ *    会被解析（卡的节点约定要求输出是 JSON 代码块）。所以假模型必须按「这次是哪个节点」
+ *    分别回话，回一段散文会让整轮失败。
  */
-export type FakeMode = 'narration' | 'slow' | 'error' | 'tools'
+export type FakeMode = 'narration' | 'slow' | 'error'
 
 export const NARRATION = '灯芯爆了一下，屋里静了半息。'
 const SLOW_MS = 5000
 const REPLY_MS = 300
-const TOOL_REASON = '聊到深夜'
+const TIME_REASON = '聊到深夜'
+
+/** 卡里的图：拓扑（顺序）与每个节点的显示名（请求的最后一段就是它的提示词，标题即显示名） */
+const CARD_GRAPH = (cardJson as unknown as Record<string, Record<string, Record<string, unknown>>>)[
+  K.KEY_DECL
+][K.KEY_GRAPH]
+const TOPOLOGY = CARD_GRAPH[K.KEY_TOPOLOGY] as string[]
+const NODES = CARD_GRAPH[K.KEY_NODES] as Record<string, Record<string, string>>
+
+/** 引擎按名字消费的两个节点（与 src/agent/card-graph.ts 的常量一致） */
+const TIME_NODE = 'time'
+const STORY_NODE = 'story'
+
+/** 这次请求是哪个节点发出来的：看最后一条 user 消息里最后出现的那个节点显示名 */
+function nodeOf(messages: Array<{ role?: string; content?: string }>): string {
+  const last = [...messages].reverse().find((m) => m.role === 'user')?.content ?? ''
+  let found = ''
+  let at = -1
+  for (const id of TOPOLOGY) {
+    const index = last.lastIndexOf('## ' + NODES[id][K.KEY_NODE_NAME])
+    if (index > at) {
+      at = index
+      found = id
+    }
+  }
+  return found
+}
+
+/** 该节点的假产出：时间节点给推进量，故事节点给正文，其余节点给一段任意 JSON */
+function replyOf(id: string): string {
+  if (id === TIME_NODE) {
+    return JSON.stringify({ [K.KEY_ADVANCE]: { step: 1, unit: 'day' }, [K.KEY_REASON]: TIME_REASON })
+  }
+  if (id === STORY_NODE) return JSON.stringify({ [K.KEY_STORY_TEXT]: NARRATION })
+  return JSON.stringify({ node: id })
+}
 
 /** 产品里配置项的形状（服务商/模型是假的，请求由 page.route 拦住） */
 export const CONFIG = JSON.stringify({
@@ -36,7 +79,6 @@ export const CONFIG = JSON.stringify({
   apiBase: 'https://example.test/v1',
   model: 'demo-model',
   temperature: 0.85,
-  maxAgentSteps: 5,
 })
 
 /** 一条事件（时间戳固定，截图才有可比性） */
@@ -80,6 +122,7 @@ export async function seedStorage(page: Page, values: Record<string, string | nu
 
 /** 拦住模型的 HTTP 调用，返回可控的假回复 */
 export async function fakeLlm(page: Page, mode: FakeMode = 'narration'): Promise<void> {
+  let calls = 0
   await page.route('**/chat/completions', async (route) => {
     if (mode === 'error') {
       await route.fulfill({
@@ -89,28 +132,16 @@ export async function fakeLlm(page: Page, mode: FakeMode = 'narration'): Promise
       })
       return
     }
-    if (mode === 'slow') await new Promise((resolve) => setTimeout(resolve, SLOW_MS))
+    // 一轮里每个节点各调一次：只有第一次拖时间（否则九次叠起来会拖垮超时）
+    const first = calls === 0
+    calls += 1
+    if (mode === 'slow' && first) await new Promise((resolve) => setTimeout(resolve, SLOW_MS))
     else await new Promise((resolve) => setTimeout(resolve, REPLY_MS))
 
-    const body = route.request().postDataJSON() as { messages?: Array<{ role?: string }> } | null
-    const sawTool = (body?.messages ?? []).some((m) => m.role === 'tool')
-    const wantsTool = mode === 'tools' && !sawTool
-    const message = wantsTool
-      ? {
-          role: 'assistant',
-          content: '',
-          tool_calls: [
-            {
-              id: 'call_1',
-              type: 'function',
-              function: {
-                name: 'advance_time',
-                arguments: JSON.stringify({ step: 1, unit: 'day', reason: TOOL_REASON }),
-              },
-            },
-          ],
-        }
-      : { role: 'assistant', content: NARRATION }
+    const body = route.request().postDataJSON() as {
+      messages?: Array<{ role?: string; content?: string }>
+    } | null
+    const message = { role: 'assistant', content: replyOf(nodeOf(body?.messages ?? [])) }
 
     await route.fulfill({
       status: 200,

@@ -1,13 +1,17 @@
 /**
  * src/agent/prompts.ts —— 提示词装配器
  *
- * ⚠️ **这里不放任何提示词内容**，内容全部在 `prompts/<lang>/*.md`。本文件的职责只有三件：
- *   1. 把构建期编码的提示词（虚拟模块）解码成字符串
+ * ⚠️ **这里不放任何提示词内容**：
+ *   · 卡里的提示词（五块设定 / 剧本 / 节点约定 / 逐节点）从卡取 —— 那才是作者改的地方；
+ *   · 引擎自带的说明在 `prompts/<lang>/*.md`（构建期编码成虚拟模块）。
+ * 本文件的职责只有四件：
+ *   1. 把构建期编码的提示词解码成字符串
  *   2. **按当前界面语言选那一套**（模型语言跟随界面语言，见 doc/DESIGN.md 决定 #19）
- *   3. 把占位符填上，并**确认没有漏填**
+ *   3. 按卡的约定拼出一次节点请求：公共部分 + 本轮上游 + 该节点提示词
+ *      （第四节「节点之间的数据流」、决定 #26/#36）
+ *   4. 填占位符并**确认没有漏填**
  *
- * 提示词单独放文件是因为它就是本项目的「游戏逻辑」，改动频率不低于代码；
- * 混在字符串里没法评审、没法 diff。
+ * ⚠️ 卡是**已校验**的数据（game/card.ts 是唯一的形状边界），这里只读不判。
  */
 
 // 提示词以 base64 随包发布：源文件 prompts/<lang>/*.md，由 vite-plugins/prompts.ts
@@ -15,23 +19,18 @@
 // 为什么编码：见 prompts/README.md —— 主要是**彻底避开转义坑**（反引号/换行/引号/中文）。
 // ⚠️ 这是编码不是加密：客户端字符串永远拿得到，别把需要保密的东西放进来。
 import { t, i18n, type Locale } from '../i18n'
-import systemZh from 'virtual:prompt/zh-CN/system'
-import systemEn from 'virtual:prompt/en/system'
-import toolsZh from 'virtual:prompt/zh-CN/tools'
-import toolsEn from 'virtual:prompt/en/tools'
 import calendarZh from 'virtual:prompt/zh-CN/calendar'
 import calendarEn from 'virtual:prompt/en/calendar'
 import openingZh from 'virtual:prompt/zh-CN/opening'
 import openingEn from 'virtual:prompt/en/opening'
-import forcedZh from 'virtual:prompt/zh-CN/forced-narration'
-import forcedEn from 'virtual:prompt/en/forced-narration'
-import noNarrationZh from 'virtual:prompt/zh-CN/tool-calls-without-narration'
-import noNarrationEn from 'virtual:prompt/en/tool-calls-without-narration'
 import connectionTestZh from 'virtual:prompt/zh-CN/connection-test'
 import connectionTestEn from 'virtual:prompt/en/connection-test'
 
+import * as K from '../game/card-keys'
+import { isRecord } from '../game/save'
+import { upstreamText, type UpstreamOutput } from '../game/state'
+import type { CardData } from '../game/card'
 import type { ChatMessage } from '../types/state'
-import type { AgentContext } from './agent'
 
 /**
  * 解码提示词：虚拟模块导出的就是**纯 base64 字符串**（无注释、无包装）。
@@ -50,12 +49,8 @@ function decodePrompt(b64: string): string {
 
 /** 每种提示词的两种语言版本；取用时按当前界面语言选 */
 const TEMPLATES = {
-  system: { 'zh-CN': decodePrompt(systemZh), en: decodePrompt(systemEn) },
-  tools: { 'zh-CN': decodePrompt(toolsZh), en: decodePrompt(toolsEn) },
   calendar: { 'zh-CN': decodePrompt(calendarZh), en: decodePrompt(calendarEn) },
   opening: { 'zh-CN': decodePrompt(openingZh), en: decodePrompt(openingEn) },
-  forcedNarration: { 'zh-CN': decodePrompt(forcedZh), en: decodePrompt(forcedEn) },
-  noNarration: { 'zh-CN': decodePrompt(noNarrationZh), en: decodePrompt(noNarrationEn) },
   connectionTest: { 'zh-CN': decodePrompt(connectionTestZh), en: decodePrompt(connectionTestEn) },
 } satisfies Record<string, Record<Locale, string>>
 
@@ -84,40 +79,116 @@ export function renderPrompt(template: string, values: Record<string, string> = 
   return filled.replace(/\n{3,}/g, '\n\n').trim()
 }
 
-export function toolsPrompt(): string {
-  return renderPrompt(TEMPLATES.tools[locale()])
+/** 把若干段拼成给模型的一段文本：空段丢掉、连续空行折成一行 */
+function joinSections(sections: string[]): string {
+  return renderPrompt(sections.filter(Boolean).join('\n\n'))
 }
 
 /**
- * 拼装完整的 system 提示词。
+ * 把卡里的一段值摊成模型读得懂的文本：字符串原样、数组一项一行、对象逐键缩进。
  *
- * 历法与工具说明都是动态的（换历法、加工具时不一样），所以在这里装配，
- * 而不是写死在提示词文件里。
+ * ⚠️ 不认任何一篇内容的具体字段：卡里出现没见过的形状也照样摊得开
+ *    （渲染器不该知道某一篇内容的形状）。
  */
-export function buildSystemPrompt(world: AgentContext, history: ChatMessage[] = []): string {
-  const lang = locale()
-  return renderPrompt(TEMPLATES.system[lang], {
-    TOOLS: toolsPrompt(),
-    CALENDAR: renderPrompt(TEMPLATES.calendar[lang]),
-    SNAPSHOT: world.snapshot(history),
-  })
+function renderCardValue(value: unknown, level = 0): string {
+  const pad = '  '.repeat(level)
+  if (isRecord(value)) {
+    return Object.entries(value)
+      .map(([key, item]) => pad + key + K.PUNCT_COLON + '\n' + renderCardValue(item, level + 1))
+      .join('\n')
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        // 标量项跟在 "- " 后面；对象 / 数组项缩进一层再摊
+        if (isRecord(item) || Array.isArray(item)) return pad + '-\n' + renderCardValue(item, level + 1)
+        return pad + '- ' + String(item)
+      })
+      .join('\n')
+  }
+  // 走到这里的只剩标量（字符串 / 数字 / 布尔 / null）：String() 就是它们的文本形态
+  return String(value)
+}
+
+/** 卡的五块设定：每块一节，顺序由 card-keys 的 SETTING_BLOCKS 固定 */
+export function settingsPrompt(card: CardData): string {
+  const prompts = card[K.KEY_PROMPT] as Record<string, unknown>
+  const setting = prompts[K.KEY_SETTING] as Record<string, string[]>
+  const blocks = K.SETTING_BLOCKS.map((block) => `### ${block}\n${setting[block].join('\n')}`)
+  return `## ${K.KEY_SETTING}\n${blocks.join('\n\n')}`
+}
+
+/** 卡的剧本：AI 知道、玩家不知道的那部分世界真相 */
+export function scriptPrompt(card: CardData): string {
+  const prompts = card[K.KEY_PROMPT] as Record<string, unknown>
+  return `## ${K.KEY_SCRIPT}\n${renderCardValue(prompts[K.KEY_SCRIPT])}`
+}
+
+/** 节点约定：每个节点都要知道自己在图里的位置（决定 #26：它也进上下文） */
+export function conventionPrompt(card: CardData): string {
+  const prompts = card[K.KEY_PROMPT] as Record<string, unknown>
+  const lines = prompts[K.KEY_CONVENTION] as string[]
+  return `## ${K.KEY_CONVENTION}\n${lines.join('\n')}`
+}
+
+/** 历法与时间单位的写法（引擎的历法知识，不是卡里的内容） */
+export function calendarPrompt(): string {
+  return renderPrompt(TEMPLATES.calendar[locale()])
+}
+
+/** 该节点自己的提示词：标题用卡给它起的显示名 */
+export function nodePrompt(card: CardData, id: string): string {
+  const decl = card[K.KEY_DECL] as Record<string, unknown>
+  const graph = decl[K.KEY_GRAPH] as Record<string, unknown>
+  const nodes = graph[K.KEY_NODES] as Record<string, Record<string, unknown>>
+  const prompts = (card[K.KEY_PROMPT] as Record<string, unknown>)[K.KEY_NODES] as Record<string, string[]>
+  return `## ${nodes[id][K.KEY_NODE_NAME] as string}\n${prompts[id].join('\n')}`
+}
+
+/**
+ * 公共部分的 system 消息：五块设定 + 剧本 + 历法 + 节点约定。
+ *
+ * ⚠️ **所有节点逐字相同**（决定 #26）：上游与逐节点提示词都不在这里。
+ */
+export function cardSystemPrompt(card: CardData): string {
+  return joinSections([settingsPrompt(card), scriptPrompt(card), calendarPrompt(), conventionPrompt(card)])
+}
+
+/** 一次节点请求的输入：公共部分的三样（快照 / 历史 / 玩家原话）+ 本轮上游 + 节点 id */
+export interface NodeRequestInput {
+  card: CardData
+  /** 世界状态快照（game/state.ts 的 snapshot / contextFor 那一套） */
+  snapshot: string
+  /** 全部历史（引擎手上那份，组合根负责它的窗口） */
+  history: ChatMessage[]
+  /** 玩家这一轮的原话；开场时是开场指令 */
+  playerWords: string
+  /** 排在本节点前面的节点本轮产出，按拓扑顺序 */
+  upstream: UpstreamOutput[]
+  /** 本节点的 id */
+  node: string
+}
+
+/**
+ * 拼出一次节点请求的消息列表：system（公共部分的设定/剧本/历法/约定）
+ * → 全部历史 → user（当前状态快照 + 玩家原话 + 本轮上游 + 该节点提示词）。
+ *
+ * ⚠️ 上游只含**已经跑完**的节点（决定 #26）；拿不到就不编（上游文本自己会跳过空产出）。
+ */
+export function buildNodeMessages(input: NodeRequestInput): ChatMessage[] {
+  const task = joinSections([upstreamText(input.upstream), nodePrompt(input.card, input.node)])
+  const user = joinSections([input.snapshot, input.playerWords, task])
+  return [
+    { role: 'system', content: cardSystemPrompt(input.card) },
+    ...input.history,
+    { role: 'user', content: user },
+  ]
 }
 
 export function openingInstruction(): string {
   return renderPrompt(TEMPLATES.opening[locale()])
 }
 
-export function forcedNarrationInstruction(): string {
-  return renderPrompt(TEMPLATES.forcedNarration[locale()])
-}
-
-export function toolCallsWithoutNarration(): string {
-  return renderPrompt(TEMPLATES.noNarration[locale()])
-}
-
 export function connectionTestPrompt(): string {
   return renderPrompt(TEMPLATES.connectionTest[locale()])
 }
-
-// 工具结果以 role:'tool' 的协议消息回传（协议自带 id 关联），
-// 所以这里不需要任何「以下是工具执行结果」之类的包装文案。

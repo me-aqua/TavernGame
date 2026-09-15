@@ -7,7 +7,7 @@
  *
  * ⚠️ 故事不在这里产生：叙事由引擎写进事件流，界面渲染的就是事件流的投影。
  *    这里只经手两样，都是**只有界面需要**的：
- *      · 调试痕迹（节点进度、模型输入输出、工具调用与结果）—— 调试模式才写，
+ *      · 调试痕迹（节点进度、模型输入输出）—— 调试模式才写，
  *        写进**同一个事件流**（同一个数组 = 顺序天然正确，痕迹就插在它发生的叙事之间）
  *      · 通知（保存失败、被取消、回合失败）—— 瞬态单槽，后一条覆盖前一条
  *
@@ -19,15 +19,15 @@
  *    提交与回滚是这里的时刻，非法转移会当场抛错。「回合在飞」不再靠一个手写赋值的变量，
  *    界面看到的状态行就是这个状态的投影（决定 #22）。
  *
- * ⚠️ 一轮是一个事务（决定 #27/#39）：开跑前把权威数据深拷成**工作副本**，引擎、工具、
- * 调试痕迹全都只写副本；跑到终点的成功回合才把副本一次性写回权威状态
+ * ⚠️ 一轮是一个事务（决定 #27/#39）：开跑前把权威数据深拷成**工作副本**，引擎、
+ * 模型产出与调试痕迹全都只写副本；跑到终点的成功回合才把副本一次性写回权威状态
  * （一次赋值 → 响应式一次触发）并落盘。失败与取消丢弃副本 —— 内存与存档都不留痕，
  * 下一次成功回合的 save() 也就没有「半个回合」可以持久化。
  *
  * ⚠️ 副本必须从 toRaw 上克隆：state.data 是 reactive 代理，而 structuredClone
  * 遇到 Proxy 会抛 DataCloneError。
  *
- * ⚠️ 写回发生在提交时，所以叙事是**整轮一起**出现在故事区的，不是每一步实时出现：
+ * ⚠️ 写回发生在提交时，所以叙事是**整轮一起**出现在故事区的，不是每个节点实时出现：
  * 实时写等于把未提交的改动先给玩家看 —— 那正是事务要挡住的东西（决定 #39）。
  *
  * ⚠️ 落盘由这里在提交之后调用，引擎（agent.ts）不碰存储：数据不该知道怎么落盘。
@@ -53,22 +53,22 @@ interface TurnDeps {
   /** 目标状态的回合 +1 */
   endTurn: (target: GameState) => void
   /** 目标状态的世界状态快照（拼提示词用） */
-  snapshot: (target: GameState, history: ChatMessage[]) => string
+  snapshot: (target: GameState) => string
   /** 落盘；失败必须让玩家看到。它读的是权威状态，所以提交必须先于它 */
   save: () => boolean
   /** 对话历史（回合间共享） */
   history: Ref<ChatMessage[]>
   /** 回合的生命周期状态：界面据此决定状态行，回合入口据此挡住重入 */
   phase: Ref<TurnState>
-  /** 调试模式：记录模型输入输出与工具调用 */
+  /** 调试模式：记录模型输入输出与节点进度 */
   debugMode: Ref<boolean>
 }
 
 /**
- * 拷一份工作副本：引擎、工具与调试痕迹都只改它，跑到终点才写回权威状态。
+ * 拷一份工作副本：引擎、模型产出与调试痕迹都只改它，跑到终点才写回权威状态。
  *
  * ⚠️ 必须 toRaw 之后再 structuredClone：state.data 是 reactive 代理，
- * structuredClone 不能克隆 Proxy（抛 DataCloneError）。
+ *    structuredClone 不能克隆 Proxy（抛 DataCloneError）。
  */
 function draftOf(source: GameState): GameState {
   return { ...source, data: structuredClone(toRaw(source.data)) }
@@ -77,23 +77,12 @@ function draftOf(source: GameState): GameState {
 /**
  * 把引擎事件翻译成状态机的输入。
  *
- * ⚠️ 只有真正换阶段的才翻译：叙事、模型 I/O、节点进度与警告都发生在某个阶段**里面**，
- *    不构成迁移。补写的请求不带 tools，引擎为此专门回传了 forcing —— 没有它，
- *    「步数用尽强制收尾」这个阶段在事件流里就无影无踪。
+ * ⚠️ 只有真正换阶段的才翻译：叙事、模型 I/O 与节点进度都发生在某个阶段**里面**，
+ *    不构成迁移 —— 九个节点各请求一次模型，每次都喂一次 request-model，
+ *    阶段在 prompting 里自环（表里那条自环就是为这件事留的）。
  */
 function lifecycleEventOf(evt: AgentEvent): TurnEvent | null {
-  switch (evt.type) {
-    case 'thinking':
-      return { type: 'request-model' }
-    case 'tool':
-      return { type: 'call-tools' }
-    case 'toolResult':
-      return { type: 'tools-returned' }
-    case 'forcing':
-      return { type: 'force-narration' }
-    default:
-      return null
-  }
+  return evt.type === 'thinking' ? { type: 'request-model' } : null
 }
 
 /** 造一组回合动作（闭包持有中止用的 controller） */
@@ -116,7 +105,7 @@ export function createTurnRunner(deps: TurnDeps): {
    * （本轮是工作副本）。
    *
    * 叙事不在这里处理 —— 引擎已经把它写进目标状态的事件流了（界面渲染的就是它）。
-   * 调试关掉时一条痕迹都不产生：玩家不该在故事里看到工具调用与原始 JSON。
+   * 调试关掉时一条痕迹都不产生：玩家不该在故事里看到节点进度与原始 JSON。
    */
   function handleEvent(target: GameState, evt: AgentEvent) {
     const step = lifecycleEventOf(evt)
@@ -135,22 +124,7 @@ export function createTurnRunner(deps: TurnDeps): {
           t('store.rawRequest', { count: evt.reply.request.messages.length }),
           JSON.stringify(evt.reply.request, null, 2),
         )
-        addEvent(
-          target,
-          'reply',
-          t('store.rawReply', { count: evt.reply.toolCalls.length }),
-          JSON.stringify(evt.reply.raw, null, 2),
-        )
-        break
-      case 'tool':
-        // args 是协议原样给的 JSON 字符串，直接展示（它就是模型实际发出的内容）
-        addEvent(target, 'tool', t('toolbar.toolCall', { tool: evt.tool, args: evt.args }))
-        break
-      case 'toolResult':
-        addEvent(target, 'toolResult', t('store.toolResultLine', { result: evt.result }))
-        break
-      case 'warn':
-        addEvent(target, 'warn', t('store.warnLine', { message: evt.message }))
+        addEvent(target, 'reply', t('store.rawReply'), JSON.stringify(evt.reply.raw, null, 2))
         break
       default:
         break
@@ -177,7 +151,7 @@ export function createTurnRunner(deps: TurnDeps): {
           state: draft,
           addEvent: (kind, text) => addEvent(draft, kind, text),
           endTurn: () => endTurn(draft),
-          snapshot: (h) => snapshot(draft, h),
+          snapshot: () => snapshot(draft),
         },
         {
           action,
@@ -192,7 +166,6 @@ export function createTurnRunner(deps: TurnDeps): {
       state.data = draft.data
       history.value = result.history
       phase.value = advance(phase.value, { type: 'commit' })
-      if (!result.text) notify(t('store.noText'))
       if (!save()) notify(t('agent.saveFailed'), 'error')
     } catch (err) {
       // 失败与取消都在这里丢弃副本：不写回也不落盘，内存与存档一个字节都不变

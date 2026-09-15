@@ -10,21 +10,17 @@ import * as game from '../../src/game/state'
 import { localStorageStore, SAVE_KEY, type SaveStore } from '../../src/utils/storage'
 import { saveConfig } from '../../src/agent/config'
 import type { AgentContext } from '../../src/agent/agent'
-import type { ChatMessage } from '../../src/types/state'
 
 /**
  * 把配置写成「一个假服务商」——凡是要真跑一遍回合的测试都要先做这件事，
  * 否则 llm 层会因为「没配置」直接抛错。
- *
- * @param maxAgentSteps 步数上限；测试里当护栏用时显式传，保持一致才可断言上限行为
  */
-export function configureFakeProvider(maxAgentSteps = 5): void {
+export function configureFakeProvider(): void {
   saveConfig({
     provider: 'custom',
     apiKey: 'k',
     apiBase: 'https://example.test/v1',
     model: 'm',
-    maxAgentSteps,
   })
 }
 
@@ -61,7 +57,7 @@ export function createAgentContext(state: game.GameState = createGame()): AgentC
     state,
     addEvent: (kind, text) => game.addEvent(state, kind, text),
     endTurn: () => void game.endTurn(state),
-    snapshot: (history: ChatMessage[]) => game.snapshot(state, history),
+    snapshot: () => game.snapshot(state),
   }
 }
 

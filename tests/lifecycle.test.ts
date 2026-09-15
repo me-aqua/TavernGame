@@ -25,8 +25,6 @@ import {
 const STATE_FOR: Record<TurnPhase, TurnState> = {
   idle: IDLE,
   prompting: { phase: 'prompting', mode: 'turn' },
-  executing: { phase: 'executing', mode: 'turn' },
-  forcing: { phase: 'forcing', mode: 'turn' },
   finishing: { phase: 'finishing', mode: 'turn' },
   committed: { phase: 'committed', mode: null },
   'rolled-back': { phase: 'rolled-back', mode: null },
@@ -36,9 +34,6 @@ const STATE_FOR: Record<TurnPhase, TurnState> = {
 const EVENT_FOR: Record<TurnEvent['type'], TurnEvent> = {
   start: { type: 'start', mode: 'opening' },
   'request-model': { type: 'request-model' },
-  'call-tools': { type: 'call-tools' },
-  'tools-returned': { type: 'tools-returned' },
-  'force-narration': { type: 'force-narration' },
   'closing-text': { type: 'closing-text' },
   commit: { type: 'commit' },
   rollback: { type: 'rollback' },
@@ -113,12 +108,13 @@ describe('the paths that must not exist are refused', () => {
 })
 
 describe('a whole turn walks the phases in order', () => {
-  it('start -> executing -> prompting -> finishing -> committed -> idle', () => {
+  it('start -> prompting (every node request) -> finishing -> committed -> idle', () => {
     let state = advance(IDLE, { type: 'start', mode: 'opening' })
     const walk: TurnPhase[] = [state.phase]
+    // 九个节点各请求一次模型：每次都在 prompting 里自环，图跑完才进 finishing
     const events: TurnEvent[] = [
-      { type: 'call-tools' },
-      { type: 'tools-returned' },
+      { type: 'request-model' },
+      { type: 'request-model' },
       { type: 'request-model' },
       { type: 'closing-text' },
       { type: 'commit' },
@@ -131,8 +127,8 @@ describe('a whole turn walks the phases in order', () => {
 
     expect(walk).toEqual([
       'prompting',
-      'executing',
-      'executing',
+      'prompting',
+      'prompting',
       'prompting',
       'finishing',
       'committed',
@@ -145,7 +141,7 @@ describe('a whole turn walks the phases in order', () => {
 
 describe('the status line is a projection of the state', () => {
   it('every running phase names the opening or the thinking by mode', () => {
-    for (const phase of ['prompting', 'executing', 'forcing', 'finishing'] as const) {
+    for (const phase of ['prompting', 'finishing'] as const) {
       expect(statusKeyOf({ phase, mode: 'opening' })).toBe('app.generatingOpening')
       expect(statusKeyOf({ phase, mode: 'turn' })).toBe('story.thinking')
     }
@@ -157,8 +153,8 @@ describe('the status line is a projection of the state', () => {
     expect(statusKeyOf({ phase: 'rolled-back', mode: 'turn' })).toBeNull()
   })
 
-  it('isRunning is true for exactly the four running phases', () => {
+  it('isRunning is true for exactly the running phases', () => {
     const running = PHASES.filter((phase) => isRunning(STATE_FOR[phase]))
-    expect(running).toEqual(['prompting', 'executing', 'forcing', 'finishing'])
+    expect(running).toEqual(['prompting', 'finishing'])
   })
 })

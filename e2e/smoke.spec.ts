@@ -82,6 +82,45 @@ test.describe('第一屏', () => {
   })
 })
 
+test.describe('世界面板', () => {
+  test('按卡声明的块与顺序渲染，高亮当前地点，关得掉', async ({ page }) => {
+    await openApp(page, { save: saveWith(), config: CONFIG })
+
+    // 它是玩家点开的浮层：默认不在
+    await expect(page.locator('[data-world-panel]')).toHaveCount(0)
+    await page.locator('button[data-world]').click()
+    const panel = page.locator('[data-world-panel]')
+    await expect(panel).toBeVisible()
+
+    // 块与顺序来自卡的 声明.显示.侧栏（期望值从卡里现读，不抄一份内容）
+    const card = cardJson as unknown as Record<string, any>
+    const sidebar = card[K.KEY_DECL][K.KEY_DISPLAY][K.KEY_SIDEBAR] as Array<Record<string, string>>
+    const declared = sidebar.map((block) => block[K.KEY_BLOCK])
+    await expect(panel.locator('[data-block]')).toHaveCount(declared.length)
+    const rendered = await panel
+      .locator('[data-block]')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('data-block')))
+    expect(rendered).toEqual(declared)
+
+    // 三块的内容也来自卡：区域一个不少，背包一件不少，点名的角色在
+    const world = card[K.KEY_DECL][K.KEY_WORLD]
+    const pack = card[K.KEY_DECL][K.KEY_STATE][K.KEY_PLAYER_START][K.KEY_CARRY][K.KEY_PACK]
+    await expect(panel.locator('[data-area]')).toHaveCount((world[K.KEY_AREA] as unknown[]).length)
+    await expect(panel.locator('[data-item]')).toHaveCount((pack as unknown[]).length)
+    await expect(panel).toContainText(world[K.KEY_NAMED_NPCS][0][K.KEY_NODE_NAME])
+
+    // 当前地点：运行时场景名里那个，且只有一个
+    const sceneName = (JSON.parse(saveWith()) as { scene: { name: string } }).scene.name
+    const here = panel.locator('[data-place][data-current]')
+    await expect(here).toHaveCount(1)
+    expect(sceneName).toContain((await here.textContent()) ?? '')
+    await expect(panel.locator('[data-area][data-current]')).toHaveCount(1)
+
+    await page.locator('button[data-world-close]').click()
+    await expect(panel).toHaveCount(0)
+  })
+})
+
 test.describe('设置面板', () => {
   test('打得开、列出服务商与字段、点背景关得上', async ({ page }) => {
     await openApp(page)
@@ -90,7 +129,8 @@ test.describe('设置面板', () => {
     const drawer = page.locator('.drawer')
     await expect(drawer).toBeVisible()
     await expect(drawer.locator('select option')).toHaveCount(6)
-    expect(await drawer.locator('label').count()).toBeGreaterThanOrEqual(5)
+    // 四个输入字段各一个 label（引擎没有步数上限了，那条滑块连同它的 label 一起删掉了）
+    await expect(drawer.locator('label')).toHaveCount(4)
     await expect(drawer.locator('button[data-test-connection]')).toBeVisible()
 
     // 点面板外面（左上角）才是「点背景关闭」，点正中会落在面板上

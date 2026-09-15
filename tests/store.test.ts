@@ -14,6 +14,7 @@ import { SAVE_KEY } from '../src/utils/storage'
 import { hourToSegment, SEGMENTS } from '../src/utils/calendar'
 import { t } from '../src/i18n'
 import { configureFakeProvider } from './support/game-fixtures'
+import { cardTurnReplies, CARD_TOPOLOGY } from './support/card-replies'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 
 /** 测试自造的 fixture（模型回复与玩家行动），不是产品文案 */
@@ -33,8 +34,8 @@ const BROKEN_SAVE = '{broken'
 const RAW_REPLY = 'raw output sample'
 const PLAIN_REPLY = 'plain output'
 const LOOK_ACTION = 'look around'
-/** 默认图（src/agent/agent.ts）里唯一那个节点的 id：链路用例断言的就是这一行痕迹 */
-const AGENT_NODE = 'agent-loop'
+/** 九节点的调试痕迹：每个节点一行 node + 一对请求/响应 */
+const TRACE_CYCLE = CARD_TOPOLOGY.flatMap(() => ['node', 'request', 'reply'])
 
 let fake: FakeLlm | null = null
 
@@ -49,7 +50,7 @@ const debugRows = (g: ReturnType<typeof useGame>) => g.rows.value.filter((row) =
 
 /** 造一个已写完一回合的 store */
 async function runOneTurn(draft = WAKE_REPLY) {
-  fake = installFakeLlm([draft])
+  fake = installFakeLlm(cardTurnReplies({ story: draft }))
   const g = useGame()
   await g.runTurnAction(OPEN_EYES)
   fake.restore()
@@ -88,17 +89,19 @@ describe('derived state (what the sidebar reads)', () => {
 
 describe('runTurnAction', () => {
   it('refuses re-entrant calls while a turn is running (re-entrancy guard)', async () => {
-    fake = installFakeLlm(RACE_DRAFTS)
+    fake = installFakeLlm(cardTurnReplies({ story: RACE_DRAFTS[0] }))
     const g = useGame()
     await Promise.all([g.runTurnAction(RACE_ACTIONS[0]), g.runTurnAction(RACE_ACTIONS[1])])
-    // 只有第一个回合的请求发出去了
-    expect(fake.calls).toHaveLength(1)
+    // 只有第一个回合跑了：刚好一张图的调用数，第二次提交的行动一个字都没进来
+    expect(fake.calls).toHaveLength(CARD_TOPOLOGY.length)
+    expect(storyRows(g).find((row) => row.kind === 'action')?.text).toBe(RACE_ACTIONS[0])
+    expect(storyRows(g).map((row) => row.text)).not.toContain(RACE_ACTIONS[1])
     fake.restore()
     fake = null
   })
 
   it('resets the busy flag (otherwise every later turn would be blocked)', async () => {
-    fake = installFakeLlm([DONE_REPLY])
+    fake = installFakeLlm(cardTurnReplies({ story: DONE_REPLY }))
     const g = useGame()
     expect(g.busy.value).toBe(false)
     await g.runTurnAction(NUDGE_ACTION)
@@ -110,7 +113,7 @@ describe('runTurnAction', () => {
   it('resets the flag after a failed turn (otherwise the UI stays stuck thinking)', async () => {
     // 说明：store 的取消是内部行为（abortRunningTurn），
     // 从公开 API 无法注入 signal —— 取消路径由 agent.test.ts 直接测 runTurn。
-    fake = installFakeLlm([UNREACHED_REPLY])
+    fake = installFakeLlm(cardTurnReplies({ story: UNREACHED_REPLY }))
     fake.failNextWith(new Error(NETWORK_ERROR))
     const g = useGame()
 
@@ -173,32 +176,37 @@ describe('debugMode', () => {
   it('when on, the model input and output land in the rows -- never in the story', async () => {
     const g = useGame()
     g.debugMode.value = true
-    fake = installFakeLlm([RAW_REPLY])
+    fake = installFakeLlm(cardTurnReplies({ story: RAW_REPLY }))
     await g.runTurnAction(LOOK_ACTION)
     fake.restore()
     fake = null
 
     const payloads = debugRows(g).filter((row) => row.detail !== undefined)
-    // 一次调用两条：先请求体（模型输入），再响应体
-    expect(payloads.map((row) => row.kind)).toEqual(['request', 'reply'])
+    // 每个节点两条：先请求体（模型输入），再响应体
+    expect(payloads.map((row) => row.kind)).toEqual(CARD_TOPOLOGY.flatMap(() => ['request', 'reply']))
     expect(payloads[0].detail).toContain('"messages"')
-    expect(payloads[1].detail).toContain(RAW_REPLY)
-    expect(storyRows(g).map((row) => row.text)).not.toContain(payloads[1].text)
+    // story 节点的响应体里就是正文（它是九个里唯一带正文的那个）
+    const replyRows = payloads.filter((row) => row.kind === 'reply')
+    expect(replyRows.filter((row) => row.detail?.includes(RAW_REPLY))).toHaveLength(1)
+    expect(storyRows(g).map((row) => row.text)).not.toContain(payloads[0].text)
     g.debugMode.value = false
   })
 
   it('with debug on, entering a graph node writes one trace line before the model I/O', async () => {
     const g = useGame()
     g.debugMode.value = true
-    fake = installFakeLlm([RAW_REPLY])
+    fake = installFakeLlm(cardTurnReplies({ story: RAW_REPLY }))
     await g.runTurnAction(LOOK_ACTION)
     fake.restore()
     fake = null
 
-    // 默认图只有一个节点（决定 #38）：进它的时候写下这一轮的第一条痕迹
+    // 每个节点进一次（决定 #38）：node 行 + 它的请求/响应，顺序就是拓扑顺序
     const traces = debugRows(g)
-    expect(traces.map((row) => row.kind)).toEqual(['node', 'request', 'reply'])
-    expect(traces[0].text).toBe(t('store.nodeLine', { node: AGENT_NODE }))
+    expect(traces.map((row) => row.kind)).toEqual(TRACE_CYCLE)
+    traces.forEach((row, index) => {
+      const node = CARD_TOPOLOGY[Math.floor(index / 3)]
+      if (row.kind === 'node') expect(row.text).toBe(t('store.nodeLine', { node }))
+    })
     // 玩家看到的仍然只有故事
     expect(storyRows(g).map((row) => row.text)).not.toContain(traces[0].text)
     g.debugMode.value = false
@@ -207,7 +215,7 @@ describe('debugMode', () => {
   it('with debug off, the node event never reaches the event stream', async () => {
     const g = useGame()
     g.debugMode.value = false
-    fake = installFakeLlm([PLAIN_REPLY])
+    fake = installFakeLlm(cardTurnReplies({ story: PLAIN_REPLY }))
     await g.runTurnAction(LOOK_ACTION)
     fake.restore()
     fake = null
@@ -221,7 +229,7 @@ describe('debugMode', () => {
   it('when off, no debug event is written at all', async () => {
     const g = useGame()
     g.debugMode.value = false
-    fake = installFakeLlm([PLAIN_REPLY])
+    fake = installFakeLlm(cardTurnReplies({ story: PLAIN_REPLY }))
     await g.runTurnAction(LOOK_ACTION)
     fake.restore()
     fake = null
@@ -267,10 +275,7 @@ describe('reactivity: the UI updates when the domain mutates the data', () => {
    * 挂一个真组件，跑一个回合（工具会推进时间），断言渲染出来的时间变了。
    */
   it('a turn that advances time updates what a component renders', async () => {
-    fake = installFakeLlm([
-      { content: WAKE_REPLY, toolCalls: [{ name: 'advance_time', arguments: '{"step":1,"unit":"day"}' }] },
-      DONE_REPLY,
-    ])
+    fake = installFakeLlm(cardTurnReplies({ story: WAKE_REPLY, time: { step: 1, unit: 'day' } }))
     const g = useGame()
     const seen: string[] = []
     // 组件读什么，就监视什么（computed 是它渲染时读的那个值）
@@ -290,7 +295,7 @@ describe('reactivity: the UI updates when the domain mutates the data', () => {
   })
 
   it('the story the UI renders changes when the domain writes to the log', async () => {
-    fake = installFakeLlm([WAKE_REPLY])
+    fake = installFakeLlm(cardTurnReplies({ story: WAKE_REPLY }))
     const g = useGame()
     const counts: number[] = []
     const stop = watchEffect(() => counts.push(storyRows(g).length))
@@ -321,7 +326,7 @@ describe('status line: in-progress and notices are computed, never stored', () =
 
   it('says the opening is being generated while it runs, and clears when it ends', async () => {
     const g = useGame()
-    fake = installFakeLlm([WAKE_REPLY])
+    fake = installFakeLlm(cardTurnReplies({ story: WAKE_REPLY }))
     const opening = g.runTurnAction()
     expect(g.status.value).toEqual({ kind: 'busy', text: t('app.generatingOpening') })
 
@@ -335,7 +340,7 @@ describe('status line: in-progress and notices are computed, never stored', () =
   it('drops the previous notice when a new turn starts, and says it is thinking', async () => {
     const g = useGame()
     g.notify('exported')
-    fake = installFakeLlm([WAKE_REPLY])
+    fake = installFakeLlm(cardTurnReplies({ story: WAKE_REPLY }))
     const running = g.runTurnAction(OPEN_EYES)
     expect(g.status.value).toEqual({ kind: 'busy', text: t('story.thinking') })
 
@@ -351,7 +356,7 @@ describe('status line: in-progress and notices are computed, never stored', () =
    */
   it('leaves no in-progress line in the story after the opening finishes', async () => {
     const g = useGame()
-    fake = installFakeLlm([WAKE_REPLY])
+    fake = installFakeLlm(cardTurnReplies({ story: WAKE_REPLY }))
     await g.runTurnAction()
     fake.restore()
     fake = null
@@ -362,49 +367,31 @@ describe('status line: in-progress and notices are computed, never stored', () =
 })
 
 describe('one event stream: debug rows are interleaved where they happened', () => {
-  /** 一步调工具、一步写叙事 —— 痕迹会落在两段叙事之间 */
-  const TOOL_STEP = {
-    content: WAKE_REPLY,
-    toolCalls: [{ name: 'advance_time', arguments: '{"step":1,"unit":"day"}' }],
-  }
-
   it('keeps the story in order and puts the traces between the story lines', async () => {
     const g = useGame()
     g.debugMode.value = true
-    fake = installFakeLlm([TOOL_STEP, DONE_REPLY])
+    fake = installFakeLlm(cardTurnReplies({ story: DONE_REPLY }))
     await g.runTurnAction(OPEN_EYES)
     fake.restore()
     fake = null
 
-    // 形状就是「谁在什么时候发生」：行动 → 进节点 → 第 1 步的输入/输出 → 叙事
-    // → 工具调用与结果 → 第 2 步的输入/输出 → 叙事
+    // 形状就是「谁在什么时候发生」：行动 → 九个节点的痕迹（node + 请求/响应）→ 叙事
     const shape = g.rows.value.map((row) => (row.debug ? row.kind : 'story:' + row.kind))
     g.debugMode.value = false
-    expect(shape).toEqual([
-      'story:action',
-      'node',
-      'request',
-      'reply',
-      'story:narration',
-      'tool',
-      'toolResult',
-      'request',
-      'reply',
-      'story:narration',
-    ])
+    expect(shape).toEqual(['story:action', ...TRACE_CYCLE, 'story:narration'])
   })
 
   it('with debug off the same events are still there -- only the projection changes', async () => {
     const g = useGame()
     g.debugMode.value = false
-    fake = installFakeLlm([TOOL_STEP, DONE_REPLY])
+    fake = installFakeLlm(cardTurnReplies({ story: DONE_REPLY }))
     await g.runTurnAction(OPEN_EYES)
     fake.restore()
     fake = null
 
-    expect(g.rows.value.map((row) => row.kind)).toEqual(['action', 'narration', 'narration'])
+    expect(g.rows.value.map((row) => row.kind)).toEqual(['action', 'narration'])
     const saved = JSON.parse(g.exportSave()) as { events: Array<{ kind: string }> }
-    expect(saved.events.map((e) => e.kind)).toEqual(['action', 'narration', 'narration'])
+    expect(saved.events.map((e) => e.kind)).toEqual(['action', 'narration'])
   })
 })
 
@@ -413,7 +400,7 @@ describe('the event stream is the store: it survives a reload', () => {
   async function runWithDebug() {
     const g = useGame()
     g.debugMode.value = true
-    fake = installFakeLlm([RAW_REPLY])
+    fake = installFakeLlm(cardTurnReplies({ story: RAW_REPLY }))
     await g.runTurnAction(LOOK_ACTION)
     fake.restore()
     fake = null
@@ -425,7 +412,7 @@ describe('the event stream is the store: it survives a reload', () => {
     const g = await runWithDebug()
 
     const saved = JSON.parse(g.exportSave()) as { events: Array<{ kind: string; detail?: string }> }
-    expect(saved.events.map((e) => e.kind)).toEqual(['action', 'node', 'request', 'reply', 'narration'])
+    expect(saved.events.map((e) => e.kind)).toEqual(['action', ...TRACE_CYCLE, 'narration'])
     expect(saved.events.some((e) => e.detail?.includes(RAW_REPLY))).toBe(true)
   })
 
@@ -439,11 +426,7 @@ describe('the event stream is the store: it survives a reload', () => {
     expect(g.debugMode.value).toBe(false)
     expect(g.rows.value.every((row) => !row.debug)).toBe(true)
     g.debugMode.value = true
-    expect(g.rows.value.filter((row) => row.debug).map((row) => row.kind)).toEqual([
-      'node',
-      'request',
-      'reply',
-    ])
+    expect(g.rows.value.filter((row) => row.debug).map((row) => row.kind)).toEqual(TRACE_CYCLE)
   })
 
   it('resetGame clears them so a new game does not inherit the old traces', async () => {
@@ -464,7 +447,7 @@ describe('hasStory', () => {
     const g = useGame()
     expect(g.hasStory.value).toBe(false)
 
-    fake = installFakeLlm([WAKE_REPLY])
+    fake = installFakeLlm(cardTurnReplies({ story: WAKE_REPLY }))
     await g.runTurnAction(OPEN_EYES)
     fake.restore()
     fake = null

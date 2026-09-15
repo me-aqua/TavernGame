@@ -3,9 +3,9 @@ import AppSidebar from './AppSidebar.vue'
 import { realCalendar } from '../utils/calendar'
 
 /**
- * 状态浮层：时间 / 地点 / 回合 + 最近一次时间跳跃。
+ * 状态浮层：卡声明的顶栏条目 + 最近一次时间跳跃。
  *
- * 它浮在故事上（用户要求「缩小、悬浮」），所以这里给它一块真实背景当参照，
+ * 它浮在故事上（决定 #24：缩小、悬浮），所以这里给它一块真实背景当参照，
  * 好看清毛玻璃与描边在场景里的样子。
  */
 const meta = {
@@ -13,6 +13,7 @@ const meta = {
   component: AppSidebar,
   decorators: [() => ({ template: '<div class="story-bg h-[220px] p-3"><story /></div>' })],
   args: {
+    items: ['time', 'scene', 'turn'],
     timeLabel: realCalendar.format('2026-09-15T09:00:00.000Z'),
     timeline: [
       {
@@ -48,3 +49,6 @@ export const LongScene: Story = {
     },
   },
 }
+
+/** 卡只声明了两条：没有「回合」时那一行就不出现（显示什么由卡说了算） */
+export const Declared: Story = { args: { items: ['time', 'scene'] } }

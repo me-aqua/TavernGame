@@ -1,10 +1,13 @@
 /**
  * src/game/lifecycle.ts —— 回合生命周期：状态、事件与迁移表。
  *
- * 一轮是一个事务（决定 #27/#39），它经过的阶段 —— 请求模型 / 执行工具 / 步数用尽强制收尾 /
- * 收尾文字到手 / 提交 / 回滚 —— 在这里是**显式数据**：合法性只在 advance() 一处判断，
+ * 一轮是一个事务（决定 #27/#39），它经过的阶段 —— 请求模型 / 收尾文字到手 /
+ * 提交 / 回滚 —— 在这里是**显式数据**：合法性只在 advance() 一处判断，
  * 非法转移直接抛错。没有兜底、没有静默忽略：状态机与真实执行一旦悄悄分叉，
  * 「回合在飞」这个判据（重入保护与状态行都靠它）就不再可信。
+ *
+ * ⚠️ 引擎每轮只走「请求模型」与「收尾」两件事：九个节点各请求一次模型（每次都在
+ *    prompting 里），图跑完交回正文的那一刻进 finishing。
  *
  * ⚠️ 纯函数，不认 Vue、不认 i18n：「现在该显示什么」由 statusKeyOf() 给出**文案键**，
  *    翻译留在组合根（显示是派生值，决定 #22）。
@@ -16,9 +19,8 @@
 /** 一轮是谁发起的：开新游戏的自动开场，还是玩家的行动 */
 export type TurnMode = 'opening' | 'turn'
 
-/** 回合的阶段：空闲 + 四个运行中阶段 + 两个终态 */
-export type TurnPhase =
-  'idle' | 'prompting' | 'executing' | 'forcing' | 'finishing' | 'committed' | 'rolled-back'
+/** 回合的阶段：空闲 + 两个运行中阶段 + 两个终态 */
+export type TurnPhase = 'idle' | 'prompting' | 'finishing' | 'committed' | 'rolled-back'
 
 /** 回合的生命周期状态 */
 export interface TurnState {
@@ -27,18 +29,12 @@ export interface TurnState {
   mode: TurnMode | null
 }
 
-/** 迁移的输入：前五个由引擎的 AgentEvent 推导，后四个是组合根自己的时刻 */
+/** 迁移的输入：前两个由引擎的 AgentEvent 推导，后三个是组合根自己的时刻 */
 export type TurnEvent =
   /** 开始一轮：玩家提交行动，或开新游戏时自动跑开场 */
   | { type: 'start'; mode: TurnMode }
-  /** 一次模型请求发出（AgentEvent thinking） */
+  /** 一次模型请求发出（AgentEvent thinking）—— 图里每个节点一次 */
   | { type: 'request-model' }
-  /** 模型在协议层要求调工具（AgentEvent tool） */
-  | { type: 'call-tools' }
-  /** 一个工具结果回传（AgentEvent toolResult） */
-  | { type: 'tools-returned' }
-  /** 步数用尽、还没写过叙事：补写收尾（AgentEvent forcing） */
-  | { type: 'force-narration' }
   /** 收尾文字到手（引擎交回本回合的正文）—— 只有这个状态允许提交 */
   | { type: 'closing-text' }
   /** 提交：工作副本一次写回权威状态 */
@@ -60,23 +56,11 @@ export const IDLE: TurnState = { phase: 'idle', mode: null }
 export const TRANSITIONS: Record<TurnPhase, Partial<Record<TurnEvent['type'], TurnPhase>>> = {
   idle: { start: 'prompting' },
   prompting: {
-    // 下一步的模型请求仍在请求阶段；模型改口要工具就转去执行工具
+    // 下一个节点的请求仍在请求阶段：图是线性的，中间没有别的阶段
     'request-model': 'prompting',
-    'call-tools': 'executing',
-    'force-narration': 'forcing',
     'closing-text': 'finishing',
     rollback: 'rolled-back',
   },
-  executing: {
-    // 一次模型消息可以带多个工具调用；工具结果一条条回来，仍在这个阶段
-    'call-tools': 'executing',
-    'tools-returned': 'executing',
-    'request-model': 'prompting',
-    'force-narration': 'forcing',
-    'closing-text': 'finishing',
-    rollback: 'rolled-back',
-  },
-  forcing: { 'closing-text': 'finishing', rollback: 'rolled-back' },
   finishing: { commit: 'committed', rollback: 'rolled-back' },
   committed: { reset: 'idle' },
   'rolled-back': { reset: 'idle' },
@@ -96,8 +80,8 @@ export function advance(state: TurnState, event: TurnEvent): TurnState {
   return { phase: next, mode: event.type === 'start' ? event.mode : state.mode }
 }
 
-/** 运行中的四个阶段（顺序就是一轮里它们可能出现的顺序） */
-const RUNNING_PHASES: readonly TurnPhase[] = ['prompting', 'executing', 'forcing', 'finishing']
+/** 运行中的两个阶段（顺序就是一轮里它们可能出现的顺序） */
+const RUNNING_PHASES: readonly TurnPhase[] = ['prompting', 'finishing']
 
 /** 回合在飞吗 —— 界面据此禁用输入，回合入口据此挡住重入 */
 export function isRunning(state: TurnState): boolean {

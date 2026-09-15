@@ -43,7 +43,7 @@ interface PromptEntry {
 /**
  * 递归收集 prompts/<lang>/<name>.md
  *
- *   prompts/zh-CN/system.md  ->  { lang: "zh-CN", name: "system" }
+ *   prompts/zh-CN/calendar.md  ->  { lang: "zh-CN", name: "calendar" }
  *
  * 直接放在 prompts/ 下的 .md（只该有 README.md）跳过并告警：每个 id 都带语言段，
  * 它没有可寻址的 id。

@@ -190,7 +190,7 @@ export function useGame() {
     addEvent: (target, kind, text, detail) => game.addEvent(target, kind, text, detail),
     notify,
     endTurn: (target) => void game.endTurn(target),
-    snapshot: (target, h) => game.snapshot(target, h),
+    snapshot: (target) => game.snapshot(target),
     save: () => game.save(state, saveStore),
     history,
     phase,

@@ -10,9 +10,9 @@
  *   - 单次跨度 > 1000 年拒绝（判据是 >，恰好 1000 年放行）
  *   - 失败返回 { ok: false, message }，**不带 iso** —— 调用方自己保留原时刻
  */
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { advanceTime } from '../src/utils/calendar'
-import { toolSchemas } from '../src/agent/tools'
 
 /** 基准时刻（Asia/Shanghai 本地 10:00；该时区无夏令时，定长单位的毫秒数才可断言） */
 const BASE_ISO = '2026-09-10T02:00:00.000Z'
@@ -187,25 +187,26 @@ describe('advanceTime - a rejected advance carries no new instant', () => {
   })
 })
 
-describe('advanceTime - the unit list stays in sync with the tool schema', () => {
-  it('the units advanceTime enforces are exactly the units the schema advertises', () => {
-    const [schema] = toolSchemas()
-    const params = schema.function.parameters as { properties: { unit: { enum: string[] } } }
-    const advertised = params.properties.unit.enum
-
-    // 这两份单位表在代码里是**手写的两处**（calendar.ts 的 TIME_UNITS 与 tools.ts 的
-    // schema enum）。TIME_UNITS 没有导出，所以从拒绝文案里把它读出来 —— 那是运行中的
-    // 代码自己列出的、它真正接受的集合。任一处的单位表变了，这条就红。
+describe('advanceTime - the unit list stays in sync with the prompt', () => {
+  it('the units the engine enforces are exactly the units the calendar prompt documents', () => {
+    // 单位的真值在 calendar.ts 的 TIME_UNITS（没有导出）：从拒绝文案里把它读出来 ——
+    // 那是运行中的代码自己列出的、它真正接受的集合。
     const rejected = advanceTime(BASE_ISO, 1, 'not-a-unit', LABEL)
     if (rejected.ok) throw new Error('a bogus unit must be rejected')
-    const listed = rejected.message.split('Expected one of: ')[1]?.split('. Current time')[0]?.split(', ')
+    const enforced = rejected.message.split('Expected one of: ')[1]?.split('. Current time')[0]?.split(', ')
+    expect(enforced).toBeDefined()
 
-    expect(listed, 'the units advanceTime enforces must equal the schema enum').toEqual(advertised)
-
-    // 反方向：schema 广告出去的每个单位都必须真的能用（否则模型照着 schema 调用会失败）
-    for (const unit of advertised) {
-      const out = advanceTime(BASE_ISO, 1, unit, LABEL)
-      expect(out.ok, 'schema advertises "' + unit + '" but advanceTime rejects it').toBe(true)
+    // 模型只看得到提示词：card-graph 会把「推进量」原样交给引擎，所以提示词里写的单位
+    // 必须与引擎接受的**完全一致**（少一个 → 模型写出来的合法单位被拒；多一个 → 反过来）。
+    for (const lang of ['zh-CN', 'en']) {
+      const doc = readFileSync('prompts/' + lang + '/calendar.md', 'utf8')
+      // 文档里成对反引号包起来的纯小写词：unit / step 是键名，其余就是单位表
+      const documented = [...new Set([...doc.matchAll(/`([a-z]+)`/g)].map((m) => m[1]))]
+        .filter((token) => token !== 'step' && token !== 'unit')
+        .sort()
+      expect(documented, lang + ': prompt units must equal the enforced units').toEqual(
+        [...(enforced as string[])].sort(),
+      )
     }
   })
 })

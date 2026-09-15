@@ -1,5 +1,5 @@
 /**
- * llm.ts 补充测试 —— 覆盖 testConnection 与回复解析的容错分支。
+ * llm.ts 补充测试 —— 覆盖 testConnection 与请求/错误体的边角分支。
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { chat, testConnection } from '../src/agent/llm'
@@ -12,25 +12,6 @@ import type { ChatMessage } from '../src/types/state'
 i18n.global.locale.value = 'en'
 
 const messages: ChatMessage[] = [{ role: 'user', content: 'Hello there' }]
-
-const NARRATION = 'The tavern is quiet tonight.'
-
-/** 假模型回复：第一条 tool_call 缺 function.name，应被过滤掉 */
-const REPLY_WITH_BROKEN_TOOL_CALL = {
-  choices: [
-    {
-      message: {
-        content: NARRATION,
-        tool_calls: [{ id: 'a' }, { id: 'b', function: { name: 'advance_time', arguments: '{}' } }],
-      },
-    },
-  ],
-}
-
-/** 假模型回复：content 不是字符串、id 缺失、arguments 不是字符串 */
-const REPLY_WITH_SLOPPY_FIELDS = {
-  choices: [{ message: { content: 12345, tool_calls: [{ function: { name: 'advance_time' } }] } }],
-}
 
 /** 假服务商错误体：JSON 且带 message（外部接口文案，不是产品文案） */
 const PROVIDER_ERROR_BODY = { message: 'quota exceeded' }
@@ -82,38 +63,6 @@ describe('error body parsing', () => {
     await expect(chat(messages)).rejects.toThrow(
       t('llm.httpError', { status: 500, statusText: '', detail: JSON.stringify(OPAQUE_ERROR_BODY) }),
     )
-  })
-})
-
-describe('reply parsing tolerance', () => {
-  it('drops tool_calls entries missing function.name', async () => {
-    saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
-    const original = globalThis.fetch
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify(REPLY_WITH_BROKEN_TOOL_CALL), { status: 200 })) as typeof fetch
-    restore = () => {
-      globalThis.fetch = original
-    }
-
-    const reply = await chat(messages)
-    expect(reply.content).toBe(NARRATION)
-    expect(reply.toolCalls).toHaveLength(1)
-    expect(reply.toolCalls[0].name).toBe('advance_time')
-  })
-
-  it('treats non-string content as empty, fills a missing id with call_N, and uses {} for non-string arguments', async () => {
-    saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
-    const original = globalThis.fetch
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify(REPLY_WITH_SLOPPY_FIELDS), { status: 200 })) as typeof fetch
-    restore = () => {
-      globalThis.fetch = original
-    }
-
-    const reply = await chat(messages)
-    expect(reply.content).toBe('')
-    expect(reply.toolCalls[0].id).toMatch(/^call_/)
-    expect(reply.toolCalls[0].arguments).toBe('{}')
   })
 })
 

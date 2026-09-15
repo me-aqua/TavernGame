@@ -2,8 +2,8 @@
  * 网络层测试 —— **唯一**的模型调用入口。
  *
  * 全部用假 fetch：不发真实请求。重点验证
- *   1. 请求拼装（apiBase、鉴权、工具声明）
- *   2. 回复解析成协议结构（content + toolCalls）
+ *   1. 请求拼装（apiBase、鉴权、模型名；**不发 tools** —— 引擎不再用原生工具调用）
+ *   2. 回复解析成 { content, request, raw }
  *   3. 错误信息对排查有用（状态码 + 服务商返回的正文）
  */
 import { afterEach, describe, expect, it } from 'vitest'
@@ -19,7 +19,6 @@ i18n.global.locale.value = 'en'
 // 夹具：发出去的消息、假模型的回复，以及网络层必须暴露给玩家的错误体
 const messages: ChatMessage[] = [{ role: 'user', content: 'hello' }]
 const TEXT_REPLY = 'a reply'
-const TIME_REPLY = 'I want to advance time.'
 const GATEWAY_HTML = '<html><body>Bad Gateway</body></html>'
 const PROVIDER_MESSAGE = 'Invalid API key'
 
@@ -45,29 +44,18 @@ describe('chat - request assembly', () => {
     const reply = await chat(messages)
 
     expect(reply.content).toBe(TEXT_REPLY)
-    expect(reply.toolCalls).toEqual([])
     expect(fake.calls[0].url).toBe('https://api.example.test/v1/chat/completions')
     expect(fake.calls[0].headers['Authorization']).toBe('Bearer sk-test')
     expect(fake.calls[0].body.model).toBe('my-model')
   })
 
-  it('omits the tools field when no tools are passed', async () => {
+  it('never declares tools (the card graph uses plain text requests)', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
     const fake = installFakeLlm(['ok'])
     restore = fake.restore
     await chat(messages)
     expect(fake.calls[0].body.tools).toBeUndefined()
-  })
-
-  it('sends the tool declarations and tool_choice when tools are passed', async () => {
-    saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
-    const fake = installFakeLlm(['ok'])
-    restore = fake.restore
-    await chat(messages, {
-      tools: [{ type: 'function', function: { name: 'x', description: 'd', parameters: {} } }],
-    })
-    expect(fake.calls[0].body.tools).toHaveLength(1)
-    expect(fake.calls[0].body.tool_choice).toBe('auto')
+    expect(fake.calls[0].body.tool_choice).toBeUndefined()
   })
 
   it('does not append /chat/completions when the base URL already ends with it', async () => {
@@ -92,45 +80,36 @@ describe('chat - request assembly', () => {
   })
 })
 
-describe('chat - reply parsing (protocol shape)', () => {
-  it('preserves id / name / arguments from tool_calls', async () => {
+describe('chat - reply parsing', () => {
+  it('takes the text of the first choice and keeps the request it sent', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
-    const fake = installFakeLlm([
-      {
-        content: TIME_REPLY,
-        toolCalls: [{ id: 'call_abc', name: 'advance_time', arguments: '{"step":2}' }],
-      },
-    ])
+    const fake = installFakeLlm([TEXT_REPLY])
     restore = fake.restore
 
     const reply = await chat(messages)
 
-    expect(reply.content).toBe(TIME_REPLY)
-    expect(reply.toolCalls).toEqual([{ id: 'call_abc', name: 'advance_time', arguments: '{"step":2}' }])
+    expect(reply.content).toBe(TEXT_REPLY)
+    expect(reply.request.messages).toEqual(messages)
+    expect(reply.raw).toMatchObject({ choices: [{ message: { content: TEXT_REPLY } }] })
   })
 
-  it('accepts a reply with only tool calls and no text (empty content)', async () => {
+  it('throws on an empty reply (no silent empty turn)', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
-    const fake = installFakeLlm([{ toolCalls: [{ name: 'advance_time' }] }])
+    const fake = installFakeLlm([{ content: '' }])
     restore = fake.restore
-
-    const reply = await chat(messages)
-    expect(reply.content).toBe('')
-    expect(reply.toolCalls).toHaveLength(1)
+    await expect(chat(messages)).rejects.toThrow(t('llm.emptyResponse', { body: '' }).trimEnd())
   })
 
-  it('generates a missing id (downstream uses it to correlate results)', async () => {
+  it('treats non-string content as empty and throws', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
-    const fake = installFakeLlm([{ toolCalls: [{ name: 'advance_time' }] }])
-    restore = fake.restore
-    const reply = await chat(messages)
-    expect(reply.toolCalls[0].id).toMatch(/^call_/)
-  })
-
-  it('throws when there is neither text nor a tool call (no silent empty turn)', async () => {
-    saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
-    const fake = installFakeLlm([{ content: '', toolCalls: [] }])
-    restore = fake.restore
+    const original = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content: 12345 } }] }), {
+        status: 200,
+      })) as typeof fetch
+    restore = () => {
+      globalThis.fetch = original
+    }
     await expect(chat(messages)).rejects.toThrow(t('llm.emptyResponse', { body: '' }).trimEnd())
   })
 

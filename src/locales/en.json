@@ -55,14 +55,26 @@
     "turnCount": "Elapsed",
     "timelineArrow": "↑"
   },
+  "world": {
+    "toggle": "World",
+    "toggleTitle": "World panel: the blocks the card declares",
+    "title": "World",
+    "close": "Close the world panel",
+    "closeIcon": "✕",
+    "map": "Map",
+    "cast": "Characters",
+    "pack": "Inventory",
+    "growingPlaces": "Places appear as you play",
+    "personRole": "{role} · {race}",
+    "itemCount": "×{count}"
+  },
   "toolbar": {
     "toolCall": "⚙ call {tool}({args})"
   },
   "store": {
     "rawRequest": "📤 Model input ({count} messages)",
-    "rawReply": "🔍 Raw model reply ({count} tool calls)",
+    "rawReply": "🔍 Raw model reply",
     "nodeLine": "🧩 node: {node}",
-    "noText": "(The model returned no text — it may have only called tools)",
     "cancelled": "This turn was cancelled",
     "failed": "Something went wrong:\n{message}",
     "toolResultLine": "   -> {result}",
@@ -72,8 +84,6 @@
     "title": "Settings",
     "apiKey": "API Key",
     "apiBase": "Base URL",
-    "stepsLimit": "Max thinking steps per turn: {count}",
-    "stepsNote": "Prevents the model from looping and burning your quota.",
     "noKeyNeeded": "This provider needs no key",
     "keyUrlPrefix": "Get one here:",
     "currentKey": "Current: {masked}",
@@ -146,7 +156,7 @@
     "requestFailed": "The request could not be sent. Likely causes:\n• The provider blocks browser requests (CORS)\n• Wrong base URL: {url}\n• No network, or a proxy is required",
     "httpError": "HTTP {status} {statusText}\n{detail}",
     "badResponse": "Unrecognized response shape: {body}",
-    "emptyResponse": "The reply contained neither text nor tool calls: {body}",
+    "emptyResponse": "The reply contained no text: {body}",
     "field": {
       "apiKey": "API Key",
       "apiBase": "base URL",
@@ -154,19 +164,10 @@
     }
   },
   "tools": {
-    "unknown": "❌ There is no tool named \"{name}\". Available tools: {available}",
-    "notJsonObject": "❌ Arguments must be a JSON object; received: {got}",
-    "invalidJson": "❌ Arguments are not valid JSON ({message}). You sent: {got}",
     "advanceFailed": "⚠ Advance failed: {message} (current: {current})",
     "advanceResult": "🕐 Time advanced: {before}\n           → {after}",
     "advanceElapsed": "\n   ({elapsed})",
-    "advanceReason": "\n   Reason: {reason}",
-    "advanceTime": {
-      "description": "Advance in-story time. Call this only when the plot really spans time (travelling, a long conversation, sleeping, waiting for nightfall, recovering for days). If the turn is just a few lines or actions, do not call it. There is no upper bound on the span.",
-      "step": "How many units to advance; a positive integer. Defaults to 1",
-      "unit": "Time unit. Defaults to segment (one part of the day, about 4 hours)",
-      "reason": "Why time passes (recorded on the timeline)"
-    }
+    "advanceReason": "\n   Reason: {reason}"
   },
   "snapshot": {
     "turn": "[Turn {turn}]",
@@ -188,9 +189,6 @@
     "corrupted": "Corrupted local save: {message}"
   },
   "agent": {
-    "stepLimit": "Step limit reached ({max}); the turn ends here",
-    "forcingNarration": "This turn produced no narration; asking the GM to write some…",
-    "stillNoText": "The GM still produced no text",
     "saveFailed": "Failed to write the save (private mode or storage full) — this turn will be lost on restart",
     "actionPrefix": "Player's action: {action}",
     "playerAction": "Player's action: {action}",

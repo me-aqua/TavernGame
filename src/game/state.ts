@@ -219,14 +219,26 @@ export function contextFor(s: GameState, options: ContextOptions = {}): string {
     lines.push('', t('snapshot.timeline'), ...timelineLines)
   }
 
-  for (const upstream of options.upstream ?? []) {
-    // 空产出 / 缺字段 = 这个节点本轮没有结论可传：跳过它，而不是替它编一段
-    const node = upstream?.node
-    const output = upstream?.output
+  const upstream = upstreamText(options.upstream)
+  if (upstream) lines.push(upstream)
+
+  return lines.join('\n')
+}
+
+/**
+ * 把本轮上游产出拼成文本：每段一条标题 + 产出原文，顺序就是调用方给的顺序。
+ *
+ * ⚠️ 空产出 / 缺字段 = 这个节点本轮没有结论可传：跳过它，而不是替它编一段
+ *    （「拿不到的就别猜」是决定 #26 那条纪律）。
+ */
+export function upstreamText(upstream: UpstreamOutput[] = []): string {
+  const lines: string[] = []
+  for (const item of upstream) {
+    const node = item?.node
+    const output = item?.output
     if (!node || !output) continue
     lines.push('', t('snapshot.upstreamNode', { node }), output)
   }
-
   return lines.join('\n')
 }
 

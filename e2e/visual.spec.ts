@@ -124,6 +124,12 @@ const STATES: State[] = [
     interact: "document.querySelector('button[data-settings]')?.click()",
     waitAfterMs: 400,
   },
+  {
+    name: 'world-open',
+    seed: { config: CONFIG, save: saveWith({ events: STORY }) },
+    interact: "document.querySelector('button[data-world]')?.click()",
+    waitAfterMs: 400,
+  },
   { name: 'dark', seed: { theme: 'dark', config: CONFIG, save: saveWith({ events: STORY }) } },
   {
     name: 'turn-error',

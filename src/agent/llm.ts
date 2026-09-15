@@ -1,13 +1,11 @@
 /**
  * src/agent/llm.ts —— 模型调用的**唯一入口**。
  *
- * 规则（用户 2026-09-14 明确要求）：
+ * 规则：
  *   1. **所有模型调用都经过这里的 chat()** —— 别处不允许直接 fetch
- *   2. **禁止解析模型输出**：工具调用走 OpenAI 兼容的原生 `tools` 协议，由模型在
- *      协议层声明要调哪个工具、参数是什么，不去猜它写在文本里的 JSON
- *
- * 在文本里写 JSON 的调用方式一飘（少个反引号、参数写中文）就静默失败；
- * 原生 tool calling 把格式交给协议，出错时能把结构化错误回传，让它自己改。
+ *   2. **这里不做任何输出解析**：节点产出的格式（JSON 代码块）由卡的节点约定约束，
+ *      解析只发生在有消费者的地方（src/agent/card-graph.ts 的时间与叙事），
+ *      解析不出来就抛错 —— 不猜格式、也不替模型修内容
  *
  * 纯前端意味着请求直接从浏览器发往服务商；已实测主要服务商都返回 CORS 允许头。
  */
@@ -17,27 +15,10 @@ import { t } from '../i18n'
 import { connectionTestPrompt } from './prompts'
 import type { ChatMessage } from '../types/state'
 
-/** OpenAI 兼容的工具声明 */
-export interface ToolSchema {
-  type: 'function'
-  function: {
-    name: string
-    description: string
-    parameters: Record<string, unknown>
-  }
-}
-
-export interface ToolCallRequest {
-  id: string
-  name: string
-  /** 参数是 JSON 字符串（协议原样），由调用方解析 */
-  arguments: string
-}
-
 /**
  * 实际发出去的请求体（OpenAI 兼容）。
  *
- * ⚠️ 只有这里拼得出来：模型名、温度、消息数组、工具声明都在这个函数里合成。
+ * ⚠️ 只有这里拼得出来：模型名、温度、消息数组都在这个函数里合成。
  *    调试模式要展示「模型原始输入」就得把它带出去 —— 在别处重拼一份 = 第二份真值。
  */
 export interface ChatRequest {
@@ -45,16 +26,12 @@ export interface ChatRequest {
   messages: ChatMessage[]
   temperature: number
   stream: boolean
-  tools?: ToolSchema[]
-  tool_choice?: 'auto' | 'none' | 'required'
 }
 
-/** 一次模型回复：可能只有文字，也可能要求调工具 */
+/** 一次模型回复 */
 export interface ChatReply {
-  /** 叙事文字（可能为空——只调工具时就是这样） */
+  /** 模型返回的文本（节点产出原文） */
   content: string
-  /** 模型要求的工具调用（可能为空数组） */
-  toolCalls: ToolCallRequest[]
   request: ChatRequest
   /** 原始响应，供调试模式查看 */
   raw: unknown
@@ -62,10 +39,6 @@ export interface ChatReply {
 
 interface ChatOptions {
   signal?: AbortSignal
-  /** 声明可用工具；不传则模型不会调用任何工具 */
-  tools?: ToolSchema[]
-  /** 给模型看的服务商侧提示（一般不用） */
-  toolChoice?: 'auto' | 'none' | 'required'
 }
 
 interface ApiErrorBody {
@@ -102,10 +75,6 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
     messages,
     temperature: cfg.temperature,
     stream: false,
-  }
-  if (options.tools?.length) {
-    body.tools = options.tools
-    body.tool_choice = options.toolChoice ?? 'auto'
   }
 
   let res: Response
@@ -147,12 +116,7 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
   }
 
   const data = (await res.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: unknown
-        tool_calls?: Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }>
-      }
-    }>
+    choices?: Array<{ message?: { content?: unknown } }>
   }
   const message = data?.choices?.[0]?.message
   if (!message) {
@@ -160,19 +124,11 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
   }
 
   const content = typeof message.content === 'string' ? message.content : ''
-  const toolCalls: ToolCallRequest[] = (message.tool_calls ?? [])
-    .filter((c) => typeof c?.function?.name === 'string')
-    .map((c, i) => ({
-      id: typeof c.id === 'string' ? c.id : `call_${i}`,
-      name: String(c.function?.name),
-      arguments: typeof c.function?.arguments === 'string' ? c.function.arguments : '{}',
-    }))
-
-  if (!content && !toolCalls.length) {
+  if (!content) {
     throw new Error(t('llm.emptyResponse', { body: JSON.stringify(data).slice(0, 300) }))
   }
 
-  return { content, toolCalls, request: body, raw: data }
+  return { content, request: body, raw: data }
 }
 
 interface TestResult {

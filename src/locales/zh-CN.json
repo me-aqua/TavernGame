@@ -55,14 +55,26 @@
     "turnCount": "已进行",
     "timelineArrow": "↑"
   },
+  "world": {
+    "toggle": "世界",
+    "toggleTitle": "世界面板：卡声明的那几块（地图 / 角色 / 背包）",
+    "title": "世界",
+    "close": "收起世界面板",
+    "closeIcon": "✕",
+    "map": "地图",
+    "cast": "角色",
+    "pack": "背包",
+    "growingPlaces": "地点随故事长出来",
+    "personRole": "{role} · {race}",
+    "itemCount": "×{count}"
+  },
   "toolbar": {
     "toolCall": "⚙ 调用 {tool}({args})"
   },
   "store": {
     "rawRequest": "📤 模型输入（{count} 条消息）",
-    "rawReply": "🔍 模型原始回复（{count} 次工具调用）",
+    "rawReply": "🔍 模型原始回复",
     "nodeLine": "🧩 节点：{node}",
-    "noText": "（模型没有返回文字，可能只调用了工具）",
     "cancelled": "已取消本回合",
     "failed": "出错了：\n{message}",
     "toolResultLine": "   → {result}",
@@ -72,8 +84,6 @@
     "title": "设置",
     "apiKey": "API Key",
     "apiBase": "接口地址（Base URL）",
-    "stepsLimit": "每回合最多思考步数：{count}",
-    "stepsNote": "防止模型陷入循环把额度烧光。",
     "noKeyNeeded": "这个服务不需要 key",
     "keyUrlPrefix": "在这里获取：",
     "currentKey": "当前：{masked}",
@@ -146,7 +156,7 @@
     "requestFailed": "请求发不出去。可能原因：\n• 该服务商不允许浏览器直连（CORS 拦截）\n• 接口地址写错了：{url}\n• 网络不通或需要代理",
     "httpError": "接口返回 {status} {statusText}\n{detail}",
     "badResponse": "回复格式看不懂：{body}",
-    "emptyResponse": "回复里既没有文字也没有工具调用：{body}",
+    "emptyResponse": "回复里没有文字：{body}",
     "field": {
       "apiKey": "API Key",
       "apiBase": "接口地址",
@@ -154,19 +164,10 @@
     }
   },
   "tools": {
-    "unknown": "❌ 没有名为「{name}」的工具。可用工具：{available}",
-    "notJsonObject": "❌ 参数必须是 JSON 对象，收到的是：{got}",
-    "invalidJson": "❌ 参数不是合法 JSON（{message}）。你给的是：{got}",
     "advanceFailed": "⚠ 推进失败：{message}（当前：{current}）",
     "advanceResult": "🕐 时间推进：{before}\n           → {after}",
     "advanceElapsed": "\n   （{elapsed}）",
-    "advanceReason": "\n   原因：{reason}",
-    "advanceTime": {
-      "description": "推进故事内的时间。只在剧情确实经过了一段时间时才调用（赶路、交谈很久、睡了一觉、等到天黑、修养数日）。如果这一回合只是几句话、几个动作，就不要调用。跨度没有上限。",
-      "step": "推进的数量，正整数。默认 1",
-      "unit": "时间单位。默认 segment（一个时段，约 4 小时）",
-      "reason": "为什么时间会流逝（会记录在时间线里）"
-    }
+    "advanceReason": "\n   原因：{reason}"
   },
   "snapshot": {
     "turn": "【第 {turn} 回合】",
@@ -188,9 +189,6 @@
     "corrupted": "本地存档已损坏：{message}"
   },
   "agent": {
-    "stepLimit": "达到步数上限（{max}），本回合结束",
-    "forcingNarration": "这一回合没有产生叙事文字，正在要求 GM 补写…",
-    "stillNoText": "GM 依然没有输出文字",
     "saveFailed": "存档写入失败（可能是隐私模式或空间已满）—— 这一回合的进度重启后会丢失",
     "actionPrefix": "玩家的行动：{action}",
     "playerAction": "玩家的行动：{action}",

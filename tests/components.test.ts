@@ -10,6 +10,9 @@ import StoryPanel from '../src/components/StoryPanel.vue'
 import CardGraph from '../src/components/CardGraph.vue'
 import cardGraphStory, { Failed, Running } from '../src/components/CardGraph.stories'
 import AppSidebar from '../src/components/AppSidebar.vue'
+import WorldPanel from '../src/components/WorldPanel.vue'
+import { world } from '../src/components/display-blocks'
+import * as K from '../src/game/card-keys'
 import GameComposer from '../src/components/GameComposer.vue'
 import SettingsDrawer from '../src/components/SettingsDrawer.vue'
 import type { Row, Status } from '../src/stores/game'
@@ -138,24 +141,40 @@ describe('StoryPanel', () => {
 })
 
 describe('AppSidebar', () => {
+  /** 常态 props；items 由每个用例按「卡声明了哪几条」给 */
+  function sidebarProps(over: Record<string, unknown> = {}) {
+    return {
+      items: ['time', 'scene', 'turn'],
+      timeLabel: TIME_LABEL,
+      timeline: [],
+      scene: { name: SCENE_NAME, description: SCENE_DESCRIPTION },
+      turn: 3,
+      ...over,
+    }
+  }
+
   it('renders the time, place and turn blocks', () => {
-    const w = render(AppSidebar, {
-      props: {
-        timeLabel: TIME_LABEL,
-        timeline: [],
-        scene: { name: SCENE_NAME, description: SCENE_DESCRIPTION },
-        turn: 3,
-      },
-    })
+    const w = render(AppSidebar, { props: sidebarProps() })
     expect(w.find('.time-display').text()).toBe(TIME_LABEL)
     expect(w.find('.scene-name').text()).toContain(SCENE_NAME)
     expect(w.find('[data-turn]').text()).toBe('3')
     expect(w.find('.timeline').exists()).toBe(false)
   })
 
+  it('renders exactly the items the card declares, in the declared order', () => {
+    const sceneOnly = render(AppSidebar, { props: sidebarProps({ items: ['scene'] }) })
+    expect(sceneOnly.find('.scene-name').exists()).toBe(true)
+    expect(sceneOnly.find('.time-display').exists()).toBe(false)
+    expect(sceneOnly.find('[data-turn]').exists()).toBe(false)
+
+    const sceneFirst = render(AppSidebar, { props: sidebarProps({ items: ['scene', 'time'] }) })
+    const html = sceneFirst.html()
+    expect(html.indexOf('scene-name')).toBeLessThan(html.indexOf('time-display'))
+  })
+
   it('renders the start point of a timeline entry (intentional design, not a bug)', () => {
     const w = render(AppSidebar, {
-      props: {
+      props: sidebarProps({
         timeLabel: NOW_LABEL,
         timeline: [
           {
@@ -168,12 +187,64 @@ describe('AppSidebar', () => {
         ],
         scene: { name: 'a', description: 'b' },
         turn: 1,
-      },
+      }),
     })
     const timeline = w.find('.timeline')
     expect(timeline.text()).toContain(TIMELINE_FROM)
     expect(timeline.text()).not.toContain(TIMELINE_TO)
     expect(timeline.text()).toContain(TIMELINE_REASON)
+  })
+})
+
+describe('WorldPanel', () => {
+  /** 卡声明的侧栏块名（顺序即声明顺序）—— 期望值从卡里现读，不抄一份内容 */
+  function cardDecl(): Record<string, any> {
+    return (parseCard(readFileSync(EXAMPLE_CARD, 'utf8')) as Record<string, any>)[K.KEY_DECL]
+  }
+
+  /** 卡声明的侧栏块名，顺序照声明 */
+  function declaredBlocks(): string[] {
+    const sidebar = cardDecl()[K.KEY_DISPLAY][K.KEY_SIDEBAR] as Array<Record<string, string>>
+    return sidebar.map((block) => block[K.KEY_BLOCK])
+  }
+
+  it('renders the declared blocks in the declared order', () => {
+    const w = render(WorldPanel, { props: { blocks: world, sceneName: '' } })
+    expect(w.findAll('[data-block]').map((el) => el.attributes('data-block'))).toEqual(declaredBlocks())
+  })
+
+  it('follows the blocks it is handed, not an order of its own', () => {
+    const reversed = [...world].reverse()
+    const w = render(WorldPanel, { props: { blocks: reversed, sceneName: '' } })
+    expect(w.findAll('[data-block]').map((el) => el.attributes('data-block'))).toEqual(
+      reversed.map((block) => block.name),
+    )
+  })
+
+  it('shows the card data inside the blocks and marks the current place', () => {
+    const w = render(WorldPanel, { props: { blocks: world, sceneName: '' } })
+    const decl = cardDecl()
+    const areas = decl[K.KEY_WORLD][K.KEY_AREA] as Array<Record<string, any>>
+    const cast = decl[K.KEY_WORLD][K.KEY_NAMED_NPCS] as Array<Record<string, string>>
+    const pack = decl[K.KEY_STATE][K.KEY_PLAYER_START][K.KEY_CARRY][K.KEY_PACK] as Array<
+      Record<string, string>
+    >
+    const start = decl[K.KEY_OPENING][K.KEY_START] as Record<string, string>
+    const text = w.text()
+    expect(text).toContain(areas[0][K.KEY_NODE_NAME])
+    expect(text).toContain(cast[0][K.KEY_NODE_NAME])
+    expect(text).toContain(pack[0][K.KEY_NAME])
+    // 开局的场景名（旅店大堂）认不出具体地点 → 高亮退回卡的开局位置
+    const currentAreas = w.findAll('[data-area][data-current]')
+    expect(currentAreas).toHaveLength(1)
+    expect(currentAreas[0].text()).toContain(start[K.KEY_AREA])
+    expect(w.findAll('[data-place][data-current]').map((el) => el.text())).toEqual([start[K.KEY_PLACE]])
+  })
+
+  it('closes itself by emitting close', async () => {
+    const w = render(WorldPanel, { props: { blocks: world, sceneName: '' } })
+    await w.find('button[data-world-close]').trigger('click')
+    expect(w.emitted('close')).toHaveLength(1)
   })
 })
 
@@ -215,9 +286,7 @@ describe('SettingsDrawer', () => {
     expect(options).toContain(t('provider.deepseek'))
     expect(options).toContain(t('provider.ollama'))
     expect(w.text()).toContain(t('settings.apiKey'))
-    // 步数上限文案会插值滑块的值，所以先把它读回来
-    const steps = Number((w.find('input[type="range"]').element as HTMLInputElement).value)
-    expect(w.text()).toContain(t('settings.stepsLimit', { count: steps }))
+    expect(w.find('input[type="range"]').exists()).toBe(false)
   })
 
   it('closes itself when the backdrop is clicked', async () => {

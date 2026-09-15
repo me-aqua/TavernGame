@@ -40,7 +40,6 @@ const provider = ref('deepseek')
 const apiKey = ref('')
 const apiBase = ref('')
 const modelName = ref('')
-const steps = ref(8)
 
 const testResult = ref('')
 const testStatus = ref<'' | 'ok' | 'bad'>('')
@@ -59,7 +58,6 @@ watch(
     apiKey.value = cfg.apiKey
     apiBase.value = cfg.apiBase
     modelName.value = cfg.model
-    steps.value = cfg.maxAgentSteps
     testResult.value = ''
     testStatus.value = ''
     syncProviderFields()
@@ -91,7 +89,6 @@ function save() {
     apiKey: apiKey.value.trim(),
     apiBase: apiBase.value.trim(),
     model: modelName.value.trim(),
-    maxAgentSteps: Number(steps.value),
   })
   emit('update:open', false)
   emit('saved')
@@ -246,12 +243,6 @@ const hintText = 'mt-1.5 text-[11.5px] leading-relaxed text-faint'
         <datalist id="model-list">
           <option v-for="m in currentPreset?.models ?? []" :key="m" :value="m"></option>
         </datalist>
-      </div>
-
-      <div class="mb-4">
-        <label :class="fieldLabel">{{ t('settings.stepsLimit', { count: steps }) }}</label>
-        <input v-model.number="steps" type="range" min="1" max="20" class="w-full accent-accent" />
-        <p :class="hintText">{{ t('settings.stepsNote') }}</p>
       </div>
 
       <div class="mt-5 border-t border-line pt-4">

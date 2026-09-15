@@ -3,7 +3,10 @@
  * App.vue —— 应用外壳（沉浸式布局）
  *
  * 分工只有一句话：**文字是主线，控件都浮在它上面**。故事区占满整屏，输入框浮在底部，
- * 状态（时间 / 地点 / 回合 + 最近一次时间跳跃）浮在左上角，设置与调试浮在右上角。
+ * 状态（顶栏条目 + 最近一次时间跳跃）浮在左上角，世界 / 设置 / 调试浮在右上角。
+ *
+ * 左上角显示哪几条、世界面板有哪几块，都由当前卡的 声明.显示 决定（决定 #15）——
+ * 名字到组件的映射在 components/display-blocks.ts，App 只负责把解析好的结果摆出来。
  *
  * ⚠️ 界面上的每一行都属于三类之一，各有各的家（见 stores/game.ts）：事件流（故事 +
  *    调试痕迹，rows 是它的投影，由 StoryPanel 渲染）、进行中与通知（status =
@@ -15,6 +18,8 @@ import StoryPanel from './components/StoryPanel.vue'
 import GameComposer from './components/GameComposer.vue'
 import AppSidebar from './components/AppSidebar.vue'
 import SettingsDrawer from './components/SettingsDrawer.vue'
+import WorldPanel from './components/WorldPanel.vue'
+import { topbar, world } from './components/display-blocks'
 import { storeDebug, useGame } from './stores/game'
 import { useTheme } from './composables/useTheme'
 import { useLanguage } from './composables/useLanguage'
@@ -46,6 +51,8 @@ const { mode: themeMode, select: selectTheme } = useTheme()
 const { mode: languageMode, select: selectLanguage } = useLanguage()
 
 const settingsOpen = ref(false)
+/** 世界面板开着没有 —— 它是浮层，开关只影响这一层 */
+const worldOpen = ref(false)
 const configState = ref(isConfigured())
 const statusLight = ref<'ok' | 'warn' | 'err'>('warn')
 
@@ -186,22 +193,38 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="story-bg flex h-full flex-col overflow-hidden">
+  <div class="story-bg relative flex h-full flex-col overflow-hidden">
     <!--
       三段式：上带（浮层）/ 故事（占满剩下的高度，自己滚）/ 下带（输入卡片）。
-      ⚠️ 浮层有自己的**带**，不是绝对定位压在正文上 —— 文字滚到哪儿都不会被挡
+      ⚠️ 常驻浮层（顶栏与那几颗按钮）有自己的**带**，不压在正文上 —— 文字滚到哪儿都不会被挡
       （e2e/probe.ts 有一条「正文不许被悬浮控件压住」在守着）。
+      世界面板是**玩家自己点开**的那一层（与设置面板同类），所以它在带之外。
     -->
     <div class="flex shrink-0 items-start justify-between gap-2 px-3 pt-3">
       <AppSidebar
-        class="max-w-[62%] sm:max-w-[46%] lg:max-w-[26rem]"
+        class="min-w-0 max-w-[62%] sm:max-w-[46%] lg:max-w-[26rem]"
+        :items="topbar"
         :time-label="timeLabel"
         :timeline="timeline"
         :scene="scene"
         :turn="turn"
       />
-      <!-- 两颗按钮成一组靠右：justify-between 会把中间那颗推到屏幕正中 -->
+      <!-- 三颗按钮成一组靠右：justify-between 会把中间那颗推到屏幕正中 -->
       <div class="flex shrink-0 items-center gap-1.5">
+        <button
+          data-world
+          :title="t('world.toggleTitle')"
+          :aria-expanded="worldOpen"
+          class="shrink-0 rounded-full border px-2.5 py-1 text-[11px] backdrop-blur transition-colors"
+          :class="
+            worldOpen
+              ? 'border-accent-line bg-accent-soft/70 text-accent'
+              : 'border-line/70 bg-surface/70 text-faint hover:text-muted'
+          "
+          @click="worldOpen = !worldOpen"
+        >
+          {{ t('world.toggle') }}
+        </button>
         <button
           v-if="devHost"
           data-debug
@@ -228,6 +251,9 @@ onMounted(() => {
         </button>
       </div>
     </div>
+
+    <!-- 世界面板：浮在故事上，不占正文的宽度（块与顺序来自卡的 声明.显示.侧栏） -->
+    <WorldPanel v-if="worldOpen" :blocks="world" :scene-name="scene.name" @close="worldOpen = false" />
 
     <!-- 主线：故事（占满剩下的高度，只有它滚动） -->
     <StoryPanel class="min-h-0 flex-1" :rows="rows" :status="status" />

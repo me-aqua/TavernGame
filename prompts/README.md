@@ -1,25 +1,28 @@
 # prompts/
 
-**提示词的唯一存放处。** 代码里不允许内联提示词 —— 由 `.githooks/pre-commit` 与测试强制。
+**引擎自带提示词的存放处。** 代码里不允许内联提示词 —— 由 `.githooks/pre-commit` 与测试强制。
+
+⚠️ **卡里的提示词不在这里**：五块设定 / 剧本 / 节点约定 / 逐节点提示词都住在卡 JSON 里，
+由 `src/agent/prompts.ts` 读出来装配（决定 #40）。这里只放**引擎自己的说明** ——
+历法（含时间推进量的写法）、开场指令、连接测试。
 
 ## 为什么单独放
 
 1. **提示词是这个项目的"游戏逻辑"**（见 doc/DESIGN.md：「提示词 = 作者控制 AI 的代码」）。
    它改动的频率和重要性都不低于代码，混在字符串里没法评审、没法 diff。
-2. **将来做卡系统时，卡要能覆盖它们** —— 文件是天然的可替换单元。
+2. **卡能覆盖它们** —— 卡里的提示词与这里的引擎说明各管一摊，文件是天然的可替换单元。
 3. 排版干净：源码里写 `\n` 拼接的多段文字，在这里就是普通的 Markdown。
 
 ## 目录按语言分
 
 ```
 prompts/
-  zh-CN/   system.md  tools.md  opening.md  calendar.md
-           forced-narration.md  tool-calls-without-narration.md  connection-test.md
-  en/      同名的七份
+  zh-CN/   calendar.md  opening.md  connection-test.md
+  en/      同名的三份
 ```
 
 **语言段是必须的**：模型用哪门语言写作由界面语言决定，提示词因此各语言一套。
-文件名与语言段共同构成模块 id：`virtual:prompt/zh-CN/system`。
+文件名与语言段共同构成模块 id：`virtual:prompt/zh-CN/calendar`。
 
 ## 怎么被加载
 
@@ -27,7 +30,7 @@ prompts/
 
 ```ts
 // src/agent/prompts.ts
-import systemTemplateB64 from 'virtual:prompt/zh-CN/system'
+import calendarTemplateB64 from 'virtual:prompt/zh-CN/calendar'
 ```
 
 模块在**构建期**生成，运行时只做 base64 → UTF-8 解码（`atob` + `TextDecoder`），
@@ -45,20 +48,18 @@ import systemTemplateB64 from 'virtual:prompt/zh-CN/system'
 `{{名字}}` 由代码填入。**填不完就会抛错**（见 `renderPrompt`）——
 提示词与代码的参数对不上时快速失败，不把 `{{SNAPSHOT}}` 这种字样发给模型。
 
-当前只有系统提示词用占位符，其余六份是纯文本：
-
-| 文件        | 占位符                        |
-| ----------- | ----------------------------- |
-| `system.md` | `TOOLS` `CALENDAR` `SNAPSHOT` |
+现在这三份都不带占位符（历法 / 开场 / 连接测试都是纯文本）；装配层仍保留这条检查 ——
+将来哪一份要填参数，它替你守住。
 
 ## 边界：什么算「提示词」
 
 判据是**这段文字发给谁**：
 
-| 发给谁   | 放哪              | 例子                                        |
-| -------- | ----------------- | ------------------------------------------- |
-| **模型** | `prompts/<lang>/` | 系统提示词、工具说明、开场指令、补写指令    |
-| **玩家** | `src/locales/`    | 错误提示、「存档已损坏」、「正在生成开场…」 |
+| 发给谁   | 放哪                   | 例子                                             |
+| -------- | ---------------------- | ------------------------------------------------ |
+| **模型** | `prompts/<lang>/`      | 历法说明、开场指令（引擎自己的话）               |
+| **模型** | 卡 JSON 的 `提示词` 块 | 五块设定、剧本、节点约定、逐节点提示词（作者写） |
+| **玩家** | `src/locales/`         | 错误提示、「存档已损坏」、「正在生成开场…」      |
 
 给玩家的文案不是提示词 —— 它属于界面文案，一律走 `t('some.key')` 与 locale 文件。
 `.githooks/checks/ascii.mjs` 会拦下代码里的任何中文字符串（含这种长文案）。
@@ -68,5 +69,5 @@ import systemTemplateB64 from 'virtual:prompt/zh-CN/system'
 ⚠️ **示例必须是「正确输出的完整形态」，不能是简化片段或占位符。**
 模型跟着示例走，不跟说明走 —— 这条踩过两次，见 `AGENTS.md` 与 CHANGELOG。
 
-改完**必须用真实 API 验证**，不能只看逻辑通不通。测试保证格式没坏（223 项），
+改完**必须用真实 API 验证**，不能只看逻辑通不通。测试保证格式没坏，
 但保证不了「模型会不会照做」。

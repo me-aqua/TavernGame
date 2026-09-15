@@ -19,7 +19,6 @@ describe('loadConfig', () => {
     expect(c.provider).toBe('deepseek')
     expect(c.apiBase).toBe(PRESETS.deepseek.apiBase)
     expect(c.model).toBe(PRESETS.deepseek.models[0])
-    expect(c.maxAgentSteps).toBeGreaterThan(0)
   })
 
   it('falls back to the defaults on broken JSON instead of throwing', () => {
