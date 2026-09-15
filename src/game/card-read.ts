@@ -80,6 +80,17 @@ export function requireTextList(parent: Record<string, unknown>, key: string, ba
   return value
 }
 
+/**
+ * 取一个「一行文字或一组行」的字段 —— 说明里的补充章节两种写法都收：
+ * 短的写一行，长的（原稿整节搬进来的）按行排。
+ */
+export function requireTextOrLines(parent: Record<string, unknown>, key: string, base: string): string[] {
+  const value = parent[key]
+  if (typeof value === 'string' && value.length > 0) return [value]
+  if (Array.isArray(value)) return requireTextList(parent, key, base)
+  fail(at(base, key), 'must be a non-empty string or an array of strings')
+}
+
 /** 键集必须正好是这些键：少一个、多一个都拒（没人读的键多半是写错了名字） */
 export function checkKeys(record: Record<string, unknown>, keys: string[], base: string): void {
   for (const key of keys) {

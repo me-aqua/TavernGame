@@ -30,6 +30,7 @@ import {
   requireArray,
   requireText,
   requireTextList,
+  requireTextOrLines,
   checkKeys,
   chineseNumber,
 } from './card-read'
@@ -69,7 +70,10 @@ const DECLARATION_KEYS = [
 /** 提示词必须齐备的五个键 */
 const PROMPT_KEYS = [K.KEY_SETTING, K.KEY_SCRIPT, K.KEY_CONVENTION, K.KEY_NODES, K.KEY_OPENING_REQUIREMENTS]
 
-/** 说明必须齐备的三块 */
+/**
+ * 说明必须齐备的三块 —— 其余键是**自由补充的章节**（原稿整节搬进来的那些），
+ * 键名随便起，但值必须是「一行文字或一组行」。
+ */
 const NOTE_KEYS = [K.KEY_STATE, K.KEY_SCRIPT, K.KEY_OPENING]
 
 /** 图里的节点只有这三个键 —— 位置由拓扑定，没有 id，也没有序号 */
@@ -117,11 +121,11 @@ function checkMeta(card: Record<string, unknown>): void {
   if (!SEMVER.test(version)) fail(at(K.KEY_CARD, K.KEY_VERSION), 'must be a semver like 1.2.3')
 }
 
-/** 顶层三块内部的键集必须齐备 —— 声明 6 个、提示词 5 个、说明 3 个 */
+/** 顶层三块内部的键集必须齐备 —— 声明 6 个、提示词 5 个、说明 3 个（说明另有自由章节） */
 function checkBlocks(card: Record<string, unknown>): void {
   checkKeys(requireRecord(card, K.KEY_DECL, ''), DECLARATION_KEYS, K.KEY_DECL)
   checkKeys(requireRecord(card, K.KEY_PROMPT, ''), PROMPT_KEYS, K.KEY_PROMPT)
-  checkKeys(requireRecord(card, K.KEY_NOTES, ''), NOTE_KEYS, K.KEY_NOTES)
+  // 说明只要求三块必给；其余键是自由章节，由 checkNotes 逐个查形状
 }
 
 /** 提示词.设定：五块、顺序固定、每块都是非空的行数组 */
@@ -139,10 +143,17 @@ function checkSetting(card: Record<string, unknown>): void {
   })
 }
 
-/** 说明：三块人读的说明都非空 —— 空说明等于没写 */
+/**
+ * 说明：三块必给的说明非空 —— 空说明等于没写；其余键自由，但形状照样严判
+ * （写错了名字或写了个空章节，读卡的人只会以为那一块本来就没有内容）。
+ */
 function checkNotes(card: Record<string, unknown>): void {
   const notes = requireRecord(card, K.KEY_NOTES, '')
   for (const key of NOTE_KEYS) requireText(notes, key, K.KEY_NOTES)
+  for (const key of Object.keys(notes)) {
+    if (NOTE_KEYS.includes(key)) continue
+    requireTextOrLines(notes, key, K.KEY_NOTES)
+  }
 }
 
 /** 图：拓扑里每个 id 恰好一次，节点对象的键集正好是拓扑，每个节点只有三个键 */

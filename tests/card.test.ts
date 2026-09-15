@@ -182,10 +182,25 @@ describe('validateCard: the three blocks', () => {
     }
   })
 
-  it('rejects an unknown key in the notes and an empty note', () => {
-    const extra = fixture()
-    extra[KEY_NOTES].extra = 'note'
-    expectRejected(extra, KEY_NOTES + '.extra')
+  it('accepts extra note sections as one line or as lines, and rejects any other shape', () => {
+    const oneLine = fixture()
+    oneLine[KEY_NOTES].extra = 'note'
+    expect(validateCard(oneLine)).toBeDefined()
+    const lines = fixture()
+    lines[KEY_NOTES].extra = ['first line', 'second line']
+    expect(validateCard(lines)).toBeDefined()
+    const wrong = fixture()
+    wrong[KEY_NOTES].extra = 7
+    expectRejected(wrong, KEY_NOTES + '.extra')
+    const empty = fixture()
+    empty[KEY_NOTES].extra = []
+    expectRejected(empty, KEY_NOTES + '.extra')
+    const blank = fixture()
+    blank[KEY_NOTES].extra = ''
+    expectRejected(blank, KEY_NOTES + '.extra')
+  })
+
+  it('rejects an empty required note', () => {
     const empty = fixture()
     empty[KEY_NOTES][KEY_OPENING] = ''
     expectRejected(empty, KEY_NOTES + '.' + KEY_OPENING)

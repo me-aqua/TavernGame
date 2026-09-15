@@ -21,6 +21,11 @@ coverage/
 # --- 巡检产物：截图与总览页，随时可以用 npm run visual / npm run stories 重新生成 ---
 artifacts/
 
+# --- 卡的渲染产物：cards/*.json 是唯一事实来源，.md 是本地渲染出来给人看的 ---
+#   不进仓库：派生物进了仓库，就多出一份要手动同步的「真相」（npm run render:card 随时能重建）。
+#   所以看卡请跑 npm run render:card，然后打开 cards/ 下那份 md。
+cards/*.md
+
 # --- Storybook 的构建产物与 Playwright 的报告（都是生成物）---
 storybook-static/
 playwright-report/

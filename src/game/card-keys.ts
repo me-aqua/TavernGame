@@ -17,7 +17,7 @@ export const KEY_DECL = '\u58f0\u660e'
 /** 模型读的块：设定 / 剧本 / 节点约定 / 节点 / 开局要求 */
 export const KEY_PROMPT = '\u63d0\u793a\u8bcd'
 
-/** 人读的块：状态 / 剧本 / 开局；字段级的说明与禁止仍内联在原处 */
+/** 人读的块：状态 / 剧本 / 开局三块必给，其余键是自由补充的章节（原稿整节搬进来）；字段级的说明与禁止仍内联在原处 */
 export const KEY_NOTES = '\u8bf4\u660e'
 
 // ---------- 声明 ----------
@@ -114,6 +114,17 @@ export const KEY_OUTPUT = '\u8f93\u51fa'
 /** 序号 —— 顺序只由拓扑声明，节点里不许再有它（节点只有名 / 职责 / 输出三个键） */
 export const KEY_ORDER = '\u5e8f\u53f7'
 
+// ---------- 节点产出的字段（引擎消费的那几个） ----------
+
+/** 时间节点的推进量 {step, unit}；引擎照着推世界的时间 */
+export const KEY_ADVANCE = '\u63a8\u8fdb'
+
+/** 为什么时间会流逝 —— 进时间线（时间节点的「理由」） */
+export const KEY_REASON = '\u7406\u7531'
+
+/** 故事节点写出来的本回合叙事正文 */
+export const KEY_STORY_TEXT = '\u6b63\u6587'
+
 // ---------- 开局与位置 ----------
 
 /** 起始时刻（开局就要用；卡里写成 YYYY-MM-DDTHH:mm） */
@@ -200,6 +211,47 @@ export const KEY_PRINCIPLE = '\u539f\u5219'
 
 /** 作者点名的地点 —— 生成器的数字要跟它对上 */
 export const KEY_PLACES = '\u5fc5\u6709\u5730\u70b9'
+
+// ---------- 世界面板与顶栏（卡声明的显示） ----------
+
+/** 侧栏块名：地图 —— 区域与它们的必有地点 */
+export const BLOCK_MAP = '\u5730\u56fe'
+
+/** 侧栏块名：角色 —— 作者点名的 NPC */
+export const BLOCK_CAST = '\u89d2\u8272'
+
+/** 背包 —— 侧栏块名与「携带.背包」用的是同一个词 */
+export const KEY_PACK = '\u80cc\u5305'
+
+/** 顶栏要显示的条目名，顺序即声明顺序 */
+export const KEY_TOPBAR = '\u9876\u680f'
+
+/** 顶栏条目名：时间 */
+export const ITEM_TIME = '\u65f6\u95f4'
+
+/** 顶栏条目名：当前场景 */
+export const ITEM_SCENE = '\u5f53\u524d\u573a\u666f'
+
+/** 顶栏条目名：回合 */
+export const ITEM_TURN = '\u56de\u5408'
+
+/** 作者点名的 NPC：姓名 / 身份 / 种族 / 设定 */
+export const KEY_NAMED_NPCS = '\u70b9\u540d\u7684NPC'
+
+/** 人物的身份（「铁匠」） */
+export const KEY_IDENTITY = '\u8eab\u4efd'
+
+/** 人物的种族（「人类」） */
+export const KEY_RACE = '\u79cd\u65cf'
+
+/** 物品的数量 —— 没写就是一件 */
+export const KEY_COUNT = '\u6570\u91cf'
+
+/** 物品的备注 */
+export const KEY_REMARK = '\u5907\u6ce8'
+
+/** 主控初始 —— 新游戏时主控是什么样、身上有什么（声明.状态 的一段） */
+export const KEY_PLAYER_START = '\u4e3b\u63a7\u521d\u59cb'
 
 // ---------- 汉字数字与标点 ----------
 
