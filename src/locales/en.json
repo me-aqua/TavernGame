@@ -117,6 +117,37 @@
     "importSave": "Import save file",
     "resetGame": "Start over"
   },
+  "card": {
+    "section": "Card",
+    "meta": "{name} · v{version} · {source}",
+    "sourceBuiltin": "built-in example",
+    "sourceImported": "imported",
+    "note": "The card is the single source of truth: the engine runs from it, and the header and sidebar are laid out from it.",
+    "view": "View / edit card graph",
+    "import": "Import card",
+    "export": "Export card",
+    "reset": "Restore built-in example",
+    "confirmReset": "Restore the built-in example card? The imported one is removed from this browser (export it first to keep it).",
+    "alreadyBuiltin": "Already using the built-in example card",
+    "exported": "Card exported to a file",
+    "importFailed": "Card import failed: {message}",
+    "fileName": "{name}-{version}.json",
+    "graphTitle": "Card graph",
+    "graphLegend": "Solid = topology order　｜　dashed = reads upstream: every node before it in the topology",
+    "graphHint": "Click a node to edit its name / duty / prompt",
+    "close": "Close the card graph",
+    "closeIcon": "✕",
+    "editTitle": "Edit node",
+    "nodeId": "id: {id}",
+    "nameLabel": "Name",
+    "dutyLabel": "Duty",
+    "promptLabel": "Prompt (one line per entry)",
+    "outputLabel": "Output (read-only, declared by the card)",
+    "save": "Save",
+    "saveFailed": "Save failed: {message}",
+    "fallback": "The stored card could not be read - falling back to the built-in example:\n{message}",
+    "fallbackShort": "The stored card could not be read - falling back to the built-in example: {message}"
+  },
   "provider": {
     "deepseek": "DeepSeek (official)",
     "siliconflow": "SiliconFlow",
@@ -165,10 +196,19 @@
     }
   },
   "tools": {
+    "unknown": "❌ There is no tool named \"{name}\". Available tools: {available}",
+    "notJsonObject": "❌ Arguments must be a JSON object; received: {got}",
+    "invalidJson": "❌ Arguments are not valid JSON ({message}). You sent: {got}",
     "advanceFailed": "⚠ Advance failed: {message} (current: {current})",
     "advanceResult": "🕐 Time advanced: {before}\n           → {after}",
     "advanceElapsed": "\n   ({elapsed})",
-    "advanceReason": "\n   Reason: {reason}"
+    "advanceReason": "\n   Reason: {reason}",
+    "advanceTime": {
+      "description": "Advance in-story time. Call this only when the plot really spans time (travelling, a long conversation, sleeping, waiting for nightfall, recovering for days). If the turn is just a few lines or actions, do not call it. There is no upper bound on the span.",
+      "step": "How many units to advance; a positive integer. Defaults to 1",
+      "unit": "Time unit. Defaults to segment (one part of the day, about 4 hours)",
+      "reason": "Why time passes (recorded on the timeline)"
+    }
   },
   "snapshot": {
     "turn": "[Turn {turn}]",
@@ -190,6 +230,7 @@
     "corrupted": "Corrupted local save: {message}"
   },
   "agent": {
+    "stepLimit": "Tool round limit reached ({max}); this node wrote no text",
     "saveFailed": "Failed to write the save (private mode or storage full) — this turn will be lost on restart",
     "actionPrefix": "Player's action: {action}",
     "playerAction": "Player's action: {action}",

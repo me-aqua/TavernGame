@@ -1,11 +1,15 @@
 /**
  * src/agent/llm.ts —— 模型调用的**唯一入口**。
  *
- * 规则：
+ * 规则（用户 2026-09-14 定下、2026-09-15 重申的**大原则**）：
  *   1. **所有模型调用都经过这里的 chat()** —— 别处不允许直接 fetch
- *   2. **这里不做任何输出解析**：节点产出的格式（JSON 代码块）由卡的节点约定约束，
- *      解析只发生在有消费者的地方（src/agent/card-graph.ts 的时间与叙事），
- *      解析不出来就抛错 —— 不猜格式、也不替模型修内容
+ *   2. **禁止解析模型输出**：引擎要做的动作只能来自**原生工具调用**（OpenAI 兼容的
+ *      `tools` 协议），绝不去猜模型写在文字里的 JSON —— 模型写歪一点（少个反引号、
+ *      参数写成中文）就整轮失败；原生 tool calling 把格式交给协议，出错时还能把
+ *      结构化错误回传给它自己改。
+ *
+ * ⚠️ 这里是 src/agent/ 里**唯一**允许 JSON.parse 的地方（另一处是 config.ts 读
+ *    localStorage）：解析的是 HTTP 响应体这个协议 JSON，不是模型的散文。
  *
  * 纯前端意味着请求直接从浏览器发往服务商；已实测主要服务商都返回 CORS 允许头。
  */
@@ -15,10 +19,37 @@ import { t } from '../i18n'
 import { connectionTestPrompt } from './prompts'
 import type { ChatMessage } from '../types/state'
 
+/** OpenAI 兼容的工具声明 */
+export interface ToolSchema {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: Record<string, unknown>
+  }
+}
+
+/**
+ * 一次工具调用的参数 —— 协议规定 `function.arguments` 是一个 JSON 字符串。
+ *
+ * ⚠️ 解析结果用带 ok 的联合而不是「可能为 null 的对象」：解析不出来时**不猜**，
+ *    而是把结构化错误原样交给引擎回传给模型，让它自己改（原生 tool calling 的意义）。
+ */
+export type ToolArguments = { ok: true; value: Record<string, unknown> } | { ok: false; message: string }
+
+/** 模型要求的一次工具调用 */
+export interface ToolCallRequest {
+  id: string
+  name: string
+  /** 参数字符串（协议原样；回传给模型的 assistant 消息必须一字不差） */
+  arguments: string
+  args: ToolArguments
+}
+
 /**
  * 实际发出去的请求体（OpenAI 兼容）。
  *
- * ⚠️ 只有这里拼得出来：模型名、温度、消息数组都在这个函数里合成。
+ * ⚠️ 只有这里拼得出来：模型名、温度、消息数组、工具声明都在这个函数里合成。
  *    调试模式要展示「模型原始输入」就得把它带出去 —— 在别处重拼一份 = 第二份真值。
  */
 export interface ChatRequest {
@@ -26,12 +57,16 @@ export interface ChatRequest {
   messages: ChatMessage[]
   temperature: number
   stream: boolean
+  tools?: ToolSchema[]
+  tool_choice?: 'auto' | 'none' | 'required'
 }
 
-/** 一次模型回复 */
+/** 一次模型回复：可能只有文字，也可能在协议层要求调工具 */
 export interface ChatReply {
-  /** 模型返回的文本（节点产出原文） */
+  /** 文字（可能为空 —— 模型这一步只调工具时就是这样） */
   content: string
+  /** 模型要求调用的工具（可能为空数组） */
+  toolCalls: ToolCallRequest[]
   request: ChatRequest
   /** 原始响应，供调试模式查看 */
   raw: unknown
@@ -39,6 +74,10 @@ export interface ChatReply {
 
 interface ChatOptions {
   signal?: AbortSignal
+  /** 声明可用工具；不传则模型不会调用任何工具 */
+  tools?: ToolSchema[]
+  /** 给模型看的服务商侧提示（一般不用） */
+  toolChoice?: 'auto' | 'none' | 'required'
   /**
    * 请求**发出去之前**的回调：把真正要发的请求体交出去。
    *
@@ -51,6 +90,28 @@ interface ChatOptions {
 interface ApiErrorBody {
   error?: { message?: string }
   message?: string
+}
+
+/**
+ * 解析一次工具调用的参数。
+ *
+ * ⚠️ 这是**协议字段**，不是模型的散文：解析器给出什么就是什么。
+ *    不是合法 JSON 对象时返回给模型看的错误文案，绝不替它补一个默认值。
+ */
+function parseToolArguments(raw: string): ToolArguments {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw || '{}')
+  } catch (err) {
+    return {
+      ok: false,
+      message: t('tools.invalidJson', { message: (err as Error).message, got: raw.slice(0, 120) }),
+    }
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, message: t('tools.notJsonObject', { got: raw.slice(0, 120) }) }
+  }
+  return { ok: true, value: parsed as Record<string, unknown> }
 }
 
 /**
@@ -82,6 +143,10 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
     messages,
     temperature: cfg.temperature,
     stream: false,
+  }
+  if (options.tools?.length) {
+    body.tools = options.tools
+    body.tool_choice = options.toolChoice ?? 'auto'
   }
   options.onRequest?.(body)
 
@@ -124,7 +189,12 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
   }
 
   const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: unknown } }>
+    choices?: Array<{
+      message?: {
+        content?: unknown
+        tool_calls?: Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }>
+      }
+    }>
   }
   const message = data?.choices?.[0]?.message
   if (!message) {
@@ -132,11 +202,24 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
   }
 
   const content = typeof message.content === 'string' ? message.content : ''
-  if (!content) {
+  const toolCalls: ToolCallRequest[] = (message.tool_calls ?? [])
+    .filter((c) => typeof c?.function?.name === 'string')
+    .map((c, i) => {
+      const rawArguments = typeof c.function?.arguments === 'string' ? c.function.arguments : '{}'
+      return {
+        id: typeof c.id === 'string' ? c.id : `call_${i}`,
+        name: String(c.function?.name),
+        arguments: rawArguments,
+        args: parseToolArguments(rawArguments),
+      }
+    })
+
+  // 文字与工具调用都没有 = 这一步什么都没发生：不静默当成「空产出」收下
+  if (!content && !toolCalls.length) {
     throw new Error(t('llm.emptyResponse', { body: JSON.stringify(data).slice(0, 300) }))
   }
 
-  return { content, request: body, raw: data }
+  return { content, toolCalls, request: body, raw: data }
 }
 
 interface TestResult {

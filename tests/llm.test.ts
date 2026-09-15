@@ -2,8 +2,9 @@
  * 网络层测试 —— **唯一**的模型调用入口。
  *
  * 全部用假 fetch：不发真实请求。重点验证
- *   1. 请求拼装（apiBase、鉴权、模型名；**不发 tools** —— 引擎不再用原生工具调用）
- *   2. 回复解析成 { content, request, raw }
+ *   1. 请求拼装（apiBase、鉴权、模型名；给了工具就声明 tools）
+ *   2. 回复解析成 { content, toolCalls, request, raw } —— 含**协议参数**的解析
+ *      （arguments 是 JSON 字符串；解析不出来只标记，不抛错，交给模型自己改）
  *   3. 错误信息对排查有用（状态码 + 服务商返回的正文）
  */
 import { afterEach, describe, expect, it } from 'vitest'
@@ -49,7 +50,22 @@ describe('chat - request assembly', () => {
     expect(fake.calls[0].body.model).toBe('my-model')
   })
 
-  it('never declares tools (the card graph uses plain text requests)', async () => {
+  it('declares the tools it was given, with tool_choice auto (native tool calling)', async () => {
+    saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
+    const fake = installFakeLlm(['ok'])
+    restore = fake.restore
+    const tools = [
+      {
+        type: 'function' as const,
+        function: { name: 'advance_time', description: 'advance it', parameters: { type: 'object' } },
+      },
+    ]
+    await chat(messages, { tools })
+    expect(fake.calls[0].body.tools).toEqual(tools)
+    expect(fake.calls[0].body.tool_choice).toBe('auto')
+  })
+
+  it('omits tools when none are declared (the connection test sends a plain request)', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
     const fake = installFakeLlm(['ok'])
     restore = fake.restore
@@ -91,6 +107,78 @@ describe('chat - reply parsing', () => {
     expect(reply.content).toBe(TEXT_REPLY)
     expect(reply.request.messages).toEqual(messages)
     expect(reply.raw).toMatchObject({ choices: [{ message: { content: TEXT_REPLY } }] })
+  })
+
+  it('parses tool_calls: id / name / raw arguments / parsed args (no text required)', async () => {
+    saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
+    const fake = installFakeLlm([
+      {
+        content: '',
+        toolCalls: [{ id: 'call_9', name: 'advance_time', arguments: '{"step":2,"unit":"week"}' }],
+      },
+    ])
+    restore = fake.restore
+
+    const reply = await chat(messages)
+
+    // 只调工具、一个字都没写是合法的一步（不是空回复）
+    expect(reply.content).toBe('')
+    expect(reply.toolCalls).toEqual([
+      {
+        id: 'call_9',
+        name: 'advance_time',
+        arguments: '{"step":2,"unit":"week"}',
+        args: { ok: true, value: { step: 2, unit: 'week' } },
+      },
+    ])
+  })
+
+  it('marks arguments that are not valid JSON (never throws: the model gets to fix them)', async () => {
+    saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
+    const fake = installFakeLlm([{ toolCalls: [{ name: 'advance_time', arguments: '{"step": 2, ' }] }])
+    restore = fake.restore
+
+    const reply = await chat(messages)
+
+    expect(reply.toolCalls[0].args.ok).toBe(false)
+    if (reply.toolCalls[0].args.ok) throw new Error('the arguments must not have parsed')
+    // 错误文案带着模型自己写的那串参数，它才改得动
+    expect(reply.toolCalls[0].args.message).toContain('{"step": 2, ')
+    // 标记从 locale 表派生（第一个占位符之前那段）—— 换语言也认得出
+    const table = i18n.global.getLocaleMessage(i18n.global.locale.value) as {
+      tools: Record<string, string>
+    }
+    expect(reply.toolCalls[0].args.message).toContain(table.tools.invalidJson.split('{')[0].trim())
+  })
+
+  it('rejects an arguments payload that is not a JSON object (array / literal)', async () => {
+    saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
+    const fake = installFakeLlm([
+      { toolCalls: [{ name: 'advance_time', arguments: '[1,2]' }] },
+      { toolCalls: [{ name: 'advance_time', arguments: '"a string"' }] },
+    ])
+    restore = fake.restore
+
+    const array = await chat(messages)
+    expect(array.toolCalls[0].args).toEqual({
+      ok: false,
+      message: t('tools.notJsonObject', { got: '[1,2]' }),
+    })
+
+    const literal = await chat(messages)
+    expect(literal.toolCalls[0].args).toEqual({
+      ok: false,
+      message: t('tools.notJsonObject', { got: '"a string"' }),
+    })
+  })
+
+  it('treats an empty arguments string as {} (a tool with no required parameters)', async () => {
+    saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
+    const fake = installFakeLlm([{ toolCalls: [{ name: 'advance_time', arguments: '' }] }])
+    restore = fake.restore
+
+    const reply = await chat(messages)
+    expect(reply.toolCalls[0].args).toEqual({ ok: true, value: {} })
   })
 
   it('throws on an empty reply (no silent empty turn)', async () => {

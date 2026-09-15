@@ -82,8 +82,20 @@ export interface GameData {
  *
  * ⚠️ 引擎每轮把历史原样发给每个节点（决定 #26 的公共部分）；窗口多大由组合根决定，
  *    这里不裁剪。快照会读 role 区分「玩家」与「GM」。
+ *
+ * ⚠️ 含工具协议字段：原生 tool calling 要求把模型的 tool_calls **原样回传**，
+ *    并把每个工具的执行结果作为 role: 'tool' 的消息发回去（用 tool_call_id 关联）。
+ *    这是协议的一部分，不是我们自创的格式（决定 #46）。
  */
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant'
+  role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+  /** 仅 assistant：模型在协议层要求调用的工具（id / name / arguments 一字不差地回传） */
+  tool_calls?: Array<{
+    id: string
+    type: 'function'
+    function: { name: string; arguments: string }
+  }>
+  /** 仅 tool：这是哪一次调用的结果 —— 模型靠它把结果与自己的调用对上 */
+  tool_call_id?: string
 }

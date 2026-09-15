@@ -4,7 +4,7 @@
 //
 // 分工（2026-09：重型检查搬去 CI，本钩子只留代码与文本层）：
 //   本钩子（每次提交，秒级）：密钥 / 换行编码 / 语法 / ASCII / 标识符 / 提示词 /
-//                             调试残留 / 吞错误 / 体积 / ESLint / 相关单测 / Prettier
+//                             调试残留 / 吞错误 / 体积 / 解析模型输出 / ESLint / 相关单测 / Prettier
 //   pre-push（每次推送，秒级）：类型检查 / 全量单测 / 覆盖率门禁 / 构建
 //   CI（PR 与 push 到 main，分钟级）：上面全部 + e2e 冒烟 + 组件故事 + 整页结构巡检
 //                                     （.github/workflows/ui.yml；像素基线仍由本机维护）
@@ -325,7 +325,26 @@ if (promptTargets.length) {
   }
 }
 
-// ---------- 检查 13：ESLint（类型感知规则能抓浮空 Promise 这类真 bug）----------
+// ---------- 检查 13：引擎不许解析模型输出（大原则，用户 2026-09-15 重申）----------
+// 模型要引擎做的事（推进时间、换地点、改状态……）**只能**通过原生工具调用申请，
+// 引擎执行并把结果回传；**绝不允许**从节点文字里解析出 JSON 再据此行动 ——
+// 实测过它的后果：「生成开场失败：node time 推进 must be step」，
+// 而且解析出来的东西没有经过任何边界校验。
+// 放行的只有两个既有边界：llm.ts（解析 HTTP 响应）与 config.ts（读 localStorage）。
+const AGENT_BOUNDARY = /^src\/agent\/(llm|config)\.ts$/
+for (const file of staged.filter((f) => /^src\/agent\/.*\.ts$/.test(f) && !AGENT_BOUNDARY.test(f))) {
+  contentOf(file)
+    .split('\n')
+    .forEach((line, i) => {
+      if (/JSON\.parse\s*\(/.test(line)) {
+        problems.push(
+          `[解析模型输出] ${file}:${i + 1} —— 引擎不许解析模型输出：动作走原生工具调用（src/agent/tools.ts，doc/DESIGN.md 决定 #46）`,
+        )
+      }
+    })
+}
+
+// ---------- 检查 14：ESLint（类型感知规则能抓浮空 Promise 这类真 bug）----------
 const lintTargets = staged.filter((f) => /\.(ts|vue|js|mjs)$/.test(f))
 let lintPromise = null
 if (lintTargets.length) {
@@ -339,7 +358,7 @@ if (lintTargets.length) {
   })
 }
 
-// ---------- 检查 14：只跑与本次改动相关的单测（与 ESLint 并行）----------
+// ---------- 检查 15：只跑与本次改动相关的单测（与 ESLint 并行）----------
 // 类型检查与全量单测搬去 pre-push（那里仍是秒级）与 CI —— 提交这一步只做轻量预警。
 // 用 `vitest related <暂存文件>` 而不是 `--changed`：后者按工作区与 HEAD 的差异算，
 // 会把**没暂存的**旁人改动一并算进来（实测工作区有别的改动时多跑了 4 个文件）。
@@ -381,7 +400,7 @@ if (problems.length) {
   process.exit(1)
 }
 
-// ---------- 检查 15：格式化（Prettier 就地修好并重新暂存）----------
+// ---------- 检查 16：格式化（Prettier 就地修好并重新暂存）----------
 const formatTargets = staged.filter((f) => /\.(ts|vue|js|mjs|json|css|html|md|yml|yaml)$/.test(f))
 if (formatTargets.length && !process.env.SKIP_FORMAT) {
   try {

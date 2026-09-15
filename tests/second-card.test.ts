@@ -18,7 +18,7 @@ import { displayOf } from '../src/game/display'
 import { openingOf } from '../src/game/opening'
 import { createInitialState } from '../src/game/save'
 import { addEvent, endTurn, iso, save, snapshot, type GameState } from '../src/game/state'
-import { STORY_NODE, TIME_NODE, applyTimeNode, graphOfCard, narrationOf } from '../src/agent/card-graph'
+import { STORY_NODE, TIME_NODE, graphOfCard, narrationOf } from '../src/agent/card-graph'
 import { executeGraph } from '../src/agent/graph'
 import { topbarItems, worldBlocks } from '../src/components/display-blocks'
 import { renderCard } from '../tools/render-card.mjs'
@@ -26,7 +26,6 @@ import {
   CN_FIVE,
   CN_FOUR,
   CN_THREE,
-  KEY_ADVANCE,
   KEY_AREA,
   KEY_CARD,
   KEY_CONVENTION,
@@ -44,20 +43,18 @@ import {
   KEY_PLACES,
   KEY_PRINCIPLE,
   KEY_PROMPT,
-  KEY_REASON,
   KEY_SCENE,
   KEY_SETTING,
   KEY_SIDEBAR,
   KEY_START,
   KEY_START_TIME,
   KEY_STATE,
-  KEY_STORY_TEXT,
   KEY_TOPOLOGY,
   KEY_WORLD,
 } from '../src/game/card-keys'
 import { EXAMPLE_CARD } from './support/card-fixtures'
 import { stringLeaves } from './support/card-leaves'
-import { jsonBlock } from './support/card-replies'
+import { advanceTimeCall } from './support/card-replies'
 import { configureFakeProvider } from './support/game-fixtures'
 import { installFakeLlm, type FakeLlm, type FakeReply } from './support/fakeLlm'
 import type { GameData } from '../src/types/state'
@@ -83,6 +80,8 @@ const CONVENTION_PATH = KEY_PROMPT + '.' + KEY_CONVENTION
 const LOOK_ACTION = 'walk to the bridge'
 const STORY_TEXT = 'The long night goes on.'
 const TIME_STEP = { step: 6, unit: 'hour', reason: 'three decks down to the bridge' }
+/** 时间节点工具往返之后回的那段文字（它是上游，不是叙事） */
+const TIME_TEXT = 'the clock moved'
 const HOUR_MS = 3600000
 
 /** 渲染器逐节点上游清单的行首标记与第一个圈号 —— 源码 ASCII，码点拼出来 */
@@ -108,16 +107,14 @@ function stateOfTheSecondCard(): GameState {
 /**
  * 按这张卡自己的拓扑造一轮假回复 —— 节点数、顺序、谁管时间都从卡里来，
  * 不照抄另一张卡的节点形状；出现第三个节点就当场抛错（这张卡不该有）。
+ *
+ * ⚠️ 时间节点走**原生工具调用**：先回一条 advance_time 的 tool_calls，引擎执行完
+ *    再问一次，它才回文字 —— 所以它在回复序列里占两个槽位。
  */
 function repliesForCard(over: { story?: string } = {}): FakeReply[] {
-  return topology.map((id) => {
-    if (id === TIME_NODE) {
-      return jsonBlock({
-        [KEY_ADVANCE]: { step: TIME_STEP.step, unit: TIME_STEP.unit },
-        [KEY_REASON]: TIME_STEP.reason,
-      })
-    }
-    if (id === STORY_NODE) return jsonBlock({ [KEY_STORY_TEXT]: over.story ?? STORY_TEXT })
+  return topology.flatMap((id) => {
+    if (id === TIME_NODE) return [advanceTimeCall(TIME_STEP), TIME_TEXT]
+    if (id === STORY_NODE) return [over.story ?? STORY_TEXT]
     throw new Error('the second card has a node the fake does not know: ' + id)
   })
 }
@@ -175,25 +172,23 @@ describe('the second card: the shape the engine needs', () => {
 
 describe('the second card: one whole turn', () => {
   it('calls once per node, narrates the story node and advances time by the time node', async () => {
-    const replies = repliesForCard()
-    fake = installFakeLlm(replies)
+    fake = installFakeLlm(repliesForCard())
     const state = stateOfTheSecondCard()
     const startIso = iso(state)
 
-    // 引擎的顺序：记玩家行动 → 定快照 → 跑图 → 时间落状态 → 取正文 → 记叙事 → 回合 +1
+    // 引擎的顺序：记玩家行动 → 定快照 → 跑图（工具随手执行）→ 取正文 → 记叙事 → 回合 +1
     addEvent(state, 'action', LOOK_ACTION)
     const visited: string[] = []
     const outputs = await executeGraph(
-      graphOfCard({ card, snapshot: snapshot(state), history: [], playerWords: LOOK_ACTION }),
+      graphOfCard({ card, state, snapshot: snapshot(state), history: [], playerWords: LOOK_ACTION }),
       { onEvent: (evt) => visited.push(evt.id) },
     )
-    applyTimeNode(state, card, outputs)
     const text = narrationOf(card, outputs)
     addEvent(state, 'narration', text)
     endTurn(state)
 
-    // ① 一次调用一个节点，顺序 = 拓扑；节点数从卡里数
-    expect(fake.calls).toHaveLength(topology.length)
+    // ① 每个节点至少问一次，顺序 = 拓扑；时间节点多一次工具往返
+    expect(fake.calls).toHaveLength(topology.length + 1)
     expect(outputs).toHaveLength(topology.length)
     expect(visited).toEqual(topology)
 
@@ -203,21 +198,28 @@ describe('the second card: one whole turn', () => {
     for (const lines of Object.values(setting)) {
       for (const line of lines) expect(system).toContain(line)
     }
-    // 每个节点的 user 消息里带着它自己那一份提示词
+    // 每个节点的每一次请求都带着它自己那一份提示词（时间节点问了两次）
     const prompts = (card[KEY_PROMPT] as any)[KEY_NODES] as Record<string, string[]>
-    fake.calls.forEach((call, index) => {
-      expect(call.body.messages?.at(-1)?.content ?? '').toContain(prompts[topology[index]][0])
-    })
-    // 上游 = 拓扑前缀：后跑的 story 拿得到 time 本轮产出的原文
-    const timeOutput = replies[topology.indexOf(TIME_NODE)] as string
-    expect(fake.calls[topology.indexOf(STORY_NODE)].body.messages?.at(-1)?.content ?? '').toContain(
-      timeOutput,
-    )
+    let at = 0
+    for (const id of topology) {
+      for (let n = 0; n < (id === TIME_NODE ? 2 : 1); n += 1) {
+        // ⚠️ 工具往返那一次的**最后一条**是 role:'tool'，所以找最后一条 user
+        const lastUser = [...(fake.calls[at].body.messages ?? [])].reverse().find((m) => m.role === 'user')
+        expect(lastUser?.content ?? '').toContain(prompts[id][0])
+        at += 1
+      }
+    }
+    expect(at).toBe(fake.calls.length)
+    // 工具的结果以 role:'tool' 回传给模型（时间节点的第二次请求里带着）
+    const followUp = fake.calls[1].body.messages ?? []
+    expect(followUp.some((m) => m.role === 'tool')).toBe(true)
+    // 上游 = 拓扑前缀：后跑的 story 拿得到 time 本轮产出的**文字**
+    expect(fake.calls.at(-1)?.body.messages?.at(-1)?.content ?? '').toContain(TIME_TEXT)
 
-    // ③ 叙事取自 story 节点的「正文」（展示的是正文，不是模型返回的 JSON 块）
+    // ③ 叙事取自 story 节点的文字（不是模型返回的 JSON 块，也不是工具参数）
     expect(text).toBe(STORY_TEXT)
     expect(state.data.events.at(-1)?.text).toBe(STORY_TEXT)
-    expect(text).not.toContain(KEY_STORY_TEXT)
+    expect(text).not.toContain('advance_time')
 
     // ④ 时间按「推进」真的走了；理由进了时间线
     expect(Date.parse(iso(state)) - Date.parse(startIso)).toBe(TIME_STEP.step * HOUR_MS)
@@ -296,7 +298,7 @@ describe('the second card: the checks that can be falsified', () => {
     })
     // 少一个节点的图本身合法，但引擎要的正文没出处了 —— 抛错，不静默给一个空回合
     const stillValid = validateCard(candidate)
-    const outputs = [jsonBlock({ [KEY_ADVANCE]: { step: 1, unit: 'hour' }, [KEY_REASON]: TIME_STEP.reason })]
+    const outputs = [TIME_TEXT]
     expect(() => narrationOf(stillValid, outputs)).toThrow(new RegExp(STORY_NODE))
   })
 })

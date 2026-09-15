@@ -6,8 +6,9 @@
  *   ② 跑起来后取消（AbortError）：同上
  *   ③ 成功回合：副本一次性写回并落盘，落盘拿到的就是内存里的那一份
  *
- * ⚠️ 失败点比旧循环更靠后：时间节点的产出会被解析并推进**工作副本**，之后故事节点的
- *    产出解析不出来 —— 回滚必须把已经推进的时间也一起丢掉（决定 #27/#39）。
+ * ⚠️ 失败点在「已经改过数据」之后：时间节点调工具把时间推进了**工作副本**，
+ *    之后故事节点一个字都没写出来 —— 回滚必须把已经推进的时间也一起丢掉
+ *    （决定 #27/#39）。
  *
  * 这里直接驱动 createTurnRunner：取消只有一个入口（abortRunningTurn），
  * store 把它藏在 resetGame / importSave 后面 —— 那两条路都会换掉整份 data，
@@ -23,6 +24,7 @@ import { IDLE, type TurnPhase, type TurnState } from '../src/game/lifecycle'
 import { addEvent, endTurn, initialState, iso, save, snapshot, type GameState } from '../src/game/state'
 import { isStoryKind } from '../src/game/save'
 import { STORY_NODE, TIME_NODE } from '../src/agent/card-graph'
+import { t } from '../src/i18n'
 import { configureFakeProvider } from './support/game-fixtures'
 import { cardTurnReplies, CARD_TOPOLOGY } from './support/card-replies'
 import { installFakeLlm, installFakeLlmThen, type FakeLlm } from './support/fakeLlm'
@@ -33,7 +35,6 @@ import type { SaveStore } from '../src/utils/storage'
 const SECOND_DRAFT = 'Second draft.'
 const LOOK_ACTION = 'look around'
 const NETWORK_ERROR = 'network down'
-const BAD_STORY_OUTPUT = 'this is not a JSON block'
 const DAY_MS = 86400000
 /** 一整轮的假回复：时间推一天，叙事用 SECOND_DRAFT */
 const REPLIES = cardTurnReplies({
@@ -100,18 +101,21 @@ describe('a turn that never reaches the end leaves no trace', () => {
   })
 
   it('a failure after the time node rolls the clock back too', async () => {
-    // 时间节点的产出合法：推进已经写进工作副本；随后故事节点的产出不是 JSON
-    const replies = cardTurnReplies({ time: { step: 1, unit: 'day' } })
-    replies[CARD_TOPOLOGY.indexOf(STORY_NODE)] = BAD_STORY_OUTPUT
+    // 时间节点调了工具：推进已经写进工作副本；随后故事节点一个字都没写出来
+    // （空回复 = 协议层判定的空产出，llm.ts 直接抛错）
+    const replies = cardTurnReplies({
+      time: { step: 1, unit: 'day' },
+      node: (id) => (id === STORY_NODE ? { content: '' } : undefined),
+    })
     fake = installFakeLlm(replies)
     const state = initialState()
     const before = JSON.stringify(state.data)
     const startIso = iso(state)
     const { write, runTurnAction } = createRunner(state)
 
-    await expect(runTurnAction(LOOK_ACTION)).rejects.toThrow(/not valid JSON/)
+    await expect(runTurnAction(LOOK_ACTION)).rejects.toThrow(t('llm.emptyResponse', { body: '' }).trimEnd())
 
-    // 九个节点全都调过（时间那一步的推进真的发生过），但权威状态一个字节都没动
+    // 九个节点里的前八个都问过了（时间那一步的推进真的发生过），但权威状态一个字节都没动
     expect(fake.calls.length).toBeGreaterThan(1)
     expect(JSON.stringify(state.data)).toBe(before)
     expect(iso(state)).toBe(startIso)
@@ -119,20 +123,24 @@ describe('a turn that never reaches the end leaves no trace', () => {
     expect(write).not.toHaveBeenCalled()
   })
 
-  it('a time node output that is not JSON fails the whole turn too', async () => {
-    // 时间节点的产出必须能解析成 {推进: {step, unit}}：解析不出来就整轮失败，
-    // 不静默跳过（时间不动等于这一轮白跑）
-    const replies = cardTurnReplies({ story: SECOND_DRAFT })
-    replies[CARD_TOPOLOGY.indexOf(TIME_NODE)] = BAD_STORY_OUTPUT
-    fake = installFakeLlm(replies)
+  it('a rejected tool call comes back to the model, which then writes text (the turn still commits)', async () => {
+    // 时间节点调了工具，但单位不认识：引擎把结构化错误**回传**给模型，
+    // 模型改用文字收尾 —— 这一轮时间不动，但错在模型、改的也是模型，不是整轮失败
+    fake = installFakeLlm(cardTurnReplies({ story: SECOND_DRAFT, time: { step: 1, unit: 'lightyear' } }))
     const state = initialState()
-    const before = JSON.stringify(state.data)
+    const startIso = iso(state)
     const { write, runTurnAction } = createRunner(state)
 
-    await expect(runTurnAction(LOOK_ACTION)).rejects.toThrow(/not valid JSON/)
+    await runTurnAction(LOOK_ACTION)
 
-    expect(JSON.stringify(state.data)).toBe(before)
-    expect(write).not.toHaveBeenCalled()
+    expect(iso(state)).toBe(startIso)
+    expect(state.data.timeline).toEqual([])
+    // 错误确实回传给了模型（时间节点的第二次请求里看得到）
+    const followUp = fake.calls[CARD_TOPOLOGY.indexOf(TIME_NODE) + 1].body.messages ?? []
+    expect(followUp.some((m) => m.role === 'tool' && m.content.includes('Unknown time unit'))).toBe(true)
+    // 这一轮照样提交：叙事是故事节点最后那段文字
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(state.data.events.at(-1)?.text).toBe(SECOND_DRAFT)
   })
 
   it('aborting a running turn keeps the data byte-identical and never saves', async () => {

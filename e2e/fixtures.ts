@@ -20,15 +20,18 @@ export const THEME_KEY = 'tavernGame.theme'
 export const SAVE_KEY = 'tavernGame.save'
 export const CONFIG_KEY = 'tavernGame.config'
 export const DEBUG_KEY = 'tavernGame.debug'
+/** 活动卡（值就是卡的 JSON 文本）：坏卡要能造出来，所以键名在这里也留一份 */
+export const CARD_KEY = 'tavernGame.card'
 
 /**
  * 假模型的行为：
- *   narration = 每个节点各回一段合法 JSON（时间节点推进一天、故事节点写正文）
+ *   narration = 按「这次是哪个节点」分别回话：时间节点第一次回一条 advance_time 的
+ *               tool_calls（引擎执行完会再问一次），第二次才回文字；故事节点回正文；
+ *               其余节点回一段普通文字
  *   slow      = 第一次调用拖 5 秒（看得见「正在生成开场…」）；error = 上游 500
  *
- * ⚠️ 引擎现在是**按卡里的图**跑的：一轮里每个节点各调一次模型，时间节点与故事节点的产出
- *    会被解析（卡的节点约定要求输出是 JSON 代码块）。所以假模型必须按「这次是哪个节点」
- *    分别回话，回一段散文会让整轮失败。
+ * ⚠️ 引擎按卡里的图跑，而且**不解析模型输出**：要引擎做的事只能来自原生工具调用
+ *    （决定 #46）。所以假模型必须按协议回 tool_calls —— 回一段「JSON 代码块」没用。
  */
 export type FakeMode = 'narration' | 'slow' | 'error'
 
@@ -63,13 +66,37 @@ function nodeOf(messages: Array<{ role?: string; content?: string }>): string {
   return found
 }
 
-/** 该节点的假产出：时间节点给推进量，故事节点给正文，其余节点给一段任意 JSON */
-function replyOf(id: string): string {
-  if (id === TIME_NODE) {
-    return JSON.stringify({ [K.KEY_ADVANCE]: { step: 1, unit: 'day' }, [K.KEY_REASON]: TIME_REASON })
+/** 每个节点被问过几次（时间节点第一次要求调工具、第二次才回文字） */
+type AskedCounts = Map<string, number>
+
+/**
+ * 该节点的假回复（协议消息）。
+ *
+ * ⚠️ 时间节点：第一次 content 为空、只回 `advance_time` 的 tool_calls
+ *    （「只调工具没写字」是合法的一步），引擎执行完再问一次，那次才回文字。
+ */
+function messageOf(id: string, asked: AskedCounts): Record<string, unknown> {
+  const count = (asked.get(id) ?? 0) + 1
+  asked.set(id, count)
+
+  if (id === TIME_NODE && count === 1) {
+    return {
+      role: 'assistant',
+      content: '',
+      tool_calls: [
+        {
+          id: 'call_time',
+          type: 'function',
+          function: {
+            name: 'advance_time',
+            arguments: JSON.stringify({ step: 1, unit: 'day', reason: TIME_REASON }),
+          },
+        },
+      ],
+    }
   }
-  if (id === STORY_NODE) return JSON.stringify({ [K.KEY_STORY_TEXT]: NARRATION })
-  return JSON.stringify({ node: id })
+  if (id === STORY_NODE) return { role: 'assistant', content: NARRATION }
+  return { role: 'assistant', content: id + ' node output' }
 }
 
 /** 产品里配置项的形状（服务商/模型是假的，请求由 page.route 拦住） */
@@ -123,6 +150,8 @@ export async function seedStorage(page: Page, values: Record<string, string | nu
 /** 拦住模型的 HTTP 调用，返回可控的假回复 */
 export async function fakeLlm(page: Page, mode: FakeMode = 'narration'): Promise<void> {
   let calls = 0
+  /** 每个节点问过几次：时间节点的工具往返靠它区分第一次与第二次 */
+  const asked: AskedCounts = new Map()
   await page.route('**/chat/completions', async (route) => {
     if (mode === 'error') {
       await route.fulfill({
@@ -141,7 +170,7 @@ export async function fakeLlm(page: Page, mode: FakeMode = 'narration'): Promise
     const body = route.request().postDataJSON() as {
       messages?: Array<{ role?: string; content?: string }>
     } | null
-    const message = { role: 'assistant', content: replyOf(nodeOf(body?.messages ?? [])) }
+    const message = messageOf(nodeOf(body?.messages ?? []), asked)
 
     await route.fulfill({
       status: 200,
@@ -189,6 +218,7 @@ export async function openApp(
     debug?: string
     save?: string | null
     config?: string | null
+    card?: string | null
     fake?: FakeMode
   } = {},
 ): Promise<void> {
@@ -199,6 +229,8 @@ export async function openApp(
     [DEBUG_KEY]: options.debug ?? null,
     [SAVE_KEY]: options.save ?? null,
     [CONFIG_KEY]: options.config ?? null,
+    // 不传 = 没存过卡（内置示例）—— 与产品行为一致，所以默认是 null
+    [CARD_KEY]: options.card ?? null,
   })
   await page.goto(APP_PATH)
   await expect(page.locator('#app > *')).toHaveCount(1)

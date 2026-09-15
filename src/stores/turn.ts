@@ -77,9 +77,9 @@ function draftOf(source: GameState): GameState {
 /**
  * 把引擎事件翻译成状态机的输入。
  *
- * ⚠️ 只有真正换阶段的才翻译：叙事、模型 I/O 与节点进度都发生在某个阶段**里面**，
- *    不构成迁移 —— 九个节点各请求一次模型，每次都喂一次 request-model，
- *    阶段在 prompting 里自环（表里那条自环就是为这件事留的）。
+ * ⚠️ 只有真正换阶段的才翻译：叙事、模型 I/O、工具调用与节点进度都发生在某个阶段
+ *    **里面**，不构成迁移 —— 九个节点各请求一次模型（工具往返还会多问一次），
+ *    每次都喂一次 request-model，阶段在 prompting 里自环（表里那条自环就是为这件事留的）。
  */
 function lifecycleEventOf(evt: AgentEvent): TurnEvent | null {
   if (evt.type === 'node') return { type: 'node', id: evt.id }
@@ -139,6 +139,16 @@ export function createTurnRunner(deps: TurnDeps): {
         break
       case 'model':
         trace('reply', t('store.rawReply'), JSON.stringify(evt.reply.raw, null, 2))
+        break
+      case 'tool':
+        // args 是协议原样给的 JSON 字符串，直接展示（它就是模型实际发出的内容）
+        trace('tool', t('toolbar.toolCall', { tool: evt.tool, args: evt.args }))
+        break
+      case 'toolResult':
+        trace('toolResult', t('store.toolResultLine', { result: evt.result }))
+        break
+      case 'warn':
+        trace('warn', t('store.warnLine', { message: evt.message }))
         break
       default:
         break

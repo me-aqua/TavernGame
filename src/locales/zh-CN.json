@@ -117,6 +117,37 @@
     "importSave": "从文件导入存档",
     "resetGame": "重新开始"
   },
+  "card": {
+    "section": "卡",
+    "meta": "{name} · v{version} · {source}",
+    "sourceBuiltin": "内置示例",
+    "sourceImported": "已导入",
+    "note": "卡是唯一事实来源：引擎按它跑，顶栏与侧栏按它摆。",
+    "view": "查看 / 编辑卡图",
+    "import": "导入卡",
+    "export": "导出卡",
+    "reset": "恢复内置示例",
+    "confirmReset": "恢复内置示例卡？导入的那张会从浏览器里删掉（建议先导出）。",
+    "alreadyBuiltin": "现在用的就是内置示例卡",
+    "exported": "卡已导出为文件",
+    "importFailed": "导入卡失败：{message}",
+    "fileName": "{name}-{version}.json",
+    "graphTitle": "卡图",
+    "graphLegend": "实线 = 拓扑的先后　｜　虚线 = 读上游：拓扑里排在它前面的全部节点",
+    "graphHint": "点一个节点，改它的名 / 职责 / 提示词",
+    "close": "收起卡图",
+    "closeIcon": "✕",
+    "editTitle": "编辑节点",
+    "nodeId": "id：{id}",
+    "nameLabel": "名",
+    "dutyLabel": "职责",
+    "promptLabel": "提示词（一行一条）",
+    "outputLabel": "输出（只读，形状由卡声明）",
+    "save": "保存",
+    "saveFailed": "保存失败：{message}",
+    "fallback": "存着的卡读不出来，已退回内置示例：\n{message}",
+    "fallbackShort": "存着的卡读不出来，已退回内置示例：{message}"
+  },
   "provider": {
     "deepseek": "DeepSeek 官方",
     "siliconflow": "硅基流动 SiliconFlow",
@@ -165,10 +196,19 @@
     }
   },
   "tools": {
+    "unknown": "❌ 没有名为「{name}」的工具。可用工具：{available}",
+    "notJsonObject": "❌ 参数必须是 JSON 对象，收到的是：{got}",
+    "invalidJson": "❌ 参数不是合法 JSON（{message}）。你给的是：{got}",
     "advanceFailed": "⚠ 推进失败：{message}（当前：{current}）",
     "advanceResult": "🕐 时间推进：{before}\n           → {after}",
     "advanceElapsed": "\n   （{elapsed}）",
-    "advanceReason": "\n   原因：{reason}"
+    "advanceReason": "\n   原因：{reason}",
+    "advanceTime": {
+      "description": "推进故事内的时间。只在剧情确实经过了一段时间时才调用（赶路、交谈很久、睡了一觉、等到天黑、修养数日）。如果这一回合只是几句话、几个动作，就不要调用。跨度没有上限。",
+      "step": "推进的数量，正整数。默认 1",
+      "unit": "时间单位。默认 segment（一个时段，约 4 小时）",
+      "reason": "为什么时间会流逝（会记录在时间线里）"
+    }
   },
   "snapshot": {
     "turn": "【第 {turn} 回合】",
@@ -190,6 +230,7 @@
     "corrupted": "本地存档已损坏：{message}"
   },
   "agent": {
+    "stepLimit": "达到工具轮次上限（{max}），这个节点没有写出文字",
     "saveFailed": "存档写入失败（可能是隐私模式或空间已满）—— 这一回合的进度重启后会丢失",
     "actionPrefix": "玩家的行动：{action}",
     "playerAction": "玩家的行动：{action}",

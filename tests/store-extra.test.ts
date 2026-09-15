@@ -4,7 +4,7 @@
  * 重点：
  *   - abortRunningTurn 真正中止一个在飞的回合（重入保护的核心）
  *   - 取消路径（AbortError）与失败路径的区分
- *   - handleEvent 的 node / request / reply 分支（调试痕迹，不是故事）
+ *   - handleEvent 的 node / request / reply / tool / toolResult 分支（调试痕迹，不是故事）
  *   - 回合成功后落盘、写不进去时通知玩家
  *   - 一轮 = 一次事务：失败的回合一字节都不写回、不落盘
  */
@@ -13,7 +13,7 @@ import { useGame } from '../src/stores/game'
 import { t } from '../src/i18n'
 import { SAVE_KEY } from '../src/utils/storage'
 import { configureFakeProvider } from './support/game-fixtures'
-import { cardTurnReplies, CARD_TOPOLOGY } from './support/card-replies'
+import { cardTurnReplies, CARD_TOPOLOGY, traceCycle } from './support/card-replies'
 import { installFakeLlm, installFakeLlmThen, type FakeLlm } from './support/fakeLlm'
 
 /** 测试自造的 fixture（模型回复与玩家行动），不是产品文案 */
@@ -85,10 +85,14 @@ describe('handleEvent - each trace branch (debug only)', () => {
     fake = installFakeLlm(REPLIES)
     await g.runTurnAction(WAIT_ACTION)
 
-    // 每个节点一行 node + 一对请求/响应，顺序就是拓扑顺序
+    // 每个节点一行 node + 每次模型调用一对请求/响应；
+    // 时间节点走了一次工具往返：多「工具调用 / 工具结果」两行 + 第二对请求/响应
     const kinds = debugRows(g).map((l) => l.kind)
-    expect(kinds).toEqual(CARD_TOPOLOGY.flatMap(() => ['node', 'request', 'reply']))
+    expect(kinds).toEqual(traceCycle(true))
     expect(debugRows(g).map((l) => l.text)).toContain(t('store.nodeLine', { node: CARD_TOPOLOGY[0] }))
+    // 工具那两行就是它该显示的内容（模型申请了什么、引擎执行出什么）
+    expect(debugRows(g).map((l) => l.kind)).toContain('tool')
+    expect(debugRows(g).map((l) => l.kind)).toContain('toolResult')
 
     // 故事区只有故事：节点进度是 agent 信息，玩家看不到
     expect(storyRows(g).map((l) => l.kind)).toEqual(['action', 'narration'])
@@ -105,8 +109,12 @@ describe('handleEvent - each trace branch (debug only)', () => {
     fake = null
 
     const rawRows = debugRows(g).filter((row) => row.detail !== undefined)
-    // 九次调用、每次两条：请求体 + 响应体，都是可折叠的 JSON
-    expect(rawRows.map((row) => row.kind)).toEqual(CARD_TOPOLOGY.flatMap(() => ['request', 'reply']))
+    // 每次调用两条：请求体 + 响应体，都是可折叠的 JSON。
+    // ⚠️ node / warn / tool / toolResult 没有 detail（不是可折叠的原始报文），
+    //    所以这里只留下 traceCycle(true) 里的 request / reply
+    expect(rawRows.map((row) => row.kind)).toEqual(
+      traceCycle(true).filter((k) => k === 'request' || k === 'reply'),
+    )
     for (const row of rawRows) expect(() => JSON.parse(row.detail ?? '')).not.toThrow()
     g.debugMode.value = false
   })

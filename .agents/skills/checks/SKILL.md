@@ -10,7 +10,7 @@ whenToUse: 改动钩子、配置 lint/format、或提交被拦下来需要判断
 
 | 层 | 时机 | 耗时 | 内容 |
 | --- | --- | --- | --- |
-| `pre-commit` | 每次提交 | ~2s | 密钥 → 换行/编码/BOM → 语法 → ASCII → 英文标识符 → 提示词未内联 → 调试残留 → 吞错误 → 体积 → ESLint → **相关单测** → Prettier |
+| `pre-commit` | 每次提交 | ~2s | 密钥 → 换行/编码/BOM → 语法 → ASCII → 英文标识符 → 提示词未内联 → 调试残留 → 吞错误 → 体积 → **解析模型输出** → ESLint → **相关单测** → Prettier |
 | `pre-push` | 每次推送 | ~6s | 类型检查 → 全量单测 → 覆盖率门禁 → 构建 |
 | `commit-msg` | 每次提交 | <1s | 约定式提交前缀 |
 | CI（`.github/workflows/ui.yml`） | PR 与 push 到 main | 分钟级 | `npm run check` → 覆盖率门禁 → 构建 → e2e 冒烟 → 组件故事 → 整页结构巡检（截图当工件上传） |

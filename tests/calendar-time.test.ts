@@ -13,6 +13,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { advanceTime } from '../src/utils/calendar'
+import { toolSchemas } from '../src/agent/tools'
 
 /** 基准时刻（Asia/Shanghai 本地 10:00；该时区无夏令时，定长单位的毫秒数才可断言） */
 const BASE_ISO = '2026-09-10T02:00:00.000Z'
@@ -187,8 +188,8 @@ describe('advanceTime - a rejected advance carries no new instant', () => {
   })
 })
 
-describe('advanceTime - the unit list stays in sync with the prompt', () => {
-  it('the units the engine enforces are exactly the units the calendar prompt documents', () => {
+describe('advanceTime - the unit list stays in sync with the contract handed to the model', () => {
+  it('the units the engine enforces are exactly the units the tool schema offers', () => {
     // 单位的真值在 calendar.ts 的 TIME_UNITS（没有导出）：从拒绝文案里把它读出来 ——
     // 那是运行中的代码自己列出的、它真正接受的集合。
     const rejected = advanceTime(BASE_ISO, 1, 'not-a-unit', LABEL)
@@ -196,17 +197,24 @@ describe('advanceTime - the unit list stays in sync with the prompt', () => {
     const enforced = rejected.message.split('Expected one of: ')[1]?.split('. Current time')[0]?.split(', ')
     expect(enforced).toBeDefined()
 
-    // 模型只看得到提示词：card-graph 会把「推进量」原样交给引擎，所以提示词里写的单位
-    // 必须与引擎接受的**完全一致**（少一个 → 模型写出来的合法单位被拒；多一个 → 反过来）。
+    // 模型只能从**协议层**拿到工具：schema 的 enum 就是它能填的单位表，
+    // 少一个 → 合法单位被协议挡在门外；多一个 → 引擎当场拒绝。
+    const declared = (toolSchemas()[0].function.parameters as { properties: { unit: { enum: string[] } } })
+      .properties.unit.enum
+    expect([...declared].sort()).toEqual([...(enforced as string[])].sort())
+  })
+
+  it('the tool description documents every unit the engine accepts (prose cannot fall behind)', () => {
+    const rejected = advanceTime(BASE_ISO, 1, 'not-a-unit', LABEL)
+    if (rejected.ok) throw new Error('a bogus unit must be rejected')
+    const enforced =
+      rejected.message.split('Expected one of: ')[1]?.split('. Current time')[0]?.split(', ') ?? []
+
     for (const lang of ['zh-CN', 'en']) {
-      const doc = readFileSync('prompts/' + lang + '/calendar.md', 'utf8')
-      // 文档里成对反引号包起来的纯小写词：unit / step 是键名，其余就是单位表
-      const documented = [...new Set([...doc.matchAll(/`([a-z]+)`/g)].map((m) => m[1]))]
-        .filter((token) => token !== 'step' && token !== 'unit')
-        .sort()
-      expect(documented, lang + ': prompt units must equal the enforced units').toEqual(
-        [...(enforced as string[])].sort(),
-      )
+      const doc = readFileSync('prompts/' + lang + '/tools.md', 'utf8')
+      for (const unit of enforced) {
+        expect(doc, lang + ': the tool prompt must document "' + unit + '"').toContain('`' + unit + '`')
+      }
     }
   })
 })
