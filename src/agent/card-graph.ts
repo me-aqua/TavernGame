@@ -71,7 +71,12 @@ export function graphOfCard(input: CardGraphInput): Graph {
             upstream,
             node: id,
           }),
-          { signal },
+          {
+            signal,
+            // 请求体在发出去之前就报一次：这样调用失败（401 / 500 / 断网）时
+            // 调试痕迹里也能看到我们到底发了什么
+            onRequest: (body) => input.onEvent?.({ type: 'request', step: index + 1, body }),
+          },
         )
         input.onEvent?.({ type: 'model', step: index + 1, reply })
         return reply.content

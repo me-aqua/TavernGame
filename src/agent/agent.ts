@@ -47,7 +47,14 @@ export type AgentEvent =
   | { type: 'node'; id: string }
   /** 第几次模型调用（从 1 起）—— 这张图里节点与调用一一对应 */
   | { type: 'thinking'; step: number }
-  /** 模型这一步的输入与输出（调试模式展示用；输入是实际发出去的请求体） */
+  /**
+   * 请求**发出去之前**的请求体（调试模式展示用）。
+   *
+   * ⚠️ 与 model 事件分开是有意的：模型调用失败时没有 model 事件，
+   *    只有它能证明「我们发出去的是什么」—— 排查 401 / 500 / 请求体写错时全靠它。
+   */
+  | { type: 'request'; step: number; body: unknown }
+  /** 模型这一步的原始响应（输入侧见上面的 request 事件） */
   | { type: 'model'; step: number; reply: ChatReply }
   /** 本回合的叙事正文（玩家看到的就是它） */
   | { type: 'narration'; text: string }

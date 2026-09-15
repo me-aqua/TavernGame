@@ -39,6 +39,13 @@ export interface ChatReply {
 
 interface ChatOptions {
   signal?: AbortSignal
+  /**
+   * 请求**发出去之前**的回调：把真正要发的请求体交出去。
+   *
+   * ⚠️ 它是给调试用的：请求失败（网络断了 / 401 / 500）时没有响应可解析，
+   *    只有这个回调能让人看见「发出去的到底是什么」。
+   */
+  onRequest?: (body: ChatRequest) => void
 }
 
 interface ApiErrorBody {
@@ -76,6 +83,7 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
     temperature: cfg.temperature,
     stream: false,
   }
+  options.onRequest?.(body)
 
   let res: Response
   try {

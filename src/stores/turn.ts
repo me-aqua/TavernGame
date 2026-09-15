@@ -129,13 +129,15 @@ export function createTurnRunner(deps: TurnDeps): {
         // 图执行器的进度：每进一个节点一行，位置就在它发生的地方（本轮第一个事件）
         trace('node', t('store.nodeLine', { node: evt.id }))
         break
-      case 'model':
-        // 输入与输出成对写：先请求体，再响应体 —— 顺序就是这次调用的顺序
+      case 'request':
+        // 请求在发出去之前就写成一行：调用失败时这也是唯一能看到的输入
         trace(
           'request',
-          t('store.rawRequest', { count: evt.reply.request.messages.length }),
-          JSON.stringify(evt.reply.request, null, 2),
+          t('store.rawRequest', { count: (evt.body as { messages?: unknown[] }).messages?.length ?? 0 }),
+          JSON.stringify(evt.body, null, 2),
         )
+        break
+      case 'model':
         trace('reply', t('store.rawReply'), JSON.stringify(evt.reply.raw, null, 2))
         break
       default:
