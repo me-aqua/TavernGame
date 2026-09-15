@@ -130,6 +130,18 @@ const STATES: State[] = [
     interact: "document.querySelector('button[data-world]')?.click()",
     waitAfterMs: 400,
   },
+  {
+    // 卡图的浮层：设置面板里的「卡」一节打开它。两次点击要等 Vue 渲染完第一次的结果，
+    // 所以 interact 是一段 async IIFE（page.evaluate 会等它 resolve）。
+    name: 'card-open',
+    seed: { config: CONFIG, save: saveWith({ events: STORY }) },
+    interact: `(async () => {
+      document.querySelector('button[data-settings]')?.click()
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      document.querySelector('button[data-card-view]')?.click()
+    })()`,
+    waitAfterMs: 900,
+  },
   { name: 'dark', seed: { theme: 'dark', config: CONFIG, save: saveWith({ events: STORY }) } },
   {
     name: 'turn-error',

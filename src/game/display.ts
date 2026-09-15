@@ -9,6 +9,10 @@
  *
  * ⚠️ 卡校验器（card.ts）只读过这些字段的一部分，所以这里对没被守过的字段逐个严读；
  *    已经守过的（侧栏的块名与唯一性、区域是个非空数组）不再重判一遍。
+ *
+ * 这里还放着**词汇表**（KNOWN_BLOCKS / KNOWN_TOPBAR）：代码只提供「应用画得出来哪些名字」，
+ * 卡说界面长什么样（决定 #45）。名字到组件的映射在 components/display-blocks.ts ——
+ * 映射的类型被词汇表钉死，少一个名字编译期就报错。
  */
 import type { CardData } from './card'
 import * as K from './card-keys'
@@ -49,6 +53,16 @@ export interface Spot {
   area: string
   place: string
 }
+
+/** 应用画得出来的侧栏块名 —— 卡里写别的名字就只能换一张卡（导入的卡可能来自更新的版本） */
+export const KNOWN_BLOCKS = [K.BLOCK_MAP, K.BLOCK_CAST, K.KEY_PACK] as const
+
+/** 应用画得出来的顶栏条目名 */
+export const KNOWN_TOPBAR = [K.ITEM_TIME, K.ITEM_SCENE, K.ITEM_TURN] as const
+
+/** 判存在性用集合：名字来自卡，是普通字符串，不是这里的字面量类型 */
+const BLOCK_SET: ReadonlySet<string> = new Set(KNOWN_BLOCKS)
+const TOPBAR_SET: ReadonlySet<string> = new Set(KNOWN_TOPBAR)
 
 /** 读数组里的一项，必须是对象 */
 function recordAt(value: unknown, where: string): Record<string, unknown> {
@@ -107,6 +121,33 @@ function playerStartOf(card: CardData): Record<string, unknown> {
 export function displayOf(card: CardData): DisplayDecl {
   const display = requireRecord(requireRecord(card, K.KEY_DECL, ''), K.KEY_DISPLAY, K.KEY_DECL)
   return { topbar: topbarNames(display), sidebar: sidebarNames(display) }
+}
+
+/**
+ * 显示声明必须是这个应用画得出来的：块名与顶栏名都在词汇表里。
+ *
+ * 卡的形状已经由 card.ts 守过（侧栏的块名与唯一性）；这里守的是**这一刻这个应用认不认** ——
+ * 认不出来就是「界面上这一块永远不存在」，宁可换一张卡，也不静默少画一块。
+ */
+export function checkRenderable(decl: DisplayDecl): void {
+  const displayBase = at(K.KEY_DECL, K.KEY_DISPLAY)
+  const blockBase = at(displayBase, K.KEY_SIDEBAR)
+  decl.sidebar.forEach((name, index) => {
+    if (!BLOCK_SET.has(name)) {
+      const known = KNOWN_BLOCKS.join(' / ')
+      fail(
+        at(blockBase + '[' + index + ']', K.KEY_BLOCK),
+        JSON.stringify(name) + ' has no renderer (known: ' + known + ')',
+      )
+    }
+  })
+  const topbarBase = at(displayBase, K.KEY_TOPBAR)
+  decl.topbar.forEach((name, index) => {
+    if (!TOPBAR_SET.has(name)) {
+      const known = KNOWN_TOPBAR.join(' / ')
+      fail(topbarBase + '[' + index + ']', JSON.stringify(name) + ' has no renderer (known: ' + known + ')')
+    }
+  })
 }
 
 /** 顶栏条目名：非空、不重复，顺序照声明 */

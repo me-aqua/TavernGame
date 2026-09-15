@@ -4,11 +4,8 @@
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { defineComponent } from 'vue'
 import { mount } from '@vue/test-utils'
 import StoryPanel from '../src/components/StoryPanel.vue'
-import CardGraph from '../src/components/CardGraph.vue'
-import cardGraphStory, { Failed, Running } from '../src/components/CardGraph.stories'
 import AppSidebar from '../src/components/AppSidebar.vue'
 import WorldPanel from '../src/components/WorldPanel.vue'
 import { world } from '../src/components/display-blocks'
@@ -17,7 +14,6 @@ import GameComposer from '../src/components/GameComposer.vue'
 import SettingsDrawer from '../src/components/SettingsDrawer.vue'
 import type { Row, Status } from '../src/stores/game'
 import { parseCard } from '../src/game/card'
-import { toGraph } from '../src/dev/card-graph'
 import { EXAMPLE_CARD } from './support/card-fixtures'
 import { i18n, t } from '../src/i18n'
 import { realCalendar } from '../src/utils/calendar'
@@ -313,88 +309,5 @@ describe('SettingsDrawer', () => {
     const w = render(SettingsDrawer, { props: { open: true, language: 'system' } })
     await w.find('.sheet').trigger('click')
     expect(w.emitted('update:open')).toBeUndefined()
-  })
-})
-
-/**
- * vue-flow 要 ResizeObserver 量尺寸，jsdom 里没有 —— 换成只记 props 的替身。
- * 这里测「组件把什么交给了 vue-flow」；画面本身由组件故事巡检负责（npm run stories）。
- */
-const VueFlowStub = defineComponent({
-  name: 'VueFlow',
-  props: { nodes: { type: Array, required: true }, edges: { type: Array, required: true } },
-  template: '<div class="flow-stub" />',
-})
-
-describe('CardGraph', () => {
-  const graph = toGraph(parseCard(readFileSync(EXAMPLE_CARD, 'utf8')))
-
-  it('hands the parsed card to vue-flow as nodes and edges', () => {
-    const w = render(CardGraph, { global: { stubs: { VueFlow: VueFlowStub } } })
-    const flow = w.findComponent(VueFlowStub)
-    const nodes = flow.props('nodes') as Array<{ id: string; data: { label: string } }>
-    expect(nodes.map((node) => node.id)).toEqual(graph.nodes.map((node) => node.id))
-    expect(nodes[0].data.label).toBe(graph.nodes[0].label)
-    expect(flow.props('edges')).toHaveLength(graph.edges.length)
-  })
-
-  /**
-   * 交给 vue-flow 的那份节点数据 —— 高亮是样式，组件测试不测样式，
-   * 所以断言的是数据里的标记（模板按它上色）。
-   */
-  function flowNodes(props: Record<string, unknown> = {}) {
-    const w = render(CardGraph, { props, global: { stubs: { VueFlow: VueFlowStub } } })
-    return w.findComponent(VueFlowStub).props('nodes') as Array<{
-      id: string
-      data: { active: boolean; failed: boolean }
-    }>
-  }
-
-  it('flags exactly the running node, and nothing when the props are omitted', () => {
-    const running = graph.nodes[4].id
-
-    const nodes = flowNodes({ active: running })
-    expect(nodes.filter((node) => node.data.active).map((node) => node.id)).toEqual([running])
-    expect(nodes.every((node) => !node.data.failed)).toBe(true)
-
-    const plain = flowNodes()
-    expect(plain.every((node) => !node.data.active && !node.data.failed)).toBe(true)
-  })
-
-  it('flags the failed node, and failure wins over running', () => {
-    const broken = graph.nodes[2].id
-    // 挂掉的节点同时就是「正在跑」的那一个：只该亮失败色
-    const nodes = flowNodes({ active: broken, failed: broken })
-
-    expect(nodes.filter((node) => node.data.failed).map((node) => node.id)).toEqual([broken])
-    expect(nodes.filter((node) => node.data.active)).toEqual([])
-  })
-
-  it('highlights nodes that exist in the card (the stories do not hardcode ids)', () => {
-    for (const id of [Running.args?.active, Failed.args?.failed]) {
-      expect(graph.nodes.map((node) => node.id)).toContain(id)
-    }
-  })
-
-  it('spells the node and edge counts in the story title, counted from the card', () => {
-    // 故事标题是字面量（Storybook 不许动态标题），所以在这里守住它 —— 卡改了它会红。
-    // 测试代码必须 ASCII，标题里的中文（组件 / 节点 / 边）转义写
-    const expected =
-      '\u7ec4\u4ef6/CardGraph\uff08' +
-      graph.nodes.length +
-      ' \u8282\u70b9 / ' +
-      graph.edges.length +
-      ' \u8fb9\uff09'
-    expect(cardGraphStory.title).toBe(expected)
-  })
-
-  it('marks read edges for the dashed style, leaves the rest solid, and writes no labels', () => {
-    const w = render(CardGraph, { global: { stubs: { VueFlow: VueFlowStub } } })
-    const edges = w.findComponent(VueFlowStub).props('edges') as Array<{ class: string; label?: string }>
-    const reads = graph.edges.filter((edge) => edge.read).length
-    expect(edges.filter((edge) => edge.class === 'card-graph-read')).toHaveLength(reads)
-    expect(edges.filter((edge) => edge.class === 'card-graph-flow')).toHaveLength(graph.edges.length - reads)
-    // 虚线不写字：上游是拓扑前缀推出来的，边上没有文字
-    expect(edges.every((edge) => edge.label === undefined)).toBe(true)
   })
 })

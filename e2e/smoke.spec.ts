@@ -8,6 +8,7 @@
  */
 import { expect, test, type Page } from '@playwright/test'
 import { CONFIG, DEBUG_KEY, LANG_KEY, NARRATION, openApp, saveWith, translate, watchErrors } from './fixtures'
+import { PROBE, expectClean, type Probe } from './probe'
 // 只读卡的 JSON 与键名常量：不 import 应用模块（那条链会拖进 i18n 的 .json，
 // Playwright 的 ESM 加载器需要 import attribute，而 Vite 构建不需要）
 import cardJson from '../cards/morningwind.json' with { type: 'json' }
@@ -136,6 +137,53 @@ test.describe('设置面板', () => {
     // 点面板外面（左上角）才是「点背景关闭」，点正中会落在面板上
     await drawer.click({ position: { x: 4, y: 4 } })
     await expect(page.locator('.drawer')).toHaveCount(0)
+  })
+})
+
+test.describe('卡', () => {
+  test('设置里的卡一节：来源是内置示例，卡图的节点数等于卡里的拓扑，点节点出表单', async ({ page }) => {
+    await openApp(page)
+    await page.locator('button[data-settings]').click()
+
+    const section = page.locator('[data-card-section]')
+    await expect(section).toBeVisible()
+    await expect(section).toContainText(await translate(page, 'card.sourceBuiltin'))
+
+    await section.locator('button[data-card-view]').click()
+    const editor = page.locator('[data-card-editor]')
+    await expect(editor).toBeVisible()
+
+    // 节点数与节点名都从卡 JSON 现读：不在这里抄一份「九个节点」
+    const card = cardJson as unknown as Record<string, Record<string, Record<string, any>>>
+    const topology = card[K.KEY_DECL][K.KEY_GRAPH][K.KEY_TOPOLOGY] as string[]
+    const declared = card[K.KEY_DECL][K.KEY_GRAPH][K.KEY_NODES] as Record<string, Record<string, string>>
+    await expect(editor.locator('.vue-flow__node')).toHaveCount(topology.length)
+
+    // 结构判据与组件故事同一套（e2e/probe.ts）
+    expectClean((await page.evaluate(PROBE)) as Probe)
+
+    // 点一个节点：表单出的是卡里那个节点的名 / 职责 / 提示词
+    await editor.locator('.vue-flow__node').first().click()
+    const form = editor.locator('[data-card-form]')
+    await expect(form).toBeVisible()
+    await expect(form.locator('[data-card-name]')).toHaveValue(declared[topology[0]][K.KEY_NODE_NAME])
+    await expect(form.locator('[data-card-duty]')).toHaveValue(declared[topology[0]][K.KEY_DUTY])
+
+    await editor.locator('button[data-card-close]').click()
+    await expect(editor).toHaveCount(0)
+  })
+
+  test('存着的卡读不出来：退回内置示例，状态行与卡一节都说明原因', async ({ page }) => {
+    await openApp(page, { card: '{not valid json' })
+
+    // 状态行那句话是 error 级（进行中会顶掉它，所以卡一节里还有一份留底）
+    const prefix = (await translate(page, 'card.fallback', { message: '' })).split('\n')[0]
+    await expect(page.locator('[data-status="error"]')).toContainText(prefix)
+
+    await page.locator('button[data-settings]').click()
+    const section = page.locator('[data-card-section]')
+    await expect(section).toContainText(await translate(page, 'card.sourceBuiltin'))
+    await expect(section.locator('[data-card-fallback]')).toBeVisible()
   })
 })
 

@@ -1,5 +1,5 @@
 /**
- * card-graph 测试 —— 把卡摊成图的那层纯逻辑。
+ * card-layout 测试 —— 把卡摊成图的那层纯逻辑（src/game/card-layout.ts）。
  *
  * 三条验收标准：示例卡画出 9 个节点、8 条主干边与 36 条读边（上游 = 拓扑前缀）；
  * 节点顺序就是拓扑；自造的最小卡（两个节点）也画得出来 —— 图的形状全部从 JSON 推，
@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parseCard, validateCard } from '../src/game/card'
 import { KEY_DECL, KEY_DUTY, KEY_GRAPH, KEY_NODES, KEY_NODE_NAME, KEY_TOPOLOGY } from '../src/game/card-keys'
-import { toGraph, type CardGraphLayout } from '../src/dev/card-graph'
+import { toGraph, type CardGraphLayout } from '../src/game/card-layout'
 import { EXAMPLE_CARD, NODE_A, NODE_B, minimalCard } from './support/card-fixtures'
 
 const card = parseCard(readFileSync(EXAMPLE_CARD, 'utf8'))

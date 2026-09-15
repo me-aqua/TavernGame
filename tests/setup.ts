@@ -51,6 +51,10 @@ config.global.plugins = [i18n]
 
 beforeEach(() => {
   storage.clear()
+  // ⚠️ jsdom 环境里探针会用上**它自己的** localStorage（上面那份垫片只在 Node 的原生
+  //    localStorage 坏掉时才顶上来），于是只清垫片等于清了个寂寞 —— 用例之间照样串。
+  //    两个都清：哪个在用都干净。
+  localStorage.clear()
   // ⚠️ 每个用例都把语言重置回参考语言：模型提示词现在按 locale 选（模型语言跟随界面
   //    语言），一个用例切到 'en' 不还原，后面所有用例都会拿到英文提示词而失败。
   ;(i18n.global.locale as unknown as { value: string }).value = 'zh-CN'

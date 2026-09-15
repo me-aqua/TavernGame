@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 设置面板：provider / API key / 接口地址 / modelName / 步数上限。
+ * 设置面板：theme / language / provider / API key / 接口地址 / modelName / 存档 / 卡。
  *
  * 所有输出都走模板插值（{{ }}），由 Vue 自动转义 ——
  * 没有任何 innerHTML 拼接，密钥这类内容不存在注入面。
@@ -8,6 +8,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { PRESETS, loadConfig, saveConfig, clearConfig, maskKey } from '../agent/config'
+import CardSection from './CardSection.vue'
 import type { LanguageMode } from '../i18n'
 import type { ThemeMode } from '../composables/useTheme'
 import { testConnection as testApiConnection } from '../agent/llm'
@@ -20,8 +21,11 @@ const emit = defineEmits<{
   saved: []
   language: [mode: LanguageMode]
   theme: [mode: ThemeMode]
-  /** 存档动作放在面板里：小屏顶栏没地方 */
-  action: [name: 'export' | 'import' | 'reset']
+  /**
+   * 面板里的动作都抛给外层执行（面板只发意图）：存档三件套与小屏顶栏没地方的卡四件套。
+   * 卡的动作带 card- 前缀，免得跟存档的导入 / 导出 / 重来撞名。
+   */
+  action: [name: 'export' | 'import' | 'reset' | 'card-view' | 'card-import' | 'card-export' | 'card-reset']
 }>()
 
 const THEMES: { mode: ThemeMode; label: string }[] = [
@@ -271,6 +275,9 @@ const hintText = 'mt-1.5 text-[11.5px] leading-relaxed text-faint'
           </button>
         </div>
       </div>
+
+      <!-- 卡：当前是哪一张 + 查看 / 编辑卡图、导入、导出、恢复内置（动作由 App 执行） -->
+      <CardSection @action="emit('action', $event)" />
 
       <!-- Duplicated from the header, which is why this row can disappear on phones.
            The drawer itself is already tight there (it scrolls) and space is worth

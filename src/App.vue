@@ -18,6 +18,7 @@ import StoryPanel from './components/StoryPanel.vue'
 import GameComposer from './components/GameComposer.vue'
 import AppSidebar from './components/AppSidebar.vue'
 import SettingsDrawer from './components/SettingsDrawer.vue'
+import CardEditor from './components/CardEditor.vue'
 import WorldPanel from './components/WorldPanel.vue'
 import { topbar, world } from './components/display-blocks'
 import { storeDebug, useGame } from './stores/game'
@@ -26,6 +27,14 @@ import { useLanguage } from './composables/useLanguage'
 import { useI18n } from 'vue-i18n'
 import { isConfigured } from './agent/config'
 import { downloadText, pickFile } from './composables/useDownload'
+import {
+  cardMeta,
+  cardStartup,
+  currentCard,
+  exportCardText,
+  importCard,
+  resetToBuiltinCard,
+} from './game/current-card'
 
 const {
   startupError,
@@ -53,6 +62,8 @@ const { mode: languageMode, select: selectLanguage } = useLanguage()
 const settingsOpen = ref(false)
 /** 世界面板开着没有 —— 它是浮层，开关只影响这一层 */
 const worldOpen = ref(false)
+/** 卡图浮层开着没有 —— 同样只影响这一层（设置面板还开在它下面） */
+const cardOpen = ref(false)
 const configState = ref(isConfigured())
 const statusLight = ref<'ok' | 'warn' | 'err'>('warn')
 
@@ -150,17 +161,72 @@ function resetAll() {
   void startNewGame()
 }
 
+// ---------- 卡（导入 / 导出 / 恢复内置 / 编辑） ----------
+
 /**
- * 设置面板里的动作（存档三件套）。
+ * 换卡之后整页重载。
+ *
+ * ⚠️ 必须 reload：引擎（agent/agent.ts）与显示块映射（components/display-blocks.ts）
+ *    都在**模块加载期**读当前卡，只改内存里的那份不会传到它们手里。
+ */
+function reloadForCard() {
+  location.reload()
+}
+
+/** 导出当前卡：文件名用卡名与版本（与存档导出同一套下载） */
+function doExportCard() {
+  const meta = cardMeta(currentCard)
+  downloadText(t('card.fileName', { name: meta.name, version: meta.version }), exportCardText())
+  notify(t('card.exported'))
+}
+
+/** 从文件导入卡：同一套校验 → 存 → 重载；坏了要说清哪里坏了（存储原样不动） */
+async function doImportCard() {
+  const file = await pickFile()
+  if (!file) return
+  try {
+    importCard(await file.text())
+  } catch (err) {
+    // 边界：文件来自用户，坏卡是常态 —— 显示给他看，不是吞掉
+    notify(t('card.importFailed', { message: (err as Error).message }), 'error')
+    return
+  }
+  reloadForCard()
+}
+
+/** 恢复内置示例：清掉存着的那张 → 重载（本来就是内置的就不白刷一次） */
+function doResetCard() {
+  if (cardStartup.source === 'builtin') {
+    notify(t('card.alreadyBuiltin'))
+    return
+  }
+  if (!confirm(t('card.confirmReset'))) return
+  resetToBuiltinCard()
+  reloadForCard()
+}
+
+/**
+ * 设置面板里的动作（存档三件套 + 卡四件套）。
  *
  * 面板只发意图，动作在这里执行 —— 和别的子组件一样：
  * 这就是为什么面板不 import store，只有一处编排。
  */
-function onDrawerAction(name: 'export' | 'import' | 'reset') {
+function onDrawerAction(
+  name: 'export' | 'import' | 'reset' | 'card-view' | 'card-import' | 'card-export' | 'card-reset',
+) {
   if (name === 'export') return doExport()
   if (name === 'import') return void doImport()
-  settingsOpen.value = false
-  resetAll()
+  if (name === 'reset') {
+    settingsOpen.value = false
+    return resetAll()
+  }
+  if (name === 'card-view') {
+    cardOpen.value = true
+    return
+  }
+  if (name === 'card-import') return void doImportCard()
+  if (name === 'card-export') return doExportCard()
+  doResetCard()
 }
 
 /** 设置保存后：刷新状态点，首局则顺手把开场跑出来 */
@@ -189,6 +255,10 @@ onMounted(() => {
   } else {
     notify(t('app.welcome'))
   }
+
+  // 存着的卡用不了、退回了内置示例：这件事比欢迎语重要（它决定玩家看到的世界），
+  // 所以放在最后播报 —— 设置面板的「卡」一节里也留了一行（进行中状态会顶掉通知）。
+  if (cardStartup.failed) notify(t('card.fallback', { message: cardStartup.failed }), 'error')
 })
 </script>
 
@@ -269,6 +339,15 @@ onMounted(() => {
       @language="selectLanguage"
       @theme="selectTheme"
       @action="onDrawerAction"
+    />
+
+    <!-- 卡图浮层：盖在设置面板之上（z-60 > z-50），关掉它设置面板还在原地 -->
+    <CardEditor
+      v-if="cardOpen"
+      :card="currentCard"
+      :source="cardStartup.source"
+      @close="cardOpen = false"
+      @saved="reloadForCard"
     />
   </div>
 </template>

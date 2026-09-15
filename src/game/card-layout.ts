@@ -1,5 +1,5 @@
 /**
- * src/dev/card-graph.ts —— 把一张卡摊成一张能画的图（作者 / 调试工具，只进 Storybook 与 dev）。
+ * src/game/card-layout.ts —— 把一张卡摊成一张能画的图（卡界面的布局，纯计算，不 import Vue）。
  *
  * 只读「声明.图」的两处：拓扑（执行顺序）与节点（名 / 职责 / 输出）——
  * 这里不认识任何一张具体的卡：节点数、名字、谁读谁都从 JSON 里数。
@@ -9,11 +9,12 @@
  *   · 读   —— 上游 = 拓扑前缀（决定 #26）：排在它前面的每个节点都连一条虚线过来。
  *             上游是规则推出来的，卡里不逐节点再写一遍，虚线也就不带文字。
  *
- * 坐标也在这里算：按拓扑顺序铺开，一行最多 COLUMNS 个。布局是纯计算，组件只负责画。
+ * 坐标也在这里算：按拓扑顺序铺开，一行最多 COLUMNS 个。布局是纯计算，组件只负责画 ——
+ * 卡图（components/CardGraph.vue）与卡界面浮层（components/CardEditor.vue）都用它。
  */
 
-import type { CardData } from '../game/card'
-import * as K from '../game/card-keys'
+import type { CardData } from './card'
+import * as K from './card-keys'
 
 /** 副标题里 id 与职责摘要之间的分隔（中点） */
 const SUBLABEL_SEPARATOR = ' \u00b7 '
