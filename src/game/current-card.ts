@@ -2,8 +2,8 @@
  * src/game/current-card.ts —— 应用当前认的那张卡，以及换卡 / 存卡的动作。
  *
  * 两张来源：localStorage 里存的（导入或编辑过的，键 tavernGame.card，值是卡的 JSON 文本），
- * 没有就用内置示例卡 cards/morningwind.json。存的卡要过两道校验 —— 卡格式（parseCard）
- * 与显示词汇表（界面画不出来的声明 = 那一块玩家永远看不到，决定 #45）；任何一步失败都
+ * 没有就用内置示例卡 cards/morningwind.json。存的卡过两道校验 —— 卡格式（card.ts 的
+ * parseCard）与显示词汇表（界面画不出来的声明 = 那一块玩家永远看不到）；任何一步失败都
  * 退回内置卡，并把原因留在 cardStartup 里让界面播报：一张错的卡会变成玩家第一屏看到的
  * 世界，静默退回等于骗他。
  *
@@ -16,7 +16,6 @@
 import cardJson from '../../cards/morningwind.json' with { type: 'json' }
 import { parseCard, validateCard, type CardData } from './card'
 import { checkRenderable, displayOf } from './display'
-import * as K from './card-keys'
 
 /** 活动卡的存储键（与存档 / 配置一样，谁用谁定义） */
 const CARD_KEY = 'tavernGame.card'
@@ -89,6 +88,5 @@ export function resetToBuiltinCard(): void {
 
 /** 卡名 / 版本 / ID —— 界面显示与导出文件名都用它（卡已校验，直接读） */
 export function cardMeta(card: CardData): { id: string; name: string; version: string } {
-  const meta = card[K.KEY_CARD] as Record<string, string>
-  return { id: meta[K.KEY_ID], name: meta[K.KEY_NAME], version: meta[K.KEY_VERSION] }
+  return { id: card.card.id, name: card.card.name, version: card.card.version }
 }

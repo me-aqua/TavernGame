@@ -1,0 +1,105 @@
+{
+  "card": {
+    "id": "demo.night-watch",
+    "name": "夜班",
+    "version": "0.1.0",
+    "compat": ">=0.9.0",
+    "author": "demo",
+    "format": "card/3",
+    "language": "zh-CN",
+    "summary": "一个人在灯塔上值一夜班。"
+  },
+
+  "settings": {
+    "world": ["一座孤岛，一座灯塔。岛外是无风的海。"],
+    "core": ["夜里海上会有东西经过 —— 但没人能证实。"],
+    "common": ["煤油灯", "铜壶", "雨衣", "航海日志", "饼干", "咸肉"],
+    "style": ["第二人称，短句，冷。少形容词，多声音与光。"],
+    "lead": ["你是个普通人，怕黑，但更怕丢了这份工。"]
+  },
+
+  "script": { "truth": "灯灭过一次；那晚之后海上少了一条船。" },
+
+  "convention": [
+    "你的输出就是文字：不要 JSON、不要代码块、不要解释你在做什么。",
+    "你只能用给你的工具改变世界；拿不准就写字，别乱调工具。"
+  ],
+
+  "graph": {
+    "topology": ["time", "story"],
+    "nodes": {
+      "time": {
+        "name": "时间",
+        "duty": "判定这一轮过了多久",
+        "tools": ["advance_time"],
+        "prompt": ["只判断流逝的跨度，不要写场景。", "值得记的理由写进 reason（一句话）。"]
+      },
+      "story": {
+        "name": "正文",
+        "duty": "把这一轮写成正文",
+        "role": "story",
+        "tools": [],
+        "prompt": ["第二人称，150–400 字。", "写声音、光、温度；不要写数值。"]
+      }
+    }
+  },
+
+  "time": {
+    "calendar": {
+      "segments": ["上半夜", "下半夜", "天光"],
+      "weekdays": ["一", "二", "三", "四", "五", "六", "日"],
+      "day": { "hours": 24, "minutesPerHour": 60, "start": "18:00" },
+      "month": { "days": 30 },
+      "year": { "months": 12 },
+      "display": "{year} 年 {month} 月 {day} 日 · 星期{weekday} · {segment}"
+    },
+    "initial": { "year": 1, "month": 4, "day": 12, "hour": 21, "minute": 40 }
+  },
+
+  "actions": {
+    "advance_time": { "what": "推进时间（你只说过过了多少分钟）", "effect": "time" },
+    "write_log": { "what": "往航海日志里加一条", "path": "log", "mode": "push" }
+  },
+
+  "state": {
+    "lead": {
+      "type": "object",
+      "fields": {
+        "name": { "type": "string", "initial": "守夜人" },
+        "mood": { "type": "string", "initial": "困" },
+        "pack": { "type": "list", "initial": ["雨衣", "煤油灯", "饼干"], "of": "string" }
+      }
+    },
+    "log": {
+      "type": "list",
+      "initial": [],
+      "of": { "type": "object", "fields": { "what": "string", "when": "string" } }
+    }
+  },
+
+  "generators": [
+    {
+      "name": "海上的东西",
+      "applies": "需要一件从海上来的怪事时",
+      "principles": ["永远不给解释。", "先给声音，再给影子，最后才给形状。"]
+    }
+  ],
+
+  "opening": {
+    "canName": true,
+    "defaultName": "守夜人",
+    "requirements": ["第一轮没有玩家行动 —— 写开场。", "让他先听见海，再看见灯。"]
+  },
+
+  "display": {
+    "layout": "正文占满整屏；时间 / 场景 / 回合收在左上角浮层；日志从右上角展开。",
+    "topbar": ["time", "scene", "turn"],
+    "sidebar": [{ "block": "pack", "note": "随身带的东西" }],
+    "scroll": "面板放不下就滚动。"
+  },
+
+  "notes": {
+    "为什么只有两个节点": "这一版先证明小图能跑；等玩法需要判定再加节点。",
+    "为什么自定义历法": "这张卡的「一夜」是三段，不是公历的上午 / 下午 / 晚上。"
+  }
+}

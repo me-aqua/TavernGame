@@ -29,14 +29,16 @@ const storyStyles: Record<StoryRowKind, string> = {
   action: 'border-l-2 border-info/40 pl-3 text-info',
 }
 
-/** 调试行的外观：模型 I/O 与工具调用等宽，警告用暖色 */
+/** 调试行的外观：模型 I/O 与工具调用等宽，节点进度用强调色，警告用暖色 */
 const debugStyles: Record<DebugRowKind, string> = {
+  node: 'rounded-lg border border-accent-line bg-accent-soft px-3.5 py-2 text-[12.5px] text-text',
+  thinking: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-faint',
   request: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
-  reply: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
+  model: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
   tool: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
   toolResult: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
+  stateChange: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
   warn: 'rounded-lg border border-warn/40 bg-warn-soft px-3.5 py-2 text-[12.5px] text-warn',
-  node: 'rounded-lg border border-accent-line bg-accent-soft px-3.5 py-2 text-[12.5px] text-text',
 }
 
 /** 状态行的外观：进行中是三个点，通知是一行提示，错误用红色边 */

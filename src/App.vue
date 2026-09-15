@@ -20,6 +20,7 @@ import AppSidebar from './components/AppSidebar.vue'
 import SettingsDrawer from './components/SettingsDrawer.vue'
 import CardEditor from './components/CardEditor.vue'
 import WorldPanel from './components/WorldPanel.vue'
+import DebugPanel from './components/DebugPanel.vue'
 import { topbar, world } from './components/display-blocks'
 import { storeDebug, useGame } from './stores/game'
 import { useTheme } from './composables/useTheme'
@@ -42,12 +43,18 @@ const {
   timeline,
   scene,
   turn,
+  stateTree,
   rows,
   hasStory,
   status,
   busy,
   debugMode,
   devHost,
+  runningNode,
+  debugDraft,
+  debugWrites,
+  debugTools,
+  debugFailedNodes,
   notify,
   runTurnAction,
   resetGame,
@@ -64,6 +71,8 @@ const settingsOpen = ref(false)
 const worldOpen = ref(false)
 /** 卡图浮层开着没有 —— 同样只影响这一层（设置面板还开在它下面） */
 const cardOpen = ref(false)
+/** 调试面板开着没有 —— 只在调试模式里有这一层（入口就在调试开关旁边） */
+const debugOpen = ref(false)
 const configState = ref(isConfigured())
 const statusLight = ref<'ok' | 'warn' | 'err'>('warn')
 
@@ -310,6 +319,21 @@ onMounted(() => {
           {{ debugMode ? t('header.debugToggleOn') : t('header.debugToggleOff') }}
         </button>
         <button
+          v-if="devHost && debugMode"
+          data-debug-panel-toggle
+          :title="t('header.debugPanelTitle')"
+          :aria-expanded="debugOpen"
+          class="hidden shrink-0 rounded-full border px-2.5 py-1 text-[11px] backdrop-blur transition-colors sm:inline-block"
+          :class="
+            debugOpen
+              ? 'border-accent-line bg-accent-soft/70 text-accent'
+              : 'border-line/70 bg-surface/70 text-faint hover:text-muted'
+          "
+          @click="debugOpen = !debugOpen"
+        >
+          {{ t('header.debugPanel') }}
+        </button>
+        <button
           data-settings
           :title="t('header.settings')"
           :aria-label="t('header.settings')"
@@ -322,8 +346,23 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 世界面板：浮在故事上，不占正文的宽度（块与顺序来自卡的 声明.显示.侧栏） -->
-    <WorldPanel v-if="worldOpen" :blocks="world" :scene-name="scene.name" @close="worldOpen = false" />
+    <!-- 世界面板：浮在故事上，不占正文的宽度（块与顺序来自卡的声明，内容读状态树） -->
+    <WorldPanel v-if="worldOpen" :blocks="world" :state="stateTree" @close="worldOpen = false" />
+
+    <!-- 调试面板：只在调试模式里存在的一层（只读，入口在调试开关旁边） -->
+    <DebugPanel
+      v-if="debugMode && debugOpen"
+      :card="currentCard"
+      :state="stateTree"
+      :time-label="timeLabel"
+      :turn="turn"
+      :draft="debugDraft"
+      :writes="debugWrites"
+      :tools="debugTools"
+      :running="runningNode"
+      :failed="debugFailedNodes"
+      @close="debugOpen = false"
+    />
 
     <!-- 主线：故事（占满剩下的高度，只有它滚动） -->
     <StoryPanel class="min-h-0 flex-1" :rows="rows" :status="status" />

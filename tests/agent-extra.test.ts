@@ -1,26 +1,37 @@
 /**
- * 引擎补充测试 —— 开场分支（不传玩家行动）。
+ * 引擎的补充测试 —— tools.test.ts / graph.test.ts 拆掉之后，那些边界都收在这里。
  *
- * 开场也是一轮：同样照卡里的图跑九个节点，只是「玩家这一轮的原话」换成开场指令，
- * 日志第一条记 system 而不是 action。真实用户撞上的「生成开场失败」就出在这条路上，
- * 所以这里也走一遍**带工具**的开场（时间节点调 advance_time）。
- *
- * 文案断言都走 t('key')（证明 key 接对了，本文件也保持 ASCII）；夹具是 ASCII 常量。
+ * 重点：
+ *   · minutes = 0 是合法的（这一轮时间没动）；
+ *   · 协议层的坏参数（不是 JSON、引擎不认识的工具）回传给模型，不是抛错；
+ *   · 只调工具不写字 → 一条 warn；一轮的四种调试事件都带上了面板要的原料；
+ *   · **另一张卡**（cards/night-watch.json：两个节点、自定义历法）照样能跑 ——
+ *     引擎不认卡，只认声明。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { runTurn } from '../src/agent/agent'
+import { runTurn, type AgentEvent } from '../src/agent/agent'
+import { availableActions } from '../src/game/card-actions'
+import { createInitialState } from '../src/game/save'
+import { currentCard } from '../src/game/current-card'
 import { t } from '../src/i18n'
-import { iso } from '../src/game/state'
+import { loadCard, NIGHT_WATCH_CARD } from './support/card-fixtures'
 import { configureFakeProvider, createAgentContext } from './support/game-fixtures'
-import { advanceTimeCall, cardTurnReplies, CARD_TOPOLOGY } from './support/card-replies'
-import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
-import { TIME_NODE } from '../src/agent/card-graph'
+import {
+  cardPassReplies,
+  cardTurnReplies,
+  CARD_TOPOLOGY,
+  redoCall,
+  storyNodeOf,
+  timeNodeOf,
+} from './support/card-replies'
+import { installFakeLlm, type FakeLlm, type FakeReply } from './support/fakeLlm'
 
-/** ASCII 夹具 */
-const STORY_OUTPUT = 'You wake up in an inn.'
-const TIME_TEXT = 'clock moved'
-const HOUR_MS = 3600000
-const EIGHT_HOURS = { step: 8, unit: 'hour', reason: 'slept through the night' }
+/* ---- 测试自己编的 fixture，不是产品文案 ---- */
+const PLAYER_ACTION = 'look around'
+const STORY_TEXT = 'Rain on the window.'
+const LOG_NAME = 'newcomer'
+const BROKEN_ARGS = '{not json'
+const UNKNOWN_TOOL = 'not_a_tool'
 
 let fake: FakeLlm | null = null
 
@@ -33,44 +44,208 @@ afterEach(() => {
   fake = null
 })
 
-describe('opening branch (no action passed)', () => {
-  it('logs as system and sends the opening instruction to every node', async () => {
-    fake = installFakeLlm(cardTurnReplies({ story: STORY_OUTPUT }))
+/** 用第一张能写状态的节点（update_role 在卡里只给了两个节点，取第一个） */
+const CAST = CARD_TOPOLOGY.find((id) => availableActions(currentCard, id).includes('update_role')) as string
+const STORY = storyNodeOf()
+const TIME = timeNodeOf()
+
+describe('advance_time with minutes = 0', () => {
+  it('is legal: the clock stands still and the result says so', async () => {
+    fake = installFakeLlm(cardTurnReplies({ story: STORY_TEXT, time: { minutes: 0 } }))
     const ctx = createAgentContext()
+    const before = { ...ctx.data.time }
 
-    const result = await runTurn(ctx)
+    await runTurn(ctx, { action: PLAYER_ACTION })
 
-    expect(result.text).toBe(STORY_OUTPUT)
-    // 日志的第一条是 system（而非 action）
-    expect(ctx.state.data.events[0].kind).toBe('system')
-    // 每个节点的「玩家原话」都是开场指令，不是玩家的行动
-    const gameStartPrefix = t('agent.gameStart', { instruction: '' }).split('{')[0].trim()
-    const actionPrefix = t('agent.actionPrefix', { action: '' }).split('{')[0].trim()
-    for (const call of fake.calls) {
-      const text = JSON.stringify(call.body.messages)
-      expect(text).toContain(gameStartPrefix)
-      expect(text).not.toContain(actionPrefix)
-    }
+    expect(ctx.data.time).toEqual(before)
+    expect(ctx.data.timeline).toEqual([])
+    const followUp = fake.calls[CARD_TOPOLOGY.indexOf(TIME) + 1].body.messages ?? []
+    const result = followUp.find((message) => message.role === 'tool')
+    expect(result?.content).toContain(String(0))
   })
+})
 
-  it('runs the opening through the tool path too (the time node advances the clock by tool call)', async () => {
+describe('bad protocol input goes back to the model, never throws', () => {
+  it('hands a JSON parse error back as the tool result', async () => {
     fake = installFakeLlm(
       cardTurnReplies({
-        story: STORY_OUTPUT,
-        node: (id) => (id === TIME_NODE ? [advanceTimeCall(EIGHT_HOURS), TIME_TEXT] : undefined),
+        story: STORY_TEXT,
+        node: (id) =>
+          id === CAST
+            ? [{ toolCalls: [{ name: 'update_role', arguments: BROKEN_ARGS }] }, 'cast done']
+            : undefined,
       }),
     )
     const ctx = createAgentContext()
-    const before = Date.parse(iso(ctx.state))
+    await runTurn(ctx, { action: PLAYER_ACTION })
 
-    const result = await runTurn(ctx)
+    const followUp = fake.calls[CARD_TOPOLOGY.indexOf(CAST) + 1].body.messages ?? []
+    const result = followUp.find((message) => message.role === 'tool')
+    // 回传的是 llm 层的「参数不是合法 JSON」提示，并原样带上模型给的那个字符串
+    expect(result?.content.toLowerCase()).toContain('json')
+    expect(result?.content).toContain(BROKEN_ARGS)
+  })
 
-    // 开场照样能推进时间：工具真的执行了，结果以 role:'tool' 回传（第二次问时间节点）
-    expect(Date.parse(iso(ctx.state)) - before).toBe(8 * HOUR_MS)
-    // 时间节点的第二次询问：下标 = 它在拓扑里的位置 + 1（工具往返多问一次）
-    const followUp = fake.calls[CARD_TOPOLOGY.indexOf(TIME_NODE) + 1].body.messages ?? []
-    expect(followUp.some((m) => m.role === 'tool')).toBe(true)
-    expect(result.text).toBe(STORY_OUTPUT)
-    expect(ctx.state.data.events.map((e) => e.kind)).toEqual(['system', 'narration'])
+  it('hands "unknown action" back as the tool result', async () => {
+    fake = installFakeLlm(
+      cardTurnReplies({
+        story: STORY_TEXT,
+        node: (id) =>
+          id === CAST ? [{ toolCalls: [{ name: UNKNOWN_TOOL, arguments: '{}' }] }, 'cast done'] : undefined,
+      }),
+    )
+    const ctx = createAgentContext()
+    await runTurn(ctx, { action: PLAYER_ACTION })
+
+    const followUp = fake.calls[CARD_TOPOLOGY.indexOf(CAST) + 1].body.messages ?? []
+    expect(
+      followUp.some((message) => message.role === 'tool' && message.content.includes(UNKNOWN_TOOL)),
+    ).toBe(true)
+  })
+
+  it('refuses a redo target that is not an earlier node (no rollback happens)', async () => {
+    const VERIFY = CARD_TOPOLOGY.find((id) => availableActions(currentCard, id).includes('redo')) as string
+    fake = installFakeLlm(
+      cardTurnReplies({
+        story: STORY_TEXT,
+        node: (id) => (id === VERIFY ? [redoCall('no-such-node', 'nope'), 'verified'] : undefined),
+      }),
+    )
+    const ctx = createAgentContext()
+    const result = await runTurn(ctx, { action: PLAYER_ACTION })
+
+    expect(result.text).toBe(STORY_TEXT)
+    const followUp = fake.calls[CARD_TOPOLOGY.indexOf(VERIFY) + 1].body.messages ?? []
+    expect(
+      followUp.some((message) => message.role === 'tool' && message.content.includes('no-such-node')),
+    ).toBe(true)
+  })
+})
+
+describe('the debug events carry the raw material the panel needs', () => {
+  it('request / model / tool / toolResult / stateChange are all reported', async () => {
+    const writes = {
+      toolCalls: [{ name: 'update_role', arguments: JSON.stringify({ name: LOG_NAME }) }],
+    } as FakeReply
+    fake = installFakeLlm(
+      cardPassReplies(CARD_TOPOLOGY, (id) => {
+        if (id === STORY) return STORY_TEXT
+        if (id === CAST) return [writes, 'cast done']
+        return undefined
+      }),
+    )
+    const ctx = createAgentContext()
+    const events: Array<Record<string, unknown>> = []
+    await runTurn(ctx, {
+      action: PLAYER_ACTION,
+      onEvent: (evt) => events.push(evt as unknown as Record<string, unknown>),
+    })
+
+    const kinds = events.map((event) => event.type)
+    for (const kind of [
+      'node',
+      'thinking',
+      'request',
+      'model',
+      'tool',
+      'toolResult',
+      'stateChange',
+      'narration',
+    ]) {
+      expect(kinds, kind).toContain(kind)
+    }
+    // tool 带协议原样的参数 JSON；toolResult 带回传的结果；stateChange 带路径与值
+    const tool = events.find((event) => event.type === 'tool')
+    expect(tool?.args).toBe(JSON.stringify({ name: LOG_NAME }))
+    const toolResult = events.find((event) => event.type === 'toolResult')
+    expect(String(toolResult?.result).length).toBeGreaterThan(0)
+    const change = events.find((event) => event.type === 'stateChange')
+    expect(change?.path).toBe('roles.' + LOG_NAME)
+    expect(change?.value).toEqual({})
+  })
+
+  it('does not warn when the model writes text and calls a tool in the same step', async () => {
+    const call: FakeReply = {
+      content: 'let me check the clock',
+      toolCalls: [{ name: 'advance_time', arguments: JSON.stringify({ minutes: 10 }) }],
+    }
+    fake = installFakeLlm(
+      cardTurnReplies({ node: (id) => (id === timeNodeOf() ? [call, 'time checked'] : undefined) }),
+    )
+    const ctx = createAgentContext()
+    const events: Array<Record<string, unknown>> = []
+    await runTurn(ctx, {
+      action: PLAYER_ACTION,
+      onEvent: (evt) => events.push(evt as unknown as Record<string, unknown>),
+    })
+
+    expect(events.filter((evt) => evt.type === 'warn')).toEqual([])
+    expect(ctx.data.time).not.toEqual(createInitialState(currentCard).time)
+  })
+
+  it('warns when a step calls tools without writing any text', async () => {
+    const call: FakeReply = {
+      toolCalls: [{ name: 'update_role', arguments: JSON.stringify({ name: LOG_NAME }) }],
+    }
+    fake = installFakeLlm(cardTurnReplies({ node: (id) => (id === CAST ? [call, 'cast done'] : undefined) }))
+    const ctx = createAgentContext()
+    const events: Array<Record<string, unknown>> = []
+    await runTurn(ctx, {
+      action: PLAYER_ACTION,
+      onEvent: (evt) => events.push(evt as unknown as Record<string, unknown>),
+    })
+
+    const warn = events.find((event) => event.type === 'warn')
+    expect(warn?.message).toBe(t('agent.toolsOnly', { step: CARD_TOPOLOGY.indexOf(CAST) + 1 }))
+  })
+})
+
+describe('another card: the engine only reads declarations', () => {
+  it('runs cards/night-watch.json (two nodes, its own calendar) end to end', async () => {
+    const card = loadCard(NIGHT_WATCH_CARD)
+    const state = { data: createInitialState(card), loadError: null }
+    const ctx = createAgentContext(state, card)
+    const minutes = 480
+    fake = installFakeLlm(cardTurnReplies({ card, story: STORY_TEXT, time: { minutes } }))
+
+    const emitted: AgentEvent[] = []
+    const result = await runTurn(ctx, { action: PLAYER_ACTION, onEvent: (evt) => emitted.push(evt) })
+
+    expect(result.text).toBe(STORY_TEXT)
+    expect(state.data.events.map((event) => event.kind)).toEqual(['action', 'narration'])
+    // 自定义历法真的生效：4 月 12 日 21:40 + 480 分钟 = 4 月 13 日 05:40
+    expect(state.data.time).toEqual({ year: 1, month: 4, day: 13, hour: 5, minute: 40 })
+    // 这张卡只声明了两个节点：模型只被问了两次（时间节点多一次工具往返）
+    expect(fake.calls).toHaveLength(card.graph.topology.length + 1)
+  })
+
+  it('tags every tool event with the node id, the tool name and the written path', async () => {
+    const card = loadCard(NIGHT_WATCH_CARD)
+    const state = { data: createInitialState(card), loadError: null }
+    const ctx = createAgentContext(state, card)
+    const node = timeNodeOf(card)
+    const minutes = 480
+    fake = installFakeLlm(cardTurnReplies({ card, story: STORY_TEXT, time: { minutes } }))
+    const emitted: AgentEvent[] = []
+
+    await runTurn(ctx, { action: PLAYER_ACTION, onEvent: (evt) => emitted.push(evt) })
+
+    // 调试面板要的三样（哪个节点、什么工具、写了哪条路径）都在事件本体上，不去反解文案
+    expect(emitted.find((evt) => evt.type === 'tool')).toEqual({
+      type: 'tool',
+      node,
+      tool: 'advance_time',
+      args: JSON.stringify({ minutes, reason: '' }),
+    })
+    expect(emitted.find((evt) => evt.type === 'toolResult')).toMatchObject({
+      node,
+      tool: 'advance_time',
+    })
+    expect(emitted.find((evt) => evt.type === 'stateChange')).toEqual({
+      type: 'stateChange',
+      node,
+      path: 'time',
+      value: state.data.time,
+    })
   })
 })

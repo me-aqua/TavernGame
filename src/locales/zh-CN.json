@@ -22,6 +22,8 @@
     "debugToggleOn": "调试：开",
     "debugToggleOff": "调试：关",
     "debugToggleTitle": "调试模式：点一下切换（本地开发默认开启，关掉后刷新仍然保持关闭）",
+    "debugPanel": "调试面板",
+    "debugPanelTitle": "调试面板：卡图 / 引擎状态 / 工具调用（只读，不改游戏状态）",
     "themeSystem": "主题：跟随系统（点击切换）",
     "themeLight": "主题：浅色（点击切换）",
     "themeDark": "主题：深色（点击切换）",
@@ -66,7 +68,6 @@
     "cast": "角色",
     "pack": "背包",
     "growingPlaces": "地点随故事长出来",
-    "personRole": "{role} · {race}",
     "itemCount": "×{count}"
   },
   "toolbar": {
@@ -79,7 +80,9 @@
     "cancelled": "已取消本回合",
     "failed": "出错了：\n{message}",
     "toolResultLine": "   → {result}",
-    "warnLine": "⚠ {message}"
+    "warnLine": "⚠ {message}",
+    "stateChangeLine": "✎ 写入 {path}",
+    "redoLine": "↩ 退回「{node}」重跑：{why}"
   },
   "settings": {
     "title": "设置",
@@ -133,7 +136,7 @@
     "importFailed": "导入卡失败：{message}",
     "fileName": "{name}-{version}.json",
     "graphTitle": "卡图",
-    "graphLegend": "实线 = 拓扑的先后　｜　虚线 = 读上游：拓扑里排在它前面的全部节点",
+    "graphLegend": "实线 = 拓扑的先后（折行处带序号）　｜　上游 = 拓扑前缀：指到哪个节点才画它的上游虚线",
     "graphHint": "点一个节点，改它的名 / 职责 / 提示词",
     "close": "收起卡图",
     "closeIcon": "✕",
@@ -142,11 +145,44 @@
     "nameLabel": "名",
     "dutyLabel": "职责",
     "promptLabel": "提示词（一行一条）",
-    "outputLabel": "输出（只读，形状由卡声明）",
+    "declLabel": "声明（只读 —— 保存时一个字节都不动）",
+    "declRole": "role",
+    "declTools": "tools",
+    "declReads": "reads",
+    "declUses": "uses",
+    "declNone": "—",
+    "declAll": "全部",
+    "declAllTools": "卡里全部动作",
+    "declAllReads": "全部状态",
+    "declNoUses": "不带生成器",
     "save": "保存",
     "saveFailed": "保存失败：{message}",
     "fallback": "存着的卡读不出来，已退回内置示例：\n{message}",
     "fallbackShort": "存着的卡读不出来，已退回内置示例：{message}"
+  },
+  "debug": {
+    "title": "调试面板",
+    "close": "收起调试面板",
+    "closeIcon": "✕",
+    "tabGraph": "卡图",
+    "tabState": "引擎状态",
+    "tabTools": "工具调用",
+    "graphLegend": "高亮 = 正在跑的节点；红色 = 被 redo 退回过 / 工具调用失败的节点",
+    "time": "时间",
+    "turn": "回合",
+    "draftOff": "看工作副本",
+    "draftOn": "看权威状态",
+    "draftNone": "没有回合在跑 —— 工作副本只在回合进行中存在",
+    "writes": "本轮写入（{count} 条）",
+    "writesNone": "这一轮还没有写入",
+    "toolsNone": "最近一轮没有工具调用",
+    "noNode": "（图还没开始跑）",
+    "args": "原始参数",
+    "result": "引擎回传",
+    "pending": "（还没回传）",
+    "callWrites": "写到了",
+    "toolFailed": "⚠ 没通过校验",
+    "redo": "↩ 退回「{node}」重跑"
   },
   "provider": {
     "deepseek": "DeepSeek 官方",
@@ -172,15 +208,6 @@
       "afternoon": "下午",
       "evening": "晚上"
     },
-    "elapsedHours": "过去了 {hours} 小时",
-    "elapsedMinutes": "过去了 {minutes} 分钟",
-    "elapsedMonths": "过去了 {months} 个月",
-    "elapsedMonthsDays": "过去了 {months} 个月 {days} 天",
-    "monthDay": "{month} 月 {day} 日",
-    "months": "{months} 个月",
-    "days": "{days} 天",
-    "years": "{years} 年",
-    "elapsed": "过去了 {parts}",
     "dateSeparator": " · "
   },
   "llm": {
@@ -196,48 +223,31 @@
     }
   },
   "tools": {
-    "unknown": "❌ 没有名为「{name}」的工具。可用工具：{available}",
     "notJsonObject": "❌ 参数必须是 JSON 对象，收到的是：{got}",
     "invalidJson": "❌ 参数不是合法 JSON（{message}）。你给的是：{got}",
-    "advanceFailed": "⚠ 推进失败：{message}（当前：{current}）",
-    "advanceResult": "🕐 时间推进：{before}\n           → {after}",
-    "advanceElapsed": "\n   （{elapsed}）",
     "advanceReason": "\n   原因：{reason}",
-    "advanceTime": {
-      "description": "推进故事内的时间。只在剧情确实经过了一段时间时才调用（赶路、交谈很久、睡了一觉、等到天黑、修养数日）。如果这一回合只是几句话、几个动作，就不要调用。跨度没有上限。",
-      "step": "推进的数量，正整数。默认 1",
-      "unit": "时间单位。默认 segment（一个时段，约 4 小时）",
-      "reason": "为什么时间会流逝（会记录在时间线里）"
-    }
-  },
-  "snapshot": {
-    "turn": "【第 {turn} 回合】",
-    "time": "时间：{time}",
-    "place": "地点：{name}",
-    "recent": "### 最近发生的事",
-    "timeline": "### 时间线",
-    "player": "玩家",
-    "gm": "你(GM)",
-    "recentLog": "### 最近发生的事",
-    "sceneDescription": "　　{text}",
-    "recentLine": "- {who}：{text}",
-    "timelineLine": "- {to}（{reason}）",
-    "timelineLineNoReason": "- {to}",
-    "upstreamNode": "### 本轮上游产出：{node}"
+    "advanceDone": "🕐 时间推进：{minutes} 分钟（现在是 {time}）",
+    "advanceStill": "🕐 这一轮时间没有推进（现在是 {time}）"
   },
   "save": {
     "notValid": "这不是有效的存档文件",
-    "corrupted": "本地存档已损坏：{message}"
+    "corrupted": "本地存档已损坏：{message}",
+    "cardMissing": "存档没有记录是哪张卡开的 —— 不能确认它属于当前这张卡",
+    "cardMismatch": "存档不属于当前这张卡（存档：{saved}，当前：{current}）—— 不拿旧状态硬跑新卡",
+    "badState": "存档里的状态与这张卡对不上：{message}",
+    "badTime": "存档里的时刻与这张卡的历法对不上：{message}"
   },
   "agent": {
     "stepLimit": "达到工具轮次上限（{max}），这个节点没有写出文字",
     "saveFailed": "存档写入失败（可能是隐私模式或空间已满）—— 这一回合的进度重启后会丢失",
-    "actionPrefix": "玩家的行动：{action}",
     "playerAction": "玩家的行动：{action}",
     "gameStart": "【游戏开始】\n{instruction}",
-    "newAdventure": "（新的冒险开始了）",
     "toolsOnly": "模型这一步只调用了工具，没有写叙事文字（第 {step} 步）",
-    "turnAdvanced": "回合 +1（当前第 {turn} 回合）"
+    "nodeStepLimit": "节点「{node}」达到工具轮次上限（{max}），没有写出文字",
+    "noNarration": "节点「{node}」一个字都没写出来 —— 这一轮没有正文",
+    "redoLimit": "「{node}」再次要求退回重来（一轮上限 {max} 次）—— 这一轮作废",
+    "redoAccepted": "已退回「{node}」重跑：{why}",
+    "redoHint": "「{node}」发现前面这一步有问题，要求退回重跑：{why}"
   },
   "story": {
     "nodeRunning": "正在跑「{node}」…",
@@ -256,6 +266,26 @@
   },
   "prompts": {
     "badBase64": "提示词模块不是合法 base64",
-    "unfilled": "提示词有未填的占位符：{names}"
+    "unfilled": "提示词有未填的占位符：{names}",
+    "setting": "设定",
+    "script": "剧本",
+    "convention": "规矩",
+    "generators": "生成器",
+    "generatorApplies": "什么时候用：{text}",
+    "now": "现在",
+    "timeLine": "时间：{time}",
+    "player": "玩家",
+    "upstream": "本轮上游",
+    "upstreamNode": "上游产出：{node}",
+    "settingBlock": {
+      "world": "世界",
+      "core": "核心",
+      "common": "常见",
+      "style": "风格",
+      "lead": "主控"
+    },
+    "gm": "你(GM)",
+    "recent": "最近发生的事",
+    "recentLine": "- {who}：{text}"
   }
 }

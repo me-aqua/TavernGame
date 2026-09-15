@@ -6,6 +6,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { localStorageStore, backupBrokenSave, SAVE_KEY } from '../src/utils/storage'
 import { createInitialState } from '../src/game/save'
+import { currentCard } from '../src/game/current-card'
 import { t } from '../src/i18n'
 
 /** 存档写入失败时用的假实现（隐私模式 / 配额满） */
@@ -35,9 +36,9 @@ describe('localStorageStore.load', () => {
   })
 
   it('returns the parsed result when a save exists', () => {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(createInitialState()))
-    const raw = localStorageStore(localStorage).load() as { player?: unknown }
-    expect(raw.player).toBeTruthy()
+    localStorage.setItem(SAVE_KEY, JSON.stringify(createInitialState(currentCard)))
+    const raw = localStorageStore(localStorage).load() as { meta?: { card?: unknown } }
+    expect(raw.meta?.card).toBeTruthy()
   })
 
   it('reports broken JSON as a corrupted save (with the parser message)', () => {
@@ -55,14 +56,14 @@ describe('localStorageStore.load', () => {
 
 describe('localStorageStore.save', () => {
   it('returns true and really writes the data', () => {
-    const data = createInitialState()
-    data.player.name = 'Tester'
+    const data = createInitialState(currentCard)
+    ;(data.state.lead as Record<string, unknown>).name = 'Tester'
     expect(localStorageStore(localStorage).save(data)).toBe(true)
     expect(localStorage.getItem(SAVE_KEY)).toContain('Tester')
   })
 
   it('returns false when the write fails (the caller must show the player)', () => {
-    expect(localStorageStore(throwingStorage()).save(createInitialState())).toBe(false)
+    expect(localStorageStore(throwingStorage()).save(createInitialState(currentCard))).toBe(false)
   })
 })
 

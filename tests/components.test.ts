@@ -1,22 +1,31 @@
 // @vitest-environment jsdom
 /**
  * 组件测试：只测**契约**（渲染出什么、点击后 emit 什么），不测样式。
+ *
+ * 另有两组纯逻辑：界面侧的状态树走法（components/state-view.ts）与 store 的调试投影
+ * （最近一轮的工具调用 / 要标红的节点）—— 后者靠「种一份存档再重来一份模块图」拿到。
  */
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import StoryPanel from '../src/components/StoryPanel.vue'
 import AppSidebar from '../src/components/AppSidebar.vue'
 import WorldPanel from '../src/components/WorldPanel.vue'
+import WorldCast from '../src/components/world/WorldCast.vue'
+import WorldMap from '../src/components/world/WorldMap.vue'
+import WorldPack from '../src/components/world/WorldPack.vue'
 import { world } from '../src/components/display-blocks'
-import * as K from '../src/game/card-keys'
+import { entriesOf, isScalar, itemOf, linesOf, scalarText, textsOf } from '../src/components/state-view'
 import GameComposer from '../src/components/GameComposer.vue'
 import SettingsDrawer from '../src/components/SettingsDrawer.vue'
 import type { Row, Status } from '../src/stores/game'
 import { parseCard } from '../src/game/card'
+import { instantiate } from '../src/game/card-state'
+import { createInitialState } from '../src/game/save'
+import { format } from '../src/game/card-calendar'
 import { EXAMPLE_CARD } from './support/card-fixtures'
 import { i18n, t } from '../src/i18n'
-import { realCalendar } from '../src/utils/calendar'
+import type { GameEvent } from '../src/types/state'
 
 /** 组件要 t()，所以统一装上 i18n 插件；断言按中文写，固定用 zh-CN */
 i18n.global.locale.value = 'zh-CN'
@@ -27,19 +36,36 @@ const NARRATION_TEXT = 'You are in the inn.'
 const ACTION_TEXT = 'I push the door open and step outside'
 const WARN_TEXT = t('store.warnLine', { message: 'watch out' })
 const TOOL_TEXT = t('toolbar.toolCall', { tool: 'advance_time', args: '{}' })
+const WRITE_TEXT = t('store.stateChangeLine', { path: 'time' })
 const RAW_REPLY = 'raw model reply'
-const RAW_BLOCKS = 2
-const RAW_SUMMARY = t('store.rawReply', { count: RAW_BLOCKS })
+const RAW_SUMMARY = t('store.rawReply')
 const XSS_TEXT = '<img src=x onerror=alert(1)>'
-const SCENE_NAME = 'Riverside Inn'
-const SCENE_DESCRIPTION = 'Voices downstairs.'
-// 用本地时间构造，标签不受时区影响
-const TIME_LABEL = realCalendar.format(new Date(2026, 8, 14, 14, 0, 0).toISOString())
-const NOW_LABEL = 'now'
-const TIMELINE_FROM = realCalendar.formatShort(new Date(2026, 8, 12, 9, 0, 0).toISOString())
-const TIMELINE_TO = realCalendar.formatShort(new Date(2026, 8, 13, 20, 0, 0).toISOString())
-const TIMELINE_REASON = 'slept through the night'
 const PLAYER_INPUT = 'I head to the docks'
+const BABEL_TEXT = '{"minutes":5}'
+
+/** 示例卡（面板数据、节点名与状态树都从卡里现读） */
+const card = parseCard(readFileSync(EXAMPLE_CARD, 'utf8'))
+const state = instantiate(card)
+const topology = card.graph.topology
+const nodes = card.graph.nodes
+
+/** 状态树是卡定义的（unknown）：这几段用例里要读的具体形状在这里说清 */
+const worldState = state.world as {
+  map: Record<string, unknown>
+  location: { area: string; spot: string; scene: string }
+}
+
+// 用卡自己的历法念时刻，标签不受时区影响
+const TIME_LABEL = format(card.time.calendar, card.time.initial)
+const NOW_LABEL = 'now'
+const TIMELINE_FROM = '9 \u6708 12 \u65e5 \u00b7 \u665a\u4e0a'
+const TIMELINE_TO = '9 \u6708 13 \u65e5 \u00b7 \u4e0a\u5348'
+const TIMELINE_REASON = 'slept through the night'
+const SCENE = {
+  area: '\u6668\u98ce\u9547',
+  spot: '\u9189\u732b\u65c5\u5e97',
+  scene: '\u65c5\u5e97\u5927\u5802',
+}
 
 /**
  * 挂载组件并接上真实 i18n 实例。
@@ -84,7 +110,8 @@ describe('StoryPanel', () => {
       makeDebug({ id: 2, kind: 'tool', text: TOOL_TEXT }),
       makeDebug({ id: 3, kind: 'warn', text: WARN_TEXT }),
       makeDebug({ id: 4, kind: 'request', text: RAW_SUMMARY, detail: RAW_REPLY }),
-      makeLine({ id: 5, kind: 'narration', text: ACTION_TEXT }),
+      makeDebug({ id: 5, kind: 'stateChange', text: WRITE_TEXT }),
+      makeLine({ id: 6, kind: 'narration', text: ACTION_TEXT }),
     ]
     const w = render(StoryPanel, { props: { rows, status: null } })
 
@@ -94,10 +121,33 @@ describe('StoryPanel', () => {
     expect(text.indexOf(TOOL_TEXT)).toBeLessThan(text.indexOf(ACTION_TEXT))
 
     expect(w.findAll('.line')).toHaveLength(2)
-    expect(w.findAll('.trace')).toHaveLength(3)
+    expect(w.findAll('.trace')).toHaveLength(4)
     expect(w.findAll('.trace')[0].classes()).toContain('tool')
     expect(w.findAll('.trace')[1].classes()).toContain('warn')
+    // 带原始内容的那一条折成 details，排在它自己的位置上
+    expect(w.findAll('.trace')[2].classes()).toContain('request')
+    expect(w.findAll('.trace')[3].classes()).toContain('stateChange')
     expect(w.find('details pre').text()).toBe(RAW_REPLY)
+  })
+
+  it('styles every debug kind the engine writes (a missing one would render unstyled)', () => {
+    const kinds = [
+      'node',
+      'thinking',
+      'request',
+      'model',
+      'tool',
+      'toolResult',
+      'stateChange',
+      'warn',
+    ] as const
+    const rows = kinds.map((kind, index) => makeDebug({ id: index, kind, text: kind }))
+    const w = render(StoryPanel, { props: { rows, status: null } })
+
+    expect(w.findAll('.trace')).toHaveLength(kinds.length)
+    for (const [index, kind] of kinds.entries()) {
+      expect(w.findAll('.trace')[index].classes()).toContain(kind)
+    }
   })
 
   it('shows the busy status row while a turn runs and drops it afterwards', async () => {
@@ -126,7 +176,7 @@ describe('StoryPanel', () => {
       props: {
         rows: [
           makeLine({ text: XSS_TEXT }),
-          makeDebug({ id: 2, kind: 'reply', text: RAW_SUMMARY, detail: XSS_TEXT }),
+          makeDebug({ id: 2, kind: 'model', text: RAW_SUMMARY, detail: XSS_TEXT }),
         ],
         status: { kind: 'info', text: XSS_TEXT },
       },
@@ -143,7 +193,7 @@ describe('AppSidebar', () => {
       items: ['time', 'scene', 'turn'],
       timeLabel: TIME_LABEL,
       timeline: [],
-      scene: { name: SCENE_NAME, description: SCENE_DESCRIPTION },
+      scene: SCENE,
       turn: 3,
       ...over,
     }
@@ -152,7 +202,8 @@ describe('AppSidebar', () => {
   it('renders the time, place and turn blocks', () => {
     const w = render(AppSidebar, { props: sidebarProps() })
     expect(w.find('.time-display').text()).toBe(TIME_LABEL)
-    expect(w.find('.scene-name').text()).toContain(SCENE_NAME)
+    expect(w.find('.scene-name').text()).toContain(SCENE.spot)
+    expect(w.find('.scene-name').text()).toContain(SCENE.scene)
     expect(w.find('[data-turn]').text()).toBe('3')
     expect(w.find('.timeline').exists()).toBe(false)
   })
@@ -168,20 +219,18 @@ describe('AppSidebar', () => {
     expect(html.indexOf('scene-name')).toBeLessThan(html.indexOf('time-display'))
   })
 
+  it('falls back to the area when the state tree only knows that much', () => {
+    const w = render(AppSidebar, {
+      props: sidebarProps({ scene: { area: SCENE.area, spot: '', scene: '' } }),
+    })
+    expect(w.find('.scene-name').text()).toBe(SCENE.area)
+  })
+
   it('renders the start point of a timeline entry (intentional design, not a bug)', () => {
     const w = render(AppSidebar, {
       props: sidebarProps({
         timeLabel: NOW_LABEL,
-        timeline: [
-          {
-            from: TIMELINE_FROM,
-            to: TIMELINE_TO,
-            reason: TIMELINE_REASON,
-            elapsedMs: 1,
-            at: '',
-          },
-        ],
-        scene: { name: 'a', description: 'b' },
+        timeline: [{ from: TIMELINE_FROM, to: TIMELINE_TO, reason: TIMELINE_REASON, minutes: 60, at: '' }],
         turn: 1,
       }),
     })
@@ -193,54 +242,193 @@ describe('AppSidebar', () => {
 })
 
 describe('WorldPanel', () => {
-  /** 卡声明的侧栏块名（顺序即声明顺序）—— 期望值从卡里现读，不抄一份内容 */
-  function cardDecl(): Record<string, any> {
-    return (parseCard(readFileSync(EXAMPLE_CARD, 'utf8')) as Record<string, any>)[K.KEY_DECL]
-  }
-
-  /** 卡声明的侧栏块名，顺序照声明 */
-  function declaredBlocks(): string[] {
-    const sidebar = cardDecl()[K.KEY_DISPLAY][K.KEY_SIDEBAR] as Array<Record<string, string>>
-    return sidebar.map((block) => block[K.KEY_BLOCK])
-  }
-
   it('renders the declared blocks in the declared order', () => {
-    const w = render(WorldPanel, { props: { blocks: world, sceneName: '' } })
-    expect(w.findAll('[data-block]').map((el) => el.attributes('data-block'))).toEqual(declaredBlocks())
+    const w = render(WorldPanel, { props: { blocks: world, state } })
+    expect(w.findAll('[data-block]').map((el) => el.attributes('data-block'))).toEqual(
+      card.display.sidebar.map((block) => block.block),
+    )
   })
 
   it('follows the blocks it is handed, not an order of its own', () => {
     const reversed = [...world].reverse()
-    const w = render(WorldPanel, { props: { blocks: reversed, sceneName: '' } })
+    const w = render(WorldPanel, { props: { blocks: reversed, state } })
     expect(w.findAll('[data-block]').map((el) => el.attributes('data-block'))).toEqual(
       reversed.map((block) => block.name),
     )
   })
 
-  it('shows the card data inside the blocks and marks the current place', () => {
-    const w = render(WorldPanel, { props: { blocks: world, sceneName: '' } })
-    const decl = cardDecl()
-    const areas = decl[K.KEY_WORLD][K.KEY_AREA] as Array<Record<string, any>>
-    const cast = decl[K.KEY_WORLD][K.KEY_NAMED_NPCS] as Array<Record<string, string>>
-    const pack = decl[K.KEY_STATE][K.KEY_PLAYER_START][K.KEY_CARRY][K.KEY_PACK] as Array<
-      Record<string, string>
-    >
-    const start = decl[K.KEY_OPENING][K.KEY_START] as Record<string, string>
-    const text = w.text()
-    expect(text).toContain(areas[0][K.KEY_NODE_NAME])
-    expect(text).toContain(cast[0][K.KEY_NODE_NAME])
-    expect(text).toContain(pack[0][K.KEY_NAME])
-    // 开局的场景名（旅店大堂）认不出具体地点 → 高亮退回卡的开局位置
-    const currentAreas = w.findAll('[data-area][data-current]')
-    expect(currentAreas).toHaveLength(1)
-    expect(currentAreas[0].text()).toContain(start[K.KEY_AREA])
-    expect(w.findAll('[data-place][data-current]').map((el) => el.text())).toEqual([start[K.KEY_PLACE]])
+  it('draws the world out of the state tree (not out of the card preset)', () => {
+    const w = render(WorldPanel, { props: { blocks: world, state } })
+    const areas = Object.keys(worldState.map)
+    const cast = Object.keys(state.roles as Record<string, unknown>)
+    const pack = (state.lead as { pack: unknown[] }).pack
+
+    expect(w.findAll('[data-area]')).toHaveLength(areas.length)
+    expect(w.findAll('[data-item]')).toHaveLength(pack.length)
+    expect(w.text()).toContain(cast[0])
+    expect(w.text()).toContain(areas[0])
+  })
+
+  it('marks the current area and place from world.location, and only those', () => {
+    const w = render(WorldPanel, { props: { blocks: world, state } })
+    const location = worldState.location
+
+    const here = w.findAll('[data-place][data-current]')
+    expect(here).toHaveLength(1)
+    expect(here[0].text()).toBe(location.spot)
+    expect(w.findAll('[data-area][data-current]')).toHaveLength(1)
+  })
+
+  it('follows the state tree when the lead moves (the panel is not frozen at the opening)', () => {
+    const moved = JSON.parse(JSON.stringify(state)) as typeof state
+    ;(moved.world as { location: unknown }).location = {
+      area: '\u9547\u90ca',
+      spot: '\u6797\u95f4\u5c0f\u9053',
+      scene: '\u5c94\u8def\u53e3',
+    }
+    const w = render(WorldPanel, { props: { blocks: world, state: moved } })
+
+    expect(w.findAll('[data-place][data-current]')[0].text()).toBe('\u6797\u95f4\u5c0f\u9053')
+    expect(w.findAll('[data-area][data-current]')[0].text()).toContain('\u9547\u90ca')
   })
 
   it('closes itself by emitting close', async () => {
-    const w = render(WorldPanel, { props: { blocks: world, sceneName: '' } })
+    const w = render(WorldPanel, { props: { blocks: world, state } })
     await w.find('button[data-world-close]').trigger('click')
     expect(w.emitted('close')).toHaveLength(1)
+  })
+})
+
+describe('WorldCast', () => {
+  it('draws each person as a name plus the lines of their sections', () => {
+    const w = render(WorldCast, {
+      props: {
+        cast: { '\u8389\u5a1c': { title: 'keeper', traits: ['calm', 'sharp'], sealed: { deep: 1 } } },
+      },
+    })
+
+    expect(w.findAll('[data-cast]')).toHaveLength(1)
+    const text = w.find('[data-cast]').text()
+    expect(text).toContain('\u8389\u5a1c')
+    expect(text).toContain('keeper')
+    expect(text).toContain('calm / sharp')
+    // 嵌套对象不展开：面板是给人扫一眼的，不是状态树的全文
+    expect(text).not.toContain('sealed')
+    expect(text).not.toContain('deep')
+  })
+
+  it('writes a person whose whole section is one string as one line', () => {
+    const w = render(WorldCast, { props: { cast: { '\u964c\u751f\u4eba': 'a hooded stranger' } } })
+    expect(w.find('[data-cast]').text()).toContain('a hooded stranger')
+    expect(w.findAll('[data-cast] li')).toHaveLength(0)
+  })
+
+  it('draws nothing when the cast is not a dictionary of people', () => {
+    const w = render(WorldCast, { props: { cast: ['\u8389\u5a1c'] } })
+    expect(w.findAll('[data-cast]')).toHaveLength(0)
+  })
+})
+
+describe('WorldMap', () => {
+  it('marks the current area and place, and only those', () => {
+    const w = render(WorldMap, {
+      props: {
+        areas: { '\u6668\u98ce\u9547': { spots: ['\u9152\u9986', '\u6e2f\u53e3'] }, '\u90ca\u5916': {} },
+        location: { area: '\u6668\u98ce\u9547', spot: '\u6e2f\u53e3', scene: '\u6e2f\u53e3' },
+      },
+    })
+
+    expect(w.findAll('[data-area]')).toHaveLength(2)
+    expect(w.findAll('[data-area][data-current]')).toHaveLength(1)
+    const place = w.findAll('[data-place][data-current]')
+    expect(place).toHaveLength(1)
+    expect(place[0].text()).toBe('\u6e2f\u53e3')
+    // 还没有固定地点的区域：说清是没有，不是界面坏了
+    expect(w.findAll('[data-area]')[1].text()).toContain(t('world.growingPlaces'))
+  })
+
+  it('takes the note of an area whose section is one string, and survives a missing location', () => {
+    const w = render(WorldMap, {
+      props: { areas: { '\u6e2f\u53e3': 'a foggy pier' }, location: undefined },
+    })
+    expect(w.find('[data-area]').text()).toContain('a foggy pier')
+    expect(w.findAll('[data-current]')).toHaveLength(0)
+  })
+})
+
+describe('WorldPack', () => {
+  it('draws list items with their count, and keeps the rest as detail lines', () => {
+    const w = render(WorldPack, {
+      props: { items: [{ name: 'dirk', count: 2, wear: 'chipped' }, 'rope'] },
+    })
+
+    const items = w.findAll('[data-item]')
+    expect(items).toHaveLength(2)
+    expect(items[0].text()).toContain('dirk')
+    expect(items[0].text()).toContain(t('world.itemCount', { count: 2 }))
+    expect(items[0].text()).toContain('chipped')
+    // 数量只出现一次：name / count 已经当标题与数量画过了，不再重复成明细行
+    expect(items[0].text().split(t('world.itemCount', { count: 2 }))).toHaveLength(2)
+    expect(items[1].text()).toContain('rope')
+    expect(items[1].text()).not.toContain(t('world.itemCount', { count: 2 }))
+  })
+
+  it('draws a pack written as a dictionary by its keys', () => {
+    const w = render(WorldPack, { props: { items: { rope: { count: 3 } } } })
+    const item = w.find('[data-item]')
+    expect(item.text()).toContain('rope')
+    expect(item.text()).toContain(t('world.itemCount', { count: 3 }))
+  })
+
+  it('draws nothing when the pack is neither a list nor a dictionary', () => {
+    const w = render(WorldPack, { props: { items: 'rope' } })
+    expect(w.findAll('[data-item]')).toHaveLength(0)
+  })
+})
+
+describe('state-view: the shape walkers behind the world panel', () => {
+  it('walks a record into key/value entries, and nothing else', () => {
+    expect(entriesOf({ a: 1, b: 'x' })).toEqual([
+      { key: 'a', value: 1 },
+      { key: 'b', value: 'x' },
+    ])
+    expect(entriesOf(['a'])).toEqual([])
+    expect(entriesOf('a')).toEqual([])
+    expect(entriesOf(null)).toEqual([])
+  })
+
+  it('knows a scalar from a container, and writes it as one line', () => {
+    expect(isScalar('x')).toBe(true)
+    expect(isScalar(3)).toBe(true)
+    expect(isScalar(false)).toBe(true)
+    expect(isScalar(['x'])).toBe(false)
+    expect(isScalar({ a: 1 })).toBe(false)
+    expect(isScalar(null)).toBe(false)
+    expect(scalarText(3)).toBe('3')
+    expect(scalarText(['x'])).toBe('')
+  })
+
+  it('collects a string list, whether it is the value itself or a field inside it', () => {
+    expect(textsOf(['a', 'b'])).toEqual(['a', 'b'])
+    expect(textsOf({ spots: ['a', 'b'], note: 'x' })).toEqual(['a', 'b'])
+    expect(textsOf({ note: 'x' })).toEqual([])
+    expect(textsOf('a')).toEqual([])
+  })
+
+  it('turns a record into lines, joining text lists and skipping nested objects', () => {
+    expect(linesOf({ tier: 'major', spots: ['a', 'b'], nested: { x: 1 } })).toEqual([
+      { key: 'tier', text: 'major' },
+      { key: 'spots', text: 'a / b' },
+    ])
+  })
+
+  it('turns a list entry into title / count / details, by the two interface conventions', () => {
+    expect(itemOf('rope')).toEqual({ title: 'rope', count: '', lines: [] })
+    expect(itemOf({ name: 'bread', count: 3, note: 'stale' })).toEqual({
+      title: 'bread',
+      count: '3',
+      lines: [{ key: 'note', text: 'stale' }],
+    })
   })
 })
 
@@ -309,5 +497,180 @@ describe('SettingsDrawer', () => {
     const w = render(SettingsDrawer, { props: { open: true, language: 'system' } })
     await w.find('.sheet').trigger('click')
     expect(w.emitted('update:open')).toBeUndefined()
+  })
+})
+
+// ---------- store 的调试投影 ----------
+
+/** 一行节点痕迹（产品就是这么写的：渲染好的行 + 节点 id） */
+function nodeEvent(id: string): Record<string, unknown> {
+  return { kind: 'node', text: t('store.nodeLine', { node: nodes[id]?.name ?? id }), node: id }
+}
+
+/** 一行工具调用痕迹（结构化字段：哪个节点、什么工具；detail 是协议原样的参数） */
+function toolEvent(node: string, tool: string, args: string): Record<string, unknown> {
+  return { kind: 'tool', text: t('toolbar.toolCall', { tool, args }), node, tool, detail: args }
+}
+
+/** 一行写入痕迹（结构化字段：路径；detail 是写成的值） */
+function writeEvent(path: string, value?: unknown): Record<string, unknown> {
+  const event: Record<string, unknown> = {
+    kind: 'stateChange',
+    text: t('store.stateChangeLine', { path }),
+    path,
+  }
+  if (value !== undefined) event.detail = JSON.stringify(value)
+  return event
+}
+
+/** 一行工具结果（结构化字段：哪个节点、什么工具；detail 是回传的原文） */
+function resultEvent(node: string, tool: string, result: string): Record<string, unknown> {
+  return { kind: 'toolResult', text: t('store.toolResultLine', { result }), node, tool, detail: result }
+}
+
+/** 一份存档：一整轮的工具痕迹（含一次失败、一次退回重来），前面还压着上一轮的故事 */
+function saveWithTrace(): string {
+  const data = createInitialState(card)
+  data.meta.turn = 4
+  const events: Array<Record<string, unknown>> = [
+    // 上一轮的痕迹：不该进「最近一轮」的投影
+    { kind: 'action', text: 'older action' },
+    toolEvent(topology[0], 'set_profile', '{not json'),
+    resultEvent(topology[0], 'set_profile', 'bad arguments'),
+    { kind: 'action', text: 'this turn action' },
+    // 没有调用在飞的时候也会有写入：它不该被算到任何一次调用头上
+    writeEvent('time'),
+    nodeEvent(topology[4]),
+    toolEvent(topology[4], 'advance_time', BABEL_TEXT),
+    writeEvent('time', { year: 2026, month: 9, day: 14, hour: 19, minute: 35 }),
+    resultEvent(topology[4], 'advance_time', 'time advanced'),
+    toolEvent(topology[8], 'redo', '{"from":"' + topology[6] + '","why":"missing"}'),
+    resultEvent(topology[8], 'redo', 'rolling back'),
+    // 结果之后又冒出一条结果：没有调用在对，丢掉
+    { kind: 'toolResult', text: 'stray', detail: 'stray' },
+    // 一次失败的地图调用：它在图里是会标红的那个节点
+    nodeEvent(topology[5]),
+    toolEvent(topology[5], 'move_to', '{"area":"x"}'),
+    resultEvent(topology[5], 'move_to', 'move_to: spot is required'),
+  ]
+  data.events = events.map((event) => ({ at: '2026-09-15T10:00:00.000Z', ...event })) as GameEvent[]
+  return JSON.stringify(data)
+}
+
+/**
+ * 种一份存档再拿一个全新的 store（投影在模块加载期读存档）。
+ *
+ * ⚠️ 重来一份模块图 = 重来一份 i18n：不把它的语言也钉在 zh-CN，store 投影就会拿
+ *    另一种语言的文案外壳去读事件流（本文件造事件用的是上面那份 zh-CN 的 t）。
+ */
+async function freshGame(save: string) {
+  localStorage.clear()
+  localStorage.setItem('tavernGame.save', save)
+  vi.resetModules()
+  const [i18nModule, store] = await Promise.all([import('../src/i18n'), import('../src/stores/game')])
+  ;(i18nModule.i18n.global.locale as unknown as { value: string }).value = 'zh-CN'
+  return store.useGame()
+}
+
+describe('store: the debug projections', () => {
+  it('projects the latest round of events into tool calls (node, args, result, writes)', async () => {
+    const game = await freshGame(saveWithTrace())
+    const calls = game.debugTools.value
+
+    // 上一轮那次 set_profile 不在里面：投影只看最近一轮
+    expect(calls).toHaveLength(3)
+    expect(calls.map((call) => call.tool)).toEqual(['advance_time', 'redo', 'move_to'])
+    expect(calls[0].node).toBe(topology[4])
+    expect(calls[0].args).toBe(BABEL_TEXT)
+    expect(calls[0].result).toBe('time advanced')
+    expect(calls[0].writes).toEqual([
+      { path: 'time', value: { year: 2026, month: 9, day: 14, hour: 19, minute: 35 } },
+    ])
+    expect(calls[0].failed).toBe(false)
+
+    // 退回重来：from 在参数里，图上要标红的是被退回去的那个节点
+    expect(calls[1].redoFrom).toBe(topology[6])
+    expect(calls[1].failed).toBe(false)
+
+    // 一个字节都没写成 = 引擎把结构化错误回传给了模型
+    expect(calls[2].node).toBe(topology[5])
+    expect(calls[2].writes).toEqual([])
+    expect(calls[2].failed).toBe(true)
+  })
+
+  it('reads the structured fields, not the rendered line (the line may be any language)', async () => {
+    const data = createInitialState(card)
+    data.events = [
+      { kind: 'tool', text: 'rendered however', node: topology[6], tool: 'move_to', detail: '{"area":"x"}' },
+      { kind: 'stateChange', text: 'rendered however', path: 'world.location', detail: '{"area":"x"}' },
+      {
+        kind: 'toolResult',
+        text: 'rendered however',
+        node: topology[6],
+        tool: 'move_to',
+        detail: 'wrote it',
+      },
+    ].map((event) => ({ at: '2026-09-15T10:00:00.000Z', ...event })) as GameEvent[]
+
+    const [call] = (await freshGame(JSON.stringify(data))).debugTools.value
+    expect(call.node).toBe(topology[6])
+    expect(call.tool).toBe('move_to')
+    expect(call.result).toBe('wrote it')
+    expect(call.writes).toEqual([{ path: 'world.location', value: { area: 'x' } }])
+  })
+
+  it('marks the nodes to redraw in red: the failed one and the node a redo rolled back', async () => {
+    const game = await freshGame(saveWithTrace())
+    expect(game.debugFailedNodes.value).toEqual([topology[5], topology[6]])
+  })
+
+  it('has nothing to show when no turn has run yet, and knows the turn is idle', async () => {
+    const game = await freshGame(JSON.stringify(createInitialState(card)))
+    expect(game.debugTools.value).toEqual([])
+    expect(game.debugFailedNodes.value).toEqual([])
+    expect(game.runningNode.value).toBe(null)
+    expect(game.debugWrites.value).toEqual([])
+  })
+
+  it('shows no node and no path for traces written before those fields existed', async () => {
+    const data = createInitialState(card)
+    data.events = [
+      { kind: 'tool', text: 'a line from an older save' },
+      { kind: 'stateChange', text: 'a line from an older save', detail: '{"year":2026}' },
+      { kind: 'toolResult', text: 'a line from an older save' },
+    ].map((event) => ({ at: '2026-09-15T10:00:00.000Z', ...event })) as GameEvent[]
+
+    const game = await freshGame(JSON.stringify(data))
+    const [call] = game.debugTools.value
+    expect(call.node).toBe(null)
+    expect(call.tool).toBe('')
+    expect(call.args).toBe('')
+    expect(call.result).toBe('')
+    expect(call.writes).toEqual([{ path: '', value: { year: 2026 } }])
+    // 有写入就不算失败；没有节点可归，图上也就没有要标红的
+    expect(call.failed).toBe(false)
+    expect(game.debugFailedNodes.value).toEqual([])
+  })
+
+  it('reads a write with no value, and a redo whose arguments are not JSON', async () => {
+    const data = createInitialState(card)
+    data.events = [
+      nodeEvent(topology[6]),
+      toolEvent(topology[6], 'redo', '{not json'),
+      writeEvent('roles'),
+      resultEvent(topology[6], 'redo', 'rolled back'),
+      // 合法 JSON、但不是对象：一样读不出 from（模型给的参数是外部数据）
+      toolEvent(topology[6], 'redo', '[]'),
+      resultEvent(topology[6], 'redo', 'rolled back'),
+    ].map((event) => ({ at: '2026-09-15T10:00:00.000Z', ...event })) as GameEvent[]
+
+    const game = await freshGame(JSON.stringify(data))
+    const [broken, array] = game.debugTools.value
+    expect(broken.writes).toEqual([{ path: 'roles', value: undefined }])
+    expect(broken.redoFrom).toBe(null)
+    // 这一次调用写成了「一条没有值」的路径：不算失败，也没有节点要标红
+    expect(broken.failed).toBe(false)
+    expect(array.redoFrom).toBe(null)
+    expect(game.debugFailedNodes.value).toEqual([])
   })
 })

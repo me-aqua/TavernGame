@@ -66,6 +66,35 @@ describe('error body parsing', () => {
   })
 })
 
+describe('tool call parsing - the protocol fields the provider may omit', () => {
+  it('falls back to a generated id and empty arguments when the provider omits them', async () => {
+    saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })
+    const original = globalThis.fetch
+    // 有些兼容网关只给 name，不给 id / arguments；协议字段缺了也不许猜内容
+    const body = {
+      choices: [
+        { message: { content: '', tool_calls: [{ type: 'function', function: { name: 'advance_time' } }] } },
+      ],
+    }
+    globalThis.fetch = (async () => new Response(JSON.stringify(body), { status: 200 })) as typeof fetch
+    restore = () => {
+      globalThis.fetch = original
+    }
+
+    const reply = await chat(messages, {
+      tools: [{ type: 'function', function: { name: 'advance_time', description: 'x', parameters: {} } }],
+    })
+    expect(reply.toolCalls).toEqual([
+      {
+        id: 'call_0',
+        name: 'advance_time',
+        arguments: '{}',
+        args: { ok: true, value: {} },
+      },
+    ])
+  })
+})
+
 describe('testConnection', () => {
   it('returns ok / ms / reply on success (reply truncated to 40 chars)', async () => {
     saveConfig({ provider: 'custom', apiKey: 'k', apiBase: 'https://api.example.test/v1', model: 'm' })

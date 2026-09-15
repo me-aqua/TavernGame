@@ -3,14 +3,15 @@
  *
  * 三件事集中在这里，避免每个 spec 各写一份：
  *   · 种子数据：localStorage 必须在应用脚本之前写好（语言 / 主题 / 存档 / 配置）
- *   · 假模型：用 page.route 拦住 chat/completions —— 不注入脚本、不改全局 fetch
+ *   · 假模型：用 page.route 拦住 chat/completions —— 不注入脚本、不改全局 fetch；
+ *     它**按节点回话**：时间节点先调 advance_time、地图节点先调 move_to，其余回文字
  *   · 取词：检查界面文案时走应用自己的 i18n 表（window.__dshE2E），不抄第二份
+ *
+ * ⚠️ 不 import 应用模块（那条链会拖进 i18n 的 .json，Playwright 的 ESM 加载器要
+ *    import attribute）：卡只读 JSON，状态树按卡的 state 自己实例化一份最小的。
  */
 import { expect, type Page } from '@playwright/test'
-// 只读卡的 JSON 与键名常量（不 import 应用模块：那条链会拖进 i18n 的 .json，
-// Playwright 的 ESM 加载器需要 import attribute）
 import cardJson from '../cards/morningwind.json' with { type: 'json' }
-import * as K from '../src/game/card-keys'
 
 export const APP_PATH = '/TavernGame/'
 
@@ -23,33 +24,51 @@ export const DEBUG_KEY = 'tavernGame.debug'
 /** 活动卡（值就是卡的 JSON 文本）：坏卡要能造出来，所以键名在这里也留一份 */
 export const CARD_KEY = 'tavernGame.card'
 
+/** 卡（唯一事实来源）与它的图；节点 id 全部从卡里现读，不写死节点名 */
+const CARD = cardJson as unknown as Record<string, any>
+const GRAPH = CARD.graph as { topology: string[]; nodes: Record<string, Record<string, any>> }
+const TOPOLOGY = GRAPH.topology
+const NODES = GRAPH.nodes
+
+/** 本回合的叙事取自声明了 role: story 的那个节点 —— 引擎也只认这条声明 */
+export const STORY_NODE = TOPOLOGY.find((id) => NODES[id].role === 'story') as string
+
+/** 声明了某个动作的节点：工具白名单写在卡的 graph.nodes[id].tools 里 */
+function nodeWithAction(action: string): string {
+  return TOPOLOGY.find((id) => (NODES[id].tools ?? []).includes(action)) as string
+}
+
+/** 时间节点（调 advance_time）—— 冒烟用例拿它断言「标红的是哪一个」 */
+export const TIME_NODE = nodeWithAction('advance_time')
+
+/** 地图节点（调 move_to） */
+const MAP_NODE = nodeWithAction('move_to')
+
 /**
  * 假模型的行为：
  *   narration = 按「这次是哪个节点」分别回话：时间节点第一次回一条 advance_time 的
- *               tool_calls（引擎执行完会再问一次），第二次才回文字；故事节点回正文；
- *               其余节点回一段普通文字
+ *               tool_calls（引擎执行完会再问一次），第二次才回文字；地图节点第一次回
+ *               move_to；故事节点回正文；其余节点回一段普通文字
  *   slow      = 第一次调用拖 5 秒（看得见「正在生成开场…」）；error = 上游 500
+ *   toolError = 时间节点的第一个参数故意给个负数：引擎不抛错，把结构化错误回传给模型
+ *               （于是这一轮里有一个「工具调用失败过」的节点，调试图上要标红）
  *
  * ⚠️ 引擎按卡里的图跑，而且**不解析模型输出**：要引擎做的事只能来自原生工具调用
  *    （决定 #46）。所以假模型必须按协议回 tool_calls —— 回一段「JSON 代码块」没用。
  */
-export type FakeMode = 'narration' | 'slow' | 'error'
+export type FakeMode = 'narration' | 'slow' | 'error' | 'toolError'
 
 export const NARRATION = '灯芯爆了一下，屋里静了半息。'
 const SLOW_MS = 5000
-const REPLY_MS = 300
+/** 每次假回复的耗时：一轮十来个节点，太长会把冒烟用例拖到超时 */
+const REPLY_MS = 200
 const TIME_REASON = '聊到深夜'
-
-/** 卡里的图：拓扑（顺序）与每个节点的显示名（请求的最后一段就是它的提示词，标题即显示名） */
-const CARD_GRAPH = (cardJson as unknown as Record<string, Record<string, Record<string, unknown>>>)[
-  K.KEY_DECL
-][K.KEY_GRAPH]
-const TOPOLOGY = CARD_GRAPH[K.KEY_TOPOLOGY] as string[]
-const NODES = CARD_GRAPH[K.KEY_NODES] as Record<string, Record<string, string>>
-
-/** 引擎按名字消费的两个节点（与 src/agent/card-graph.ts 的常量一致） */
-const TIME_NODE = 'time'
-const STORY_NODE = 'story'
+/** 这一轮推进的分钟数（卡的历法里的一分钟） */
+const TIME_MINUTES = 5
+/** toolError 模式给的那个参数：负数过不了引擎的校验（引擎只回传错误，不抛） */
+const BAD_MINUTES = -3
+/** 地图节点把主控挪到哪儿（必须一次给全三段：动作写的是整个 world.location） */
+const MOVED = { area: '晨风镇', spot: '萨伦铁匠铺', scene: '铺面' }
 
 /** 这次请求是哪个节点发出来的：看最后一条 user 消息里最后出现的那个节点显示名 */
 function nodeOf(messages: Array<{ role?: string; content?: string }>): string {
@@ -57,7 +76,7 @@ function nodeOf(messages: Array<{ role?: string; content?: string }>): string {
   let found = ''
   let at = -1
   for (const id of TOPOLOGY) {
-    const index = last.lastIndexOf('## ' + NODES[id][K.KEY_NODE_NAME])
+    const index = last.lastIndexOf('## ' + NODES[id].name)
     if (index > at) {
       at = index
       found = id
@@ -66,35 +85,33 @@ function nodeOf(messages: Array<{ role?: string; content?: string }>): string {
   return found
 }
 
-/** 每个节点被问过几次（时间节点第一次要求调工具、第二次才回文字） */
+/** 每个节点被问过几次（时间 / 地图节点第一次要求调工具、第二次才回文字） */
 type AskedCounts = Map<string, number>
+
+/** 一条「只调工具、不写字」的回复（协议原样：content 空 + tool_calls） */
+function toolCall(id: string, name: string, args: Record<string, unknown>): Record<string, unknown> {
+  return {
+    role: 'assistant',
+    content: '',
+    tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }],
+  }
+}
 
 /**
  * 该节点的假回复（协议消息）。
  *
- * ⚠️ 时间节点：第一次 content 为空、只回 `advance_time` 的 tool_calls
- *    （「只调工具没写字」是合法的一步），引擎执行完再问一次，那次才回文字。
+ * ⚠️ 时间与地图节点：第一次 content 为空、只回 tool_calls（「只调工具没写字」是合法的
+ *    一步），引擎执行完再问一次，那次才回文字。
  */
-function messageOf(id: string, asked: AskedCounts): Record<string, unknown> {
+function messageOf(id: string, asked: AskedCounts, mode: FakeMode): Record<string, unknown> {
   const count = (asked.get(id) ?? 0) + 1
   asked.set(id, count)
 
   if (id === TIME_NODE && count === 1) {
-    return {
-      role: 'assistant',
-      content: '',
-      tool_calls: [
-        {
-          id: 'call_time',
-          type: 'function',
-          function: {
-            name: 'advance_time',
-            arguments: JSON.stringify({ step: 1, unit: 'day', reason: TIME_REASON }),
-          },
-        },
-      ],
-    }
+    const minutes = mode === 'toolError' ? BAD_MINUTES : TIME_MINUTES
+    return toolCall('call-time', 'advance_time', { minutes, reason: TIME_REASON })
   }
+  if (id === MAP_NODE && count === 1) return toolCall('call-map', 'move_to', MOVED)
   if (id === STORY_NODE) return { role: 'assistant', content: NARRATION }
   return { role: 'assistant', content: id + ' node output' }
 }
@@ -113,23 +130,74 @@ export function event(kind: string, text: string, detail?: string): Record<strin
   return { kind, text, ...(detail ? { detail } : {}), at: '2026-09-14T10:00:00.000Z' }
 }
 
-/** 一份存档：几段故事 + 时间线 */
+/**
+ * 按卡的 state 建一棵初始状态树：只取写了 initial 的字段（与引擎同一套规则）。
+ *
+ * e2e 不 import 应用模块（见文件头），所以这十来行在这里重写一份 —— 它只认「initial」
+ * 这个键，不认任何一张卡的内容。
+ */
+function instantiate(schema: unknown): unknown {
+  if (typeof schema !== 'object' || schema === null) return undefined
+  const node = schema as { initial?: unknown; fields?: Record<string, unknown> }
+  if (Object.hasOwn(node, 'initial')) return JSON.parse(JSON.stringify(node.initial))
+  const fields = node.fields ?? {}
+  const out: Record<string, unknown> = {}
+  for (const [key, sub] of Object.entries(fields)) {
+    const value = instantiate(sub)
+    if (value !== undefined) out[key] = value
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
+/** 新游戏的第一帧（与引擎的 createInitialState 同一份形状：meta / time / state / …） */
+function initialState(): Record<string, unknown> {
+  const state: Record<string, unknown> = {}
+  for (const [branch, schema] of Object.entries(CARD.state as Record<string, unknown>)) {
+    const value = instantiate(schema)
+    if (value !== undefined) state[branch] = value
+  }
+  return {
+    meta: { turn: 0, card: identity() },
+    time: { ...CARD.time.initial },
+    state,
+    events: [],
+    timeline: [],
+  }
+}
+
+/** 存档里记的卡身份 —— spec 覆盖 meta（例如把回合数调大）时必须带上它，不然存档会被判成别人的 */
+export const CARD_IDENTITY: Record<string, string> = identity()
+
+/** 存档里记的卡身份（判亲只比 id / version / format） */
+function identity(): Record<string, string> {
+  return {
+    id: CARD.card.id,
+    name: CARD.card.name,
+    version: CARD.card.version,
+    format: CARD.card.format,
+  }
+}
+
+/** 一份存档：卡身份 + 卡的状态初值 + 几段故事 + 时间线 */
 export function saveWith(over: Record<string, unknown> = {}): string {
+  const data = initialState()
+  const state = data.state as Record<string, any>
+  // 站在镇上的酒馆里：地图块的高亮、顶栏的场景都读这一处
+  state.world.location = { area: '晨风镇', spot: '酒馆', scene: '大堂' }
   return JSON.stringify({
-    meta: { turn: 6 },
-    player: { name: '无名者' },
-    scene: { name: '晨风镇 · 酒馆', description: '炉火把墙面照成蜜色，海风从门缝里钻进来。' },
-    time: { iso: '2026-09-15T09:00:00.000Z' },
+    ...data,
+    meta: { turn: 6, card: identity() },
+    time: { year: 2026, month: 9, day: 15, hour: 9, minute: 0 },
     events: [
       event('action', '我推开酒馆的门，看看里面都有谁。'),
       event('narration', '门轴发出一声长叹。暖黄的光从屋里涌出来，混着麦酒和湿羊毛的味道。'),
     ],
     timeline: [
       {
-        from: '9 月 13 日 · 晚上',
-        to: '9 月 14 日 · 上午',
+        from: '2026 年 9 月 14 日 · 星期一 · 晚上',
+        to: '2026 年 9 月 15 日 · 星期二 · 上午',
         reason: '在酒馆待到深夜，睡了一觉',
-        elapsedMs: 43200000,
+        minutes: 810,
         at: '2026-09-14T02:00:00.000Z',
       },
     ],
@@ -150,7 +218,7 @@ export async function seedStorage(page: Page, values: Record<string, string | nu
 /** 拦住模型的 HTTP 调用，返回可控的假回复 */
 export async function fakeLlm(page: Page, mode: FakeMode = 'narration'): Promise<void> {
   let calls = 0
-  /** 每个节点问过几次：时间节点的工具往返靠它区分第一次与第二次 */
+  /** 每个节点问过几次：时间 / 地图节点的工具往返靠它区分第一次与第二次 */
   const asked: AskedCounts = new Map()
   await page.route('**/chat/completions', async (route) => {
     if (mode === 'error') {
@@ -161,7 +229,7 @@ export async function fakeLlm(page: Page, mode: FakeMode = 'narration'): Promise
       })
       return
     }
-    // 一轮里每个节点各调一次：只有第一次拖时间（否则九次叠起来会拖垮超时）
+    // 一轮里每个节点各调一次（工具往返多一次）：只有第一次拖时间（否则十几次叠起来会拖垮超时）
     const first = calls === 0
     calls += 1
     if (mode === 'slow' && first) await new Promise((resolve) => setTimeout(resolve, SLOW_MS))
@@ -170,7 +238,7 @@ export async function fakeLlm(page: Page, mode: FakeMode = 'narration'): Promise
     const body = route.request().postDataJSON() as {
       messages?: Array<{ role?: string; content?: string }>
     } | null
-    const message = messageOf(nodeOf(body?.messages ?? []), asked)
+    const message = messageOf(nodeOf(body?.messages ?? []), asked, mode)
 
     await route.fulfill({
       status: 200,

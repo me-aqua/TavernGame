@@ -22,6 +22,8 @@
     "debugToggleOn": "debug: on",
     "debugToggleOff": "debug: off",
     "debugToggleTitle": "Debug mode: click to toggle (on by default for local development; stays off after you turn it off)",
+    "debugPanel": "Debug panel",
+    "debugPanelTitle": "Debug panel: card graph / engine state / tool calls (read-only)",
     "themeSystem": "Theme: follow system (click to switch)",
     "themeLight": "Theme: light (click to switch)",
     "themeDark": "Theme: dark (click to switch)",
@@ -66,7 +68,6 @@
     "cast": "Characters",
     "pack": "Inventory",
     "growingPlaces": "Places appear as you play",
-    "personRole": "{role} · {race}",
     "itemCount": "×{count}"
   },
   "toolbar": {
@@ -79,7 +80,9 @@
     "cancelled": "This turn was cancelled",
     "failed": "Something went wrong:\n{message}",
     "toolResultLine": "   -> {result}",
-    "warnLine": "⚠ {message}"
+    "warnLine": "⚠ {message}",
+    "stateChangeLine": "✎ wrote {path}",
+    "redoLine": "↩ back to \"{node}\": {why}"
   },
   "settings": {
     "title": "Settings",
@@ -133,7 +136,7 @@
     "importFailed": "Card import failed: {message}",
     "fileName": "{name}-{version}.json",
     "graphTitle": "Card graph",
-    "graphLegend": "Solid = topology order　｜　dashed = reads upstream: every node before it in the topology",
+    "graphLegend": "Solid = topology order (numbered where it wraps)　｜　upstream = the topology prefix: point at a node to draw its dashed upstream edges",
     "graphHint": "Click a node to edit its name / duty / prompt",
     "close": "Close the card graph",
     "closeIcon": "✕",
@@ -142,11 +145,44 @@
     "nameLabel": "Name",
     "dutyLabel": "Duty",
     "promptLabel": "Prompt (one line per entry)",
-    "outputLabel": "Output (read-only, declared by the card)",
+    "declLabel": "Declarations (read-only - saving touches none of them)",
+    "declRole": "role",
+    "declTools": "tools",
+    "declReads": "reads",
+    "declUses": "uses",
+    "declNone": "—",
+    "declAll": "all",
+    "declAllTools": "every action in this card",
+    "declAllReads": "all state",
+    "declNoUses": "no generators",
     "save": "Save",
     "saveFailed": "Save failed: {message}",
     "fallback": "The stored card could not be read - falling back to the built-in example:\n{message}",
     "fallbackShort": "The stored card could not be read - falling back to the built-in example: {message}"
+  },
+  "debug": {
+    "title": "Debug panel",
+    "close": "Close the debug panel",
+    "closeIcon": "✕",
+    "tabGraph": "Card graph",
+    "tabState": "Engine state",
+    "tabTools": "Tool calls",
+    "graphLegend": "Highlighted = the node running now; red = rolled back by redo / failed tool call",
+    "time": "Time",
+    "turn": "Turn",
+    "draftOff": "View the draft",
+    "draftOn": "View authoritative state",
+    "draftNone": "No turn is running - the draft only exists inside a turn",
+    "writes": "Writes this turn ({count})",
+    "writesNone": "Nothing written this turn",
+    "toolsNone": "No tool calls in the latest turn",
+    "noNode": "(the graph has not started)",
+    "args": "Raw arguments",
+    "result": "Engine reply",
+    "pending": "(not answered yet)",
+    "callWrites": "Wrote",
+    "toolFailed": "⚠ rejected",
+    "redo": "↩ rolled back to \"{node}\""
   },
   "provider": {
     "deepseek": "DeepSeek (official)",
@@ -172,15 +208,6 @@
       "afternoon": "afternoon",
       "evening": "evening"
     },
-    "elapsedHours": "{hours} hours passed",
-    "elapsedMinutes": "{minutes} minutes passed",
-    "elapsedMonths": "{months} months passed",
-    "elapsedMonthsDays": "{months} months {days} days passed",
-    "monthDay": "{month}/{day}",
-    "months": "{months} months",
-    "days": "{days} days",
-    "years": "{years} years",
-    "elapsed": "{parts} passed",
     "dateSeparator": " · "
   },
   "llm": {
@@ -196,48 +223,31 @@
     }
   },
   "tools": {
-    "unknown": "❌ There is no tool named \"{name}\". Available tools: {available}",
     "notJsonObject": "❌ Arguments must be a JSON object; received: {got}",
     "invalidJson": "❌ Arguments are not valid JSON ({message}). You sent: {got}",
-    "advanceFailed": "⚠ Advance failed: {message} (current: {current})",
-    "advanceResult": "🕐 Time advanced: {before}\n           → {after}",
-    "advanceElapsed": "\n   ({elapsed})",
     "advanceReason": "\n   Reason: {reason}",
-    "advanceTime": {
-      "description": "Advance in-story time. Call this only when the plot really spans time (travelling, a long conversation, sleeping, waiting for nightfall, recovering for days). If the turn is just a few lines or actions, do not call it. There is no upper bound on the span.",
-      "step": "How many units to advance; a positive integer. Defaults to 1",
-      "unit": "Time unit. Defaults to segment (one part of the day, about 4 hours)",
-      "reason": "Why time passes (recorded on the timeline)"
-    }
-  },
-  "snapshot": {
-    "turn": "[Turn {turn}]",
-    "time": "Time: {time}",
-    "place": "Place: {name}",
-    "recent": "### Recently",
-    "timeline": "### Timeline",
-    "player": "Player",
-    "gm": "You (GM)",
-    "recentLog": "### Recent events",
-    "sceneDescription": "    {text}",
-    "recentLine": "- {who}: {text}",
-    "timelineLine": "- {to} ({reason})",
-    "timelineLineNoReason": "- {to}",
-    "upstreamNode": "### Upstream output this round: {node}"
+    "advanceDone": "🕐 Time advanced by {minutes} minutes (now {time})",
+    "advanceStill": "🕐 Time did not move this round (now {time})"
   },
   "save": {
     "notValid": "Not a valid save file",
-    "corrupted": "Corrupted local save: {message}"
+    "corrupted": "Corrupted local save: {message}",
+    "cardMissing": "The save does not record which card it belongs to",
+    "cardMismatch": "This save belongs to another card (save: {saved}, current: {current}) — refusing to run the old state on a new card",
+    "badState": "The saved state does not match this card: {message}",
+    "badTime": "The saved time does not match this card's calendar: {message}"
   },
   "agent": {
     "stepLimit": "Tool round limit reached ({max}); this node wrote no text",
     "saveFailed": "Failed to write the save (private mode or storage full) — this turn will be lost on restart",
-    "actionPrefix": "Player's action: {action}",
     "playerAction": "Player's action: {action}",
     "gameStart": "[GAME START]\n{instruction}",
-    "newAdventure": "(a new adventure begins)",
     "toolsOnly": "The model only called tools and wrote no narration (step {step})",
-    "turnAdvanced": "Turn +1 (now turn {turn})"
+    "nodeStepLimit": "Node \"{node}\" hit the tool round limit ({max}) without writing text",
+    "noNarration": "Node \"{node}\" wrote nothing — this round has no narration",
+    "redoLimit": "\"{node}\" asked to redo again (limit {max} per round) — this round is discarded",
+    "redoAccepted": "Rolled back to \"{node}\" and rerunning: {why}",
+    "redoHint": "\"{node}\" found a problem in this step and asked to rerun it: {why}"
   },
   "story": {
     "nodeRunning": "Running {node}…",
@@ -256,6 +266,26 @@
   },
   "prompts": {
     "badBase64": "Prompt module is not valid base64",
-    "unfilled": "Prompt has unfilled placeholders: {names}"
+    "unfilled": "Prompt has unfilled placeholders: {names}",
+    "setting": "Settings",
+    "script": "Script",
+    "convention": "Conventions",
+    "generators": "Generators",
+    "generatorApplies": "When to use it: {text}",
+    "now": "Now",
+    "timeLine": "Time: {time}",
+    "player": "Player",
+    "upstream": "Upstream this round",
+    "upstreamNode": "Upstream output: {node}",
+    "settingBlock": {
+      "world": "World",
+      "core": "Core",
+      "common": "Common",
+      "style": "Style",
+      "lead": "Lead"
+    },
+    "gm": "You (GM)",
+    "recent": "Recently",
+    "recentLine": "- {who}: {text}"
   }
 }

@@ -1,25 +1,43 @@
 <script setup lang="ts">
 /**
- * 角色块：卡里点名的 NPC —— 姓名 / 身份 · 种族 / 一句设定。
+ * 角色块：状态树里的角色字典（game/display.ts 的 castOf）—— 键是人名，值是他的那几段。
  *
- * 生平与性格是给模型看的，不进这一块：玩家该从戏里认识人，不是从面板上读简历。
+ * 每段叫什么由卡决定（身份 / 种族 / 生平 / 性格……），界面按形状画：标量一行、
+ * 字符串数组连成一行，嵌套对象不展开（面板是给人扫一眼的，不是状态树的全文）。
  */
-import { useI18n } from 'vue-i18n'
-import type { CastView } from '../../game/display'
+import { computed } from 'vue'
+import { linesOf, entriesOf, scalarText } from '../state-view'
 
-const { t } = useI18n()
+const props = defineProps<{
+  /** roles：人名 → 那个角色的几段状态 */
+  cast: unknown
+}>()
 
-defineProps<{ cast: CastView[] }>()
+/** 角色摊成「名字 + 几行状态」 */
+const people = computed(() =>
+  entriesOf(props.cast).map(({ key, value }) => ({
+    name: key,
+    note: scalarText(value),
+    lines: linesOf(value),
+  })),
+)
 </script>
 
 <template>
   <ul class="space-y-2">
-    <li v-for="person in cast" :key="person.name" class="border-l-2 border-line/70 pl-2">
+    <li v-for="person in people" :key="person.name" data-cast class="border-l-2 border-line/70 pl-2">
       <p class="text-[12.5px] font-semibold text-text">{{ person.name }}</p>
-      <p class="text-[11px] text-faint">
-        {{ t('world.personRole', { role: person.role, race: person.race }) }}
-      </p>
-      <p class="mt-0.5 text-[11px] leading-snug text-muted">{{ person.bio }}</p>
+      <p v-if="person.note" class="mt-0.5 text-[11px] leading-snug text-muted">{{ person.note }}</p>
+      <ul v-if="person.lines.length" class="mt-0.5 space-y-0.5">
+        <li
+          v-for="line in person.lines"
+          :key="line.key"
+          class="line-clamp-2 text-[11px] leading-snug text-muted"
+        >
+          <span class="text-faint">{{ line.key }}</span>
+          {{ line.text }}
+        </li>
+      </ul>
     </li>
   </ul>
 </template>

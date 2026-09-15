@@ -1,5 +1,8 @@
 /**
  * 历法测试 —— 重点盯「手写日期运算一定会算错」的那些边界。
+ *
+ * 这里只测 realCalendar 的显示与加减（card/3 的 real 预设用它）；推进量按**分钟**算的
+ * 那一层在 tests/card-calendar.test.ts。
  */
 import { describe, expect, it } from 'vitest'
 import { realCalendar, hourToSegment, nowIso, segmentName } from '../src/utils/calendar'
@@ -62,81 +65,24 @@ describe('advance - date boundaries', () => {
   })
 })
 
-describe('describeElapsed - duration conversion', () => {
-  it('reports minutes below one hour', () => {
-    expect(realCalendar.describeElapsed(30 * 60000)).toBe(t('calendar.elapsedMinutes', { minutes: 30 }))
+describe('format', () => {
+  it('renders year / weekday / segment through the locale table', () => {
+    const iso = '2026-09-10T02:00:00.000Z'
+    const d = new Date(iso)
+    const expected =
+      t('calendar.yearMonthDay', { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() }) +
+      t('calendar.dateSeparator') +
+      t(`calendar.weekday.${d.getDay()}`) +
+      t('calendar.dateSeparator') +
+      segmentName(d.getHours())
+    expect(realCalendar.format(iso)).toBe(expected)
   })
 
-  it('reports hours below one day', () => {
-    expect(realCalendar.describeElapsed(5 * 3600000)).toBe(t('calendar.elapsedHours', { hours: 5 }))
-  })
-
-  it('reports days only at exactly 47 hours (known trade-off: hours are dropped)', () => {
-    // 这是 AGENTS.md 记录的未修问题 #3，断言当前行为以便将来改的时候有提示
-    expect(realCalendar.describeElapsed(47 * 3600000)).toBe(
-      t('calendar.elapsed', { parts: t('calendar.days', { days: 1 }) }),
-    )
-  })
-
-  it('turns 365 days into one year (no phantom extra days)', () => {
-    expect(realCalendar.describeElapsed(365 * 86400000)).toBe(
-      t('calendar.elapsed', { parts: t('calendar.years', { years: 1 }) }),
-    )
-  })
-
-  it('turns 400 days into 1 year 1 month 5 days', () => {
-    // 防回归：以前写成 days % 365 / 30 配 days % 30，
-    // 两个取模都从「年」里吃天数，每满一年就凭空多 5 天
-    expect(realCalendar.describeElapsed(400 * 86400000)).toBe(
-      t('calendar.elapsed', {
-        parts: [
-          t('calendar.years', { years: 1 }),
-          t('calendar.months', { months: 1 }),
-          t('calendar.days', { days: 5 }),
-        ].join(' '),
-      }),
-    )
-  })
-
-  it('turns 730 days into 2 years (not 2 years and 10 days)', () => {
-    expect(realCalendar.describeElapsed(730 * 86400000)).toBe(
-      t('calendar.elapsed', { parts: t('calendar.years', { years: 2 }) }),
-    )
-  })
-
-  it('returns an empty string for zero or a negative value', () => {
-    expect(realCalendar.describeElapsed(0)).toBe('')
-    expect(realCalendar.describeElapsed(-1000)).toBe('')
-  })
-})
-
-describe('Extra branches', () => {
   it('throws on an unknown time unit (input outside the union type)', () => {
     expect(() => realCalendar.advance('2026-09-10T02:00:00.000Z', 1, 'light-year' as never)).toThrow(
       /Unknown time unit/,
     )
   })
-
-  it('still reports days once there is at least one month', () => {
-    // 45 天 = 1 个月 15 天
-    expect(realCalendar.describeElapsed(45 * 86400000)).toBe(
-      t('calendar.elapsed', {
-        parts: [t('calendar.months', { months: 1 }), t('calendar.days', { days: 15 })].join(' '),
-      }),
-    )
-  })
-
-  it('formatShort is the short format (no year)', () => {
-    const iso = '2026-09-10T02:00:00.000Z'
-    const d = new Date(iso)
-    const expected =
-      t('calendar.monthDay', { month: d.getMonth() + 1, day: d.getDate() }) +
-      t('calendar.dateSeparator') +
-      segmentName(d.getHours())
-    expect(realCalendar.formatShort(iso)).toBe(expected)
-  })
-
-  // 历法说明是提示词，在 prompts/calendar.md 里（断言在 tests/prompts.test.ts）
 })
 
 describe('Calendar registry', () => {

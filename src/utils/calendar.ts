@@ -1,34 +1,22 @@
 /**
- * src/utils/calendar.ts —— 历法。
+ * src/utils/calendar.ts —— 现实公历的**算术**（card/3 的 real 预设用它）。
  *
- * ## 参数把关（模型给的是**外部输入**，检查只有三类，别再加）
+ * 时间推进的入口在 game/card-calendar.ts：卡声明用哪个历法、推进多少**分钟**，
+ * 这里只负责「现实公历」这一种的显示与加减。日期加减全部交给 JavaScript 的 Date，
+ * 不手写除法：手写估算会在「1 月 31 日 + 1 个月」与「闰年 2 月 28 日 + 1 天」
+ * 这类边界上翻车。自定义历法（均分时段 / 月 / 年）不走这里 —— 它有自己的一套。
  *
- *   1. 单位必须是协议枚举里的 6 个规范值之一（见 agent/tools.ts 的 toolSchemas()）
- *   2. step 必须 >= 1（时间是单向的）
- *   3. 防呆：一次推 1000 年以上视为手滑
- * **跨度本身没有上限** —— 那是玩法，不是错误。
- *
- * ## 当前只有一种：现实日历
- *
- * 游戏从**玩家开始玩的那一刻**的真实时间开始，之后按真实公历走。日期加减全部交给
- * JavaScript 的 Date，不手写除法：手写估算会在「1 月 31 日 + 1 个月」与
- * 「闰年 2 月 28 日 + 1 天」这类边界上翻车。
- *
- * ## 内部统一用 ISO 时刻
- *
- * 状态里存的是一个绝对时刻（ISO 字符串），显示成什么样由这里决定 —— 以后真要换历法，
- * 同一时刻换个显示方式即可，不用迁移存档。
+ * ⚠️ 这里**没有**「给模型看的历法说明」：提示词内容一律在 prompts/ 下，由 prompts.ts 装配；
+ *    也**没有**任何面向模型的时间参数校验 —— 那张表由卡的 actions 推导（card-actions.ts）。
  */
 
 import { t } from '../i18n'
 
-/** 时段键（协议/内部用）；显示名走 locale 的 calendar.segment.* */
-export const SEGMENTS = ['morning', 'afternoon', 'evening'] as const
+/** 时段键（内部用）；显示名走 locale 的 calendar.segment.* */
+const SEGMENTS = ['morning', 'afternoon', 'evening'] as const
 
-/** 唯一的单位表：类型与运行时校验都从它派生（agent/tools.ts 的 schema enum 也从这里取） */
-export const TIME_UNITS = ['segment', 'hour', 'day', 'week', 'month', 'year'] as const
-
-type TimeUnit = (typeof TIME_UNITS)[number]
+/** 推进时间用的单位（`realCalendar.advance` 的 step 单位） */
+type TimeUnit = 'segment' | 'hour' | 'day' | 'week' | 'month' | 'year'
 
 interface AdvanceResult {
   iso: string
@@ -39,14 +27,8 @@ interface AdvanceResult {
 interface Calendar {
   /** 「2026 年 9 月 10 日 · 星期四 · 晚上」 */
   format(iso: string): string
-  /** 「9 月 10 日 · 晚上」 */
-  formatShort(iso: string): string
   /** 推进时间 */
   advance(iso: string, step: number, unit: TimeUnit): AdvanceResult
-  /** 把毫秒差说成人话 */
-  describeElapsed(ms: number): string
-  // ⚠️ 这里**没有**「给模型看的历法说明」—— 提示词内容一律在
-  //    prompts/calendar.md（提示词与代码分离，由 prompts.ts 装配）
 }
 
 /** 把小时数映射到时段索引 */
@@ -75,13 +57,6 @@ export const realCalendar: Calendar = {
     return `${date}${sep}${t(`calendar.weekday.${d.getDay()}`)}${sep}${segmentName(d.getHours())}`
   },
 
-  /** 简短时间标签，侧栏时间线用 */
-  formatShort(iso: string): string {
-    const d = new Date(iso)
-    const date = t('calendar.monthDay', { month: d.getMonth() + 1, day: d.getDate() })
-    return `${date}${t('calendar.dateSeparator')}${segmentName(d.getHours())}`
-  },
-
   /** 按单位推进时刻 */
   advance(iso: string, step: number, unit: TimeUnit): AdvanceResult {
     const d = new Date(iso)
@@ -104,7 +79,7 @@ export const realCalendar: Calendar = {
       case 'month':
         // ⚠️ 已知语义：月末会**向上溢出**。1 月 31 日 + 1 个月 = 3 月 3 日
         //    （整个 2 月被跳过），因为 Date 按天数溢出而非 clamp 到月末。
-        //    这是 JavaScript Date 的既定行为，见 AGENTS.md 待办 #4。
+        //    这是 JavaScript Date 的既定行为。
         d.setMonth(d.getMonth() + step)
         break
       case 'year':
@@ -119,48 +94,6 @@ export const realCalendar: Calendar = {
 
     return { iso: d.toISOString(), elapsedMs: d.getTime() - before }
   },
-
-  /**
-   * 把毫秒差说成人话。
-   *
-   * ⚠️ 这是**时长换算**，不是日历跨度：1 年按 365 天、1 个月按 30 天折算，
-   *   所以「1 个月」不等于日历上的任何一个月。要精确表达日期差，
-   *   得同时知道起止两个时刻（本函数只拿到差值，做不到）。
-   *
-   * 逐级剥离：先年、再月、最后天。不能用 `days % 365 / 30` 配 `days % 30` ——
-   * 365 = 12×30 + 5，那样两个取模都从"年"里吃天数，每满一年就凭空多出 5 天。
-   */
-  describeElapsed(ms: number): string {
-    if (ms <= 0) return ''
-    const totalMinutes = Math.round(ms / 60000)
-    const days = Math.floor(totalMinutes / 1440)
-    const hours = Math.floor((totalMinutes % 1440) / 60)
-
-    if (days === 0) {
-      if (hours > 0) return t('calendar.elapsedHours', { hours })
-      return totalMinutes > 0 ? t('calendar.elapsedMinutes', { minutes: totalMinutes }) : ''
-    }
-
-    // 不足一年：按月 + 天
-    if (days < 365) {
-      const months = Math.floor(days / 30)
-      const remDays = days % 30
-      const parts: string[] = []
-      if (months) parts.push(t('calendar.months', { months }))
-      if (remDays) parts.push(t('calendar.days', { days: remDays }))
-      return t('calendar.elapsed', { parts: parts.join(' ') })
-    }
-
-    // 一年以上：年 + 月 + 天，逐级从余数里剥，谁都不重复吃
-    const years = Math.floor(days / 365)
-    const afterYears = days % 365
-    const months = Math.floor(afterYears / 30)
-    const remDays = afterYears % 30
-    const parts: string[] = [t('calendar.years', { years })]
-    if (months) parts.push(t('calendar.months', { months }))
-    if (remDays) parts.push(t('calendar.days', { days: remDays }))
-    return t('calendar.elapsed', { parts: parts.join(' ') })
-  },
 }
 
 /**
@@ -169,64 +102,4 @@ export const realCalendar: Calendar = {
  */
 export function nowIso(): string {
   return new Date().toISOString()
-}
-
-/** 一次推进的防呆上限：超过这个量级视为手滑，不是玩法 */
-const MAX_YEARS = 1000
-const YEARS_PER_UNIT: Record<TimeUnit, number> = {
-  segment: 4 / 8760,
-  hour: 1 / 8760,
-  day: 1 / 365,
-  week: 7 / 365,
-  month: 1 / 12,
-  year: 1,
-}
-
-type AdvanceOutcome = { ok: true; iso: string; elapsedMs: number } | { ok: false; message: string }
-
-function isTimeUnit(value: unknown): value is TimeUnit {
-  return typeof value === 'string' && (TIME_UNITS as readonly string[]).includes(value)
-}
-
-/** 校验并推进一个 ISO 时刻；失败返回结构化错误（交给模型改参数重试） */
-export function advanceTime(iso: string, step: unknown, unit: unknown, currentLabel: string): AdvanceOutcome {
-  // 未提供按默认单位处理；提供了就必须是规范值，不做任何容错猜测
-  const resolved: unknown = unit == null ? 'segment' : unit
-  if (!isTimeUnit(resolved)) {
-    return {
-      ok: false,
-      message:
-        'Unknown time unit: ' +
-        `${JSON.stringify(unit)}` +
-        '. Expected one of: ' +
-        TIME_UNITS.join(', ') +
-        '. Current time: ' +
-        currentLabel,
-    }
-  }
-
-  // 不填（undefined）按 1 处理；填了但非法（"many" / NaN / Infinity）→ 回传结构化错误，
-  // 让模型自己改。静默当成 1 属于「替模型决定」，违反「出错就回传」。
-  if (step !== undefined && !Number.isFinite(Number(step))) {
-    return {
-      ok: false,
-      message: 'Invalid step: ' + JSON.stringify(step) + ' is not a number. Current time: ' + currentLabel,
-    }
-  }
-  const n = step === undefined ? 1 : Math.round(Number(step))
-
-  if (n <= 0) {
-    const why = n < 0 ? 'time cannot move backwards' : 'time cannot stand still'
-    return { ok: false, message: `Invalid step: ${why}. Current time: ${currentLabel}` }
-  }
-
-  if (n * YEARS_PER_UNIT[resolved] > MAX_YEARS) {
-    return {
-      ok: false,
-      message: `Step too large: ${n} ${resolved} exceeds the ${MAX_YEARS}-year guard. Ignored. Current time: ${currentLabel}`,
-    }
-  }
-
-  const { iso: next, elapsedMs } = realCalendar.advance(iso, n, resolved)
-  return { ok: true, iso: next, elapsedMs }
 }

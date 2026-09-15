@@ -1,154 +1,157 @@
 /**
- * 卡测试的共享夹具 —— 校验器与卡图（tests/card-graph.test.ts）都用这一份。
+ * 卡测试的共享夹具 —— 校验 / 状态 / 动作 / 渲染四组用例都用这一份。
  *
- * 最小卡故意小到只剩结构：两个节点、拓扑就两条、设定块各一行。
- * 校验器的反例都在它的副本上改一处，于是「被拒」能归因到那一处；
- * 卡图那侧用它证明图的形状全部从 JSON 推得出来 —— 不认《晨风镇》的任何事实。
+ * 最小卡故意小到只剩结构：两个节点、一份小状态、三个动作（path / time / redo 三种形状）。
+ * 校验器的反例都在它的副本上改一处，于是「被拒」能归因到那一处；其余用例用它证明
+ * 那些机制只认卡里的声明，不认特定一张卡的内容。
+ *
+ * ⚠️ 全部字符串都是 ASCII：.githooks/checks/ascii.mjs 连测试里的中文字面量也拦。
  */
-import {
-  CN_FIVE,
-  CN_FOUR,
-  CN_TEN,
-  CN_TWO,
-  SETTING_BLOCKS,
-  KEY_AREA,
-  KEY_AUTHOR,
-  KEY_BLOCK,
-  KEY_CALENDAR,
-  KEY_CAN_NAME,
-  KEY_CARD,
-  KEY_CARRY,
-  KEY_COMPAT,
-  KEY_CONVENTION,
-  KEY_DECL,
-  KEY_DEFAULT_NAME,
-  KEY_DISPLAY,
-  KEY_DUTY,
-  KEY_FORMAT,
-  KEY_GENERATORS,
-  KEY_GRAPH,
-  KEY_ID,
-  KEY_INHERENT,
-  KEY_INITIAL,
-  KEY_LANGUAGE,
-  KEY_NAME,
-  KEY_NODES,
-  KEY_NODE_NAME,
-  KEY_NOTES,
-  KEY_NOW,
-  KEY_OPENING,
-  KEY_OPENING_REQUIREMENTS,
-  KEY_OUTPUT,
-  KEY_PLACE,
-  KEY_PLACES,
-  KEY_PLAYER,
-  KEY_PRINCIPLE,
-  KEY_PROFILE,
-  KEY_PROFILE_INITIAL,
-  KEY_PROMPT,
-  KEY_RANGE,
-  KEY_RELATION,
-  KEY_ROLE,
-  KEY_SCENE,
-  KEY_SCRIPT,
-  KEY_SETTING,
-  KEY_SIDEBAR,
-  KEY_STAGES,
-  KEY_START,
-  KEY_START_TIME,
-  KEY_STATE,
-  KEY_TIER,
-  KEY_TOPOLOGY,
-  KEY_TYPE,
-  KEY_VALUES,
-  KEY_VERSION,
-  KEY_WORLD,
-  PUNCT_COLON,
-  PUNCT_PERIOD,
-  WORD_STAGE,
-} from '../../src/game/card-keys'
+import { readFileSync } from 'node:fs'
+import { parseCard, type CardData } from '../../src/game/card'
 
-/** 仓库里的示例卡 —— 卡的唯一事实来源，校验器与卡图都以它为准 */
+/** 仓库里的示例卡 —— 九节点那张（卡的唯一事实来源之一） */
 export const EXAMPLE_CARD = 'cards/morningwind.json'
+
+/** 格式验收样板 —— 设计第 11 节那张最小完整卡 */
+export const NIGHT_WATCH_CARD = 'cards/night-watch.json'
+
+/** 第二张卡 —— 两个节点的最小卡 */
+export const LONG_NIGHT_CARD = 'cards/long-night.json'
 
 /** 夹具里两个节点的 id（拓扑里各出现一次） */
 export const NODE_A = 'first'
 export const NODE_B = 'second'
 
-/** 夹具里生成器原则的后半截（「个地点一个不少」）；测试代码也得是 ASCII，所以转义写 */
-const PLACES_TAIL = '\u4e2a\u5730\u70b9\u4e00\u4e2a\u4e0d\u5c11'
-/** 夹具里生成器的第一条原则：两个地点（数字必须跟必有地点数对得上） */
-export const PRINCIPLE_TWO = CN_TWO + PLACES_TAIL
-/** 同一个原则的「十个地点」版本 —— 用来走汉字数字的另一条解析路径 */
-export const PRINCIPLE_TEN = CN_TEN + PLACES_TAIL
-/** 同一个原则的「二十个地点」版本 */
-export const PRINCIPLE_TWENTY = CN_TWO + CN_TEN + PLACES_TAIL
-
-/** 夹具里说明.状态：四段：固有 / 关系 / 携带 / 当下。 */
-export const NOTE =
-  CN_FOUR +
-  WORD_STAGE +
-  PUNCT_COLON +
-  [KEY_INHERENT, KEY_RELATION, KEY_CARRY, KEY_NOW].join(' / ') +
-  PUNCT_PERIOD
-
-/** 图里的一个节点：三个键齐备（名 / 职责 / 输出）*/
-function node(name: string): Record<string, unknown> {
-  return { [KEY_NODE_NAME]: name, [KEY_DUTY]: 'duty', [KEY_OUTPUT]: { value: 'string' } }
+/**
+ * 把仓库里的一张真卡读进来（走 card.ts 的校验）。
+ *
+ * 夹具只用仓库里的卡，不手抄第二份 —— 卡改了，测试跟着卡走。
+ */
+export function loadCard(path: string): CardData {
+  return parseCard(readFileSync(path, 'utf8'))
 }
 
-/** 一份处处自洽的最小卡 —— 校验器的每个反例都只改它的一处 */
+/** 一份处处自洽的最小卡 —— 每个反例都只改它的一处 */
 export function minimalCard(): Record<string, unknown> {
   return {
-    [KEY_CARD]: {
-      [KEY_ID]: 'tester.demo',
-      [KEY_NAME]: 'demo',
-      [KEY_VERSION]: '0.1.0',
-      [KEY_COMPAT]: '>=0.1.0',
-      [KEY_AUTHOR]: 'tester',
-      [KEY_FORMAT]: 'card/2',
-      [KEY_LANGUAGE]: 'zh-CN',
+    card: {
+      id: 'tester.demo',
+      name: 'demo',
+      version: '0.1.0',
+      compat: '>=0.9.0',
+      author: 'tester',
+      format: 'card/3',
+      language: 'en',
+      summary: 'a minimal card',
     },
-    [KEY_DECL]: {
-      [KEY_GRAPH]: {
-        [KEY_TOPOLOGY]: [NODE_A, NODE_B],
-        [KEY_NODES]: { [NODE_A]: node(NODE_A), [NODE_B]: node(NODE_B) },
-      },
-      [KEY_STATE]: {
-        [KEY_ROLE]: {
-          [KEY_INHERENT]: {
-            strength: { [KEY_TYPE]: 'number', [KEY_INITIAL]: 3, [KEY_RANGE]: [1, 10] },
-            race: { [KEY_TYPE]: 'string', [KEY_INITIAL]: 'human' },
-          },
-          [KEY_RELATION]: [],
-          [KEY_CARRY]: [],
-          [KEY_NOW]: [],
-          [KEY_TIER]: { [KEY_TYPE]: 'string', [KEY_INITIAL]: 'main', [KEY_VALUES]: ['main', 'minor'] },
+    settings: {
+      world: ['a small world'],
+      core: ['nothing is magic here'],
+      common: ['rope', 'lamp'],
+      style: ['short sentences'],
+      lead: ['an ordinary person'],
+    },
+    script: { truth: 'nothing is what it seems' },
+    convention: ['write text only', 'no json blocks'],
+    graph: {
+      topology: [NODE_A, NODE_B],
+      nodes: {
+        [NODE_A]: {
+          name: 'first',
+          duty: 'does the first thing',
+          prompt: ['prompt line'],
+          tools: ['set_place'],
+          reads: ['world'],
+          uses: ['places'],
         },
-        [KEY_PLAYER]: { [KEY_PROFILE]: {}, [KEY_PROFILE_INITIAL]: ['profile'] },
+        [NODE_B]: {
+          name: 'second',
+          duty: 'writes the story',
+          prompt: ['prompt line'],
+          role: 'story',
+          tools: [],
+        },
       },
-      [KEY_WORLD]: { [KEY_CALENDAR]: 'real', [KEY_AREA]: [{ [KEY_PLACES]: ['one', 'two'] }] },
-      [KEY_GENERATORS]: [{ [KEY_PRINCIPLE]: [PRINCIPLE_TWO] }],
-      [KEY_OPENING]: {
-        [KEY_START_TIME]: '2026-09-14T19:30',
-        [KEY_START]: { [KEY_AREA]: 'town', [KEY_PLACE]: 'inn', [KEY_SCENE]: 'hall' },
-        [KEY_CAN_NAME]: true,
-        [KEY_DEFAULT_NAME]: 'tester',
+    },
+    actions: {
+      set_place: { what: 'move the lead', path: 'world.location' },
+      move_lead: { what: 'merge the lead now', path: 'lead.now', mode: 'merge' },
+      add_role: { what: 'write a role', path: 'roles', key: 'name', mode: 'merge' },
+      set_where: { what: 'record where someone is', path: 'world.whoIsWhere', key: 'who' },
+      grow: { what: 'append a line', path: 'lead.pack', mode: 'push' },
+      advance_time: { what: 'pass time', effect: 'time' },
+      redo: { what: 'redo a step', effect: 'redo' },
+    },
+    state: {
+      lead: {
+        type: 'object',
+        fields: {
+          name: { type: 'string', initial: 'nobody' },
+          pack: { type: 'list', initial: ['rope'], of: 'string' },
+          now: {
+            type: 'object',
+            fields: { mood: 'string', injuries: { type: 'list', of: 'string' } },
+          },
+        },
       },
-      [KEY_DISPLAY]: { [KEY_SIDEBAR]: [{ [KEY_BLOCK]: 'map' }] },
+      roles: {
+        type: 'map',
+        initial: {},
+        of: {
+          type: 'object',
+          fields: {
+            tier: {
+              type: 'enum',
+              values: ['major', 'minor'],
+              note: 'major gets four segments',
+            },
+            mood: 'string',
+          },
+        },
+      },
+      world: {
+        type: 'object',
+        fields: {
+          location: {
+            type: 'object',
+            initial: { area: 'a', spot: 'b', scene: 'c' },
+            fields: { area: 'string', spot: 'string', scene: 'string' },
+            note: 'where the lead is',
+          },
+          map: {
+            type: 'map',
+            initial: {},
+            of: { type: 'object', fields: { kind: 'string', note: 'string' } },
+          },
+          whoIsWhere: { type: 'map', initial: {}, of: 'string' },
+        },
+      },
+      player: { type: 'object', fields: { profile: { type: 'string', initial: 'a tester' } } },
     },
-    [KEY_PROMPT]: {
-      [KEY_SETTING]: Object.fromEntries(SETTING_BLOCKS.map((block) => [block, ['line']])),
-      [KEY_SCRIPT]: { [KEY_STAGES]: [{ [KEY_STAGES]: 1 }] },
-      [KEY_CONVENTION]: [CN_FIVE + KEY_BLOCK],
-      [KEY_NODES]: { [NODE_A]: ['prompt'], [NODE_B]: ['prompt'] },
-      [KEY_OPENING_REQUIREMENTS]: ['opening'],
+    time: { calendar: 'real', initial: { year: 2026, month: 9, day: 14, hour: 19, minute: 30 } },
+    generators: [{ name: 'places', applies: 'when a place is needed', principles: ['grow one at a time'] }],
+    opening: { canName: true, defaultName: 'nobody', requirements: ['write the opening'] },
+    display: {
+      layout: 'full screen',
+      topbar: ['time', 'scene', 'turn'],
+      sidebar: [{ block: 'map' }, { block: 'cast' }, { block: 'pack' }],
+      time: 'a date and a segment',
+      scroll: 'scroll when full',
     },
-    [KEY_NOTES]: { [KEY_STATE]: NOTE, [KEY_SCRIPT]: 'script note', [KEY_OPENING]: 'opening note' },
+    notes: {
+      state: 'four segments: traits / relations / pack / now',
+      extra: ['a note line', 'another note line'],
+    },
   }
 }
 
-/** 夹具的可变副本（校验器的用例里改坏一处用）*/
+/** 夹具的可变副本（反例里改坏一处用） */
 export function fixture(): any {
-  return minimalCard()
+  return JSON.parse(JSON.stringify(minimalCard()))
+}
+
+/** 夹具的一份完整类型副本（给需要 CardData 的用例用） */
+export function typedFixture(): CardData {
+  return minimalCard() as unknown as CardData
 }

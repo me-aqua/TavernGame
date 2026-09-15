@@ -4,28 +4,41 @@
  * 重点：
  *   - abortRunningTurn 真正中止一个在飞的回合（重入保护的核心）
  *   - 取消路径（AbortError）与失败路径的区分
- *   - handleEvent 的 node / request / reply / tool / toolResult 分支（调试痕迹，不是故事）
+ *   - handleEvent 的每个调试分支（node / request / model / tool / toolResult / stateChange）
  *   - 回合成功后落盘、写不进去时通知玩家
  *   - 一轮 = 一次事务：失败的回合一字节都不写回、不落盘
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useGame } from '../src/stores/game'
+import { advance } from '../src/game/card-calendar'
+import { initialState } from '../src/game/state'
 import { t } from '../src/i18n'
+import { nodeLabel } from '../src/game/display'
+import { currentCard } from '../src/game/current-card'
 import { SAVE_KEY } from '../src/utils/storage'
 import { configureFakeProvider } from './support/game-fixtures'
-import { cardTurnReplies, CARD_TOPOLOGY, traceCycle } from './support/card-replies'
+import {
+  cardPassReplies,
+  cardTurnReplies,
+  CARD_TOPOLOGY,
+  nodeWith,
+  redoCall,
+  timeNodeOf,
+  traceCycle,
+} from './support/card-replies'
 import { installFakeLlm, installFakeLlmThen, type FakeLlm } from './support/fakeLlm'
 
-/** 测试自造的 fixture（模型回复与玩家行动），不是产品文案 */
+/* ---- 测试自己编的 fixture（模型回复与玩家行动），不是产品文案 ---- */
 const WAIT_ACTION = 'wait'
 const WAIT_REPLY = 'A long wait went by.'
 const DAWN_REPLY = 'Dawn breaks.'
 const KEEP_WAITING_ACTION = 'keep waiting'
 const NETWORK_ERROR = 'network down'
-/** 一整轮的假回复（时间推一天、叙事是 WAIT_REPLY）；失败用例按前缀截取 */
+const TIME_MINUTES = 300
+/** 一整轮的假回复（时间推 5 小时、叙事是 WAIT_REPLY）；失败用例按前缀截取 */
 const REPLIES = cardTurnReplies({
   story: WAIT_REPLY,
-  time: { step: 1, unit: 'day', reason: 'kept waiting' },
+  time: { minutes: TIME_MINUTES, reason: 'kept waiting' },
 })
 
 let fake: FakeLlm | null = null
@@ -60,7 +73,7 @@ describe('aborting an in-flight turn (store-internal abortRunningTurn)', () => {
     const g = useGame()
     const pending = g.runTurnAction(WAIT_ACTION)
     // 等 store 建好 controller 并进入 fetch
-    await new Promise((r) => setTimeout(r, 20))
+    await new Promise((resolve) => setTimeout(resolve, 20))
     expect(g.busy.value).toBe(true)
 
     g.resetGame() // 内部 abortRunningTurn() → controller.abort()
@@ -86,20 +99,23 @@ describe('handleEvent - each trace branch (debug only)', () => {
     await g.runTurnAction(WAIT_ACTION)
 
     // 每个节点一行 node + 每次模型调用一对请求/响应；
-    // 时间节点走了一次工具往返：多「工具调用 / 工具结果」两行 + 第二对请求/响应
-    const kinds = debugRows(g).map((l) => l.kind)
+    // 时间节点走了一次工具往返：多 warn / 工具调用 / 工具结果 / 状态写入四行 + 第二对请求/响应
+    const kinds = debugRows(g).map((row) => row.kind)
     expect(kinds).toEqual(traceCycle(true))
-    expect(debugRows(g).map((l) => l.text)).toContain(t('store.nodeLine', { node: CARD_TOPOLOGY[0] }))
-    // 工具那两行就是它该显示的内容（模型申请了什么、引擎执行出什么）
-    expect(debugRows(g).map((l) => l.kind)).toContain('tool')
-    expect(debugRows(g).map((l) => l.kind)).toContain('toolResult')
+    expect(debugRows(g).map((row) => row.text)).toContain(
+      t('store.nodeLine', { node: nodeLabel(currentCard, CARD_TOPOLOGY[0]) }),
+    )
+    // 工具那几行就是它该显示的内容（模型申请了什么、引擎执行出什么、写到了哪）
+    expect(kinds).toContain('tool')
+    expect(kinds).toContain('toolResult')
+    expect(kinds).toContain('stateChange')
 
-    // 故事区只有故事：节点进度是 agent 信息，玩家看不到
-    expect(storyRows(g).map((l) => l.kind)).toEqual(['action', 'narration'])
+    // 故事区只有故事：一条行动 + 一段叙事；节点进度是 agent 信息，玩家看不到
+    expect(storyRows(g).map((row) => row.kind)).toEqual(['action', 'narration'])
     g.debugMode.value = false
   })
 
-  it('with debug mode on, every raw branch records parseable JSON', async () => {
+  it('with debug mode on, the raw branches record parseable JSON', async () => {
     const g = useGame()
     g.debugMode.value = true
     fake = installFakeLlm(REPLIES)
@@ -109,13 +125,81 @@ describe('handleEvent - each trace branch (debug only)', () => {
     fake = null
 
     const rawRows = debugRows(g).filter((row) => row.detail !== undefined)
-    // 每次调用两条：请求体 + 响应体，都是可折叠的 JSON。
-    // ⚠️ node / warn / tool / toolResult 没有 detail（不是可折叠的原始报文），
-    //    所以这里只留下 traceCycle(true) 里的 request / reply
+    // 每次调用两条请求体/响应体 + 工具参数（协议原样的 JSON）+ 状态写入值（JSON）；
+    // 工具结果是回传给模型的**文字**（可能是一句人话），所以它不是 JSON
     expect(rawRows.map((row) => row.kind)).toEqual(
-      traceCycle(true).filter((k) => k === 'request' || k === 'reply'),
+      traceCycle(true).filter((kind) => kind !== 'node' && kind !== 'warn'),
     )
-    for (const row of rawRows) expect(() => JSON.parse(row.detail ?? '')).not.toThrow()
+    for (const row of rawRows) {
+      if (row.kind === 'toolResult') continue
+      expect(() => JSON.parse(row.detail ?? ''), row.kind).not.toThrow()
+    }
+    g.debugMode.value = false
+  })
+
+  it('the write list holds every state write of the round, in order', async () => {
+    const g = useGame()
+    g.debugMode.value = true
+    fake = installFakeLlm(REPLIES)
+    await g.runTurnAction(WAIT_ACTION)
+    fake.restore()
+    fake = null
+
+    expect(g.debugWrites.value.map((write) => write.path)).toEqual(['time'])
+    expect(g.debugDraft.value).toBeNull()
+    g.debugMode.value = false
+  })
+
+  it('writes the redo trace with the node it rolled back to (the panel marks it red)', async () => {
+    const back = nodeWith('move_to')
+    const verify = nodeWith('redo')
+    const why = 'the map is wrong'
+    const first = cardPassReplies(CARD_TOPOLOGY, (id) => (id === verify ? redoCall(back, why) : undefined))
+    const rerun = cardPassReplies(CARD_TOPOLOGY.slice(CARD_TOPOLOGY.indexOf(back)), (id) =>
+      id === verify ? 'verified' : undefined,
+    )
+    fake = installFakeLlm([...first, ...rerun])
+
+    const g = useGame()
+    g.debugMode.value = true
+    await g.runTurnAction(WAIT_ACTION)
+    fake.restore()
+    fake = null
+
+    // 那一行写出来是给玩家看的文案，但结构化字段必须带上被退回的节点
+    const saved = JSON.parse(g.exportSave()) as {
+      events: Array<{ kind: string; node?: string; detail?: string; text: string }>
+    }
+    const redo = saved.events.find((event) => event.kind === 'warn' && event.node === back)
+    expect(redo?.detail).toBe(why)
+    expect(redo?.text).toBe(t('store.redoLine', { node: nodeLabel(currentCard, back), why }))
+    // 图例据此把这个节点标红
+    expect(g.debugFailedNodes.value).toContain(back)
+    g.debugMode.value = false
+  })
+
+  it('keeps the structured trace fields (node / tool / path) across a save round-trip', async () => {
+    const g = useGame()
+    g.debugMode.value = true
+    fake = installFakeLlm(REPLIES)
+    await g.runTurnAction(WAIT_ACTION)
+    fake.restore()
+    fake = null
+
+    // 面板读的就是结构化字段：哪个节点、什么工具、写了哪条路径
+    const timeNode = timeNodeOf()
+    const before = g.exportSave()
+    expect(g.debugTools.value.map((call) => [call.node, call.tool])).toEqual([[timeNode, 'advance_time']])
+    expect(g.debugTools.value[0].writes.map((write) => write.path)).toEqual(['time'])
+
+    // 落盘再读回来：这三个字段必须一起回来（save.ts 的清洗不许丢）
+    g.importSave(before)
+    expect(g.debugTools.value.map((call) => [call.node, call.tool])).toEqual([[timeNode, 'advance_time']])
+    expect(g.debugTools.value[0].writes.map((write) => write.path)).toEqual(['time'])
+    expect(g.debugTools.value[0].writes[0].value).toEqual(
+      advance(currentCard.time.calendar, initialState().data.time, TIME_MINUTES),
+    )
+
     g.debugMode.value = false
   })
 })
@@ -151,8 +235,8 @@ describe('a save that fails must be announced (the store owns persistence)', () 
 
 describe('one turn = one transaction (the composition root commits)', () => {
   /**
-   * ⚠️ 失败点必须在「已经改过数据」之后：第一个节点已经调用过模型（行动写进了副本），
-   * 第二个节点的请求失败 —— 这正是审查报的那个形状。
+   * ⚠️ 失败点必须在「已经改过数据」之后：前面几个节点已经调用过模型、时间也推过，
+   * 之后某个节点的请求失败 —— 这正是审查报的那个形状。
    */
   it('a failed turn leaves memory and storage untouched, and the next save holds only itself', async () => {
     fake = installFakeLlmThen([REPLIES[0]], () => {
@@ -165,7 +249,7 @@ describe('one turn = one transaction (the composition root commits)', () => {
 
     await expect(g.runTurnAction(WAIT_ACTION)).rejects.toThrow(NETWORK_ERROR)
 
-    // 时间 / 日志 / 时间线 / 回合数逐字节相同，localStorage 一次都没写
+    // 时间 / 事件流 / 时间线 / 回合数逐字节相同，localStorage 一次都没写
     expect(g.exportSave()).toBe(before)
     expect(setItem).not.toHaveBeenCalled()
     expect(g.turn.value).toBe(0)
@@ -173,9 +257,9 @@ describe('one turn = one transaction (the composition root commits)', () => {
     expect(g.timeline.value).toEqual([])
     setItem.mockRestore()
 
-    // 下一次成功回合只持久化它自己：没有「被取消的行动 + 已推进的时间 + 没有对应剧情」
+    // 下一次成功回合只持久化它自己：没有「被丢弃的那一轮 + 已推进的时间」
     fake.restore()
-    fake = installFakeLlm(cardTurnReplies({ story: DAWN_REPLY, time: { step: 1, unit: 'day' } }))
+    fake = installFakeLlm(cardTurnReplies({ story: DAWN_REPLY, time: { minutes: TIME_MINUTES } }))
     await g.runTurnAction(KEEP_WAITING_ACTION)
 
     const saved = JSON.parse(localStorage.getItem(SAVE_KEY) as string) as {
@@ -183,15 +267,16 @@ describe('one turn = one transaction (the composition root commits)', () => {
       timeline: unknown[]
       meta: { turn: number }
     }
-    expect(saved.events.map((e) => e.kind)).toEqual(['action', 'narration'])
+    expect(saved.events.map((event) => event.kind)).toEqual(['action', 'narration'])
     expect(saved.events[0].text).toBe(KEEP_WAITING_ACTION)
+    expect(saved.events[1].text).toBe(DAWN_REPLY)
     // 时间线只有成功那一轮的一条 —— 失败那轮的时间推进没有留下任何东西
     expect(saved.timeline).toHaveLength(1)
     expect(saved.meta.turn).toBe(1)
   })
 
   /**
-   * 用户可见的变化：叙事在**提交时**整轮一起出现，不再是每个节点实时出现。
+   * 用户可见的变化：叙事在**提交时**整轮一起出现，不是每个节点实时出现。
    * 实时写就等于把未提交的改动先摆给玩家看 —— 事务与「边跑边显示」不可兼得（决定 #39）。
    */
   it('while a turn is in flight, the draft is not visible in the store', async () => {
@@ -212,7 +297,7 @@ describe('one turn = one transaction (the composition root commits)', () => {
     const pending = g.runTurnAction(WAIT_ACTION)
     await reachedSecondStep
 
-    // 第一个节点已经跑过（行动已经写进副本），但界面这一侧一个字节都看不到
+    // 第一个节点已经跑过，但界面这一侧一个字节都看不到
     expect(storyRows(g)).toEqual([])
     expect(g.timeline.value).toEqual([])
     expect(g.timeLabel.value).toBe(startTime)

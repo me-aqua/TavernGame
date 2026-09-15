@@ -1,11 +1,13 @@
 /**
- * src/game/save.ts —— 一份存档的形状与校验
+ * src/game/save.ts —— 一份存档的形状、校验与卡的身份。
  *
  * 这里处理的都是**外部数据**（用户能手改、能从文件导入），按纪律只有系统边界
  * 才做校验，所以校验集中在这里；state.ts 只管「校验通过之后」的行为。
  *
- * ⚠️ 只认当前格式。产品未发布，没有旧存档要兼容 —— 形状不对就拒绝（抛错），
- *    不做字段改名、不做版本迁移。
+ * 存档记的是 { meta: { turn, card }, time, state, events, timeline }：
+ *   · state 就是卡的 instantiate() 那棵树（引擎不认识它的形状，只按卡的 schema 校验）；
+ *   · time 是引擎持有的历法时刻（**不在**卡的 state 里）；
+ *   · card 是这一局的身份 —— 缺卡 / id / 版本 / 格式不同一律拒绝，不拿旧状态硬跑新卡。
  *
  * 事件流的分类与上限也在这一层：哪些 kind 算「故事」、哪些算「调试」、各留多少条
  * —— 这是形状的一部分，别处不许再写一份。
@@ -14,8 +16,12 @@
  */
 
 import { nowIso } from '../utils/calendar'
+import { checkTime, type TimeValue } from './card-calendar'
+import { instantiate, validateValue, type StateTree } from './card-state'
+import { at } from './card-read'
 import { t } from '../i18n'
-import type { EventKind, GameData, GameEvent, StoryKind, TimelineEntry } from '../types/state'
+import type { CardData } from './card'
+import type { CardIdentity, EventKind, GameData, GameEvent, StoryKind, TimelineEntry } from '../types/state'
 
 /** 事件流的两类上限（写时裁剪；读档时也用它裁剪）—— 分别计数，见 trimEvents */
 export const MAX_STORY = 80
@@ -29,25 +35,26 @@ export const MAX_TIMELINE = 40
  *    （数组只能保证「写进来的都合法」，保证不了「该有的都在」）。
  */
 const EVENT_KINDS: Record<EventKind, true> = {
-  narration: true,
   action: true,
-  system: true,
+  narration: true,
+  node: true,
+  thinking: true,
   request: true,
-  reply: true,
+  model: true,
   tool: true,
   toolResult: true,
+  stateChange: true,
   warn: true,
-  node: true,
 }
 
 /**
  * 这是不是「故事」（玩家与模型该看到的那部分）。
  *
- * 故事 = 已经发生的事；调试 = 只有开发者在调试模式下要看的过程。
- * 界面投影与模型快照都用它筛选 —— 判断标准只有这一处，别处不许再判一次。
+ * 故事 = 已经发生的事（玩家说了什么 + GM 写了什么）；调试 = 只有开发者在调试模式下
+ * 要看的过程。界面投影、存档裁剪与模型记忆都用它 —— 判断标准只有这一处，别处不许再判。
  */
 export function isStoryKind(kind: EventKind): kind is StoryKind {
-  return kind === 'narration' || kind === 'action' || kind === 'system'
+  return kind === 'action' || kind === 'narration'
 }
 
 /**
@@ -79,26 +86,123 @@ export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-/** 时刻必须能被 Date 解析，否则用当前时间（比让整局卡死好） */
-function pickIso(v: unknown): string {
-  return typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : nowIso()
+// ---------- 卡的身份 ----------
+
+/** 一张卡的身份 —— 存档认亲用（名字只给人看，判亲只比 id / 版本 / 格式） */
+export function identityOf(card: CardData): CardIdentity {
+  return {
+    id: card.card.id,
+    name: card.card.name,
+    version: card.card.version,
+    format: card.card.format,
+  }
+}
+
+/** 身份写成一行给人看的文本（报错信息里两边各说一次） */
+function describeCard(identity: CardIdentity): string {
+  return identity.id + '@' + identity.version + ' (' + identity.format + ')'
+}
+
+/**
+ * 存档认亲：缺卡 / id / 版本 / 格式不同都抛错。
+ *
+ * 为什么不「尽力兼容」：存档里的 state 是按**另一张卡的 schema** 长的，
+ * 拿它硬跑新卡就是拿一份形状对不上的数据去写界面与提示词 —— 拒绝并说明，
+ * 玩家还能导出旧存档抢救（调用方负责备份）。
+ */
+function checkIdentity(saved: unknown, card: CardData): void {
+  if (!isRecord(saved)) throw new Error(t('save.cardMissing'))
+  const savedId = saved.id
+  const savedVersion = saved.version
+  const savedFormat = saved.format
+  if (typeof savedId !== 'string' || typeof savedVersion !== 'string' || typeof savedFormat !== 'string') {
+    throw new Error(t('save.cardMissing'))
+  }
+  const identity = identityOf(card)
+  if (savedId !== identity.id || savedVersion !== identity.version || savedFormat !== identity.format) {
+    const other = { id: savedId, name: savedId, version: savedVersion, format: savedFormat }
+    throw new Error(t('save.cardMismatch', { saved: describeCard(other), current: describeCard(identity) }))
+  }
+}
+
+// ---------- 新游戏的第一帧 ----------
+
+/**
+ * 新游戏的第一帧：状态树来自卡的 state（初值也在卡里）、时刻来自卡的 time.initial、
+ * 身份来自卡的 card。引擎不写死任何一样（决定 #42）。
+ */
+export function createInitialState(card: CardData): GameData {
+  return {
+    meta: { turn: 0, card: identityOf(card) },
+    time: { ...card.time.initial },
+    state: instantiate(card),
+    events: [],
+    timeline: [],
+  }
+}
+
+// ---------- 读档 ----------
+
+/** 回合数必须是数字：字符串会被 endTurn 拼成 "51" */
+function pickTurn(v: unknown): number {
+  const n = Number(v)
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0
+}
+
+/**
+ * 存档里的时刻必须落在这张卡的历法里（月 13、时 24 都由 checkTime 拦下）。
+ * 缺字段（手改坏了 / 半份旧数据）退回卡的起始时刻 —— 时间不该让整局打不开。
+ */
+function pickTime(card: CardData, value: unknown): TimeValue {
+  if (value === undefined) return { ...card.time.initial }
+  try {
+    return { ...checkTime(card.time.calendar, value, 'time') }
+  } catch (err) {
+    throw new Error(t('save.badTime', { message: (err as Error).message }), { cause: err })
+  }
+}
+
+/** 状态树按卡的 schema 校验：认不出的分支与对不上的值都拒绝（卡认亲之后 schema 就是同一份） */
+function pickState(card: CardData, value: unknown): StateTree {
+  if (!isRecord(value)) throw new Error(t('save.badState', { message: 'state must be an object' }))
+  for (const [branch, branchValue] of Object.entries(value)) {
+    const schema = card.state[branch]
+    if (schema === undefined) {
+      throw new Error(t('save.badState', { message: at('state', branch) + ': unknown branch' }))
+    }
+    const problem = validateValue(schema, branchValue, 'state.' + branch, true)
+    if (problem !== null) throw new Error(t('save.badState', { message: problem }))
+  }
+  return value as StateTree
 }
 
 /**
  * 事件流的边界清洗：kind 不认识就丢掉（手改过的存档里什么都可能有），
- * text 缺失补空串，detail 只接受字符串。最后按类裁剪到上限。
+ * text 缺失补空串，detail / node / tool / path 只收字符串，value 只收 stateChange 的。
+ * 最后按类裁剪到上限。
+ *
+ * ⚠️ node / tool / path 是调试面板的结构化字段，必须跟着存档来回 —— 丢了它们，
+ *    面板就只能回去反解文案。
  */
 function sanitizeEvents(list: unknown): GameEvent[] {
   if (!Array.isArray(list)) return []
-  const events = list
-    .filter(isRecord)
-    .filter((x) => typeof x.kind === 'string' && Object.hasOwn(EVENT_KINDS, x.kind))
-    .map((x) => ({
-      kind: x.kind as EventKind,
-      text: String(x.text ?? ''),
-      ...(typeof x.detail === 'string' ? { detail: x.detail } : {}),
-      at: typeof x.at === 'string' ? x.at : nowIso(),
-    }))
+  const events: GameEvent[] = []
+  for (const item of list) {
+    if (!isRecord(item)) continue
+    if (typeof item.kind !== 'string' || !Object.hasOwn(EVENT_KINDS, item.kind)) continue
+    const kind = item.kind as EventKind
+    const event: GameEvent = {
+      kind,
+      text: String(item.text ?? ''),
+      at: typeof item.at === 'string' ? item.at : nowIso(),
+    }
+    if (typeof item.detail === 'string') event.detail = item.detail
+    if (typeof item.node === 'string') event.node = item.node
+    if (typeof item.tool === 'string') event.tool = item.tool
+    if (typeof item.path === 'string') event.path = item.path
+    if (kind === 'stateChange' && Object.hasOwn(item, 'value')) event.value = item.value
+    events.push(event)
+  }
   trimEvents(events)
   return events
 }
@@ -112,75 +216,34 @@ function sanitizeTimeline(list: unknown): TimelineEntry[] {
       from: String(x.from ?? ''),
       to: String(x.to ?? ''),
       reason: String(x.reason ?? ''),
-      elapsedMs: Number.isFinite(Number(x.elapsedMs)) ? Number(x.elapsedMs) : 0,
+      minutes: Number.isFinite(Number(x.minutes)) && Number(x.minutes) >= 0 ? Number(x.minutes) : 0,
       at: typeof x.at === 'string' ? x.at : nowIso(),
     }))
     .slice(-MAX_TIMELINE)
 }
 
-/** 回合数必须是数字：字符串会被 endTurn 拼成 "51" */
-function pickTurn(v: unknown): number {
-  const n = Number(v)
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0
-}
-
 /**
- * 新游戏第一帧里由调用方给的开局事实（决定 #42）。
+ * 把一份来路不明的存档整理成 GameData。
  *
- * 形状归这里、事实来自卡（`openingOf(card)` 的结果正好是这个形状）；字段缺省时
- * 回到形状自己的默认值 —— 调用方没给就是这个字段没有来源，不替它猜。
+ * 身份与形状是硬门槛（对不上就抛错，由调用方走坏存档路径：备份 + 说清 + 空白开局）；
+ * 缺失的软字段（回合数 / 事件流 / 时间线）用自己的默认值补上。
  */
-export interface OpeningFacts {
-  /** 起始时刻（ISO）；缺省 = 当前时刻 */
-  iso?: string
-  /** 初始场景名；缺省 = 空串（界面按当前语言现取） */
-  sceneName?: string
-  /** 主控名；缺省 = i18n 的默认名 */
-  playerName?: string
-}
-
-/** 新游戏的初始状态：形状在这里，开局事实（时刻 / 场景 / 名字）由调用方给 */
-export function createInitialState(opening: OpeningFacts = {}): GameData {
+export function normalize(saved: unknown, card: CardData): GameData {
+  if (!isRecord(saved)) throw new Error(t('save.notValid'))
+  const meta = isRecord(saved.meta) ? saved.meta : {}
+  checkIdentity(meta.card, card)
+  const state = pickState(card, saved.state)
   return {
-    meta: { turn: 0 },
-    player: { name: opening.playerName || t('player.defaultName') },
-    scene: { name: opening.sceneName ?? '', description: '' },
-    time: { iso: opening.iso ?? nowIso() },
-    events: [],
-    timeline: [],
+    meta: { turn: pickTurn(meta.turn), card: identityOf(card) },
+    time: pickTime(card, saved.time),
+    state,
+    events: sanitizeEvents(saved.events),
+    timeline: sanitizeTimeline(saved.timeline),
   }
 }
 
-/**
- * 把一份来路不明的数据整理成 GameData。
- * 缺失的字段用 fresh 补上（手改坏一个字段不该让整局打不开）。
- */
-export function normalize(saved: unknown, fresh: GameData = createInitialState()): GameData {
-  const s: Record<string, unknown> = isRecord(saved) ? saved : {}
-  const meta = isRecord(s.meta) ? s.meta : {}
-  const player = isRecord(s.player) ? s.player : {}
-  const scene = isRecord(s.scene) ? s.scene : {}
-  const time = isRecord(s.time) ? s.time : {}
-
-  return {
-    meta: { ...fresh.meta, ...meta, turn: pickTurn(meta.turn) },
-    player: { name: typeof player.name === 'string' && player.name ? player.name : fresh.player.name },
-    scene: {
-      name: typeof scene.name === 'string' ? scene.name : fresh.scene.name,
-      description: typeof scene.description === 'string' ? scene.description : fresh.scene.description,
-    },
-    time: { iso: pickIso(time.iso) },
-    events: sanitizeEvents(s.events),
-    timeline: sanitizeTimeline(s.timeline),
-  }
-}
-
-/** 解析导入的存档文本。不是有效存档就抛错。 */
-export function parseSave(json: string): GameData {
+/** 解析导入的存档文本。不是有效存档（或不属于当前卡）就抛错。 */
+export function parseSave(json: string, card: CardData): GameData {
   const parsed: unknown = JSON.parse(json)
-  // 至少要是个对象、且 player 是对象 —— 只判 player 会放过 {"player": 1}
-  if (!isRecord(parsed) || !isRecord(parsed.player)) {
-    throw new Error(t('save.notValid'))
-  }
-  return normalize(parsed, createInitialState())
+  return normalize(parsed, card)
 }

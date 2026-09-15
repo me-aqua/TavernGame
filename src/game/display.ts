@@ -1,173 +1,77 @@
 /**
- * src/game/display.ts —— 读卡里的「显示 / 世界 / 主控初始」声明，翻译成界面要的数据（决定 #15）。
+ * src/game/display.ts —— 卡声明的显示（顶栏条目 / 侧栏块）与界面要读的面板数据。
  *
- * 纯函数、不 import Vue：「哪一块由谁渲染」是界面层的事（src/components/display-blocks.ts），
- * 这里只把卡里的字段搬成界面好用的形状；读不出来就抛错并带上 JSON 路径，不做静默兜底。
+ * 词汇表（顶栏条目与侧栏块名）是**引擎的**，在 game/card.ts —— 这里只 import，
+ * 不抄第二份；卡里出现引擎不认识的块名，校验期（card.ts）就报错。
  *
- * 当前位置由**两个事实**合起来定：卡的开局位置（决定 #42）与运行时状态里的场景名
- * （引擎每轮更新它）—— 场景名里认得出哪个区域 / 地点就用哪个，认不出才退回开局位置。
+ * 面板数据读**状态树**（地图 ← world.map + world.location；角色 ← roles；
+ * 背包 ← lead.pack），不再读卡里的预设：状态由卡声明，界面画的就是这一局的真相。
+ * 「哪一块读哪段状态」也是引擎词汇表的一部分（card.ts 的 BLOCK_STATE_PATHS）。
  *
- * ⚠️ 卡校验器（card.ts）只读过这些字段的一部分，所以这里对没被守过的字段逐个严读；
- *    已经守过的（侧栏的块名与唯一性、区域是个非空数组）不再重判一遍。
+ * 卡没声明那几段状态时给空值 —— 一张只声明了 pack 面板的卡（cards/night-watch.json）
+ * 照样能开，只是地图与角色两块没有内容。这不是兜底，是词汇表允许的声明。
  *
- * 这里还放着**词汇表**（KNOWN_BLOCKS / KNOWN_TOPBAR）：代码只提供「应用画得出来哪些名字」，
- * 卡说界面长什么样（决定 #45）。名字到组件的映射在 components/display-blocks.ts ——
- * 映射的类型被词汇表钉死，少一个名字编译期就报错。
+ * 纯函数、不 import Vue：「哪一块由谁渲染」是界面层的事（src/components/display-blocks.ts）。
  */
-import type { CardData } from './card'
-import * as K from './card-keys'
-import { at, fail, requireRecord, requireText } from './card-read'
+import { BLOCK_STATE_PATHS, SIDEBAR_BLOCKS, TOPBAR_ITEMS, type CardData } from './card'
 import { isRecord } from './save'
+import type { StateTree } from './card-state'
 
 /** 顶栏与侧栏要摆什么 —— 两个名字列表，顺序即声明顺序 */
 export interface DisplayDecl {
-  /** 顶栏条目名（时间 / 当前场景 / 回合） */
+  /** 顶栏条目名（时间 / 当前场景 / 回合），顺序即卡里的顺序 */
   topbar: string[]
-  /** 侧栏块名（地图 / 角色 / 背包） */
+  /** 侧栏块名（地图 / 角色 / 背包），顺序即卡里的顺序 */
   sidebar: string[]
 }
 
-/** 地图上的一块区域：名字 + 作者点名的「必有地点」（可以为空：地点由生成器长出来） */
-export interface AreaView {
-  name: string
-  places: string[]
-}
-
-/** 作者点名的 NPC：姓名 / 身份 / 种族 / 一句设定 */
-export interface CastView {
-  name: string
-  role: string
-  race: string
-  bio: string
-}
-
-/** 背包里的一件东西：没写数量就是一件，没写备注就没有 */
-export interface PackView {
-  name: string
-  count?: number
-  note?: string
-}
-
-/** 当前所在：区域 + 地点（地点为空 = 只认得出区域） */
-export interface Spot {
-  area: string
-  place: string
-}
-
 /** 应用画得出来的侧栏块名 —— 卡里写别的名字就只能换一张卡（导入的卡可能来自更新的版本） */
-export const KNOWN_BLOCKS = [K.BLOCK_MAP, K.BLOCK_CAST, K.KEY_PACK] as const
+export const KNOWN_BLOCKS = SIDEBAR_BLOCKS
 
 /** 应用画得出来的顶栏条目名 */
-export const KNOWN_TOPBAR = [K.ITEM_TIME, K.ITEM_SCENE, K.ITEM_TURN] as const
+export const KNOWN_TOPBAR = TOPBAR_ITEMS
 
-/** 判存在性用集合：名字来自卡，是普通字符串，不是这里的字面量类型 */
+/** 声明.显示：顶栏条目名与侧栏块名，各自保持声明顺序 */
+export function displayOf(card: CardData): DisplayDecl {
+  return {
+    topbar: [...card.display.topbar],
+    sidebar: card.display.sidebar.map((block) => block.block),
+  }
+}
+
+/** 判存在性用集合：名字来自卡，是普通字符串，不是字面量类型 */
 const BLOCK_SET: ReadonlySet<string> = new Set(KNOWN_BLOCKS)
 const TOPBAR_SET: ReadonlySet<string> = new Set(KNOWN_TOPBAR)
-
-/** 读数组里的一项，必须是对象 */
-function recordAt(value: unknown, where: string): Record<string, unknown> {
-  if (!isRecord(value)) fail(where, 'must be an object')
-  return value
-}
-
-/** 读一个字符串列表（允许为空：一个地点都还没长的区域照样能显示） */
-function textsAt(value: unknown, where: string): string[] {
-  if (!Array.isArray(value)) fail(where, 'must be an array')
-  return value.map((item, index) => {
-    if (typeof item !== 'string' || item.length === 0)
-      fail(where + '[' + index + ']', 'must be a non-empty string')
-    return item
-  })
-}
-
-/** 读一个可选的字符串列表：没写就是空 —— 区域可以不长固定地点（地牢就是靠生成器长的） */
-function optionalTexts(item: Record<string, unknown>, key: string, where: string): string[] {
-  if (!Object.hasOwn(item, key)) return []
-  return textsAt(item[key], at(where, key))
-}
-
-/** 读一个可选字段：不在就是 undefined，在就必须是对的类型（写错了要出声） */
-function optionalNumber(item: Record<string, unknown>, key: string, where: string): number | undefined {
-  if (!Object.hasOwn(item, key)) return undefined
-  const value = item[key]
-  if (typeof value !== 'number') fail(at(where, key), 'must be a number')
-  return value
-}
-
-/** 读一个可选的文本字段：不在就是 undefined，在就不能是空串 */
-function optionalText(item: Record<string, unknown>, key: string, where: string): string | undefined {
-  if (!Object.hasOwn(item, key)) return undefined
-  return requireText(item, key, where)
-}
-
-/** 声明.世界（历法 / 区域 / 点名的 NPC） */
-function worldOf(card: CardData): Record<string, unknown> {
-  return requireRecord(requireRecord(card, K.KEY_DECL, ''), K.KEY_WORLD, K.KEY_DECL)
-}
-
-/** 声明.状态.主控初始 */
-function playerStartOf(card: CardData): Record<string, unknown> {
-  const base = at(K.KEY_DECL, K.KEY_STATE)
-  const state = requireRecord(requireRecord(card, K.KEY_DECL, ''), K.KEY_STATE, K.KEY_DECL)
-  return requireRecord(state, K.KEY_PLAYER_START, base)
-}
-
-/**
- * 声明.显示：顶栏条目名与侧栏块名，各自保持声明顺序。
- *
- * ⚠️ 「顶栏」卡校验器没有守（它只查侧栏），所以 topbarNames 是唯一读它的地方：
- *    在那里严判一次，坏声明启动即失败。
- */
-export function displayOf(card: CardData): DisplayDecl {
-  const display = requireRecord(requireRecord(card, K.KEY_DECL, ''), K.KEY_DISPLAY, K.KEY_DECL)
-  return { topbar: topbarNames(display), sidebar: sidebarNames(display) }
-}
 
 /**
  * 显示声明必须是这个应用画得出来的：块名与顶栏名都在词汇表里。
  *
- * 卡的形状已经由 card.ts 守过（侧栏的块名与唯一性）；这里守的是**这一刻这个应用认不认** ——
+ * 卡的形状已经由 card.ts 守过；这里守的是**这一刻这个应用认不认** ——
  * 认不出来就是「界面上这一块永远不存在」，宁可换一张卡，也不静默少画一块。
  */
 export function checkRenderable(decl: DisplayDecl): void {
-  const displayBase = at(K.KEY_DECL, K.KEY_DISPLAY)
-  const blockBase = at(displayBase, K.KEY_SIDEBAR)
   decl.sidebar.forEach((name, index) => {
     if (!BLOCK_SET.has(name)) {
       const known = KNOWN_BLOCKS.join(' / ')
-      fail(
-        at(blockBase + '[' + index + ']', K.KEY_BLOCK),
-        JSON.stringify(name) + ' has no renderer (known: ' + known + ')',
+      throw new Error(
+        'display.sidebar[' +
+          index +
+          '].block ' +
+          JSON.stringify(name) +
+          ' has no renderer (known: ' +
+          known +
+          ')',
       )
     }
   })
-  const topbarBase = at(displayBase, K.KEY_TOPBAR)
   decl.topbar.forEach((name, index) => {
     if (!TOPBAR_SET.has(name)) {
       const known = KNOWN_TOPBAR.join(' / ')
-      fail(topbarBase + '[' + index + ']', JSON.stringify(name) + ' has no renderer (known: ' + known + ')')
+      throw new Error(
+        'display.topbar[' + index + '] ' + JSON.stringify(name) + ' has no renderer (known: ' + known + ')',
+      )
     }
   })
-}
-
-/** 顶栏条目名：非空、不重复，顺序照声明 */
-function topbarNames(display: Record<string, unknown>): string[] {
-  const where = at(at(K.KEY_DECL, K.KEY_DISPLAY), K.KEY_TOPBAR)
-  const items = display[K.KEY_TOPBAR]
-  if (!Array.isArray(items) || items.length === 0) fail(where, 'must be a non-empty array')
-  return items.map((item, index) => {
-    if (typeof item !== 'string' || item.length === 0)
-      fail(where + '[' + index + ']', 'must be a non-empty string')
-    if (items.indexOf(item) !== index)
-      fail(where + '[' + index + ']', 'duplicate entry ' + JSON.stringify(item))
-    return item
-  })
-}
-
-/** 侧栏块名：块名与唯一性由卡校验器守（card.ts 的 checkDisplay），这里照着读 */
-function sidebarNames(display: Record<string, unknown>): string[] {
-  const blocks = display[K.KEY_SIDEBAR] as Array<Record<string, string>>
-  return blocks.map((block) => block[K.KEY_BLOCK])
 }
 
 /**
@@ -177,91 +81,62 @@ function sidebarNames(display: Record<string, unknown>): string[] {
  *    不退回 id 假装没事 —— 那种静默兜底只会让状态行显示一串内部 id。
  */
 export function nodeLabel(card: CardData, id: string): string {
-  const nodes = requireRecord(
-    requireRecord(requireRecord(card, K.KEY_DECL, ''), K.KEY_GRAPH, K.KEY_DECL),
-    K.KEY_NODES,
-    at(K.KEY_DECL, K.KEY_GRAPH),
-  )
-  const where = at(at(K.KEY_DECL, K.KEY_GRAPH), K.KEY_NODES) + '.' + id
-  return requireText(
-    requireRecord(nodes, id, at(at(K.KEY_DECL, K.KEY_GRAPH), K.KEY_NODES)),
-    K.KEY_NODE_NAME,
-    where,
-  )
+  const node = card.graph.nodes[id]
+  if (node === undefined) throw new Error('card has no "' + id + '" node')
+  return node.name
 }
 
-/** 声明.世界.区域：每个区域带上它的「必有地点」 */
-export function areasOf(card: CardData): AreaView[] {
-  const base = at(K.KEY_DECL, K.KEY_WORLD)
-  const areas = worldOf(card)[K.KEY_AREA] as unknown[]
-  return areas.map((value, index) => {
-    const where = base + '.' + K.KEY_AREA + '[' + index + ']'
-    const area = recordAt(value, where)
-    return {
-      name: requireText(area, K.KEY_NODE_NAME, where),
-      places: optionalTexts(area, K.KEY_PLACES, where),
-    }
-  })
+// ---------- 面板数据（读状态树） ----------
+
+/** 点号路径 → 状态树里的值；中间缺一段就是 undefined（卡的声明可以没有那一块） */
+function atPath(state: StateTree, path: string): unknown {
+  let scope: unknown = state
+  for (const segment of path.split('.')) {
+    if (!isRecord(scope) || !Object.hasOwn(scope, segment)) return undefined
+    scope = scope[segment]
+  }
+  return scope
 }
 
-/** 声明.世界.点名的NPC：姓名 / 身份 / 种族 / 一句设定（生平与性格是给模型的，界面不显示） */
-export function castOf(card: CardData): CastView[] {
-  const base = at(K.KEY_DECL, K.KEY_WORLD)
-  const where = at(base, K.KEY_NAMED_NPCS)
-  const cast = worldOf(card)[K.KEY_NAMED_NPCS]
-  if (!Array.isArray(cast)) fail(where, 'must be an array')
-  return cast.map((value, index) => {
-    const personBase = where + '[' + index + ']'
-    const person = recordAt(value, personBase)
-    return {
-      name: requireText(person, K.KEY_NODE_NAME, personBase),
-      role: requireText(person, K.KEY_IDENTITY, personBase),
-      race: requireText(person, K.KEY_RACE, personBase),
-      bio: requireText(person, K.KEY_SETTING, personBase),
-    }
-  })
+/** 地图块要读的两段状态：区域表 + 当前所在 */
+export interface MapView {
+  areas: unknown
+  location: unknown
 }
 
-/** 声明.状态.主控初始.携带.背包：名称 / 数量 / 备注 */
-export function packOf(card: CardData): PackView[] {
-  const startBase = at(at(K.KEY_DECL, K.KEY_STATE), K.KEY_PLAYER_START)
-  const carry = requireRecord(playerStartOf(card), K.KEY_CARRY, startBase)
-  const where = at(at(startBase, K.KEY_CARRY), K.KEY_PACK)
-  const items = carry[K.KEY_PACK]
-  if (!Array.isArray(items)) fail(where, 'must be an array')
-  return items.map((value, index) => {
-    const itemBase = where + '[' + index + ']'
-    const item = recordAt(value, itemBase)
-    return {
-      name: requireText(item, K.KEY_NAME, itemBase),
-      count: optionalNumber(item, K.KEY_COUNT, itemBase),
-      note: optionalText(item, K.KEY_REMARK, itemBase),
-    }
-  })
+/** 地图块的数据（world.map + world.location） */
+export function mapOf(state: StateTree): MapView {
+  return {
+    areas: atPath(state, BLOCK_STATE_PATHS.map[0]),
+    location: atPath(state, BLOCK_STATE_PATHS.map[1]),
+  }
 }
 
-/** 卡的开局位置 —— 场景名里认不出任何区域 / 地点时的兜底（决定 #42） */
-function openingSpot(card: CardData): Spot {
-  const opening = requireRecord(requireRecord(card, K.KEY_DECL, ''), K.KEY_OPENING, K.KEY_DECL)
-  const base = at(at(K.KEY_DECL, K.KEY_OPENING), K.KEY_START)
-  const start = requireRecord(opening, K.KEY_START, at(K.KEY_DECL, K.KEY_OPENING))
-  return { area: requireText(start, K.KEY_AREA, base), place: requireText(start, K.KEY_PLACE, base) }
+/** 角色块的数据（roles 字典） */
+export function castOf(state: StateTree): unknown {
+  return atPath(state, BLOCK_STATE_PATHS.cast[0])
+}
+
+/** 背包块的数据（lead.pack 列表） */
+export function packOf(state: StateTree): unknown {
+  return atPath(state, BLOCK_STATE_PATHS.pack[0])
+}
+
+/** 当前所在：区域 / 地点 / 场景（顶栏「场景」那一条读它） */
+export interface Spot {
+  area: string
+  spot: string
+  scene: string
 }
 
 /**
- * 当前所在的区域与地点。
- *
- * 场景名（运行时状态里的那个）里出现谁的名字就算在谁那儿：地点比区域具体，先认地点；
- * 一个名字是另一个的前缀时取最长的（「镇口」与「镇口码头」）。都认不出就退回开局位置。
+ * 顶栏「场景」那一条的数据：world.location 的三段；卡没声明这一段时是三个空串
+ * （顶栏可以声明 scene 而状态里没有 world —— 那一条就什么也不显示）。
  */
-export function spotOf(card: CardData, sceneName: string): Spot {
-  const areas = areasOf(card)
-  const named = areas
-    .flatMap((area) => area.places.map((place) => ({ area: area.name, place })))
-    .filter((candidate) => sceneName.includes(candidate.place))
-    .sort((a, b) => b.place.length - a.place.length)[0]
-  if (named) return named
-  const area = areas.find((entry) => sceneName.includes(entry.name))
-  if (area) return { area: area.name, place: '' }
-  return openingSpot(card)
+export function spotOf(state: StateTree): Spot {
+  const location = atPath(state, BLOCK_STATE_PATHS.map[1])
+  /** 读一段字符串；不是字符串（卡没声明 / 类型不对）就是空串 */
+  const text = (key: string): string =>
+    isRecord(location) && typeof location[key] === 'string' ? (location[key] as string) : ''
+  return { area: text('area'), spot: text('spot'), scene: text('scene') }
 }

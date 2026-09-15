@@ -10,7 +10,16 @@
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { APP_PATH, CONFIG, event, fakeLlm, saveWith, seedStorage, type FakeMode } from './fixtures'
+import {
+  APP_PATH,
+  CARD_IDENTITY,
+  CONFIG,
+  event,
+  fakeLlm,
+  saveWith,
+  seedStorage,
+  type FakeMode,
+} from './fixtures'
 import { PROBE, expectClean, type Probe } from './probe'
 
 const OUT = 'artifacts/screenshots'
@@ -32,6 +41,7 @@ const BASELINE = new Set([
   'playing-en--laptop',
   'long-story--phone',
   'debug-on--laptop',
+  'debug-panel-tools--laptop',
   'drawer-open--laptop',
   'dark--laptop',
 ])
@@ -71,23 +81,46 @@ const LONG_STORY = [
 ]
 
 const DEBUG_EVENTS = [
+  event('node', '🧩 节点：时间'),
   event(
     'request',
     '📤 模型输入（2 条消息）',
     '{\n  "model": "demo-model",\n  "messages": [\n    { "role": "system", "content": "你是一个文字冒险游戏的主持人……" },\n    { "role": "user", "content": "玩家的行动：我推开酒馆的门。" }\n  ],\n  "temperature": 0.85\n}',
   ),
+  event('model', '🔍 模型原始回复', '{\n  "choices": [ { "message": { "tool_calls": [ … ] } } ]\n}'),
   event(
-    'reply',
-    '🔍 模型原始回复（1 次工具调用）',
-    '{\n  "choices": [ { "message": { "tool_calls": [ … ] } } ]\n}',
+    'tool',
+    '⚙ 调用 advance_time({"minutes":5,"reason":"在酒馆待到深夜"})',
+    '{"minutes":5,"reason":"在酒馆待到深夜"}',
   ),
-  event('tool', '⚙ 调用 advance_time({"step":1,"unit":"day","reason":"在酒馆待到深夜"})'),
-  event(
-    'toolResult',
-    '   → 🕐 时间推进：2026 年 9 月 14 日 · 星期一 · 晚上\n           → 2026 年 9 月 15 日 · 星期二 · 上午',
-  ),
+  event('stateChange', '✎ 写入 time', '{ "year": 2026, "month": 9, "day": 14, "hour": 19, "minute": 35 }'),
+  event('toolResult', '   → 🕐 时间推进：5 分钟', '🕐 时间推进：5 分钟'),
   ...STORY,
 ]
+
+/** 提交一次行动（假模型会把卡里的图跑一遍）—— 调试面板的活卡图与工具调用靠它出内容 */
+const SUBMIT_TURN = `(async () => {
+  const ta = document.querySelector('textarea')
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
+  setter.call(ta, '我去铁匠铺找萨伦')
+  ta.dispatchEvent(new Event('input', { bubbles: true }))
+  ;[...document.querySelectorAll('.composer-row button')].at(-1).click()
+})()`
+
+/** 打开调试面板（入口就在调试开关旁边） */
+const OPEN_DEBUG_PANEL = "document.querySelector('button[data-debug-panel-toggle]')?.click()"
+
+/**
+ * 换掉存档里状态树的「当前所在」—— 地图高亮与顶栏的场景都读它。
+ *
+ * ⚠️ 覆盖 meta 时一定要带上卡身份（CARD_IDENTITY）：存档认亲比 id / version / format，
+ *    少一个字段就会被判成「不属于这张卡」，整局退回空白开局（长故事那一屏曾因此拍成报错页）。
+ */
+function withLocation(save: string, location: Record<string, string>): string {
+  const data = JSON.parse(save) as { state: Record<string, any> }
+  data.state.world.location = location
+  return JSON.stringify(data)
+}
 
 const EN_STORY = [
   event('action', 'I push the tavern door open and look around.'),
@@ -106,15 +139,19 @@ const STATES: State[] = [
     seed: {
       lang: 'en',
       config: CONFIG,
-      save: saveWith({
-        events: EN_STORY,
-        scene: { name: 'Morningwind · Tavern', description: 'The hearth paints the walls honey.' },
+      save: withLocation(saveWith({ events: EN_STORY }), {
+        area: 'Morningwind',
+        spot: 'Tavern',
+        scene: 'Common room',
       }),
     },
   },
   {
     name: 'long-story',
-    seed: { config: CONFIG, save: saveWith({ events: LONG_STORY, meta: { turn: 21 } }) },
+    seed: {
+      config: CONFIG,
+      save: saveWith({ events: LONG_STORY, meta: { turn: 21, card: CARD_IDENTITY } }),
+    },
   },
   { name: 'debug-on', seed: { config: CONFIG, save: saveWith({ events: DEBUG_EVENTS }), debug: 'on' } },
   { name: 'corrupted-save', seed: { save: '{not valid json' } },
@@ -139,6 +176,32 @@ const STATES: State[] = [
       document.querySelector('button[data-settings]')?.click()
       await new Promise((resolve) => setTimeout(resolve, 200))
       document.querySelector('button[data-card-view]')?.click()
+    })()`,
+    waitAfterMs: 900,
+  },
+  {
+    // 活的卡图：面板开着、一轮正在跑（高亮 = 正在跑的那个节点）
+    name: 'debug-panel-live',
+    seed: { config: CONFIG, save: saveWith({ events: STORY }), debug: 'on' },
+    fake: 'narration',
+    interact: `(async () => {
+      ${OPEN_DEBUG_PANEL}
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      ;${SUBMIT_TURN}
+    })()`,
+    waitAfterMs: 900,
+  },
+  {
+    // 工具调用：一轮跑完之后切到「工具调用」那一页（哪个节点、什么工具、原始参数、写入）
+    name: 'debug-panel-tools',
+    seed: { config: CONFIG, save: saveWith({ events: STORY }), debug: 'on' },
+    fake: 'narration',
+    interact: `(async () => {
+      ${SUBMIT_TURN}
+      await new Promise((resolve) => setTimeout(resolve, 4000))
+      ;${OPEN_DEBUG_PANEL}
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      document.querySelector('[data-debug-tab="tools"]')?.click()
     })()`,
     waitAfterMs: 900,
   },

@@ -5,23 +5,47 @@
  * 「没有页面异常、没有 4xx/5xx」（见文件末尾的 afterEach）。
  *
  * 等待一律用 Playwright 的自动等待：等的是「这个元素真的变成这样了」，不是固定 sleep。
+ * ⚠️ 一轮要跑完卡里九个节点（时间 / 地图各多一次工具往返 ≈ 十来次模型调用），
+ *    所以等开场与等回合都要给足超时 —— 假模型每次调用都要睡一下。
  */
 import { expect, test, type Page } from '@playwright/test'
-import { CONFIG, DEBUG_KEY, LANG_KEY, NARRATION, openApp, saveWith, translate, watchErrors } from './fixtures'
+import {
+  CONFIG,
+  DEBUG_KEY,
+  LANG_KEY,
+  NARRATION,
+  TIME_NODE,
+  openApp,
+  saveWith,
+  translate,
+  watchErrors,
+} from './fixtures'
 import { PROBE, expectClean, type Probe } from './probe'
-// 只读卡的 JSON 与键名常量：不 import 应用模块（那条链会拖进 i18n 的 .json，
+// 只读卡的 JSON：不 import 应用模块（那条链会拖进 i18n 的 .json，
 // Playwright 的 ESM 加载器需要 import attribute，而 Vite 构建不需要）
 import cardJson from '../cards/morningwind.json' with { type: 'json' }
-import * as K from '../src/game/card-keys'
+
+/** 卡（期望值全部从卡里现读，不在这里抄一份内容） */
+const CARD = cardJson as unknown as Record<string, any>
 
 /** 浅色主题的页面底色（与 src/styles/main.css 的 token 对应） */
 const LIGHT_BG = 'rgb(242, 244, 247)'
 /** 时间标签的形状由历法决定，这里只看形状，不写死具体日期 */
 const TIME_PATTERN = /^\d{4} 年 \d+ 月 \d+ 日 · 星期[日一二三四五六] · (上午|下午|晚上)$/
-/** 新游戏的场景名来自卡的开局（决定 #42）—— 期望值从卡里现读，不抄一份 */
-const CARD_SCENE = (
-  cardJson as unknown as Record<string, Record<string, Record<string, Record<string, string>>>>
-)[K.KEY_DECL][K.KEY_OPENING][K.KEY_START][K.KEY_SCENE]
+/** 一轮跑完要十来次模型调用 —— 等它跑完得给足时间 */
+const TURN_TIMEOUT = 20_000
+
+/** 新游戏的场景来自卡里的状态初值（决定 #42）：地点 + 场景 */
+const START_LOCATION = CARD.state.world.fields.location.initial as {
+  area: string
+  spot: string
+  scene: string
+}
+
+/** 卡里那个声明了 role: story 的节点 id —— 叙事取自它 */
+const STORY_NODE = (CARD.graph.topology as string[]).find(
+  (id: string) => CARD.graph.nodes[id].role === 'story',
+) as string
 
 const watched = new WeakMap<Page, { runtimeErrors: string[]; badResponses: string[] }>()
 
@@ -45,14 +69,15 @@ test.describe('第一屏', () => {
   test('外壳、侧栏、时间标签、状态栏与按钮都在，且欢迎走状态行', async ({ page }) => {
     await openApp(page)
 
-    // 状态浮层：时间、地点、回合都收在一小块里
+    // 状态浮层：时间、场景、回合都收在一小块里
     const pill = page.locator('aside')
-    // 新游戏的场景名来自卡的开局（决定 #42）—— 不再是「未知地点」那句 i18n 兜底
-    await expect(pill.locator('.scene-name')).toContainText(CARD_SCENE)
+    // 新游戏的场景来自卡的 state 初值（不是卡里另写的「开局」块）
+    await expect(pill.locator('.scene-name')).toContainText(START_LOCATION.spot)
+    await expect(pill.locator('.scene-name')).toContainText(START_LOCATION.scene)
     await expect(pill.locator('[data-turn]')).toHaveText('0')
     // 侧栏在手机与桌面上是两种排布，:visible 只取当前那一份
     await expect(page.locator('.time-display:visible')).toHaveText(TIME_PATTERN)
-    // 控件只剩两颗悬浮按钮：设置（带连接状态点）与（本机开发才有的）调试开关
+    // 控件只剩悬浮按钮：设置（带连接状态点）与（本机开发才有的）调试开关
     await expect(page.locator('button[data-settings]')).toBeVisible()
     await expect(page.locator('button[data-settings] span.rounded-full')).toHaveCount(1)
 
@@ -61,11 +86,13 @@ test.describe('第一屏', () => {
     await expect(page.locator('[data-status]')).toHaveText(await translate(page, 'app.welcome'))
   })
 
-  test('本机地址默认开调试，开关能关掉、能记住、也能再打开', async ({ page }) => {
+  test('本机地址默认开调试，开关能关掉、能记住、也能再打开（面板入口跟着它）', async ({ page }) => {
     await openApp(page)
 
     const toggle = page.locator('button[data-debug]')
     await expect(toggle).toHaveText(await translate(page, 'header.debugToggleOn'))
+    // 调试面板的入口就在它旁边，调试关掉时不渲染
+    await expect(page.locator('button[data-debug-panel-toggle]')).toHaveCount(1)
 
     // 它必须紧挨着设置按钮、一起在右上角（justify-between 曾把它推到屏幕正中）
     const debugBox = await toggle.boundingBox()
@@ -77,14 +104,16 @@ test.describe('第一屏', () => {
     await expect(toggle).toHaveText(await translate(page, 'header.debugToggleOff'))
     await expect(page.locator('[data-status]')).toHaveText(await translate(page, 'app.debugOff'))
     await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), DEBUG_KEY)).toBe('off')
+    await expect(page.locator('button[data-debug-panel-toggle]')).toHaveCount(0)
 
     await toggle.click()
     await expect(toggle).toHaveText(await translate(page, 'header.debugToggleOn'))
+    await expect(page.locator('button[data-debug-panel-toggle]')).toHaveCount(1)
   })
 })
 
 test.describe('世界面板', () => {
-  test('按卡声明的块与顺序渲染，高亮当前地点，关得掉', async ({ page }) => {
+  test('按卡声明的块与顺序渲染，内容读状态树，高亮当前地点', async ({ page }) => {
     await openApp(page, { save: saveWith(), config: CONFIG })
 
     // 它是玩家点开的浮层：默认不在
@@ -94,31 +123,121 @@ test.describe('世界面板', () => {
     await expect(panel).toBeVisible()
 
     // 块与顺序来自卡的 声明.显示.侧栏（期望值从卡里现读，不抄一份内容）
-    const card = cardJson as unknown as Record<string, any>
-    const sidebar = card[K.KEY_DECL][K.KEY_DISPLAY][K.KEY_SIDEBAR] as Array<Record<string, string>>
-    const declared = sidebar.map((block) => block[K.KEY_BLOCK])
+    const declared = (CARD.display.sidebar as Array<Record<string, string>>).map((block) => block.block)
     await expect(panel.locator('[data-block]')).toHaveCount(declared.length)
     const rendered = await panel
       .locator('[data-block]')
       .evaluateAll((els) => els.map((el) => el.getAttribute('data-block')))
     expect(rendered).toEqual(declared)
 
-    // 三块的内容也来自卡：区域一个不少，背包一件不少，点名的角色在
-    const world = card[K.KEY_DECL][K.KEY_WORLD]
-    const pack = card[K.KEY_DECL][K.KEY_STATE][K.KEY_PLAYER_START][K.KEY_CARRY][K.KEY_PACK]
-    await expect(panel.locator('[data-area]')).toHaveCount((world[K.KEY_AREA] as unknown[]).length)
-    await expect(panel.locator('[data-item]')).toHaveCount((pack as unknown[]).length)
-    await expect(panel).toContainText(world[K.KEY_NAMED_NPCS][0][K.KEY_NODE_NAME])
+    // 内容读的是**状态树**：区域一个不少、背包一件不少、角色字典里的人都在
+    const saved = JSON.parse(saveWith()) as { state: Record<string, any> }
+    const areas = Object.keys(saved.state.world.map)
+    const pack = saved.state.lead.pack as unknown[]
+    const cast = Object.keys(saved.state.roles)
+    await expect(panel.locator('[data-area]')).toHaveCount(areas.length)
+    await expect(panel.locator('[data-item]')).toHaveCount(pack.length)
+    for (const name of cast) await expect(panel).toContainText(name)
 
-    // 当前地点：运行时场景名里那个，且只有一个
-    const sceneName = (JSON.parse(saveWith()) as { scene: { name: string } }).scene.name
+    // 当前地点：状态树里 world.location 那个，且只有一个
     const here = panel.locator('[data-place][data-current]')
     await expect(here).toHaveCount(1)
-    expect(sceneName).toContain((await here.textContent()) ?? '')
+    await expect(here).toHaveText(saved.state.world.location.spot)
     await expect(panel.locator('[data-area][data-current]')).toHaveCount(1)
 
     await page.locator('button[data-world-close]').click()
     await expect(panel).toHaveCount(0)
+  })
+})
+
+test.describe('调试面板', () => {
+  test('能开：三块分页都在，卡图画出卡里的拓扑，引擎状态读出状态树', async ({ page }) => {
+    await openApp(page, { save: saveWith(), config: CONFIG, debug: 'on' })
+
+    await expect(page.locator('[data-debug-panel]')).toHaveCount(0)
+    await page.locator('button[data-debug-panel-toggle]').click()
+    const panel = page.locator('[data-debug-panel]')
+    await expect(panel).toBeVisible()
+
+    // ① 卡图：节点数 = 卡里拓扑的节点数
+    await expect(panel.locator('.vue-flow__node')).toHaveCount((CARD.graph.topology as string[]).length)
+
+    // ② 引擎状态：四个顶层分支逐层展开 + 时间 + 回合
+    await panel.locator('[data-debug-tab="state"]').click()
+    const saved = JSON.parse(saveWith()) as { state: Record<string, unknown>; meta: { turn: number } }
+    const branches = await panel
+      .locator('[data-debug-branch]')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('data-debug-branch')))
+    expect(branches).toEqual(Object.keys(saved.state))
+    await expect(panel).toContainText(String(saved.meta.turn))
+
+    // ③ 工具调用：这一局还没有跑过工具，说的是「最近一轮没有工具调用」而不是空白
+    await panel.locator('[data-debug-tab="tools"]').click()
+    await expect(panel.locator('[data-debug-tools-empty]')).toHaveText(
+      await translate(page, 'debug.toolsNone'),
+    )
+
+    // 结构判据与组件故事同一套（e2e/probe.ts）
+    expectClean((await page.evaluate(PROBE)) as Probe)
+
+    await panel.locator('[data-debug-close]').click()
+    await expect(panel).toHaveCount(0)
+  })
+
+  test('活的卡图：一轮在跑的时候，正好一个节点标着「正在跑」', async ({ page }) => {
+    await openApp(page, { save: saveWith(), config: CONFIG, debug: 'on', fake: 'narration' })
+
+    await page.locator('textarea').fill('我去铁匠铺找萨伦')
+    await page.getByRole('button', { name: await translate(page, 'composer.submit') }).click()
+    // 面板是底部抽屉，压在输入卡片上 —— 先提交，再打开它看这一轮
+    await page.locator('button[data-debug-panel-toggle]').click()
+
+    // 一轮要跑两秒多：这段时间里图上恰好有一个节点是「在跑」（跑到哪个就亮哪个）
+    await expect(page.locator('[data-node-state="active"]')).toHaveCount(1)
+    await expect(page.locator('.line.narration').last()).toContainText(NARRATION, { timeout: TURN_TIMEOUT })
+    // 跑完就没有「在跑」的节点了
+    await expect(page.locator('[data-node-state="active"]')).toHaveCount(0)
+  })
+
+  test('工具调用失败过的节点在卡图上标红（引擎只回传错误，不抛）', async ({ page }) => {
+    await openApp(page, { save: saveWith(), config: CONFIG, debug: 'on', fake: 'toolError' })
+
+    await page.locator('textarea').fill('我去铁匠铺找萨伦')
+    await page.getByRole('button', { name: await translate(page, 'composer.submit') }).click()
+    await expect(page.locator('.line.narration').last()).toContainText(NARRATION, { timeout: TURN_TIMEOUT })
+
+    await page.locator('button[data-debug-panel-toggle]').click()
+    const failed = page.locator('[data-node-state="failed"]')
+    await expect(failed).toHaveCount(1)
+    // 标红的正是时间节点：它调的 advance_time 参数（负数）没过校验
+    await expect(failed).toContainText(CARD.graph.nodes[TIME_NODE].name)
+  })
+
+  test('跑完一轮之后：工具调用一条条列着，卡图上跑过的节点还看得见', async ({ page }) => {
+    await openApp(page, { save: saveWith(), config: CONFIG, debug: 'on', fake: 'narration' })
+
+    await page.locator('textarea').fill('我去铁匠铺找萨伦')
+    await page.getByRole('button', { name: await translate(page, 'composer.submit') }).click()
+    await expect(page.locator('.line.narration').last()).toContainText(NARRATION, { timeout: TURN_TIMEOUT })
+
+    await page.locator('button[data-debug-panel-toggle]').click()
+    const panel = page.locator('[data-debug-panel]')
+    await panel.locator('[data-debug-tab="tools"]').click()
+
+    // 时间节点调了 advance_time、地图节点调了 move_to：工具名与原始参数都看得见
+    const calls = panel.locator('[data-tool-call]')
+    await expect(calls).toHaveCount(2)
+    await expect(panel).toContainText('advance_time')
+    await expect(panel).toContainText('"minutes"')
+    await expect(panel).toContainText('move_to')
+    await expect(panel).toContainText('"spot"')
+    // 每次调用都写着它写了哪条路径
+    await expect(panel).toContainText('world.location')
+
+    // 引擎状态那一页：本轮写入清单跟着出来了
+    await panel.locator('[data-debug-tab="state"]').click()
+    await expect(panel.locator('[data-debug-write]')).toHaveCount(2)
+    await expect(panel).toContainText('world.location')
   })
 })
 
@@ -141,7 +260,7 @@ test.describe('设置面板', () => {
 })
 
 test.describe('卡', () => {
-  test('设置里的卡一节：来源是内置示例，卡图的节点数等于卡里的拓扑，点节点出表单', async ({ page }) => {
+  test('卡图浮层：节点数 = 卡里拓扑，点节点出表单，声明只读', async ({ page }) => {
     await openApp(page)
     await page.locator('button[data-settings]').click()
 
@@ -154,20 +273,22 @@ test.describe('卡', () => {
     await expect(editor).toBeVisible()
 
     // 节点数与节点名都从卡 JSON 现读：不在这里抄一份「九个节点」
-    const card = cardJson as unknown as Record<string, Record<string, Record<string, any>>>
-    const topology = card[K.KEY_DECL][K.KEY_GRAPH][K.KEY_TOPOLOGY] as string[]
-    const declared = card[K.KEY_DECL][K.KEY_GRAPH][K.KEY_NODES] as Record<string, Record<string, string>>
+    const topology = CARD.graph.topology as string[]
+    const nodes = CARD.graph.nodes as Record<string, Record<string, string>>
     await expect(editor.locator('.vue-flow__node')).toHaveCount(topology.length)
 
     // 结构判据与组件故事同一套（e2e/probe.ts）
     expectClean((await page.evaluate(PROBE)) as Probe)
 
-    // 点一个节点：表单出的是卡里那个节点的名 / 职责 / 提示词
+    // 点一个节点：表单出的是卡里那个节点的名 / 职责 / 提示词，声明只读展示
+    const first = topology[0]
     await editor.locator('.vue-flow__node').first().click()
     const form = editor.locator('[data-card-form]')
     await expect(form).toBeVisible()
-    await expect(form.locator('[data-card-name]')).toHaveValue(declared[topology[0]][K.KEY_NODE_NAME])
-    await expect(form.locator('[data-card-duty]')).toHaveValue(declared[topology[0]][K.KEY_DUTY])
+    await expect(form.locator('[data-card-name]')).toHaveValue(nodes[first].name)
+    await expect(form.locator('[data-card-duty]')).toHaveValue(nodes[first].duty)
+    await expect(form.locator('[data-card-prompt]')).toHaveValue(nodes[first].prompt.join('\n'))
+    await expect(form.locator('[data-card-declarations]')).toContainText((nodes[first].tools ?? []).join(' '))
 
     await editor.locator('button[data-card-close]').click()
     await expect(editor).toHaveCount(0)
@@ -235,6 +356,21 @@ test.describe('语言', () => {
   })
 })
 
+test.describe('新游戏', () => {
+  test('配好 key 就自动跑开场：故事区出一条正文，还没有玩家行动行', async ({ page }) => {
+    await openApp(page, { config: CONFIG, fake: 'narration' })
+
+    // 开场 = 卡里九个节点跑一遍，正文来自声明了 role: story 的那个节点
+    await expect(page.locator('.line.narration')).toHaveCount(1, { timeout: TURN_TIMEOUT })
+    await expect(page.locator('.line.narration')).toContainText(NARRATION)
+    // 开场没有玩家原话，所以没有行动行
+    await expect(page.locator('.line.action')).toHaveCount(0)
+    // 回合数与状态：一回合落地之后状态行就该空了
+    await expect(page.locator('aside [data-turn]:visible')).toHaveText('1')
+    await expect(page.locator('[data-status]')).toHaveCount(0)
+  })
+})
+
 test.describe('接着上次玩', () => {
   test('有存档时不播报、故事在屏幕上、回合数在侧栏', async ({ page }) => {
     await openApp(page, { save: saveWith(), config: CONFIG })
@@ -255,7 +391,7 @@ test.describe('接着上次玩', () => {
 
     // 存档里已经有一条行动，所以看最后一条
     await expect(page.locator('.line.action').last()).toHaveText(action)
-    await expect(page.locator('.line.narration').last()).toContainText(NARRATION)
+    await expect(page.locator('.line.narration').last()).toContainText(NARRATION, { timeout: TURN_TIMEOUT })
     await expect(page.locator('aside [data-turn]:visible')).toHaveText('7')
 
     // 回合跑完状态行就该空了（进行中不是数据）
@@ -270,6 +406,9 @@ test.describe('接着上次玩', () => {
     await page.getByRole('button', { name: await translate(page, 'composer.submit') }).click()
 
     const prefix = (await translate(page, 'store.failed', { message: '' })).split('{message}')[0].trim()
-    await expect(page.locator('[data-status="error"]')).toContainText(prefix)
+    await expect(page.locator('[data-status="error"]')).toContainText(prefix, { timeout: TURN_TIMEOUT })
   })
 })
+
+// STORY_NODE 是卡里声明 role: story 的节点 —— 上面那条「开场出一条正文」测的就是它
+export { STORY_NODE }

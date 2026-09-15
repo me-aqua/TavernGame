@@ -1,31 +1,49 @@
 <script setup lang="ts">
 /**
- * 卡图：把一张卡画成节点图（卡界面与组件故事共用）。
+ * 卡图：把一张卡画成节点图（卡界面、调试面板与组件故事共用）。
  *
- * 卡是唯一事实来源 —— 这里只做「读卡 → 摊成图 → 交给 vue-flow 画」，不认得任何一张
- * 具体的卡。实线是拓扑的先后，虚线不写字：谁读了谁的产出。
+ * 读法（设计 13.1.1）：
+ *   · 默认只画**主干**一条链（实线）—— 「上游 = 拓扑前缀」是一条规则，不是 36 条虚线；
+ *   · 悬停或选中某个节点时，才画它自己的上游虚线、高亮那些前缀节点，其余淡出；
+ *   · 节点框带序号（① ② ③）、折行边带序号，行与行之间那条空档是回边通道；
+ *   · 框里还写着节点的声明：role / tools / reads —— 看图就知道这张卡给了谁什么权力。
  *
  * 编辑只做到「选中一个节点」为止：点中的 id 通过 select 抛给外面，改卡是外面的事。
  *
- * ⚠️ 容器不给最小宽度：640px 的卡图在手机上会把元素顶出视口（探针当场拦下）。
- *    整张图看得见靠 fitView 按容器缩放 + 把视口夹回容器（见 fitInBox），
- *    看不到细节就自己缩放手势放大。
+ * ⚠️ 容器不给最小宽度：图再宽在手机上也会把元素顶出视口（探针当场拦下）。
+ *    整张图看得见靠 fitView 按容器缩放 + 把视口夹回容器（见 fitInBox）。
  */
-import { computed } from 'vue'
-import { VueFlow, MarkerType, Position, useVueFlow } from '@vue-flow/core'
+import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { Handle, MarkerType, Position, VueFlow, useVueFlow } from '@vue-flow/core'
 import type { Edge, Node, NodeMouseEvent } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import type { CardData } from '../game/card'
 import { toGraph } from '../game/card-layout'
 
-/** 节点框里的两行字 + 高亮标记（在跑、失败、被选中） */
+const { t } = useI18n()
+
+/** 节点框里的一行字 + 只读声明 + 高亮标记（在跑、失败、选中、上游前缀、淡出） */
 interface CardNodeData {
+  index: number
   label: string
   sublabel: string
+  /** role: story —— 本回合的叙事取自它；别的节点没有这一行 */
+  role: string | null
+  /** 这个节点能用的动作（显示成一行；不写时是「全部」） */
+  tools: string
+  /** 这个节点看得见哪几块状态 */
+  reads: string
   active: boolean
   failed: boolean
   selected: boolean
+  /** 被指到那个节点的上游前缀 —— 指到谁就亮谁的前缀 */
+  prefix: boolean
+  /** 有节点被指到、而它两头都不沾：淡出，让前缀那一条链显出来 */
+  faded: boolean
+  /** 这一刻它是什么状态（失败 > 在跑 > 选中 > 上游前缀 > 平常）—— 也是 e2e 的钩子 */
+  state: 'failed' | 'active' | 'selected' | 'prefix' | 'plain'
 }
 
 const props = defineProps<{
@@ -33,8 +51,8 @@ const props = defineProps<{
   card: CardData
   /** 正在跑的节点 id；不传 = 没有节点在跑 */
   active?: string | null
-  /** 失败的节点 id；不传 = 没有节点失败 */
-  failed?: string | null
+  /** 被 redo 退回过 / 工具调用失败的节点；不传 = 没有失败 */
+  failed?: string[]
   /** 选中的节点 id（编辑表单对着它）；不传 = 没选中 */
   selected?: string | null
 }>()
@@ -47,14 +65,34 @@ const emit = defineEmits<{
 /** 画布自己的视口 —— fitView 与夹取都走这一份（它和模板里的 VueFlow 是同一个 store） */
 const { viewport, dimensions, setViewport, fitView, onPaneReady } = useVueFlow()
 
-/** 当前这张卡的图：节点按拓扑排，边由拓扑推（形状全部来自 JSON） */
+/** 当前这张卡的图：节点按拓扑排成一条链，边由拓扑相邻与前缀推出来 */
 const graph = computed(() => toGraph(props.card))
+
+/** 鼠标正指着的节点 —— 它比「选中」优先：指到谁就看谁的上游 */
+const hovered = ref<string | null>(null)
+
+/** 这一刻在看谁的上下游：指到的那个，其次才是选中的那个 */
+const focus = computed(() => hovered.value ?? props.selected ?? null)
+
+/** 被看那个节点的上游（拓扑前缀，就是读边指向它的那些节点） */
+const upstream = computed(() => {
+  const target = focus.value
+  if (target === null) return new Set<string>()
+  return new Set(
+    graph.value.edges
+      .filter((edge) => edge.kind === 'read' && edge.target === target)
+      .map((edge) => edge.source),
+  )
+})
+
+/** 声明里的「不写 = 全部」—— 卡里的动作全给它 / 状态全看得见 */
+const all = computed(() => t('card.declAll'))
 
 /**
  * 摆正视口：先 fitView（整张图缩进画布），再把位移夹回容器里。
  *
  * fitView 的居中会留下一个正位移，而 vue-flow 那几层画布都是「宽度 = 容器宽」——
- * 位移一加，它们的盒子右边就伸到容器外（结构探针判「元素不能伸出视口」，实测右边缘到 1323px）。
+ * 位移一加，它们的盒子右边就伸到容器外（结构探针判「元素不能伸出视口」）。
  * 缩放不超过 1、位移夹进 [0, 宽 x (1 - 缩放)]，整块画布就始终待在自己的盒子里。
  */
 async function fitInBox() {
@@ -66,40 +104,80 @@ async function fitInBox() {
 }
 
 /**
- * 节点一律从左往右走，用自定义类型好把副标题摆在名字下面。
- * 高亮由 props 决定：失败的节点同时还是在跑的那一个，所以 failed 压过 active。
+ * 这一刻这个节点是什么状态（失败 > 在跑 > 选中 > 上游前缀 > 平常）。
+ *
+ * 高亮是样式，断言要有稳定的抓手 —— 所以它同时写进 data-node-state（e2e 与故事用它）。
+ */
+function stateOf(id: string, failed: boolean, inPrefix: boolean): CardNodeData['state'] {
+  if (failed) return 'failed'
+  if (id === props.active) return 'active'
+  if (id === props.selected) return 'selected'
+  if (inPrefix) return 'prefix'
+  return 'plain'
+}
+
+/**
+ * 节点一律从左往右走，用自定义类型好把声明摆在名字下面。
+ * 高亮由 props 与「现在看着谁」共同决定：失败的节点同时还是在跑的那一个，所以 failed 压过 active。
  */
 const nodes = computed<Node<CardNodeData>[]>(() =>
-  graph.value.nodes.map((node) => ({
-    id: node.id,
-    type: 'card',
-    position: node.position,
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left,
-    data: {
-      label: node.label,
-      sublabel: node.sublabel,
-      failed: node.id === props.failed,
-      active: node.id === props.active && node.id !== props.failed,
-      selected: node.id === props.selected,
-    },
-  })),
+  graph.value.nodes.map((node) => {
+    const inPrefix = upstream.value.has(node.id)
+    const isFailed = props.failed?.includes(node.id) ?? false
+    return {
+      id: node.id,
+      type: 'card',
+      position: node.position,
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+      data: {
+        index: node.index,
+        label: node.label,
+        sublabel: node.sublabel,
+        role: node.role,
+        tools: node.tools === null ? all.value : node.tools.join(' '),
+        reads: node.reads === null ? all.value : node.reads.join(' '),
+        failed: isFailed,
+        active: node.id === props.active && !isFailed,
+        selected: node.id === props.selected,
+        prefix: inPrefix,
+        faded: focus.value !== null && !inPrefix && node.id !== focus.value,
+        state: stateOf(node.id, isFailed, inPrefix),
+      },
+    }
+  }),
 )
 
-/** 读边（read）走卡图那套虚线与强调色，主干边是普通实线 */
+/** 边：主干与折行始终画；读边只画被看那个节点的上游（默认一条都不画） */
 const edges = computed<Edge[]>(() =>
-  graph.value.edges.map((edge, index) => ({
-    id: 'edge-' + index,
-    source: edge.source,
-    target: edge.target,
-    class: edge.read ? 'card-graph-read' : 'card-graph-flow',
-    markerEnd: MarkerType.ArrowClosed,
-  })),
+  graph.value.edges
+    .filter((edge) => edge.kind !== 'read' || edge.target === focus.value)
+    .map((edge) => ({
+      id: edge.source + '-' + edge.target + '-' + edge.kind,
+      source: edge.source,
+      target: edge.target,
+      type: edge.kind === 'wrap' ? 'smoothstep' : undefined,
+      sourceHandle: edge.kind === 'wrap' ? 'down' : 'out',
+      targetHandle: edge.kind === 'wrap' ? 'up' : 'in',
+      class: edge.kind === 'read' ? 'card-graph-read' : 'card-graph-flow',
+      label: edge.label,
+      markerEnd: MarkerType.ArrowClosed,
+    })),
 )
 
 /** 点节点 = 选中它（编辑表单靠这个事件出） */
 function onNodeClick(payload: NodeMouseEvent) {
   emit('select', payload.node.id)
+}
+
+/** 指到一个节点：把它的上游虚线叫出来（离开时收回，回到「只画主干」） */
+function onNodeEnter(payload: NodeMouseEvent) {
+  hovered.value = payload.node.id
+}
+
+/** 鼠标离开节点：不再看它的上游 */
+function onNodeLeave() {
+  hovered.value = null
 }
 
 // 画布尺寸量好之后再摆视口：不用模板上的 fit-view-on-init，那个 Promise
@@ -118,22 +196,46 @@ onPaneReady(() => void fitInBox())
       :max-zoom="2"
       :nodes-connectable="false"
       @node-click="onNodeClick"
+      @node-mouse-enter="onNodeEnter"
+      @node-mouse-leave="onNodeLeave"
     >
       <template #node-card="{ data }">
         <div
-          class="w-[200px] rounded-lg border bg-surface px-3 py-2 text-left"
-          :class="
+          :data-node-box="data.index"
+          :data-node-state="data.state"
+          class="w-[210px] rounded-lg border bg-surface px-2.5 py-1.5 text-left transition-opacity"
+          :class="[
             data.selected
               ? 'border-accent bg-accent-soft'
               : data.failed
                 ? 'border-danger bg-danger-soft'
-                : data.active
+                : data.active || data.prefix
                   ? 'border-accent-line bg-accent-soft'
-                  : 'border-line'
-          "
+                  : 'border-line',
+            data.faded ? 'opacity-40' : '',
+          ]"
         >
-          <div class="text-[13px] font-semibold text-text">{{ data.label }}</div>
-          <div class="mt-0.5 text-[11px] leading-snug text-muted">{{ data.sublabel }}</div>
+          <div class="text-[12.5px] font-semibold text-text">{{ data.label }}</div>
+          <div class="mt-0.5 text-[10.5px] leading-snug text-muted">{{ data.sublabel }}</div>
+          <dl class="mt-1 space-y-px text-[10px] leading-tight">
+            <div v-if="data.role" class="flex gap-1">
+              <dt class="shrink-0 text-faint">role</dt>
+              <dd class="truncate text-accent">{{ data.role }}</dd>
+            </div>
+            <div class="flex gap-1">
+              <dt class="shrink-0 text-faint">tools</dt>
+              <dd class="truncate text-muted" :title="data.tools">{{ data.tools }}</dd>
+            </div>
+            <div class="flex gap-1">
+              <dt class="shrink-0 text-faint">reads</dt>
+              <dd class="truncate text-muted" :title="data.reads">{{ data.reads }}</dd>
+            </div>
+          </dl>
+          <!-- 四个连接点：左右是主干，上下留给折行那一条（走行间的回边通道） -->
+          <Handle id="in" type="target" :position="Position.Left" />
+          <Handle id="out" type="source" :position="Position.Right" />
+          <Handle id="up" type="target" :position="Position.Top" />
+          <Handle id="down" type="source" :position="Position.Bottom" />
         </div>
       </template>
     </VueFlow>
@@ -152,11 +254,18 @@ onPaneReady(() => void fitInBox())
   stroke-dasharray: 5 4;
 }
 .card-graph .vue-flow__edge-text {
-  fill: var(--color-muted);
-  font-size: 10px;
+  fill: var(--color-accent);
+  font-size: 11px;
+  font-weight: 600;
 }
 .card-graph .vue-flow__edge-textbg {
   fill: var(--color-page);
+}
+.card-graph .vue-flow__handle {
+  width: 4px;
+  height: 4px;
+  border: 0;
+  background: var(--color-line);
 }
 .card-graph .vue-flow__node-card {
   font-family: inherit;

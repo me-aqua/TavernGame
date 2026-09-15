@@ -1,258 +1,120 @@
 /**
- * 节点上下文的裁剪：公共部分 + 本轮上游累加（doc/DESIGN.md 第四节、决定 #26/#36）。
+ * 节点上下文的结构约束：reads（看得见哪几块状态）与 uses（读哪几条生成器）。
  *
- * 这里守两条：
- *   · 默认路径（没有上游）与升级前的 snapshot() **逐字节一样** —— 旧实现冻结成
- *     legacySnapshot 当基线，公共部分一旦被改动这条就会红；
- *   · 上游按给定顺序累加、每段标题走 locale；拿不到产出就不猜、不编占位符。
+ * 卡里「只有精神分析读得到玩家画像」「只有地图与大纲拿生成器」这两句话，
+ * 在这里是**结构约束**：引擎按节点声明裁剪，不是提示词里的请求。
  */
 import { describe, expect, it } from 'vitest'
-import * as game from '../src/game/state'
-import { isStoryKind } from '../src/game/save'
-import { i18n, t } from '../src/i18n'
-import { createGame } from './support/game-fixtures'
-import type { ChatMessage } from '../src/types/state'
+import { buildNodeMessages } from '../src/agent/prompts'
+import { renderState } from '../src/game/card-state'
+import { format } from '../src/game/card-calendar'
+import { createInitialState } from '../src/game/save'
+import { advanceTime } from '../src/game/state'
+import { currentCard } from '../src/game/current-card'
+import { t } from '../src/i18n'
+import { loadCard, NIGHT_WATCH_CARD } from './support/card-fixtures'
+import type { CardData } from '../src/game/card'
+import type { GameData } from '../src/types/state'
 
-/* ---- 测试自己编的 fixture（非产品文案） ---- */
+const card = currentCard
+const topology = card.graph.topology
+const PLAYER_WORDS = "the player's action"
 
-const PINNED_ISO = '2026-09-14T09:30:00.000Z'
-const PLAYER_ACTION = 'I head to the docks'
-const GM_REPLY = 'The sea air is salty.'
-const LOG_LINE = 'a line from the log'
-const DEBUG_NOISE = 'debug noise'
-const LONG_TEXT = 'x'.repeat(300)
-const WAITED_A_WEEK = 'waited a week'
-const SCENE_NAME = 'The Docks'
-const SCENE_DESCRIPTION = 'Masts creak in the fog.'
-
-/** 上游产出的两个假片段（节点名与内容都要能区分出顺序） */
-const OUTLINE_NODE = 'outline'
-const OUTLINE_OUTPUT = '{"beat":"the fog lifts"}'
-const JUDGE_NODE = 'judge'
-const JUDGE_OUTPUT = '{"check":"hard"}'
-const LOST_NODE = 'lost-node'
-
-interface Fixture {
-  label: string
-  state: game.GameState
-  history: ChatMessage[]
+function messagesFor(node: string, data: GameData = createInitialState(card), source: CardData = card) {
+  return buildNodeMessages({
+    card: source,
+    node,
+    state: data.state,
+    time: data.time,
+    events: data.events,
+    memoryUpTo: data.events.length,
+    playerWords: PLAYER_WORDS,
+    upstream: [],
+  })
 }
 
-/** 一批**确定性**的输入：公共部分（快照）的每个分支都要走到 */
-function byteFixtures(): Fixture[] {
-  const bare = createGame()
-  bare.data.time.iso = PINNED_ISO
-
-  const withLog = createGame()
-  withLog.data.time.iso = PINNED_ISO
-  withLog.data.meta.turn = 7
-  withLog.data.scene = { name: SCENE_NAME, description: SCENE_DESCRIPTION }
-  game.addEvent(withLog, 'narration', LOG_LINE)
-  game.addEvent(withLog, 'action', PLAYER_ACTION)
-  game.addEvent(withLog, 'tool', DEBUG_NOISE)
-  game.advanceTime(withLog, 1, 'week', WAITED_A_WEEK)
-  game.advanceTime(withLog, 1, 'day')
-
-  const withHistory = createGame()
-  withHistory.data.time.iso = PINNED_ISO
-  withHistory.data.meta.turn = 3
-  game.addEvent(withHistory, 'narration', LOG_LINE)
-  const history: ChatMessage[] = [
-    { role: 'user', content: 'first' },
-    { role: 'assistant', content: 'second' },
-    { role: 'user', content: 'third\n  with   spaces' },
-    { role: 'assistant', content: LONG_TEXT },
-    { role: 'user', content: PLAYER_ACTION },
-  ]
-
-  const dirtyHistory = createGame()
-  dirtyHistory.data.time.iso = PINNED_ISO
-  game.addEvent(dirtyHistory, 'narration', LOG_LINE)
-  const dirty: ChatMessage[] = [
-    null as unknown as ChatMessage,
-    { role: 'user', content: '' },
-    { role: 'assistant', content: GM_REPLY },
-  ]
-
-  const timelineEdges = createGame()
-  timelineEdges.data.time.iso = PINNED_ISO
-  timelineEdges.data.timeline = [
-    { from: 'a', to: '', reason: 'skipped', elapsedMs: 1, at: '' },
-    { from: 'b', to: 'to-b', reason: '', elapsedMs: 1, at: '' },
-    { from: 'c', to: 'to-c', reason: 'reason-c', elapsedMs: 1, at: '' },
-    { from: 'd', to: 'to-d', reason: '', elapsedMs: 1, at: '' },
-    { from: 'e', to: 'to-e', reason: 'reason-e', elapsedMs: 1, at: '' },
-    { from: 'f', to: 'to-f', reason: '', elapsedMs: 1, at: '' },
-    { from: 'g', to: 'to-g', reason: 'reason-g', elapsedMs: 1, at: '' },
-  ]
-
-  return [
-    { label: 'bare', state: bare, history: [] },
-    { label: 'log-and-timeline', state: withLog, history: [] },
-    { label: 'history-wins', state: withHistory, history },
-    { label: 'dirty-history', state: dirtyHistory, history: dirty },
-    { label: 'timeline-edges', state: timelineEdges, history: [] },
-  ]
+function userOf(node: string, data: GameData = createInitialState(card), source: CardData = card): string {
+  return messagesFor(node, data, source).at(-1)?.content as string
 }
 
-/**
- * 升级前的 snapshot() 实现，原样冻结在这里当基线。
- *
- * ⚠️ 故意不重构、不跟随新代码改 —— 它的价值就是「老实现怎么写，输出就得是什么」。
- */
-function legacySnapshot(s: game.GameState, history: ChatMessage[] = []): string {
-  const place = game.sceneOf(s)
-  const lines = [
-    t('snapshot.turn', { turn: game.turn(s) }),
-    t('snapshot.time', { time: game.timeLabel(s) }),
-    t('snapshot.place', { name: place.name }),
-    t('snapshot.sceneDescription', { text: place.description }),
-  ]
+function systemOf(node: string, source: CardData = card): string {
+  return messagesFor(node, createInitialState(source), source)[0].content
+}
 
-  const recent = history.filter((h) => h && typeof h.content === 'string').slice(-4)
-  if (recent.length) {
-    lines.push('', t('snapshot.recent'))
-    for (const h of recent) {
-      const who = h.role === 'user' ? t('snapshot.player') : t('snapshot.gm')
-      lines.push(t('snapshot.recentLine', { who, text: h.content.replace(/\s+/g, ' ').slice(0, 160) }))
+describe('reads - a node only sees the branches it declares', () => {
+  it('the state text is exactly renderState(state, { reads })', () => {
+    const data = createInitialState(card)
+    for (const id of topology) {
+      const reads = card.graph.nodes[id].reads
+      expect(userOf(id, data), id).toContain(renderState(data.state, { reads }))
     }
-  } else {
-    const story = s.data.events.filter((event) => isStoryKind(event.kind)).slice(-4)
-    if (story.length) {
-      lines.push('', t('snapshot.recentLog'))
-      for (const event of story) {
-        lines.push(`- ${event.text.replace(/\s+/g, ' ').slice(0, 160)}`)
+  })
+
+  it('exactly one node reads the player profile, and the others do not see it', () => {
+    const readers = topology.filter((id) => (card.graph.nodes[id].reads ?? []).includes('player'))
+    expect(readers).toHaveLength(1)
+
+    const data = createInitialState(card)
+    const profile = (data.state.player as Record<string, unknown>).profile as string
+    expect(profile.length).toBeGreaterThan(0)
+
+    const user = userOf(readers[0], data)
+    expect(user).toContain('player:')
+    expect(user).toContain(profile)
+
+    for (const other of topology.filter((id) => id !== readers[0])) {
+      expect(userOf(other, data), other).not.toContain(profile)
+      expect(userOf(other, data), other).not.toContain('player:')
+    }
+  })
+
+  it('a node that declares no reads sees every branch', () => {
+    const source = loadCard(NIGHT_WATCH_CARD)
+    const data = createInitialState(source)
+    // 这张卡的两个节点都没写 reads（不写 = 全部）
+    for (const id of source.graph.topology) {
+      expect(source.graph.nodes[id].reads).toBeUndefined()
+      expect(userOf(id, data, source)).toContain(renderState(data.state))
+    }
+  })
+})
+
+describe('uses - generators go only to the nodes that name them', () => {
+  it('a node sees exactly the generators it declares', () => {
+    for (const id of topology) {
+      const uses = card.graph.nodes[id].uses ?? []
+      const system = systemOf(id)
+      for (const generator of card.generators) {
+        if (uses.includes(generator.name)) {
+          expect(system, id + ' must carry ' + generator.name).toContain(generator.name)
+          expect(system).toContain(generator.principles[0])
+        } else {
+          expect(system, id + ' must not carry ' + generator.name).not.toContain(generator.name)
+        }
       }
     }
-  }
+  })
 
-  const timelineLines = s.data.timeline
-    .slice(-5)
-    .filter((entry) => String(entry.to ?? ''))
-    .map((entry) =>
-      entry.reason
-        ? t('snapshot.timelineLine', { to: entry.to, reason: entry.reason })
-        : t('snapshot.timelineLineNoReason', { to: entry.to }),
-    )
-  if (timelineLines.length) {
-    lines.push('', t('snapshot.timeline'), ...timelineLines)
-  }
-
-  return lines.join('\n')
-}
-
-/** 切界面语言（setup 在每个用例前钉回 zh-CN） */
-function setLocale(locale: 'zh-CN' | 'en'): void {
-  ;(i18n.global.locale as unknown as { value: string }).value = locale
-}
-
-describe('contextFor - the public part is byte-identical to the old snapshot', () => {
-  it('every fixture comes out exactly as the frozen old implementation', () => {
-    for (const fixture of byteFixtures()) {
-      expect(game.contextFor(fixture.state, { history: fixture.history }), fixture.label).toBe(
-        legacySnapshot(fixture.state, fixture.history),
-      )
-      expect(game.snapshot(fixture.state, fixture.history), fixture.label).toBe(
-        legacySnapshot(fixture.state, fixture.history),
-      )
+  it('a card whose nodes name no generators never gets one', () => {
+    const source = loadCard(NIGHT_WATCH_CARD)
+    expect(source.generators.length).toBeGreaterThan(0)
+    for (const id of source.graph.topology) {
+      expect(systemOf(id, source)).not.toContain(source.generators[0].name)
     }
   })
 })
 
-describe('contextFor - upstream accumulation', () => {
-  it('appends upstream outputs in the given order, each under its own node name', () => {
-    const s = createGame()
-    const upstream = [
-      { node: OUTLINE_NODE, output: OUTLINE_OUTPUT },
-      { node: JUDGE_NODE, output: JUDGE_OUTPUT },
-    ]
-    const out = game.contextFor(s, { upstream })
+describe('the snapshot is rendered per request (tools move the clock)', () => {
+  it('a node asked after the time advance sees the new moment', () => {
+    const data = createInitialState(card)
+    const story = topology.find((id) => card.graph.nodes[id].role === 'story') as string
 
-    // 公共部分在前且逐字节等于无上游的上下文
-    expect(out.startsWith(game.snapshot(s, []))).toBe(true)
-    // 两段都在，节点名各自出现在自己那段的标题里
-    expect(out).toContain(t('snapshot.upstreamNode', { node: OUTLINE_NODE }))
-    expect(out).toContain(t('snapshot.upstreamNode', { node: JUDGE_NODE }))
-    // 顺序 = 调用方给的顺序（标题与正文都按序）
-    expect(out.indexOf(OUTLINE_OUTPUT)).toBeLessThan(out.indexOf(JUDGE_OUTPUT))
-    expect(out.indexOf(t('snapshot.upstreamNode', { node: OUTLINE_NODE }))).toBeLessThan(
-      out.indexOf(t('snapshot.upstreamNode', { node: JUDGE_NODE })),
-    )
-    // 标题紧贴在它那段正文前面
-    expect(out.indexOf(t('snapshot.upstreamNode', { node: OUTLINE_NODE }))).toBeLessThan(
-      out.indexOf(OUTLINE_OUTPUT),
-    )
-    expect(out.indexOf(t('snapshot.upstreamNode', { node: JUDGE_NODE }))).toBeLessThan(
-      out.indexOf(JUDGE_OUTPUT),
-    )
-  })
+    const before = userOf(story, data)
+    advanceTime(data, card.time.calendar, 480, 'waited')
+    const after = userOf(story, data)
 
-  it('respects the order it is given, not some canonical order', () => {
-    const s = createGame()
-    const reversed = game.contextFor(s, {
-      upstream: [
-        { node: JUDGE_NODE, output: JUDGE_OUTPUT },
-        { node: OUTLINE_NODE, output: OUTLINE_OUTPUT },
-      ],
-    })
-    expect(reversed.indexOf(JUDGE_OUTPUT)).toBeLessThan(reversed.indexOf(OUTLINE_OUTPUT))
-  })
-})
-
-describe('contextFor - the segment heading comes from the locale table', () => {
-  it('localizes the heading in both languages and keeps the node name in it', () => {
-    const s = createGame()
-    const upstream = [{ node: OUTLINE_NODE, output: OUTLINE_OUTPUT }]
-    const headings = new Set<string>()
-
-    for (const locale of ['zh-CN', 'en'] as const) {
-      setLocale(locale)
-      const heading = t('snapshot.upstreamNode', { node: OUTLINE_NODE })
-      expect(heading, locale).toContain(OUTLINE_NODE)
-      expect(game.contextFor(s, { upstream }), locale).toContain(heading)
-      headings.add(heading)
-    }
-
-    // 两种语言给出两句不同的标题 —— 说明它真的来自 locale，不是写死在代码里的
-    expect(headings.size).toBe(2)
-  })
-})
-
-describe('contextFor - no upstream means no guessing', () => {
-  it('missing options, an empty array, and missing fields all append nothing', () => {
-    const s = createGame()
-    s.data.time.iso = PINNED_ISO
-    const plain = game.snapshot(s, [])
-
-    expect(game.contextFor(s)).toBe(plain)
-    expect(game.contextFor(s, {})).toBe(plain)
-    expect(game.contextFor(s, { upstream: [] })).toBe(plain)
-    expect(game.contextFor(s, { history: [], upstream: [] })).toBe(plain)
-
-    const incomplete = [
-      { node: OUTLINE_NODE } as game.UpstreamOutput,
-      { node: '', output: OUTLINE_OUTPUT } as game.UpstreamOutput,
-      { node: OUTLINE_NODE, output: '' } as game.UpstreamOutput,
-      null as unknown as game.UpstreamOutput,
-    ]
-    expect(game.contextFor(s, { upstream: incomplete })).toBe(plain)
-    // 不编占位符：节点名也不许被写进上下文
-    expect(game.contextFor(s, { upstream: incomplete })).not.toContain(OUTLINE_NODE)
-  })
-
-  it('skips only the segments without output, keeping the rest', () => {
-    const s = createGame()
-    s.data.time.iso = PINNED_ISO
-    const out = game.contextFor(s, {
-      upstream: [
-        { node: OUTLINE_NODE, output: OUTLINE_OUTPUT },
-        { node: LOST_NODE, output: '' },
-        { node: JUDGE_NODE, output: JUDGE_OUTPUT },
-      ],
-    })
-
-    expect(out).toContain(OUTLINE_OUTPUT)
-    expect(out).toContain(JUDGE_OUTPUT)
-    expect(out).not.toContain(LOST_NODE)
+    expect(after).not.toBe(before)
+    expect(after).toContain(t('prompts.timeLine', { time: format(card.time.calendar, data.time) }))
+    expect(before).not.toContain(t('prompts.timeLine', { time: format(card.time.calendar, data.time) }))
   })
 })

@@ -7,8 +7,10 @@
  * 显示哪几条由卡的 声明.显示.顶栏 决定（决定 #15）：条目名 → 渲染键的映射在
  * display-blocks.ts，这里只管怎么画；卡声明了画不出来的条目会在模块加载期炸。
  */
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { TopbarItem } from './display-blocks'
+import type { Spot } from '../game/display'
 import type { TimelineEntry } from '../types/state'
 
 const { t } = useI18n()
@@ -18,9 +20,16 @@ const props = defineProps<{
   items: TopbarItem[]
   timeLabel: string
   timeline: TimelineEntry[]
-  scene: { name: string; description: string }
+  /** 当前所在 —— world.location 的三段（区域 / 地点 / 场景），从状态树读 */
+  scene: Spot
   turn: number
 }>()
+
+/** 「场景」那一条写什么：地点 · 场景；卡只声明到区域时退回区域名 */
+const sceneLabel = computed(() => {
+  const parts = [props.scene.spot, props.scene.scene].filter((part) => part.length > 0)
+  return parts.length > 0 ? parts.join(t('sidebar.separator')) : props.scene.area
+})
 
 /** 自己占一行的条目：时间在上，场景与回合跟在它下面 */
 function isWide(item: TopbarItem): boolean {
@@ -49,7 +58,7 @@ function needsSeparator(index: number): boolean {
         >
           {{ timeLabel }}
         </span>
-        <span v-else-if="item === 'scene'" class="scene-name truncate text-muted">{{ scene.name }}</span>
+        <span v-else-if="item === 'scene'" class="scene-name truncate text-muted">{{ sceneLabel }}</span>
         <span v-else class="text-faint">
           {{ t('sidebar.turn') }}
           <span data-turn class="ml-0.5 font-semibold text-accent tabular-nums">{{ turn }}</span>
@@ -59,11 +68,13 @@ function needsSeparator(index: number): boolean {
     <!-- 时间线只渲染**起点**（from）不渲染终点：这是有意设计（用户明确要求），
          终点已经在上面那行时间里了，这里回答的是「从哪个时刻起、发生了什么」。
          ⚠️ 独立审查员曾把这条报成缺陷，已驳回。 -->
-    <p v-if="timeline.length" class="timeline mt-1 truncate text-faint">
-      {{ t('sidebar.timelineArrow') }} {{ timeline.at(-1)?.from }}
-      <span v-if="timeline.at(-1)?.reason" class="opacity-70"
-        >{{ t('sidebar.separator') }}{{ timeline.at(-1)?.reason }}</span
-      >
+    <p v-if="timeline.length" class="timeline mt-1 flex items-baseline gap-1 overflow-hidden text-faint">
+      <!-- 两段各自截断：日子一长（卡里的历法是完整日期）整行会伸出浮层，
+           而探针看的是**每个元素自己的盒子** —— 光给外框加 truncate 拦不住里面那一段 -->
+      <span class="truncate">{{ t('sidebar.timelineArrow') }} {{ timeline.at(-1)?.from }}</span>
+      <span v-if="timeline.at(-1)?.reason" class="truncate opacity-70">
+        {{ t('sidebar.separator') }}{{ timeline.at(-1)?.reason }}
+      </span>
     </p>
   </aside>
 </template>

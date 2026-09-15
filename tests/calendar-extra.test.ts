@@ -1,12 +1,11 @@
 /**
- * calendar.ts 补充测试 —— 覆盖未走到的单位分支与时长文案分支。
+ * calendar.ts 补充测试 —— 覆盖未走到的单位分支。
  *
  * 所有用户可见文案都通过 t('key') 断言：改 locale 不会让这些检查静默通过，
  * 文件本身也保持 ASCII。
  */
 import { describe, expect, it } from 'vitest'
 import { realCalendar, hourToSegment } from '../src/utils/calendar'
-import { t } from '../src/i18n'
 
 describe('advance -- units not covered elsewhere', () => {
   it('hour: advances by whole hours', () => {
@@ -25,32 +24,8 @@ describe('advance -- units not covered elsewhere', () => {
 
   it('an unknown unit hits the default branch and throws (exhaustiveness check)', () => {
     expect(() => realCalendar.advance('2026-09-10T02:00:00.000Z', 1, 'lightyear' as never)).toThrow(
-      /Unknown time unit|/,
+      /Unknown time unit/,
     )
-  })
-})
-
-describe('describeElapsed -- uncovered wording branches', () => {
-  it('less than a day but at least an hour -> hours', () => {
-    expect(realCalendar.describeElapsed(3600000)).toBe(t('calendar.elapsedHours', { hours: 1 }))
-  })
-
-  it('30 days or more but under 365 -> mentions months', () => {
-    const out = realCalendar.describeElapsed(45 * 86400000)
-    expect(out).toBe(t('calendar.elapsedMonthsDays', { months: 1, days: 15 }))
-  })
-
-  it('exactly 30 days -> 1 month (remDays is 0, no extra days part)', () => {
-    expect(realCalendar.describeElapsed(30 * 86400000)).toBe(t('calendar.elapsedMonths', { months: 1 }))
-  })
-
-  it('under an hour -> minutes (elapsedMinutes branch)', () => {
-    expect(realCalendar.describeElapsed(30 * 60000)).toBe(t('calendar.elapsedMinutes', { minutes: 30 }))
-  })
-
-  it('zero or negative -> empty string', () => {
-    expect(realCalendar.describeElapsed(0)).toBe('')
-    expect(realCalendar.describeElapsed(-1)).toBe('')
   })
 })
 

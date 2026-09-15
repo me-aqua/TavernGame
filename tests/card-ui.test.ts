@@ -1,69 +1,86 @@
 // @vitest-environment jsdom
 /**
- * 卡界面的组件测试：卡图（节点数与选中）、编辑表单（改了什么就抛什么）、卡一节
- * （来源与四个动作），以及「点节点 → 改提示词 → 保存」这条完整链路。
+ * 卡界面与调试面板的组件测试：卡图（节点数、默认只画主干、指到谁才画谁的上游）、
+ * 编辑表单（改了什么就抛什么、声明只读）、调试面板（三块 + 只读），以及
+ * 「点节点 → 改提示词 → 保存」这条完整链路。
  *
  * 保存那一步断言的是**真的落到 localStorage 垫片上**的那一刻（组件只 emit saved，
  * reload 是外层 App 的事）—— 不依赖真实下载，也不依赖真实 reload。
  *
  * vue-flow 要 ResizeObserver 量尺寸，jsdom 里没有 —— 换成替身：它把每个节点画成一个
- * 按钮、点了把 nodeClick 抛上来，于是「点节点出表单」也测得到。画面本身归组件故事巡检
+ * 按钮、点了把 nodeClick 抛上来、进出把 nodeMouseEnter / nodeMouseLeave 抛上来，
+ * 于是「点节点出表单」与「指到谁看谁的上游」都测得到。画面本身归组件故事巡检
  * （npm run stories）。
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
-import { h } from 'vue'
-import { defineComponent } from 'vue'
+import { defineComponent, h } from 'vue'
 import { mount } from '@vue/test-utils'
 import CardEditor from '../src/components/CardEditor.vue'
 import CardGraph from '../src/components/CardGraph.vue'
 import CardNodeForm from '../src/components/CardNodeForm.vue'
 import CardSection from '../src/components/CardSection.vue'
+import DebugPanel from '../src/components/DebugPanel.vue'
 import cardGraphStory, { Failed, Running, Selected } from '../src/components/CardGraph.stories'
 import { parseCard } from '../src/game/card'
 import { toGraph } from '../src/game/card-layout'
-import * as K from '../src/game/card-keys'
+import { instantiate } from '../src/game/card-state'
+import { format } from '../src/game/card-calendar'
 import { EXAMPLE_CARD } from './support/card-fixtures'
 import { i18n, t } from '../src/i18n'
 
-/** 示例卡（节点数、名字与提示词全部从卡里现读：卡是唯一事实来源） */
+/** 示例卡（节点数、名字、提示词与声明全部从卡里现读：卡是唯一事实来源） */
 const card = parseCard(readFileSync(EXAMPLE_CARD, 'utf8'))
 const graph = toGraph(card)
-const declared = card[K.KEY_DECL] as Record<string, any>
-const topology = (declared[K.KEY_GRAPH] as Record<string, any>)[K.KEY_TOPOLOGY] as string[]
-const nodes = (declared[K.KEY_GRAPH] as Record<string, any>)[K.KEY_NODES] as Record<
-  string,
-  Record<string, string>
->
-const prompts = (card[K.KEY_PROMPT] as Record<string, any>)[K.KEY_NODES] as Record<string, string[]>
+const topology = card.graph.topology
+const nodes = card.graph.nodes
 
 /** 活动卡的存储键（与产品一致） */
 const CARD_KEY = 'tavernGame.card'
 
-/** 替身看到的一个节点（只用到这两处） */
+/** 图里三种边的类名（与 CardGraph 的样式约定一致） */
+const READ_EDGE = 'card-graph-read'
+
+/** 替身看到的一个节点（只用到这几处） */
 interface StubNode {
   id: string
-  data: { label: string }
+  data: {
+    label: string
+    role: string | null
+    tools: string
+    reads: string
+    active: boolean
+    failed: boolean
+    selected: boolean
+    prefix: boolean
+    faded: boolean
+  }
 }
 
-/** 把替身里的一个节点画成按钮：点了就把 nodeClick 抛上去（真 vue-flow 由点按命中判定） */
-function nodeButton(node: StubNode, emit: (event: 'nodeClick', payload: unknown) => void) {
-  return h('button', { 'data-node': node.id, onClick: () => emit('nodeClick', { node }) }, node.data.label)
-}
-
-/** vue-flow 的替身：只记 props，节点渲染成按钮 */
+/** vue-flow 的替身：只记 props，节点渲染成按钮（点 = 选中，进出 = 悬停） */
 const VueFlowStub = defineComponent({
   name: 'VueFlow',
   props: { nodes: { type: Array, required: true }, edges: { type: Array, required: true } },
-  emits: ['nodeClick'],
-  /** 画一层 div，里面每个节点一个按钮（点了就 nodeClick） */
+  emits: ['nodeClick', 'nodeMouseEnter', 'nodeMouseLeave'],
+  /** 画一层 div，里面每个节点一个按钮（点了、进去了、出来了都把事件抛上去） */
   setup:
     (props, { emit }) =>
     () =>
       h(
         'div',
         { class: 'flow-stub' },
-        (props.nodes as StubNode[]).map((node) => nodeButton(node, emit)),
+        (props.nodes as StubNode[]).map((node) =>
+          h(
+            'button',
+            {
+              'data-node': node.id,
+              onClick: () => emit('nodeClick', { node }),
+              onMouseenter: () => emit('nodeMouseEnter', { node }),
+              onMouseleave: () => emit('nodeMouseLeave', { node }),
+            },
+            node.data.label,
+          ),
+        ),
       ),
 })
 
@@ -76,23 +93,113 @@ function render<C>(component: C, options: Record<string, unknown> = {}) {
   )
 }
 
-/** 交给 vue-flow 的那份节点数据（高亮是样式，这里断言数据里的标记） */
-function flowNodes(props: Record<string, unknown> = {}) {
-  const w = render(CardGraph, { props: { card, ...props }, global: { stubs: { VueFlow: VueFlowStub } } })
-  return w.findComponent(VueFlowStub).props('nodes') as Array<{
-    id: string
-    data: { active: boolean; failed: boolean; selected: boolean }
+/** 画卡图（vue-flow 换成替身） */
+function drawGraph(props: Record<string, unknown> = {}) {
+  return render(CardGraph, { props: { card, ...props }, global: { stubs: { VueFlow: VueFlowStub } } })
+}
+
+/** 交给 vue-flow 的那份节点数据（高亮是数据里的标记，样式归故事巡检） */
+function flowNodes(props: Record<string, unknown> = {}): StubNode[] {
+  return drawGraph(props).findComponent(VueFlowStub).props('nodes') as StubNode[]
+}
+
+/** 交给 vue-flow 的那份边（类名区分主干与读边） */
+function flowEdges(props: Record<string, unknown> = {}) {
+  return drawGraph(props).findComponent(VueFlowStub).props('edges') as Array<{
+    source: string
+    target: string
+    class: string
+    label?: string
   }>
 }
 
 describe('CardGraph', () => {
-  it('hands the parsed card to vue-flow as nodes and edges', () => {
-    const w = render(CardGraph, { props: { card }, global: { stubs: { VueFlow: VueFlowStub } } })
-    const flow = w.findComponent(VueFlowStub)
-    const drawn = flow.props('nodes') as Array<{ id: string; data: { label: string } }>
+  it('hands the parsed card to vue-flow as numbered nodes', () => {
+    const drawn = flowNodes()
     expect(drawn.map((node) => node.id)).toEqual(graph.nodes.map((node) => node.id))
     expect(drawn[0].data.label).toBe(graph.nodes[0].label)
-    expect(flow.props('edges')).toHaveLength(graph.edges.length)
+    expect(drawn[0].data.label).toContain('\u2460')
+  })
+
+  it('draws only the chain by default: no upstream dashed edges at all', () => {
+    const chain = graph.edges.filter((edge) => edge.kind !== 'read')
+    const edges = flowEdges()
+    expect(edges).toHaveLength(chain.length)
+    expect(edges.filter((edge) => edge.class === READ_EDGE)).toHaveLength(0)
+    // 折行那条带着序号，主干边上没有别的文字
+    const wraps = edges.filter((edge) => edge.label !== undefined)
+    expect(wraps).toHaveLength(chain.filter((edge) => edge.kind === 'wrap').length)
+    expect(wraps[0].label).toBe('\u2465')
+  })
+
+  it('draws exactly the upstream of the selected node', () => {
+    const target = graph.nodes[3].id
+    const edges = flowEdges({ selected: target })
+    const reads = edges.filter((edge) => edge.class === READ_EDGE)
+    expect(reads.map((edge) => edge.source)).toEqual(topology.slice(0, 3))
+    expect(reads.every((edge) => edge.target === target)).toBe(true)
+  })
+
+  it('draws the upstream of the pointed node on hover, and takes it back on leave', async () => {
+    const target = graph.nodes[2].id
+    const w = drawGraph()
+    const button = w.find('[data-node="' + target + '"]')
+
+    await button.trigger('mouseenter')
+    const hovering = w.findComponent(VueFlowStub).props('edges') as Array<{ class: string; target: string }>
+    expect(hovering.filter((edge) => edge.class === READ_EDGE).map((edge) => edge.target)).toEqual([
+      target,
+      target,
+    ])
+
+    await button.trigger('mouseleave')
+    const left = w.findComponent(VueFlowStub).props('edges') as Array<{ class: string }>
+    expect(left.filter((edge) => edge.class === READ_EDGE)).toHaveLength(0)
+  })
+
+  it('marks the upstream prefix and fades everything else while a node is focused', () => {
+    const target = graph.nodes[3].id
+    const drawn = flowNodes({ selected: target })
+    const prefix = drawn.filter((node) => node.data.prefix).map((node) => node.id)
+    expect(prefix).toEqual(topology.slice(0, 3))
+    // 被看的那个既不在前缀里也不淡出；其余全部淡出
+    expect(drawn.find((node) => node.id === target)?.data.faded).toBe(false)
+    expect(drawn.filter((node) => node.data.faded).map((node) => node.id)).toEqual(topology.slice(4))
+  })
+
+  it('writes the declarations the card made on each node', () => {
+    const drawn = flowNodes()
+    const storyId = topology.find((id) => nodes[id].role === 'story') as string
+    const story = drawn.find((node) => node.id === storyId)
+
+    // 故事节点：声明了 role，tools 是一个都不给（空表 ≠ 不写），reads 只列三块状态
+    expect(story?.data.role).toBe('story')
+    expect(story?.data.tools).toBe('')
+    expect(story?.data.reads).toBe((nodes[storyId].reads ?? []).join(' '))
+
+    const first = nodes[topology[0]]
+    expect(drawn[0].data.tools).toBe((first.tools ?? []).join(' '))
+    expect(drawn[0].data.reads).toBe((first.reads ?? []).join(' '))
+    expect(drawn[0].data.role).toBe(null)
+  })
+
+  it('writes "all" where the card left the declaration out (undefined, not an empty list)', () => {
+    // 卡没写 tools / reads = 这个节点什么动作都能用、什么状态都看得见
+    const bare = {
+      ...card,
+      graph: {
+        topology,
+        nodes: {
+          ...nodes,
+          [topology[0]]: { ...nodes[topology[0]], tools: undefined, reads: undefined },
+        },
+      },
+    } as typeof card
+    const w = render(CardGraph, { props: { card: bare }, global: { stubs: { VueFlow: VueFlowStub } } })
+    const drawn = w.findComponent(VueFlowStub).props('nodes') as StubNode[]
+
+    expect(drawn[0].data.tools).toBe(t('card.declAll'))
+    expect(drawn[0].data.reads).toBe(t('card.declAll'))
   })
 
   it('flags exactly the running node, and nothing when the props are omitted', () => {
@@ -106,10 +213,10 @@ describe('CardGraph', () => {
     expect(plain.every((node) => !node.data.active && !node.data.failed)).toBe(true)
   })
 
-  it('flags the failed node, and failure wins over running', () => {
+  it('flags the failed nodes, and failure wins over running', () => {
     const broken = graph.nodes[2].id
     // 挂掉的节点同时就是「正在跑」的那一个：只该亮失败色
-    const drawn = flowNodes({ active: broken, failed: broken })
+    const drawn = flowNodes({ active: broken, failed: [broken] })
 
     expect(drawn.filter((node) => node.data.failed).map((node) => node.id)).toEqual([broken])
     expect(drawn.filter((node) => node.data.active)).toEqual([])
@@ -123,14 +230,14 @@ describe('CardGraph', () => {
   })
 
   it('lets a click on a node out as select', async () => {
-    const w = render(CardGraph, { props: { card }, global: { stubs: { VueFlow: VueFlowStub } } })
+    const w = drawGraph()
     await w.find('[data-node="' + topology[0] + '"]').trigger('click')
 
     expect(w.emitted('select')?.[0]).toEqual([topology[0]])
   })
 
   it('highlights nodes that exist in the card (the stories do not hardcode ids)', () => {
-    for (const id of [Running.args?.active, Failed.args?.failed, Selected.args?.selected]) {
+    for (const id of [Running.args?.active, ...(Failed.args?.failed ?? []), Selected.args?.selected]) {
       expect(graph.nodes.map((node) => node.id)).toContain(id)
     }
   })
@@ -146,60 +253,72 @@ describe('CardGraph', () => {
       ' \u8fb9\uff09'
     expect(cardGraphStory.title).toBe(expected)
   })
-
-  it('marks read edges for the dashed style, leaves the rest solid, and writes no labels', () => {
-    const w = render(CardGraph, { props: { card }, global: { stubs: { VueFlow: VueFlowStub } } })
-    const edges = w.findComponent(VueFlowStub).props('edges') as Array<{ class: string; label?: string }>
-    const reads = graph.edges.filter((edge) => edge.read).length
-    expect(edges.filter((edge) => edge.class === 'card-graph-read')).toHaveLength(reads)
-    expect(edges.filter((edge) => edge.class === 'card-graph-flow')).toHaveLength(graph.edges.length - reads)
-    // 虚线不写字：上游是拓扑前缀推出来的，边上没有文字
-    expect(edges.every((edge) => edge.label === undefined)).toBe(true)
-  })
 })
 
 describe('CardNodeForm', () => {
-  /** 常态 props：三个可改字段 + 只读输出 */
+  /** 常态 props：三个可改字段 + 四个只读声明 */
   function formProps(over: Record<string, unknown> = {}) {
+    const id = topology[0]
     return {
-      id: topology[0],
-      name: nodes[topology[0]][K.KEY_NODE_NAME],
-      duty: nodes[topology[0]][K.KEY_DUTY],
-      output: nodes[topology[0]][K.KEY_OUTPUT],
-      prompt: prompts[topology[0]],
+      id,
+      name: nodes[id].name,
+      duty: nodes[id].duty,
+      prompt: nodes[id].prompt,
+      role: nodes[id].role ?? null,
+      tools: nodes[id].tools ?? null,
+      reads: nodes[id].reads ?? null,
+      uses: nodes[id].uses ?? null,
       ...over,
     }
   }
 
-  it('shows the three editable fields, the read-only output, and no error by default', () => {
-    const w = render(CardNodeForm, { props: formProps() })
+  it('shows the three editable fields, the read-only declarations, and no error by default', () => {
+    const props = formProps()
+    const w = render(CardNodeForm, { props })
 
-    expect((w.find('[data-card-name]').element as HTMLInputElement).value).toBe(
-      nodes[topology[0]][K.KEY_NODE_NAME],
-    )
-    expect((w.find('[data-card-duty]').element as HTMLInputElement).value).toBe(
-      nodes[topology[0]][K.KEY_DUTY],
-    )
-    expect((w.find('[data-card-prompt]').element as HTMLTextAreaElement).value).toBe(
-      prompts[topology[0]].join('\n'),
-    )
-    expect(w.find('[data-card-output]').text()).toContain(
-      JSON.stringify(nodes[topology[0]][K.KEY_OUTPUT], null, 2),
-    )
-    // 输出只读：这一块没有任何可改的输入
+    expect((w.find('[data-card-name]').element as HTMLInputElement).value).toBe(props.name)
+    expect((w.find('[data-card-duty]').element as HTMLInputElement).value).toBe(props.duty)
+    expect((w.find('[data-card-prompt]').element as HTMLTextAreaElement).value).toBe(props.prompt.join('\n'))
+    // 声明只读：这一块没有任何可改的输入（两个 input + 一个 textarea 就是全部）
     expect(w.findAll('input')).toHaveLength(2)
+    expect(w.findAll('textarea')).toHaveLength(1)
     expect(w.find('[data-card-error]').exists()).toBe(false)
   })
 
+  it('spells the declarations, saying "all" / "none" where the card wrote nothing', () => {
+    const w = render(CardNodeForm, {
+      props: formProps({ role: null, tools: null, reads: null, uses: null }),
+    })
+    const text = w.find('[data-card-declarations]').text()
+
+    expect(text).toContain(t('card.declAllTools'))
+    expect(text).toContain(t('card.declAllReads'))
+    expect(text).toContain(t('card.declNoUses'))
+    expect(text).toContain(t('card.declNone'))
+  })
+
+  it('lists the tools / reads / uses the card declares', () => {
+    const w = render(CardNodeForm, {
+      props: formProps({ tools: ['set_profile'], reads: ['player', 'world'], uses: ['gen'], role: 'story' }),
+    })
+    const text = w.find('[data-card-declarations]').text()
+
+    expect(text).toContain('set_profile')
+    expect(text).toContain('player world')
+    expect(text).toContain('gen')
+    expect(text).toContain('story')
+  })
+
   it('turns the multi-line prompt back into one entry per line on save', async () => {
-    const w = render(CardNodeForm, { props: formProps() })
+    const props = formProps()
+    const w = render(CardNodeForm, { props })
 
     await w.find('[data-card-name]').setValue('renamed')
     await w.find('[data-card-prompt]').setValue('first\n\nthird')
     await w.find('[data-card-save]').trigger('click')
 
     expect(w.emitted('save')?.[0]).toEqual([
-      { name: 'renamed', duty: nodes[topology[0]][K.KEY_DUTY], prompt: ['first', '', 'third'] },
+      { name: 'renamed', duty: props.duty, prompt: ['first', '', 'third'] },
     ])
   })
 
@@ -225,23 +344,25 @@ describe('CardEditor', () => {
 
   it('shows the form for the node that was clicked, and stores the edited prompt', async () => {
     const w = editor()
-    const target = topology[0]
+    const target = topology[1]
     expect(w.find('[data-card-form]').exists()).toBe(false)
 
     await w.find('[data-node="' + target + '"]').trigger('click')
     expect(w.find('[data-card-form]').exists()).toBe(true)
     // 表单对着的是点中的那个节点，字段是卡里的值
     expect((w.find('[data-card-prompt]').element as HTMLTextAreaElement).value).toBe(
-      prompts[target].join('\n'),
+      nodes[target].prompt.join('\n'),
     )
 
     await w.find('[data-card-prompt]').setValue('edited one\n\nedited three')
     await w.find('[data-card-save]').trigger('click')
 
-    // 落盘的是整张卡：改的那一条提示词在，别处原样
-    const stored = JSON.parse(localStorage.getItem(CARD_KEY) as string) as Record<string, any>
-    expect(stored[K.KEY_PROMPT][K.KEY_NODES][target]).toEqual(['edited one', '', 'edited three'])
-    expect(stored[K.KEY_CARD]).toEqual((card as Record<string, any>)[K.KEY_CARD])
+    // 落盘的是整张卡：改的那一条提示词在，**同一节点的其它键**与别处原样
+    const stored = JSON.parse(localStorage.getItem(CARD_KEY) as string) as typeof card
+    expect(stored.graph.nodes[target].prompt).toEqual(['edited one', '', 'edited three'])
+    expect(stored.graph.nodes[target].tools).toEqual(nodes[target].tools)
+    expect(stored.graph.nodes[target].reads).toEqual(nodes[target].reads)
+    expect(stored.card).toEqual(card.card)
     expect(w.emitted('saved')).toHaveLength(1)
   })
 
@@ -249,7 +370,7 @@ describe('CardEditor', () => {
     const w = editor()
     await w.find('[data-node="' + topology[0] + '"]').trigger('click')
     // 与第二个节点重名：卡校验器会拒
-    await w.find('[data-card-name]').setValue(nodes[topology[1]][K.KEY_NODE_NAME])
+    await w.find('[data-card-name]').setValue(nodes[topology[1]].name)
     await w.find('[data-card-save]').trigger('click')
 
     expect(w.find('[data-card-error]').text()).toContain(t('card.saveFailed', { message: '' }).trim())
@@ -260,15 +381,13 @@ describe('CardEditor', () => {
   it('picks the error back up when another node is selected', async () => {
     const w = editor()
     await w.find('[data-node="' + topology[0] + '"]').trigger('click')
-    await w.find('[data-card-name]').setValue(nodes[topology[1]][K.KEY_NODE_NAME])
+    await w.find('[data-card-name]').setValue(nodes[topology[1]].name)
     await w.find('[data-card-save]').trigger('click')
     expect(w.find('[data-card-error]').exists()).toBe(true)
 
     await w.find('[data-node="' + topology[1] + '"]').trigger('click')
     expect(w.find('[data-card-error]').exists()).toBe(false)
-    expect((w.find('[data-card-name]').element as HTMLInputElement).value).toBe(
-      nodes[topology[1]][K.KEY_NODE_NAME],
-    )
+    expect((w.find('[data-card-name]').element as HTMLInputElement).value).toBe(nodes[topology[1]].name)
   })
 
   it('closes itself by emitting close', async () => {
@@ -278,13 +397,173 @@ describe('CardEditor', () => {
   })
 })
 
+describe('DebugPanel', () => {
+  /** 面板的常态 props：真状态树 + 编出来的这一轮痕迹 */
+  function panelProps(over: Record<string, unknown> = {}) {
+    const state = instantiate(card)
+    return {
+      card,
+      state,
+      timeLabel: format(card.time.calendar, card.time.initial),
+      turn: 2,
+      draft: null,
+      writes: [{ path: 'time', value: { minute: 35 } }],
+      tools: [
+        {
+          node: topology[4],
+          tool: 'advance_time',
+          args: '{"minutes":5}',
+          result: 'ok',
+          writes: [{ path: 'time', value: { minute: 35 } }],
+          failed: false,
+          redoFrom: null,
+        },
+        {
+          node: topology[5],
+          tool: 'move_to',
+          args: '{"area":"x"}',
+          result: 'move_to: spot is required',
+          writes: [],
+          failed: true,
+          redoFrom: null,
+        },
+      ],
+      running: null,
+      failed: [],
+      ...over,
+    }
+  }
+
+  /** 面板里挂着卡图：vue-flow 一样换成替身 */
+  function panel(over: Record<string, unknown> = {}) {
+    return render(DebugPanel, {
+      props: panelProps(over),
+      global: { stubs: { VueFlow: VueFlowStub } },
+    })
+  }
+
+  it('opens on the live card graph and can switch between the three blocks', async () => {
+    const w = panel()
+    expect(w.find('[data-debug-tab="graph"]').attributes('aria-pressed')).toBe('true')
+    expect(w.findAll('[data-node]')).toHaveLength(topology.length)
+
+    await w.find('[data-debug-tab="state"]').trigger('click')
+    expect(w.find('[data-debug-branch]').exists()).toBe(true)
+    expect(w.findAll('[data-node]')).toHaveLength(0)
+
+    await w.find('[data-debug-tab="tools"]').trigger('click')
+    expect(w.findAll('[data-tool-call]')).toHaveLength(2)
+
+    await w.find('[data-debug-tab="graph"]').trigger('click')
+    expect(w.findAll('[data-node]')).toHaveLength(topology.length)
+  })
+
+  it('shows the engine state: every top-level branch, the time, the turn and the writes', () => {
+    const w = panel({ initialTab: 'state' })
+    const state = instantiate(card)
+
+    expect(w.findAll('[data-debug-branch]').map((el) => el.attributes('data-debug-branch'))).toEqual(
+      Object.keys(state),
+    )
+    expect(w.text()).toContain(format(card.time.calendar, card.time.initial))
+    expect(w.text()).toContain('2')
+    expect(w.findAll('[data-debug-write]')).toHaveLength(1)
+    expect(w.find('[data-debug-write]').text()).toContain('time')
+  })
+
+  it('switches to the working draft, and says so when there is no turn in flight', async () => {
+    const draft = {
+      meta: { turn: 9, card: card.card },
+      time: { year: 2026, month: 9, day: 15, hour: 8, minute: 0 },
+      state: instantiate(card),
+      events: [],
+      timeline: [],
+    }
+    const w = panel({ initialTab: 'state', draft })
+
+    expect(w.find('[data-debug-draft]').attributes('aria-pressed')).toBe('false')
+    await w.find('[data-debug-draft]').trigger('click')
+    expect(w.find('[data-debug-draft]').attributes('aria-pressed')).toBe('true')
+    expect(w.text()).toContain('9')
+    expect(w.text()).toContain(format(card.time.calendar, draft.time))
+
+    // 没有工作副本时按钮点不动，并说明为什么
+    const idle = panel({ initialTab: 'state' })
+    expect(idle.find('[data-debug-draft]').attributes('disabled')).toBeDefined()
+    await idle.find('[data-debug-draft]').trigger('click')
+    expect(idle.find('[data-debug-draft-empty]').exists()).toBe(false)
+  })
+
+  it('lists tool calls: node, tool, raw arguments, result and the paths it wrote', () => {
+    const w = panel({ initialTab: 'tools' })
+    const calls = w.findAll('[data-tool-call]')
+
+    const first = calls[0].text()
+    expect(first).toContain(nodes[topology[4]].name)
+    expect(first).toContain('advance_time')
+    expect(first).toContain('{"minutes":5}')
+    expect(first).toContain('ok')
+    expect(first).toContain('time')
+
+    // 失败的那次：标红 + 写着引擎回传的结构化错误
+    const second = calls[1]
+    expect(second.find('[data-tool-failed]').exists()).toBe(true)
+    expect(second.text()).toContain('spot is required')
+  })
+
+  it('marks a redo call with the node it rolled back to', () => {
+    const w = panel({
+      initialTab: 'tools',
+      tools: [
+        {
+          node: topology[8],
+          tool: 'redo',
+          args: '{"from":"' + topology[6] + '","why":"x"}',
+          result: 'ok',
+          writes: [],
+          failed: false,
+          redoFrom: topology[6],
+        },
+      ],
+    })
+    expect(w.find('[data-tool-redo]').text()).toContain(nodes[topology[6]].name)
+  })
+
+  it('says so when the latest turn made no tool calls', () => {
+    const w = panel({ initialTab: 'tools', tools: [], writes: [] })
+    expect(w.find('[data-debug-tools-empty]').exists()).toBe(true)
+
+    const stale = panel({ initialTab: 'state', tools: [], writes: [] })
+    expect(stale.find('[data-debug-writes-empty]').exists()).toBe(true)
+  })
+
+  /**
+   * 只读：面板里没有任何一颗按钮会改游戏状态。
+   * 判据是「点遍所有按钮，除了 close 什么都不抛」+「props 一个字节没动」。
+   */
+  it('is read-only: no button changes the game state', async () => {
+    const props = panelProps({ initialTab: 'state', initialDraft: true, draft: null })
+    const before = JSON.stringify(props)
+    const w = render(DebugPanel, {
+      props,
+      global: { stubs: { VueFlow: VueFlowStub } },
+    })
+
+    for (const button of w.findAll('button')) await button.trigger('click')
+    await w.find('[data-debug-close]').trigger('click')
+
+    expect(JSON.stringify(props)).toBe(before)
+    // 面板自己只会抛 close；click 是触发 DOM 按钮时记下的原生事件，不是面板的动作
+    expect(Object.keys(w.emitted()).filter((name) => name !== 'click')).toEqual(['close'])
+  })
+})
+
 describe('CardSection', () => {
   it('says which card is in use and where it came from', () => {
     const w = render(CardSection)
-    const meta = (card as Record<string, any>)[K.KEY_CARD]
 
-    expect(w.text()).toContain(meta[K.KEY_NAME])
-    expect(w.text()).toContain(meta[K.KEY_VERSION])
+    expect(w.text()).toContain(card.card.name)
+    expect(w.text()).toContain(card.card.version)
     expect(w.text()).toContain(t('card.sourceBuiltin'))
   })
 
@@ -302,7 +581,7 @@ describe('CardSection', () => {
 
   it('says "imported" when the stored card is the one in use (fresh module = F5)', async () => {
     const stored = JSON.parse(readFileSync(EXAMPLE_CARD, 'utf8')) as Record<string, any>
-    stored[K.KEY_CARD][K.KEY_NAME] = 'stored-card'
+    stored.card.name = 'stored-card'
     localStorage.setItem(CARD_KEY, JSON.stringify(stored))
 
     // 选卡在模块加载期发生：重来一份模块图才是「刷新之后」的样子

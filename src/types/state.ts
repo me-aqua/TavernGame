@@ -5,74 +5,101 @@
  *    所以读存档时必须当 unknown 校验，不能信任类型标注 —— 见 game/save.ts。
  */
 
+import type { TimeValue } from '../game/card-calendar'
+import type { StateTree } from '../game/card-state'
+
 /**
- * 事件流里的一条事件。
+ * 事件流里的一条事件的 kind。
  *
  * ⚠️ 故事与调试痕迹**共用这一个数组**（顺序即真相：痕迹就插在它发生的那段叙事之间）。
  *    谁能看到由**投影**决定，不由存储位置决定 —— 玩家与模型只看故事类，
  *    开发者看调试投影；分类与上限见 game/save.ts 的 isStoryKind / MAX_STORY / MAX_DEBUG。
  */
 export type EventKind =
-  /** 故事类：GM 正文 */
-  | 'narration'
-  /** 故事类：玩家输入 */
+  /** 故事类：玩家这一轮的原话（一轮开始时写的；开场没有玩家原话，所以开场没有它） */
   | 'action'
-  /** 故事类：回合标记（给模型看，不给玩家看） */
-  | 'system'
-  /** 调试类：模型收到的输入（请求体） */
-  | 'request'
-  /** 调试类：模型的原始响应 */
-  | 'reply'
-  /** 调试类：一次工具调用 */
-  | 'tool'
-  /** 调试类：一次工具结果 */
-  | 'toolResult'
-  /** 调试类：引擎警告（步数用尽、只调工具没写叙事…） */
-  | 'warn'
-  /** 调试类：图执行器进入了哪个节点（一轮的进度，只有调试模式看得见） */
+  /** 故事类：本回合的叙事正文（role: "story" 节点的文字） */
+  | 'narration'
+  /** 调试类：图执行器进入了哪个节点 */
   | 'node'
+  /** 调试类：第几次模型调用开始了 */
+  | 'thinking'
+  /** 调试类：发出去的请求体 */
+  | 'request'
+  /** 调试类：模型这一步的原始响应 */
+  | 'model'
+  /** 调试类：一次工具调用（detail = 协议原样的参数 JSON） */
+  | 'tool'
+  /** 调试类：一次工具结果（detail = 回传给模型的结果原文） */
+  | 'toolResult'
+  /** 调试类：一次状态写入（path + value，调试面板的「本轮写入清单」就是它） */
+  | 'stateChange'
+  /** 调试类：引擎的警告（只调工具没写字、工具轮次到顶……） */
+  | 'warn'
 
-/** 故事类事件的 kind（引擎只写这三种；玩家与模型看到的也都是它们） */
-export type StoryKind = 'narration' | 'action' | 'system'
+/**
+ * 故事类事件的 kind —— 玩家与模型看到的就是它。
+ *
+ * ⚠️ 它同时是**模型的记忆**：事件流进存档，节点请求里的「最近发生的事」就是它的尾部
+ *    （刷新后模型仍然知道前面发生过什么，见 agent/prompts.ts 的 RECENT_STORY）。
+ */
+export type StoryKind = 'action' | 'narration'
 
 export interface GameEvent {
   kind: EventKind
   text: string
-  /** 可折叠的原始内容（请求体 / 响应体 JSON）；只有调试类事件有 */
+  /** 可折叠的原始内容（请求体 / 响应体 / 工具参数与结果）—— 只有调试类事件有 */
   detail?: string
+  /**
+   * 发出这条调试痕迹的节点 id。
+   *
+   * ⚠️ 这些结构化字段是**给调试面板用的**：面板要按节点分组、按工具筛选、按路径列写入，
+   *    从渲染好的文案里反解会在换语言或改文案时断掉。
+   */
+  node?: string
+  /** 这次调用的是什么工具（只有 tool / toolResult 有） */
+  tool?: string
+  /** 写到了哪条路径（stateChange 用它；工具痕迹不带） */
+  path?: string
+  /** stateChange：写成了什么 */
+  value?: unknown
   /** 写入时刻（ISO 字符串） */
   at: string
 }
 
 export interface TimelineEntry {
-  /** 推进**前**的时刻（简短格式）。⚠️ 必须是起点，不能是终点 */
+  /** 推进**前**的时刻（按卡的历法渲染的文本） */
   from: string
-  /** 推进**后**的时刻（简短格式） */
+  /** 推进**后**的时刻（同上） */
   to: string
   /** 为什么会流逝，例如「连夜赶路」 */
   reason: string
-  elapsedMs: number
+  /** 推进了多少分钟（这张卡的历法里的一分钟） */
+  minutes: number
   at: string
+}
+
+/**
+ * 卡的身份 —— 存档认亲用（缺卡 / id / 版本 / 格式不同都拒绝，见 game/save.ts）。
+ * 名字只给人看，判亲只比 id / version / format。
+ */
+export interface CardIdentity {
+  id: string
+  name: string
+  version: string
+  format: string
 }
 
 export interface GameData {
   meta: {
     turn: number
+    /** 这一局是哪张卡开的 —— 不拿旧状态硬跑新卡 */
+    card: CardIdentity
   }
-  player: {
-    name: string
-  }
-  scene: {
-    name: string
-    description: string
-  }
-  /**
-   * 唯一的引擎状态：一个绝对时刻。
-   * 不存「第几天第几段」——那样跨月跨年全靠手算，边界必错。
-   */
-  time: {
-    iso: string
-  }
+  /** 引擎持有的历法时刻（时间与时间线**不在**卡的 state 里） */
+  time: TimeValue
+  /** 卡的 instantiate() 那一棵树 —— 状态由卡声明、初值也在卡里 */
+  state: StateTree
   events: GameEvent[]
   timeline: TimelineEntry[]
 }
@@ -81,7 +108,7 @@ export interface GameData {
  * 对话消息 —— 引擎手上的历史（角色 + 文本）。
  *
  * ⚠️ 引擎每轮把历史原样发给每个节点（决定 #26 的公共部分）；窗口多大由组合根决定，
- *    这里不裁剪。快照会读 role 区分「玩家」与「GM」。
+ *    这里不裁剪。
  *
  * ⚠️ 含工具协议字段：原生 tool calling 要求把模型的 tool_calls **原样回传**，
  *    并把每个工具的执行结果作为 role: 'tool' 的消息发回去（用 tool_call_id 关联）。

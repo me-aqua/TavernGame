@@ -1,92 +1,26 @@
 /**
- * card 测试 —— 卡的形状与自洽性校验。
+ * card 测试 —— card/3 的形状与结构校验。
  *
- * 三条验收标准：仓库里的示例卡必须过、自造的最小卡必须过、每改坏一处都必须被拒
+ * 三条验收标准：仓库里的三张卡必须过、自造的最小卡必须过、每改坏一处都必须被拒
  * 而且错误信息要指到那一处的路径。反例都只在夹具上动一个地方，于是「被拒」这件事
  * 能归因到那一处 —— 不然测试自己就说不清是哪儿坏了。
+ *
+ * ⚠️ 源码与测试都必须 ASCII（.githooks/checks/ascii.mjs），所以断言只用路径与英文片段。
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parseCard, validateCard } from '../src/game/card'
 import {
-  CN_FOUR,
-  CN_TEN,
-  KEY_AREA,
-  KEY_BLOCK,
-  KEY_CALENDAR,
-  KEY_CAN_NAME,
-  KEY_CARD,
-  KEY_CARRY,
-  KEY_CONVENTION,
-  KEY_DECL,
-  KEY_DEFAULT_NAME,
-  KEY_DISPLAY,
-  KEY_DUTY,
-  KEY_FORMAT,
-  KEY_GENERATORS,
-  KEY_GRAPH,
-  KEY_ID,
-  KEY_INHERENT,
-  KEY_INITIAL,
-  KEY_LANGUAGE,
-  KEY_NODES,
-  KEY_NODE_NAME,
-  KEY_NOTES,
-  KEY_OPENING,
-  KEY_OPENING_REQUIREMENTS,
-  KEY_ORDER,
-  KEY_OUTPUT,
-  KEY_PLACE,
-  KEY_PLACES,
-  KEY_PLAYER,
-  KEY_PRINCIPLE,
-  KEY_PROFILE_INITIAL,
-  KEY_PROMPT,
-  KEY_RANGE,
-  KEY_ROLE,
-  KEY_SCRIPT,
-  KEY_SETTING,
-  KEY_SIDEBAR,
-  KEY_STAGES,
-  KEY_START,
-  KEY_START_TIME,
-  KEY_STATE,
-  KEY_TIER,
-  KEY_TOPOLOGY,
-  KEY_VALUES,
-  KEY_VERSION,
-  KEY_WORLD,
-  PUNCT_COLON,
-  SETTING_BLOCKS,
-  TOP_LEVEL_KEYS,
-  WORD_STAGE,
-} from '../src/game/card-keys'
-import {
   EXAMPLE_CARD,
+  LONG_NIGHT_CARD,
+  NIGHT_WATCH_CARD,
   NODE_A,
   NODE_B,
-  NOTE,
-  PRINCIPLE_TEN,
-  PRINCIPLE_TWENTY,
   fixture,
   minimalCard,
 } from './support/card-fixtures'
 
-/** 夹具里各块的路径前缀 —— 断言错误信息指到哪儿时用 */
-const GRAPH_PATH = KEY_DECL + '.' + KEY_GRAPH
-const NODES_PATH = GRAPH_PATH + '.' + KEY_NODES
-const NODE_PROMPTS_PATH = KEY_PROMPT + '.' + KEY_NODES
-const ROLE_PATH = KEY_DECL + '.' + KEY_STATE + '.' + KEY_ROLE
-
-/** 夹具里三块的成员 —— 反例都在它们身上改一处 */
-const decl = (card: any) => card[KEY_DECL]
-const prompts = (card: any) => card[KEY_PROMPT]
-const graphOf = (card: any) => card[KEY_DECL][KEY_GRAPH]
-const nodesOf = (card: any) => card[KEY_DECL][KEY_GRAPH][KEY_NODES]
-const nodePromptsOf = (card: any) => card[KEY_PROMPT][KEY_NODES]
-const nodePath = (id: string) => NODES_PATH + '.' + id
-
-/** 跑一次校验，把抛出的错误读成文本（通过了就返回空串）*/
+/** 跑一次校验，把抛出的错误读成文本（通过了就返回空串） */
 function errorOf(card: unknown): string {
   try {
     validateCard(card)
@@ -101,10 +35,23 @@ function expectRejected(card: unknown, path: string): void {
   expect(errorOf(card)).toContain(path)
 }
 
+const storyNodes = (card: ReturnType<typeof parseCard>) =>
+  Object.entries(card.graph.nodes).filter(([, node]) => node.role === 'story')
+
 describe('validateCard: the cards that must pass', () => {
-  it('accepts the example card', () => {
-    const card = parseCard(readFileSync(EXAMPLE_CARD, 'utf8'))
-    expect(graphOf(card)[KEY_TOPOLOGY]).toHaveLength(9)
+  it('accepts the three cards in the repo', () => {
+    const example = parseCard(readFileSync(EXAMPLE_CARD, 'utf8'))
+    expect(example.graph.topology).toHaveLength(9)
+    const nightWatch = parseCard(readFileSync(NIGHT_WATCH_CARD, 'utf8'))
+    expect(nightWatch.graph.topology).toEqual(['time', 'story'])
+    const longNight = parseCard(readFileSync(LONG_NIGHT_CARD, 'utf8'))
+    expect(longNight.graph.topology).toEqual(['time', 'story'])
+  })
+
+  it('gives every card exactly one story node', () => {
+    for (const path of [EXAMPLE_CARD, NIGHT_WATCH_CARD, LONG_NIGHT_CARD]) {
+      expect(storyNodes(parseCard(readFileSync(path, 'utf8')))).toHaveLength(1)
+    }
   })
 
   it('accepts a minimal card built by hand', () => {
@@ -120,9 +67,9 @@ describe('validateCard: the cards that must pass', () => {
   })
 })
 
-describe('validateCard: top level', () => {
-  it('rejects a card that is missing any of the four keys', () => {
-    for (const key of TOP_LEVEL_KEYS) {
+describe('validateCard: top level and meta', () => {
+  it('rejects a card that is missing any of the twelve keys', () => {
+    for (const key of Object.keys(minimalCard())) {
       const card = fixture()
       delete card[key]
       expectRejected(card, key)
@@ -135,432 +82,462 @@ describe('validateCard: top level', () => {
     expectRejected(card, 'unknown top-level key')
   })
 
-  it('rejects a top-level key that is not an object', () => {
-    const card = fixture()
-    card[KEY_DECL] = []
-    expectRejected(card, KEY_DECL)
-    const scalar = fixture()
-    scalar[KEY_PROMPT] = 'prompt'
-    expectRejected(scalar, KEY_PROMPT)
-  })
-})
-
-describe('validateCard: the three blocks', () => {
-  it('rejects a declaration that is missing one of its six keys', () => {
-    for (const key of [KEY_GRAPH, KEY_STATE, KEY_WORLD, KEY_GENERATORS, KEY_OPENING, KEY_DISPLAY]) {
-      const card = fixture()
-      delete decl(card)[key]
-      expectRejected(card, KEY_DECL)
-    }
-  })
-
-  it('rejects an unknown key in the declaration', () => {
-    const card = fixture()
-    decl(card).extra = true
-    expectRejected(card, KEY_DECL + '.extra')
-  })
-
-  it('rejects a prompts block that is missing one of its five keys', () => {
-    for (const key of [KEY_SETTING, KEY_SCRIPT, KEY_CONVENTION, KEY_NODES, KEY_OPENING_REQUIREMENTS]) {
-      const card = fixture()
-      delete prompts(card)[key]
-      expectRejected(card, KEY_PROMPT)
-    }
-  })
-
-  it('rejects an unknown key in the prompts block', () => {
-    const card = fixture()
-    prompts(card).extra = true
-    expectRejected(card, KEY_PROMPT + '.extra')
-  })
-
-  it('rejects notes that are missing one of their three blocks', () => {
-    for (const key of [KEY_STATE, KEY_SCRIPT, KEY_OPENING]) {
-      const card = fixture()
-      delete card[KEY_NOTES][key]
-      expectRejected(card, KEY_NOTES)
-    }
-  })
-
-  it('accepts extra note sections as one line or as lines, and rejects any other shape', () => {
-    const oneLine = fixture()
-    oneLine[KEY_NOTES].extra = 'note'
-    expect(validateCard(oneLine)).toBeDefined()
-    const lines = fixture()
-    lines[KEY_NOTES].extra = ['first line', 'second line']
-    expect(validateCard(lines)).toBeDefined()
-    const wrong = fixture()
-    wrong[KEY_NOTES].extra = 7
-    expectRejected(wrong, KEY_NOTES + '.extra')
-    const empty = fixture()
-    empty[KEY_NOTES].extra = []
-    expectRejected(empty, KEY_NOTES + '.extra')
-    const blank = fixture()
-    blank[KEY_NOTES].extra = ''
-    expectRejected(blank, KEY_NOTES + '.extra')
-  })
-
-  it('rejects an empty required note', () => {
-    const empty = fixture()
-    empty[KEY_NOTES][KEY_OPENING] = ''
-    expectRejected(empty, KEY_NOTES + '.' + KEY_OPENING)
-  })
-})
-
-describe('validateCard: card meta', () => {
   it('rejects an unknown card format', () => {
     const card = fixture()
-    card[KEY_CARD][KEY_FORMAT] = 'card/1'
-    expectRejected(card, KEY_CARD + '.' + KEY_FORMAT)
+    card.card.format = 'card/2'
+    expectRejected(card, 'card.format')
   })
 
-  it('rejects an id whose namespace is not the author', () => {
-    const card = fixture()
-    card[KEY_CARD][KEY_ID] = 'someone-else.demo'
-    expectRejected(card, KEY_CARD + '.' + KEY_ID)
+  it('rejects an id whose namespace is not the author, or a malformed id', () => {
+    const other = fixture()
+    other.card.id = 'someone-else.demo'
+    expectRejected(other, 'card.id')
+    const malformed = fixture()
+    malformed.card.id = 'Tester.Demo'
+    expectRejected(malformed, 'card.id')
   })
 
-  it('rejects a malformed id', () => {
-    const card = fixture()
-    card[KEY_CARD][KEY_ID] = 'Tester.Demo'
-    expectRejected(card, KEY_CARD + '.' + KEY_ID)
-  })
-
-  it('rejects a version that is not semver', () => {
-    const card = fixture()
-    card[KEY_CARD][KEY_VERSION] = 'v1'
-    expectRejected(card, KEY_CARD + '.' + KEY_VERSION)
-  })
-
-  it('rejects an empty meta field', () => {
-    const card = fixture()
-    card[KEY_CARD][KEY_LANGUAGE] = ''
-    expectRejected(card, KEY_CARD + '.' + KEY_LANGUAGE)
+  it('rejects a version that is not semver, an empty meta field, or a stray meta key', () => {
+    const version = fixture()
+    version.card.version = 'v1'
+    expectRejected(version, 'card.version')
+    const empty = fixture()
+    empty.card.language = ''
+    expectRejected(empty, 'card.language')
+    const extra = fixture()
+    extra.card.extra = 'x'
+    expectRejected(extra, 'card.extra')
   })
 })
 
-describe('validateCard: the setting blocks', () => {
-  it('rejects a block count other than five', () => {
-    const card = fixture()
-    delete prompts(card)[KEY_SETTING][SETTING_BLOCKS[4]]
-    expectRejected(card, KEY_PROMPT + '.' + KEY_SETTING)
-  })
-
-  it('rejects blocks in the wrong order', () => {
-    const card = fixture()
-    prompts(card)[KEY_SETTING] = {
-      [SETTING_BLOCKS[1]]: ['x'],
-      [SETTING_BLOCKS[0]]: ['x'],
-      [SETTING_BLOCKS[2]]: ['x'],
-      [SETTING_BLOCKS[3]]: ['x'],
-      [SETTING_BLOCKS[4]]: ['x'],
-    }
-    expectRejected(card, KEY_PROMPT + '.' + KEY_SETTING)
-  })
-
-  it('rejects a block that is not a non-empty line array', () => {
-    const card = fixture()
-    prompts(card)[KEY_SETTING][SETTING_BLOCKS[0]] = []
-    expectRejected(card, KEY_PROMPT + '.' + KEY_SETTING + '.' + SETTING_BLOCKS[0])
+describe('validateCard: settings / script / convention', () => {
+  it('rejects a settings block that is missing, unknown, or empty', () => {
+    const missing = fixture()
+    delete missing.settings.common
+    expectRejected(missing, 'settings')
+    const unknown = fixture()
+    unknown.settings.extra = ['x']
+    expectRejected(unknown, 'settings.extra')
+    const empty = fixture()
+    empty.settings.world = []
+    expectRejected(empty, 'settings.world')
     const wrong = fixture()
-    wrong[KEY_PROMPT][KEY_SETTING][SETTING_BLOCKS[0]] = ['ok', 7]
-    expectRejected(wrong, KEY_PROMPT + '.' + KEY_SETTING + '.' + SETTING_BLOCKS[0])
+    wrong.settings.world = ['ok', 7]
+    expectRejected(wrong, 'settings.world')
+  })
+
+  it('rejects an empty script or an empty convention', () => {
+    const script = fixture()
+    script.script = {}
+    expectRejected(script, 'script')
+    const convention = fixture()
+    convention.convention = []
+    expectRejected(convention, 'convention')
   })
 })
 
-describe('validateCard: graph and node prompts', () => {
-  it('rejects an empty topology', () => {
-    const card = fixture()
-    graphOf(card)[KEY_TOPOLOGY] = []
-    expectRejected(card, GRAPH_PATH + '.' + KEY_TOPOLOGY)
+describe('validateCard: graph', () => {
+  const nodesOf = (card: any) => card.graph.nodes
+  const nodePath = (id: string) => 'graph.nodes.' + id
+
+  it('rejects an empty topology, a duplicate id, or a bad entry', () => {
+    const empty = fixture()
+    empty.graph.topology = []
+    expectRejected(empty, 'graph.topology')
+    const duplicate = fixture()
+    duplicate.graph.topology = [NODE_A, NODE_A]
+    expectRejected(duplicate, 'graph.topology[1]')
+    const bad = fixture()
+    bad.graph.topology = [NODE_A, '']
+    expectRejected(bad, 'graph.topology[1]')
   })
 
-  it('rejects a topology entry that is not a non-empty node id', () => {
-    const card = fixture()
-    graphOf(card)[KEY_TOPOLOGY] = [NODE_A, '']
-    expectRejected(card, GRAPH_PATH + '.' + KEY_TOPOLOGY + '[1]')
+  it('rejects a topology id without a node, or a node outside the topology', () => {
+    const missing = fixture()
+    delete nodesOf(missing)[NODE_B]
+    expectRejected(missing, 'graph.nodes')
+    const extra = fixture()
+    nodesOf(extra).extra = { name: 'x', duty: 'y', prompt: ['p'] }
+    expectRejected(extra, nodePath('extra'))
   })
 
-  it('rejects a duplicate node id', () => {
-    const card = fixture()
-    graphOf(card)[KEY_TOPOLOGY] = [NODE_A, NODE_A]
-    expectRejected(card, GRAPH_PATH + '.' + KEY_TOPOLOGY + '[1]')
-  })
-
-  it('rejects a node that is missing one of its three keys', () => {
-    for (const key of [KEY_NODE_NAME, KEY_DUTY, KEY_OUTPUT]) {
+  it('rejects a node that is missing a key or carries an unknown one', () => {
+    for (const key of ['name', 'duty', 'prompt']) {
       const card = fixture()
       delete nodesOf(card)[NODE_A][key]
       expectRejected(card, nodePath(NODE_A))
     }
-  })
-
-  it('rejects a node that still carries an order number or an id', () => {
+    const unknown = fixture()
+    nodesOf(unknown)[NODE_A].extra = true
+    expectRejected(unknown, nodePath(NODE_A) + '.extra')
     const order = fixture()
-    nodesOf(order)[NODE_A][KEY_ORDER] = 0
-    expectRejected(order, nodePath(NODE_A) + '.' + KEY_ORDER)
-    const id = fixture()
-    nodesOf(id)[NODE_A][KEY_ID] = NODE_A
-    expectRejected(id, nodePath(NODE_A) + '.' + KEY_ID)
+    nodesOf(order)[NODE_A].order = 0
+    expectRejected(order, nodePath(NODE_A) + '.order')
   })
 
-  it('rejects a node that is not an object', () => {
+  it('rejects two nodes that share a display name', () => {
     const card = fixture()
-    nodesOf(card)[NODE_A] = 'node'
-    expectRejected(card, nodePath(NODE_A))
+    nodesOf(card)[NODE_B].name = nodesOf(card)[NODE_A].name
+    expectRejected(card, nodePath(NODE_B) + '.name')
   })
 
-  it('rejects a node id that the topology does not list', () => {
-    const card = fixture()
-    nodesOf(card).extra = { [KEY_NODE_NAME]: 'extra', [KEY_DUTY]: 'duty', [KEY_OUTPUT]: { value: 'x' } }
-    expectRejected(card, nodePath('extra'))
-  })
-
-  it('rejects a topology id that has no node', () => {
-    const card = fixture()
-    delete nodesOf(card)[NODE_B]
-    expectRejected(card, NODES_PATH)
-  })
-
-  it('rejects duplicate node names', () => {
-    const card = fixture()
-    nodesOf(card)[NODE_B][KEY_NODE_NAME] = NODE_A
-    expectRejected(card, nodePath(NODE_B) + '.' + KEY_NODE_NAME)
-  })
-
-  it('rejects an empty or non-object output', () => {
-    const empty = fixture()
-    nodesOf(empty)[NODE_A][KEY_OUTPUT] = {}
-    expectRejected(empty, nodePath(NODE_A) + '.' + KEY_OUTPUT)
-    const wrong = fixture()
-    wrong[KEY_DECL][KEY_GRAPH][KEY_NODES][NODE_A][KEY_OUTPUT] = 'text'
-    expectRejected(wrong, nodePath(NODE_A) + '.' + KEY_OUTPUT)
-  })
-
-  it('rejects an empty node name or duty', () => {
+  it('rejects an empty name, duty or prompt', () => {
     const name = fixture()
-    nodesOf(name)[NODE_A][KEY_NODE_NAME] = ''
-    expectRejected(name, nodePath(NODE_A) + '.' + KEY_NODE_NAME)
+    nodesOf(name)[NODE_A].name = ''
+    expectRejected(name, nodePath(NODE_A) + '.name')
     const duty = fixture()
-    nodesOf(duty)[NODE_A][KEY_DUTY] = ''
-    expectRejected(duty, nodePath(NODE_A) + '.' + KEY_DUTY)
+    nodesOf(duty)[NODE_A].duty = ''
+    expectRejected(duty, nodePath(NODE_A) + '.duty')
+    const prompt = fixture()
+    nodesOf(prompt)[NODE_A].prompt = []
+    expectRejected(prompt, nodePath(NODE_A) + '.prompt')
   })
 
-  it('rejects a node prompt set that does not match the topology', () => {
-    const missing = fixture()
-    delete nodePromptsOf(missing)[NODE_B]
-    expectRejected(missing, NODE_PROMPTS_PATH)
-    const extra = fixture()
-    nodePromptsOf(extra).extra = ['prompt']
-    expectRejected(extra, NODE_PROMPTS_PATH + '.extra')
+  it('rejects a role the engine does not know', () => {
+    const card = fixture()
+    nodesOf(card)[NODE_A].role = 'gate'
+    expectRejected(card, nodePath(NODE_A) + '.role')
   })
 
-  it('rejects empty or non-text node prompts', () => {
-    const empty = fixture()
-    nodePromptsOf(empty)[NODE_A] = []
-    expectRejected(empty, NODE_PROMPTS_PATH + '.' + NODE_A)
-    const wrong = fixture()
-    wrong[KEY_PROMPT][KEY_NODES][NODE_A] = [1]
-    expectRejected(wrong, NODE_PROMPTS_PATH + '.' + NODE_A)
+  it('rejects zero story nodes and two story nodes', () => {
+    const none = fixture()
+    delete nodesOf(none)[NODE_B].role
+    expectRejected(none, 'graph.nodes')
+    const two = fixture()
+    nodesOf(two)[NODE_A].role = 'story'
+    expectRejected(two, 'graph.nodes')
+  })
+
+  it('rejects a tools list that names an action the card does not declare', () => {
+    const card = fixture()
+    nodesOf(card)[NODE_A].tools = ['nope']
+    expectRejected(card, nodePath(NODE_A) + '.tools[0]')
+  })
+
+  it('rejects a reads list that names something that is not a state branch', () => {
+    const card = fixture()
+    nodesOf(card)[NODE_A].reads = ['nope']
+    expectRejected(card, nodePath(NODE_A) + '.reads[0]')
+  })
+
+  it('rejects a uses list that names a generator the card does not declare', () => {
+    const card = fixture()
+    nodesOf(card)[NODE_A].uses = ['nope']
+    expectRejected(card, nodePath(NODE_A) + '.uses[0]')
   })
 })
 
-describe('validateCard: world and schema', () => {
-  it('rejects an unknown calendar', () => {
-    const card = fixture()
-    decl(card)[KEY_WORLD][KEY_CALENDAR] = 'lunar'
-    expectRejected(card, KEY_DECL + '.' + KEY_WORLD + '.' + KEY_CALENDAR)
+describe('validateCard: actions', () => {
+  const path = (name: string) => 'actions.' + name
+
+  it('rejects an action that has neither path nor effect, or both', () => {
+    const neither = fixture()
+    neither.actions.set_place = { what: 'x' }
+    expectRejected(neither, path('set_place'))
+    const both = fixture()
+    both.actions.set_place.effect = 'time'
+    expectRejected(both, path('set_place'))
   })
 
-  it('rejects an opening block that is missing a fact the engine reads', () => {
-    for (const key of [KEY_START_TIME, KEY_START, KEY_CAN_NAME, KEY_DEFAULT_NAME]) {
+  it('rejects an unknown effect, or mode / key on an effect action', () => {
+    const effect = fixture()
+    effect.actions.advance_time.effect = 'sleep'
+    expectRejected(effect, path('advance_time') + '.effect')
+    const mode = fixture()
+    mode.actions.advance_time.mode = 'set'
+    expectRejected(mode, path('advance_time') + '.mode')
+    const key = fixture()
+    key.actions.advance_time.key = 'name'
+    expectRejected(key, path('advance_time') + '.key')
+  })
+
+  it('rejects an action path that does not exist in state', () => {
+    const card = fixture()
+    card.actions.set_place.path = 'world.nope'
+    expectRejected(card, path('set_place') + '.path')
+  })
+
+  it('rejects an unknown mode, a push on a non-list, and a merge on a non-object', () => {
+    const mode = fixture()
+    mode.actions.set_place.mode = 'patch'
+    expectRejected(mode, path('set_place') + '.mode')
+    const push = fixture()
+    push.actions.set_place.mode = 'push'
+    expectRejected(push, path('set_place') + '.mode')
+    const merge = fixture()
+    merge.actions.move_lead.path = 'player.profile'
+    expectRejected(merge, path('move_lead') + '.mode')
+    const inMap = fixture()
+    inMap.actions.set_where.mode = 'merge'
+    expectRejected(inMap, path('set_where') + '.mode')
+  })
+
+  it('rejects a key on a non-map, and a map without a key', () => {
+    const stray = fixture()
+    stray.actions.set_place.key = 'name'
+    expectRejected(stray, path('set_place') + '.key')
+    const missing = fixture()
+    delete missing.actions.add_role.key
+    expectRejected(missing, path('add_role') + '.key')
+  })
+
+  it('rejects a missing what, an unknown action key, or a name that is not a tool name', () => {
+    const what = fixture()
+    delete what.actions.set_place.what
+    expectRejected(what, path('set_place'))
+    const extra = fixture()
+    extra.actions.set_place.params = {}
+    expectRejected(extra, path('set_place') + '.params')
+    const name = fixture()
+    name.actions['bad name!'] = { what: 'x', effect: 'time' }
+    expectRejected(name, 'actions.bad name!')
+  })
+})
+
+describe('validateCard: state schema', () => {
+  const lead = (card: any) => card.state.lead.fields
+  const path = 'state.lead.fields.name'
+
+  it('rejects a schema that is not a known shorthand or a schema object', () => {
+    const card = fixture()
+    lead(card).name = 'text'
+    expectRejected(card, path)
+    const wrong = fixture()
+    lead(wrong).name = 7
+    expectRejected(wrong, path)
+  })
+
+  it('rejects an unknown type, or a key that belongs to another type', () => {
+    const type = fixture()
+    lead(type).name = { type: 'prose' }
+    expectRejected(type, path + '.type')
+    const range = fixture()
+    lead(range).name = { type: 'string', range: [1, 2] }
+    expectRejected(range, path + '.range')
+    const values = fixture()
+    lead(values).name = { type: 'string', values: ['a'] }
+    expectRejected(values, path + '.values')
+    const of = fixture()
+    lead(of).name = { type: 'string', of: 'string' }
+    expectRejected(of, path + '.of')
+    const fields = fixture()
+    lead(fields).name = { type: 'string', fields: { a: 'string' } }
+    expectRejected(fields, path + '.fields')
+  })
+
+  it('rejects an empty fields map, an empty enum, and a range that is not [min, max]', () => {
+    const fields = fixture()
+    lead(fields).name = { type: 'object', fields: {} }
+    expectRejected(fields, path + '.fields')
+    const values = fixture()
+    lead(values).name = { type: 'enum', values: [] }
+    expectRejected(values, path + '.values')
+    const range = fixture()
+    lead(range).name = { type: 'integer', range: [3] }
+    expectRejected(range, path + '.range')
+    const order = fixture()
+    lead(order).name = { type: 'integer', range: [9, 1] }
+    expectRejected(order, path + '.range')
+    const repeat = fixture()
+    lead(repeat).name = { type: 'enum', values: ['a', 'a'] }
+    expectRejected(repeat, path + '.values')
+  })
+
+  it('rejects an initial value that does not match its schema', () => {
+    const type = fixture()
+    lead(type).name = { type: 'string', initial: 7 }
+    expectRejected(type, path + '.initial')
+    const range = fixture()
+    lead(range).name = { type: 'integer', initial: 99, range: [1, 10] }
+    expectRejected(range, path + '.initial')
+    const values = fixture()
+    lead(values).name = { type: 'enum', initial: 'huge', values: ['major', 'minor'] }
+    expectRejected(values, path + '.initial')
+    const unknown = fixture()
+    lead(unknown).name = { type: 'object', initial: { nope: 1 }, fields: { ok: 'string' } }
+    expectRejected(unknown, path + '.initial.nope')
+    const required = fixture()
+    lead(required).name = {
+      type: 'object',
+      initial: {},
+      fields: { ok: { type: 'string', required: true } },
+    }
+    expectRejected(required, path + '.initial.ok')
+  })
+
+  it('rejects a required flag that is not a boolean, or an empty note', () => {
+    const required = fixture()
+    lead(required).name = { type: 'string', required: 'yes' }
+    expectRejected(required, path + '.required')
+    const note = fixture()
+    lead(note).name = { type: 'string', note: '' }
+    expectRejected(note, path + '.note')
+  })
+})
+
+describe('validateCard: time and calendar', () => {
+  it('rejects an unknown calendar preset', () => {
+    const card = fixture()
+    card.time.calendar = 'lunar'
+    expectRejected(card, 'time.calendar')
+  })
+
+  it('rejects a custom calendar that is missing a required key', () => {
+    for (const key of ['segments', 'weekdays', 'day', 'month', 'year', 'display']) {
       const card = fixture()
-      delete decl(card)[KEY_OPENING][key]
-      expectRejected(card, KEY_DECL + '.' + KEY_OPENING)
+      const calendar = { ...customCalendar() } as Record<string, unknown>
+      delete calendar[key]
+      card.time.calendar = calendar
+      card.time.initial = { year: 1, month: 4, day: 12, hour: 21, minute: 40 }
+      expectRejected(card, 'time.calendar')
     }
   })
 
-  it('rejects an opening time that is not a YYYY-MM-DDTHH:mm instant', () => {
-    const empty = fixture()
-    decl(empty)[KEY_OPENING][KEY_START_TIME] = ''
-    expectRejected(empty, KEY_DECL + '.' + KEY_OPENING + '.' + KEY_START_TIME)
-    const written = fixture()
-    decl(written)[KEY_OPENING][KEY_START_TIME] = 'tomorrow evening'
-    expectRejected(written, KEY_DECL + '.' + KEY_OPENING + '.' + KEY_START_TIME)
+  it('rejects a custom calendar with an unknown key, a bad count, or a bad day start', () => {
+    const unknown = fixture()
+    unknown.time.calendar = { ...customCalendar(), extra: 1 }
+    expectRejected(unknown, 'time.calendar.extra')
+    const days = fixture()
+    days.time.calendar = { ...customCalendar(), month: { days: 0 } }
+    expectRejected(days, 'time.calendar.month.days')
+    const start = fixture()
+    start.time.calendar = { ...customCalendar(), day: { hours: 24, minutesPerHour: 60, start: '25:00' } }
+    expectRejected(start, 'time.calendar.day.start')
+    const outside = fixture()
+    outside.time.calendar = { ...customCalendar(), day: { hours: 12, minutesPerHour: 60, start: '18:00' } }
+    expectRejected(outside, 'time.calendar.day.start')
   })
 
-  it('rejects a start position with the wrong key set', () => {
+  it('rejects a display template with an unknown placeholder', () => {
     const card = fixture()
-    decl(card)[KEY_OPENING][KEY_START] = { [KEY_AREA]: 'a', [KEY_PLACE]: 'b' }
-    expectRejected(card, KEY_DECL + '.' + KEY_OPENING + '.' + KEY_START)
+    card.time.calendar = { ...customCalendar(), display: '{year} {weakday}' }
+    expectRejected(card, 'time.calendar.display')
   })
 
-  it('rejects a non-boolean name prompt or a non-text default name', () => {
-    const asked = fixture()
-    decl(asked)[KEY_OPENING][KEY_CAN_NAME] = 'yes'
-    expectRejected(asked, KEY_DECL + '.' + KEY_OPENING + '.' + KEY_CAN_NAME)
-    const named = fixture()
-    decl(named)[KEY_OPENING][KEY_DEFAULT_NAME] = 7
-    expectRejected(named, KEY_DECL + '.' + KEY_OPENING + '.' + KEY_DEFAULT_NAME)
+  it('rejects an initial instant outside the calendar units', () => {
+    const month = fixture()
+    month.time.calendar = customCalendar()
+    month.time.initial = { year: 1, month: 13, day: 1, hour: 0, minute: 0 }
+    expectRejected(month, 'time.initial.month')
+    const day = fixture()
+    day.time.calendar = customCalendar()
+    day.time.initial = { year: 1, month: 4, day: 31, hour: 0, minute: 0 }
+    expectRejected(day, 'time.initial.day')
+    const hour = fixture()
+    hour.time.initial = { year: 2026, month: 9, day: 14, hour: 24, minute: 0 }
+    expectRejected(hour, 'time.initial.hour')
+    const leap = fixture()
+    leap.time.initial = { year: 2026, month: 2, day: 30, hour: 0, minute: 0 }
+    expectRejected(leap, 'time.initial.day')
   })
 
-  it('accepts an empty default name (the player then gets the locale fallback)', () => {
-    const card = fixture()
-    decl(card)[KEY_OPENING][KEY_DEFAULT_NAME] = ''
-    expect(validateCard(card)).toBeDefined()
-  })
-
-  it('rejects a player block without a usable profile', () => {
+  it('rejects a time block with a missing or unknown key', () => {
     const missing = fixture()
-    delete decl(missing)[KEY_STATE][KEY_PLAYER]
-    expectRejected(missing, KEY_DECL + '.' + KEY_STATE + '.' + KEY_PLAYER)
-    const wrong = fixture()
-    decl(wrong)[KEY_STATE][KEY_PLAYER][KEY_PROFILE_INITIAL] = 'profile'
-    expectRejected(wrong, KEY_DECL + '.' + KEY_STATE + '.' + KEY_PLAYER + '.' + KEY_PROFILE_INITIAL)
-  })
-
-  it('rejects a numeric field whose initial value is outside its range', () => {
-    const card = fixture()
-    decl(card)[KEY_STATE][KEY_ROLE][KEY_INHERENT].strength[KEY_INITIAL] = 99
-    expectRejected(card, ROLE_PATH + '.' + KEY_INHERENT + '.strength.' + KEY_INITIAL)
-  })
-
-  it('rejects a numeric field without a usable range or initial value', () => {
-    const missing = fixture()
-    delete decl(missing)[KEY_STATE][KEY_ROLE][KEY_INHERENT].strength[KEY_RANGE]
-    expectRejected(missing, '.strength.' + KEY_RANGE)
-    const wrong = fixture()
-    decl(wrong)[KEY_STATE][KEY_ROLE][KEY_INHERENT].strength[KEY_INITIAL] = 'three'
-    expectRejected(wrong, '.strength.' + KEY_INITIAL)
-    const bad = fixture()
-    decl(bad)[KEY_STATE][KEY_ROLE][KEY_INHERENT].strength[KEY_RANGE] = [1]
-    expectRejected(bad, '.strength.' + KEY_RANGE)
-  })
-
-  it('rejects a tier whose initial value is not one of its values', () => {
-    const card = fixture()
-    decl(card)[KEY_STATE][KEY_ROLE][KEY_TIER][KEY_INITIAL] = 'boss'
-    expectRejected(card, ROLE_PATH + '.' + KEY_TIER + '.' + KEY_VALUES)
-  })
-
-  it('rejects a field that should be an object but is not', () => {
-    const role = fixture()
-    decl(role)[KEY_STATE][KEY_ROLE] = []
-    expectRejected(role, ROLE_PATH)
-    const spec = fixture()
-    decl(spec)[KEY_STATE][KEY_ROLE][KEY_INHERENT].strength = 'number'
-    expectRejected(spec, '.strength')
-  })
-
-  it('rejects a stage entry that is not an object', () => {
-    const card = fixture()
-    prompts(card)[KEY_SCRIPT][KEY_STAGES] = ['one']
-    expectRejected(card, KEY_PROMPT + '.' + KEY_SCRIPT + '.' + KEY_STAGES + '[0]')
-  })
-
-  it('rejects stages that do not run 1, 2, 3 ...', () => {
-    const card = fixture()
-    prompts(card)[KEY_SCRIPT][KEY_STAGES] = [{ [KEY_STAGES]: 1 }, { [KEY_STAGES]: 3 }]
-    expectRejected(card, KEY_PROMPT + '.' + KEY_SCRIPT + '.' + KEY_STAGES + '[1].' + KEY_STAGES)
-  })
-
-  it('rejects an empty script or an empty opening requirement list', () => {
-    const script = fixture()
-    prompts(script)[KEY_SCRIPT] = {}
-    expectRejected(script, KEY_PROMPT + '.' + KEY_SCRIPT)
-    const opening = fixture()
-    prompts(opening)[KEY_OPENING_REQUIREMENTS] = []
-    expectRejected(opening, KEY_PROMPT + '.' + KEY_OPENING_REQUIREMENTS)
-  })
-
-  it('rejects a sidebar block that is not an object', () => {
-    const card = fixture()
-    decl(card)[KEY_DISPLAY][KEY_SIDEBAR] = ['map']
-    expectRejected(card, KEY_DECL + '.' + KEY_DISPLAY + '.' + KEY_SIDEBAR + '[0]')
-  })
-
-  it('rejects a duplicate sidebar block', () => {
-    const card = fixture()
-    decl(card)[KEY_DISPLAY][KEY_SIDEBAR] = [{ [KEY_BLOCK]: 'map' }, { [KEY_BLOCK]: 'map' }]
-    expectRejected(card, KEY_DECL + '.' + KEY_DISPLAY + '.' + KEY_SIDEBAR + '[1].' + KEY_BLOCK)
-  })
-
-  it('rejects a world whose area list is not an array', () => {
-    const card = fixture()
-    decl(card)[KEY_WORLD][KEY_AREA] = 'town'
-    expectRejected(card, KEY_DECL + '.' + KEY_WORLD + '.' + KEY_AREA)
-  })
-
-  it('rejects a generator list with no first entry to read principles from', () => {
-    const card = fixture()
-    decl(card)[KEY_GENERATORS] = []
-    expectRejected(card, KEY_DECL + '.' + KEY_GENERATORS + '[0]')
+    delete missing.time.initial
+    expectRejected(missing, 'time')
+    const extra = fixture()
+    extra.time.zone = 'UTC'
+    expectRejected(extra, 'time.zone')
   })
 })
 
-describe('validateCard: the checks that can be falsified', () => {
-  it('rejects a place count that disagrees with the first area', () => {
+/** 一份最小的自定义历法（用例在它的副本上改一处） */
+function customCalendar(): Record<string, unknown> {
+  return {
+    segments: ['night', 'dawn'],
+    weekdays: ['one', 'two', 'three', 'four', 'five', 'six', 'seven'],
+    day: { hours: 24, minutesPerHour: 60 },
+    month: { days: 30 },
+    year: { months: 12 },
+    display: '{year}-{month}-{day} {weekday} {segment}',
+  }
+}
+
+describe('validateCard: generators / opening / display / notes', () => {
+  it('rejects a generator that is missing a key or repeats a name', () => {
+    const missing = fixture()
+    delete missing.generators[0].applies
+    expectRejected(missing, 'generators[0]')
+    const repeat = fixture()
+    repeat.generators.push({ name: 'places', applies: 'again', principles: ['x'] })
+    expectRejected(repeat, 'generators[1].name')
+    const empty = fixture()
+    empty.generators[0].principles = []
+    expectRejected(empty, 'generators[0].principles')
+  })
+
+  it('accepts a card with no generators at all', () => {
     const card = fixture()
-    decl(card)[KEY_WORLD][KEY_AREA][0][KEY_PLACES] = ['one']
-    expectRejected(card, KEY_DECL + '.' + KEY_GENERATORS + '[0].' + KEY_PRINCIPLE + '[0]')
+    card.generators = []
+    delete card.graph.nodes[NODE_A].uses
+    expect(validateCard(card)).toBeDefined()
   })
 
-  it('rejects a principle with no chinese numeral to check against', () => {
+  it('rejects an opening block that is missing a key or has the wrong type', () => {
+    for (const key of ['canName', 'defaultName', 'requirements']) {
+      const card = fixture()
+      delete card.opening[key]
+      expectRejected(card, 'opening')
+    }
+    const asked = fixture()
+    asked.opening.canName = 'yes'
+    expectRejected(asked, 'opening.canName')
+    const named = fixture()
+    named.opening.defaultName = 7
+    expectRejected(named, 'opening.defaultName')
+    const empty = fixture()
+    empty.opening.requirements = []
+    expectRejected(empty, 'opening.requirements')
+  })
+
+  it('accepts an empty default name (the caller falls back to the locale)', () => {
     const card = fixture()
-    decl(card)[KEY_GENERATORS][0][KEY_PRINCIPLE][0] = 'places'
-    expectRejected(card, KEY_DECL + '.' + KEY_GENERATORS + '[0].' + KEY_PRINCIPLE + '[0]')
+    card.opening.defaultName = ''
+    expect(validateCard(card)).toBeDefined()
   })
 
-  it('accepts written numbers like ten and twenty', () => {
-    const ten = fixture()
-    decl(ten)[KEY_GENERATORS][0][KEY_PRINCIPLE][0] = PRINCIPLE_TEN
-    decl(ten)[KEY_WORLD][KEY_AREA][0][KEY_PLACES] = new Array(10).fill('place')
-    expect(validateCard(ten)).toBeDefined()
-    const twenty = fixture()
-    decl(twenty)[KEY_GENERATORS][0][KEY_PRINCIPLE][0] = PRINCIPLE_TWENTY
-    decl(twenty)[KEY_WORLD][KEY_AREA][0][KEY_PLACES] = new Array(20).fill('place')
-    expect(validateCard(twenty)).toBeDefined()
+  it('rejects a topbar entry or a sidebar block the engine has no renderer for', () => {
+    const topbar = fixture()
+    topbar.display.topbar = ['time', 'weather']
+    expectRejected(topbar, 'display.topbar[1]')
+    const block = fixture()
+    block.display.sidebar = [{ block: 'nope' }]
+    expectRejected(block, 'display.sidebar[0].block')
   })
 
-  it('rejects a convention block whose count is not the number of setting blocks', () => {
+  it('rejects a duplicate sidebar block, an unknown block key, or a missing block path', () => {
+    const repeat = fixture()
+    repeat.display.sidebar = [{ block: 'cast' }, { block: 'cast' }]
+    expectRejected(repeat, 'display.sidebar[1].block')
+    const unknown = fixture()
+    unknown.display.sidebar = [{ block: 'cast', extra: 1 }]
+    expectRejected(unknown, 'display.sidebar[0].extra')
+    const missing = fixture()
+    delete missing.state.world.fields.map
+    missing.display.sidebar = [{ block: 'map' }]
+    expectRejected(missing, 'display.sidebar[0].block')
+  })
+
+  it('accepts an empty sidebar and a display without layout / time / scroll', () => {
     const card = fixture()
-    prompts(card)[KEY_CONVENTION] = [CN_TEN + KEY_BLOCK]
-    expectRejected(card, KEY_PROMPT + '.' + KEY_CONVENTION)
+    card.display = { topbar: ['time'], sidebar: [] }
+    expect(validateCard(card)).toBeDefined()
   })
 
-  it('rejects a convention block that never declares the block count', () => {
+  it('rejects a notes entry that is empty or not text', () => {
+    for (const value of ['', [], 7, ['ok', 7]]) {
+      const card = fixture()
+      card.notes.bad = value
+      expectRejected(card, 'notes.bad')
+    }
+    const emptyKey = fixture()
+    emptyKey.notes[''] = 'x'
+    expectRejected(emptyKey, 'notes')
+  })
+
+  it('accepts an empty notes block and free note keys', () => {
     const card = fixture()
-    prompts(card)[KEY_CONVENTION] = ['no numeral here']
-    expectRejected(card, KEY_PROMPT + '.' + KEY_CONVENTION)
-  })
-
-  it('rejects an empty convention block', () => {
-    const card = fixture()
-    prompts(card)[KEY_CONVENTION] = []
-    expectRejected(card, KEY_PROMPT + '.' + KEY_CONVENTION)
-  })
-
-  it('rejects a segment name that is not a key of the role schema', () => {
-    const card = fixture()
-    card[KEY_NOTES][KEY_STATE] = NOTE.split(KEY_CARRY).join('carry')
-    expectRejected(card, KEY_NOTES + '.' + KEY_STATE)
-  })
-
-  it('rejects a segment count that disagrees with the names it lists', () => {
-    const card = fixture()
-    card[KEY_NOTES][KEY_STATE] = NOTE.split(CN_FOUR).join(CN_TEN)
-    expectRejected(card, KEY_NOTES + '.' + KEY_STATE)
-  })
-
-  it('rejects a state note without a numeral or without a list', () => {
-    const noNumber = fixture()
-    noNumber[KEY_NOTES][KEY_STATE] = NOTE.split(CN_FOUR).join('')
-    expectRejected(noNumber, KEY_NOTES + '.' + KEY_STATE)
-    const noList = fixture()
-    noList[KEY_NOTES][KEY_STATE] = CN_FOUR + WORD_STAGE
-    expectRejected(noList, KEY_NOTES + '.' + KEY_STATE)
-    const openList = fixture()
-    openList[KEY_NOTES][KEY_STATE] = CN_FOUR + WORD_STAGE + PUNCT_COLON + KEY_INHERENT
-    expectRejected(openList, KEY_NOTES + '.' + KEY_STATE)
+    card.notes = {}
+    expect(validateCard(card)).toBeDefined()
   })
 })

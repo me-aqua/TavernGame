@@ -6,6 +6,9 @@
  * 保存走**与导入同一套校验**（importCard：卡格式 + 显示词汇表），通过才落盘；失败原样
  * 显示在表单里。落盘成功只 emit saved，reload 由外层做（引擎与显示映射都在模块加载期
  * 读卡，见 game/current-card.ts）。
+ *
+ * 可改的只有节点的**名 / 职责 / 提示词**（graph.nodes[id] 里的那三处）；role / tools /
+ * reads / uses 是机制（卡给了谁什么权力），表单只读展示，保存时整份复制、一个字节不动。
  */
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -13,7 +16,6 @@ import CardGraph from './CardGraph.vue'
 import CardNodeForm from './CardNodeForm.vue'
 import { cardMeta, importCard, type CardSource } from '../game/current-card'
 import type { CardData } from '../game/card'
-import * as K from '../game/card-keys'
 
 const { t } = useI18n()
 
@@ -40,31 +42,19 @@ const sourceLabel = computed(() =>
   props.source === 'imported' ? t('card.sourceImported') : t('card.sourceBuiltin'),
 )
 
-/** 卡里「图」那一块（卡已校验，形状由 game/card.ts 守） */
-function graphOf(card: CardData): Record<string, unknown> {
-  return (card[K.KEY_DECL] as Record<string, unknown>)[K.KEY_GRAPH] as Record<string, unknown>
-}
-
-/** 节点 id → 它的三个键（名 / 职责 / 输出） */
-function nodesOf(card: CardData): Record<string, Record<string, unknown>> {
-  return graphOf(card)[K.KEY_NODES] as Record<string, Record<string, unknown>>
-}
-
-/** 节点 id → 提示词.节点[id]（一行一条） */
-function promptsOf(card: CardData): Record<string, string[]> {
-  return (card[K.KEY_PROMPT] as Record<string, unknown>)[K.KEY_NODES] as Record<string, string[]>
-}
-
 /** 正在编辑的那个节点；没选中就是 null */
 const editing = computed(() => {
   if (!selected.value) return null
-  const node = nodesOf(props.card)[selected.value]
+  const node = props.card.graph.nodes[selected.value]
   return {
     id: selected.value,
-    name: node[K.KEY_NODE_NAME] as string,
-    duty: node[K.KEY_DUTY] as string,
-    output: node[K.KEY_OUTPUT] as Record<string, unknown>,
-    prompt: promptsOf(props.card)[selected.value],
+    name: node.name,
+    duty: node.duty,
+    prompt: node.prompt,
+    role: node.role ?? null,
+    tools: node.tools ?? null,
+    reads: node.reads ?? null,
+    uses: node.uses ?? null,
   }
 })
 
@@ -75,17 +65,17 @@ function select(id: string) {
 }
 
 /**
- * 保存：把改过的三个字段写回整张卡，再跑与导入同一套校验。
+ * 保存：把改过的三个字段写回节点，再跑与导入同一套校验。
  *
  * 先在副本上改（卡本来就来自 JSON，整份复制最省事）：校验失败时内存里那张必须原样 ——
  * 它还在被引擎与界面用着。
  */
 function save(value: { name: string; duty: string; prompt: string[] }) {
   const next = JSON.parse(JSON.stringify(props.card)) as CardData
-  const node = nodesOf(next)[selected.value]
-  node[K.KEY_NODE_NAME] = value.name
-  node[K.KEY_DUTY] = value.duty
-  promptsOf(next)[selected.value] = value.prompt
+  const node = next.graph.nodes[selected.value]
+  node.name = value.name
+  node.duty = value.duty
+  node.prompt = value.prompt
   error.value = ''
   try {
     importCard(JSON.stringify(next))
@@ -134,8 +124,11 @@ function save(value: { name: string; duty: string; prompt: string[] }) {
           :id="editing.id"
           :name="editing.name"
           :duty="editing.duty"
-          :output="editing.output"
           :prompt="editing.prompt"
+          :role="editing.role"
+          :tools="editing.tools"
+          :reads="editing.reads"
+          :uses="editing.uses"
           :error="error"
           @save="save"
         />
