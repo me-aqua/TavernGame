@@ -101,6 +101,16 @@ describe('runTurn - one call per node, in the card topology order', () => {
       expect(requestOf(index)).toContain('## ' + String(nodeMeta[id][K.KEY_NODE_NAME]))
     })
 
+    // 每个节点的请求里必须念出**它自己声明要输出的键**（卡的 声明.图.节点[id].输出）。
+    // 少了这一段，模型只知道「输出是一个 JSON 代码块」却不知道键名 —— 开场那一轮
+    // 实测就是这么失败的：story 回一段散文，引擎解析「正文」失败、整轮回滚。
+    topology.forEach((id, index) => {
+      const declared = nodeMeta[id][K.KEY_OUTPUT] as Record<string, unknown>
+      for (const key of Object.keys(declared)) {
+        expect(requestOf(index), 'call #' + index + ' (' + id + ') must name its output key').toContain(key)
+      }
+    })
+
     // 进度事件也按拓扑发（决定 #38）：node 事件流就是拓扑本身
     const nodeEvents = events.filter((e) => e.type === 'node').map((e) => (e as { id: string }).id)
     expect(nodeEvents).toEqual(topology)

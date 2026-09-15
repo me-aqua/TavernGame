@@ -25,6 +25,8 @@ import openingZh from 'virtual:prompt/zh-CN/opening'
 import openingEn from 'virtual:prompt/en/opening'
 import connectionTestZh from 'virtual:prompt/zh-CN/connection-test'
 import connectionTestEn from 'virtual:prompt/en/connection-test'
+import outputZh from 'virtual:prompt/zh-CN/output'
+import outputEn from 'virtual:prompt/en/output'
 
 import * as K from '../game/card-keys'
 import { isRecord } from '../game/save'
@@ -52,6 +54,7 @@ const TEMPLATES = {
   calendar: { 'zh-CN': decodePrompt(calendarZh), en: decodePrompt(calendarEn) },
   opening: { 'zh-CN': decodePrompt(openingZh), en: decodePrompt(openingEn) },
   connectionTest: { 'zh-CN': decodePrompt(connectionTestZh), en: decodePrompt(connectionTestEn) },
+  output: { 'zh-CN': decodePrompt(outputZh), en: decodePrompt(outputEn) },
 } satisfies Record<string, Record<Locale, string>>
 
 function locale(): Locale {
@@ -170,13 +173,33 @@ export interface NodeRequestInput {
 }
 
 /**
+ * 该节点**必须输出哪些键**（卡的 `声明.图.节点[id].输出`）。
+ *
+ * ⚠️ 少了这一段，模型只知道「输出是一个 JSON 代码块」（节点约定），不知道键名 ——
+ *    实测的直接后果：开场那一轮里 `story` 节点回一段散文，引擎解析「正文」失败、
+ *    整轮回滚，玩家看到「生成开场失败」。键名是卡声明的，这里只负责把它念给模型听。
+ */
+export function nodeOutputPrompt(card: CardData, id: string): string {
+  const decl = card[K.KEY_DECL] as Record<string, unknown>
+  const graph = decl[K.KEY_GRAPH] as Record<string, unknown>
+  const nodes = graph[K.KEY_NODES] as Record<string, Record<string, unknown>>
+  return renderPrompt(TEMPLATES.output[locale()], {
+    FIELDS: renderCardValue(nodes[id][K.KEY_OUTPUT]),
+  })
+}
+
+/**
  * 拼出一次节点请求的消息列表：system（公共部分的设定/剧本/历法/约定）
- * → 全部历史 → user（当前状态快照 + 玩家原话 + 本轮上游 + 该节点提示词）。
+ * → 全部历史 → user（当前状态快照 + 玩家原话 + 本轮上游 + 该节点提示词 + 它该输出的键）。
  *
  * ⚠️ 上游只含**已经跑完**的节点（决定 #26）；拿不到就不编（上游文本自己会跳过空产出）。
  */
 export function buildNodeMessages(input: NodeRequestInput): ChatMessage[] {
-  const task = joinSections([upstreamText(input.upstream), nodePrompt(input.card, input.node)])
+  const task = joinSections([
+    upstreamText(input.upstream),
+    nodePrompt(input.card, input.node),
+    nodeOutputPrompt(input.card, input.node),
+  ])
   const user = joinSections([input.snapshot, input.playerWords, task])
   return [
     { role: 'system', content: cardSystemPrompt(input.card) },

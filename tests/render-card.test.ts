@@ -12,19 +12,10 @@ import { describe, expect, it } from 'vitest'
 import { renderCard } from '../tools/render-card.mjs'
 import * as K from '../src/game/card-keys'
 import { EXAMPLE_CARD } from './support/card-fixtures'
+import { stringLeaves } from './support/card-leaves'
 
 /** 三个反引号（markdown 围栏符） */
 const FENCE = String.fromCharCode(96).repeat(3)
-
-/** 一份 JSON 里全部字符串叶子（数组里的字符串也算叶子） */
-function stringLeaves(value: unknown, out: string[] = []): string[] {
-  if (typeof value === 'string') out.push(value)
-  else if (Array.isArray(value)) value.forEach((item) => stringLeaves(item, out))
-  else if (value && typeof value === 'object') {
-    for (const item of Object.values(value)) stringLeaves(item, out)
-  }
-  return out
-}
 
 /** 一张形状与示例卡完全不同的卡：三个节点、一段说明、没有声明块 */
 function otherCard(): Record<string, unknown> {

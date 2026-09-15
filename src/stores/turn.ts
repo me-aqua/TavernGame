@@ -92,6 +92,8 @@ export function createTurnRunner(deps: TurnDeps): {
 } {
   const { state, addEvent, notify, endTurn, snapshot, save, history, phase, debugMode } = deps
   let controller: AbortController | null = null
+  /** 本轮已经写下的调试痕迹（失败时要留下来 —— 见 catch 里的例外） */
+  let roundTraces: Array<{ kind: EventKind; text: string; detail?: string }> = []
 
   /** 中止在飞的回合；没有则什么也不做 */
   function abortRunningTurn() {
@@ -106,25 +108,34 @@ export function createTurnRunner(deps: TurnDeps): {
    *
    * 叙事不在这里处理 —— 引擎已经把它写进目标状态的事件流了（界面渲染的就是它）。
    * 调试关掉时一条痕迹都不产生：玩家不该在故事里看到节点进度与原始 JSON。
+   *
+   * ⚠️ 每写一行都往 roundTraces 里记一份：这一轮万一失败，副本整个被丢掉，
+   *    而「发出去的到底是什么」正是那时最需要看的东西（见 catch 里的例外）。
    */
   function handleEvent(target: GameState, evt: AgentEvent) {
     const step = lifecycleEventOf(evt)
     if (step) phase.value = advance(phase.value, step)
     if (!debugMode.value) return
+
+    /** 写一条调试痕迹：既进副本（成功时随提交一起留下），也记进本轮的痕迹清单 */
+    const trace = (kind: EventKind, text: string, detail?: string) => {
+      addEvent(target, kind, text, detail)
+      roundTraces.push({ kind, text, detail })
+    }
+
     switch (evt.type) {
       case 'node':
         // 图执行器的进度：每进一个节点一行，位置就在它发生的地方（本轮第一个事件）
-        addEvent(target, 'node', t('store.nodeLine', { node: evt.id }))
+        trace('node', t('store.nodeLine', { node: evt.id }))
         break
       case 'model':
         // 输入与输出成对写：先请求体，再响应体 —— 顺序就是这次调用的顺序
-        addEvent(
-          target,
+        trace(
           'request',
           t('store.rawRequest', { count: evt.reply.request.messages.length }),
           JSON.stringify(evt.reply.request, null, 2),
         )
-        addEvent(target, 'reply', t('store.rawReply'), JSON.stringify(evt.reply.raw, null, 2))
+        trace('reply', t('store.rawReply'), JSON.stringify(evt.reply.raw, null, 2))
         break
       default:
         break
@@ -143,6 +154,7 @@ export function createTurnRunner(deps: TurnDeps): {
     notify(null)
 
     controller = new AbortController()
+    roundTraces = []
     try {
       // 事务开始：这一轮的一切写入都落在副本上，权威状态在提交前一个字节都不动
       const draft = draftOf(state)
@@ -168,7 +180,14 @@ export function createTurnRunner(deps: TurnDeps): {
       phase.value = advance(phase.value, { type: 'commit' })
       if (!save()) notify(t('agent.saveFailed'), 'error')
     } catch (err) {
-      // 失败与取消都在这里丢弃副本：不写回也不落盘，内存与存档一个字节都不变
+      // 失败与取消都在这里丢弃副本：不写回也不落盘，内存与存档一个字节都不变。
+      //
+      // ⚠️ 唯一的例外是**调试痕迹**（决定 #39 的补充）：一轮失败时最需要看的就是
+      //    「发出去的是什么、模型回了什么」，而副本一丢这些就没了 —— 调试模式打开时，
+      //    把这一轮写下的痕迹追加到权威状态（只追加，不动故事 / 时间 / 回合数 / 存档）。
+      //    它们不是游戏状态：投影只把它们给开发者看，模型快照也只认故事类事件。
+      for (const line of roundTraces) addEvent(state, line.kind, line.text, line.detail)
+      roundTraces = []
       phase.value = advance(phase.value, { type: 'rollback' })
       const e = err as Error
       if (e.name === 'AbortError') {

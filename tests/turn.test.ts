@@ -21,6 +21,7 @@ import { ref, watch, type Ref } from 'vue'
 import { createTurnRunner } from '../src/stores/turn'
 import { IDLE, type TurnPhase, type TurnState } from '../src/game/lifecycle'
 import { addEvent, endTurn, initialState, iso, save, snapshot, type GameState } from '../src/game/state'
+import { isStoryKind } from '../src/game/save'
 import { STORY_NODE, TIME_NODE } from '../src/agent/card-graph'
 import { configureFakeProvider } from './support/game-fixtures'
 import { cardTurnReplies, CARD_TOPOLOGY } from './support/card-replies'
@@ -157,7 +158,20 @@ describe('a turn that never reaches the end leaves no trace', () => {
     abortRunningTurn()
 
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
-    expect(JSON.stringify(state.data)).toBe(before)
+
+    // 游戏状态一个字节没变：故事 / 时间 / 时间线 / 回合数都不动（决定 #39）。
+    // ⚠️ 唯一的例外是调试痕迹：它们留下来（决定 #39 的补充）—— 一轮失败或取消时，
+    //    最需要看的就是「发出去的是什么」，而工作副本一丢这些就没了。
+    const { events, ...rest } = state.data
+    const { events: beforeEvents, ...beforeRest } = JSON.parse(before) as {
+      events: unknown[]
+      [key: string]: unknown
+    }
+    expect(rest).toEqual(beforeRest)
+    expect(beforeEvents).toEqual([])
+    expect(events.some((e) => e.kind === 'request')).toBe(true)
+    expect(events.every((e) => !isStoryKind(e.kind))).toBe(true)
+
     expect(write).not.toHaveBeenCalled()
     expect(phase.value.phase).toBe('idle')
     expect(history.value).toEqual([])

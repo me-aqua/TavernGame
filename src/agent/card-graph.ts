@@ -146,6 +146,9 @@ export function applyTimeNode(state: GameState, card: CardData, outputs: string[
   const reason = parsed[K.KEY_REASON]
   if (typeof reason !== 'string') throw new Error(where + ': "' + K.KEY_REASON + '" must be a string')
 
+  // 0 = 这一轮时间没动（例如开局那一刻，或一场没跨过时间线的对话）—— 合法判断：不推进，也不报错
+  if (advance.step === 0) return
+
   const before = iso(state)
   const message = advanceTime(state, advance.step, advance.unit, reason)
   // 推不动 = 日历拒了它（单位不认识 / 倒退 / 防呆上限）：时间一个字节没动就抛错
