@@ -205,13 +205,20 @@ for (const file of textFiles.filter((f) => SRC.test(f) && !f.endsWith('.stories.
 // 阈值校准（2026-09-14）：Prettier 会拆开模板属性，同样的语义占更多行
 //（SettingsDrawer.vue 201 → 278）。那是格式器的风格，不是代码膨胀，
 // 所以上限跟着新基线走。
-const SIZE = { file: 400, func: 150, net: 500 }
+// 阈值再校准（2026-09-15，用户拍板「不拆，调上限并说明」）：400 → 550、150 → 170。
+// 理由：card/3 的格式层（card.ts 522 / card-actions.ts 437）是**声明式**的 ——
+// 一个顶层键一段校验或推导，行长随格式的键集走，不随逻辑复杂度走；拆开只是把同一份
+// 格式定义劈成两半（还得给拆出来的模块各配一份测试）。turn.ts 的 createTurnRunner 162 行
+// 是那个闭包工厂本身（中止用的 controller + 两个调试投影 + 事件 → 痕迹的 switch）。
+// 下一次再顶到上限时同样先问「是膨胀还是形状」，别默默改数字。
+const SIZE = { file: 550, func: 170, net: 500 }
 const countLines = (s) => s.split('\n').length
 // 生成物不算「我写的代码」：lockfile
 const generated = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/
-// 文档不受代码行数限制：DESIGN.md 是设计推导，本来就长
-const notDocs = (f) => !/^doc\//.test(f) && !/^(README|AGENTS)\.md$/.test(f)
-for (const file of textFiles.filter((f) => !generated.test(f) && notDocs(f))) {
+// 文档与卡都不是代码：DESIGN.md 是设计推导；cards/*.json 是作者写的散文
+//（示例卡的原稿逐字迁入，行数由内容决定，不是代码膨胀）
+const notCode = (f) => !/^doc\//.test(f) && !/^(README|AGENTS)\.md$/.test(f) && !/^cards\//.test(f)
+for (const file of textFiles.filter((f) => !generated.test(f) && notCode(f))) {
   const n = countLines(contentOf(file))
   if (n > SIZE.file) problems.push(`[体积] ${file} —— ${n} 行（上限 ${SIZE.file}）`)
 }
