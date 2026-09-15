@@ -21,7 +21,9 @@ import { computed, reactive, ref } from 'vue'
 import * as game from '../game/state'
 import { initialState } from '../game/state'
 import { isStoryKind } from '../game/save'
-import { IDLE, isRunning, statusKeyOf, type TurnState } from '../game/lifecycle'
+import { IDLE, isRunning, runningNodeOf, statusKeyOf, type TurnState } from '../game/lifecycle'
+import { nodeLabel } from '../game/display'
+import { currentCard } from '../game/current-card'
 import { createTurnRunner, type NoticeLevel } from './turn'
 import { localStorageStore, type GameStore } from '../utils/storage'
 import { t } from '../i18n'
@@ -170,8 +172,17 @@ export function useGame() {
    * 底部状态行。进行中优先于通知 —— 回合一跑起来，上一条通知就过时了。
    * 两者都是**算出来的**：进行中那一条是生命周期状态的投影（文案键由状态给出，
    * 见 game/lifecycle.ts），没有哪一行需要谁记得删掉。
+   *
+   * ⚠️ 跑到哪个节点就写哪个节点的名字（卡的 声明.图.节点[id].名）：
+   *    「正在跑「故事大纲」…」比「思考中…」有用得多 —— 九个节点卡在哪一个一眼看得到。
+   *    图还没开始跑（或已进收尾）时没有节点，退回原来那两句。
    */
   const status = computed<Status | null>(() => {
+    const node = runningNodeOf(phase.value)
+    if (node) {
+      const key = phase.value.mode === 'opening' ? 'app.openingNodeRunning' : 'story.nodeRunning'
+      return { kind: 'busy', text: t(key, { node: nodeLabel(currentCard, node) }) }
+    }
     const key = statusKeyOf(phase.value)
     if (key) return { kind: 'busy', text: t(key) }
     return notice.value ? { kind: notice.value.level, text: notice.value.text } : null

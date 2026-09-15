@@ -5,6 +5,7 @@
     "debugOn": "🔧 Debug mode on — raw model output will be shown",
     "debugOff": "🔧 Debug mode off",
     "generatingOpening": "Generating the opening scene…",
+    "openingNodeRunning": "Generating the opening scene… ({node})",
     "openingFailed": "Failed to generate the opening: {message}",
     "saveFileName": "taverngame-save-{date}.json",
     "saveExported": "Save exported to a file",
@@ -198,6 +199,7 @@
     "turnAdvanced": "Turn +1 (now turn {turn})"
   },
   "story": {
+    "nodeRunning": "Running {node}…",
     "thinking": "Thinking…",
     "rawToggle": " - click to expand"
   },

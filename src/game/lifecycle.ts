@@ -27,12 +27,21 @@ export interface TurnState {
   phase: TurnPhase
   /** 这一轮是谁发起的：只有 start 事件会写它，之后随状态原样带走；空闲与终态下没有读者 */
   mode: TurnMode | null
+  /**
+   * 正在跑哪个节点（卡里的节点 id）；图还没开始跑、或跑完进入收尾时是 null。
+   *
+   * ⚠️ 它是**给界面看的进度**（状态行写着「正在跑「故事大纲」…」），不是执行器的状态：
+   *    节点跑完不会再报一次「我结束了」，所以下一个节点的事件到来之前它一直是上一个。
+   */
+  node: string | null
 }
 
-/** 迁移的输入：前两个由引擎的 AgentEvent 推导，后三个是组合根自己的时刻 */
+/** 迁移的输入：前几个由引擎的 AgentEvent 推导，后几个是组合根自己的时刻 */
 export type TurnEvent =
   /** 开始一轮：玩家提交行动，或开新游戏时自动跑开场 */
   | { type: 'start'; mode: TurnMode }
+  /** 图执行器进了哪个节点（AgentEvent node）—— 状态行据此写出具体节点名 */
+  | { type: 'node'; id: string }
   /** 一次模型请求发出（AgentEvent thinking）—— 图里每个节点一次 */
   | { type: 'request-model' }
   /** 收尾文字到手（引擎交回本回合的正文）—— 只有这个状态允许提交 */
@@ -44,8 +53,8 @@ export type TurnEvent =
   /** 一轮彻底结束，回到空闲等下一轮 */
   | { type: 'reset' }
 
-/** 空闲：没有回合在跑（mode 此时没有意义） */
-export const IDLE: TurnState = { phase: 'idle', mode: null }
+/** 空闲：没有回合在跑（mode 与 node 此时都没有意义） */
+export const IDLE: TurnState = { phase: 'idle', mode: null, node: null }
 
 /**
  * 迁移表 —— 合法转移的**唯一来源**。
@@ -58,6 +67,8 @@ export const TRANSITIONS: Record<TurnPhase, Partial<Record<TurnEvent['type'], Tu
   prompting: {
     // 下一个节点的请求仍在请求阶段：图是线性的，中间没有别的阶段
     'request-model': 'prompting',
+    // 进了一个节点：阶段不变，只记下「现在跑的是谁」（状态行读它）
+    node: 'prompting',
     'closing-text': 'finishing',
     rollback: 'rolled-back',
   },
@@ -77,7 +88,12 @@ export function advance(state: TurnState, event: TurnEvent): TurnState {
   if (next === undefined) {
     throw new Error(`illegal turn transition: ${state.phase} + ${event.type}`)
   }
-  return { phase: next, mode: event.type === 'start' ? event.mode : state.mode }
+  return {
+    phase: next,
+    // start 带上这一轮是谁发起的；终态与空闲不带任何在跑的节点
+    mode: event.type === 'start' ? event.mode : state.mode,
+    node: event.type === 'node' ? event.id : isRunning({ ...state, phase: next }) ? state.node : null,
+  }
 }
 
 /** 运行中的两个阶段（顺序就是一轮里它们可能出现的顺序） */
@@ -91,8 +107,17 @@ export function isRunning(state: TurnState): boolean {
 /**
  * 状态行的文案键：自动开场是「正在生成开场…」，玩家的回合一律「思考中…」；
  * 空闲与两个终态没有键（那时状态行归通知管）。
+ *
+ * ⚠️ 有节点在跑时，组合根会把这个键换成带节点名的那条（见 stores/game.ts）——
+ *    「正在跑「故事大纲」…」比「思考中…」有用得多：一等的九个节点里卡在哪一个，
+ *    玩家与开发者都一眼看得到。
  */
 export function statusKeyOf(state: TurnState): 'app.generatingOpening' | 'story.thinking' | null {
   if (!isRunning(state)) return null
   return state.mode === 'opening' ? 'app.generatingOpening' : 'story.thinking'
+}
+
+/** 空闲 / 终态之外的「正在跑哪个节点」——没有节点在跑时是 null */
+export function runningNodeOf(state: TurnState): string | null {
+  return isRunning(state) ? state.node : null
 }

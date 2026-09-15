@@ -14,6 +14,7 @@ import {
   advance,
   IDLE,
   isRunning,
+  runningNodeOf,
   statusKeyOf,
   TRANSITIONS,
   type TurnEvent,
@@ -24,15 +25,16 @@ import {
 /** 每个阶段一个代表状态：枚举「阶段 × 事件」矩阵时用它 */
 const STATE_FOR: Record<TurnPhase, TurnState> = {
   idle: IDLE,
-  prompting: { phase: 'prompting', mode: 'turn' },
-  finishing: { phase: 'finishing', mode: 'turn' },
-  committed: { phase: 'committed', mode: null },
-  'rolled-back': { phase: 'rolled-back', mode: null },
+  prompting: { phase: 'prompting', mode: 'turn', node: null },
+  finishing: { phase: 'finishing', mode: 'turn', node: null },
+  committed: { phase: 'committed', mode: null, node: null },
+  'rolled-back': { phase: 'rolled-back', mode: null, node: null },
 }
 
 /** 每种事件一个代表事件：枚举矩阵时用它 */
 const EVENT_FOR: Record<TurnEvent['type'], TurnEvent> = {
   start: { type: 'start', mode: 'opening' },
+  node: { type: 'node', id: 'outline' },
   'request-model': { type: 'request-model' },
   'closing-text': { type: 'closing-text' },
   commit: { type: 'commit' },
@@ -83,13 +85,13 @@ describe('the paths that must not exist are refused', () => {
   })
 
   it('committed: a second commit is refused (a turn commits once)', () => {
-    const committed = advance({ phase: 'finishing', mode: 'turn' }, { type: 'commit' })
+    const committed = advance({ phase: 'finishing', mode: 'turn', node: null }, { type: 'commit' })
     expect(committed.phase).toBe('committed')
     expect(() => advance(committed, { type: 'commit' })).toThrow(/committed \+ commit/)
   })
 
   it('rolled-back: a second rollback is refused (the draft is already gone)', () => {
-    const rolledBack = advance({ phase: 'prompting', mode: 'turn' }, { type: 'rollback' })
+    const rolledBack = advance({ phase: 'prompting', mode: 'turn', node: null }, { type: 'rollback' })
     expect(rolledBack.phase).toBe('rolled-back')
     expect(() => advance(rolledBack, { type: 'rollback' })).toThrow(/rolled-back \+ rollback/)
   })
@@ -142,15 +144,25 @@ describe('a whole turn walks the phases in order', () => {
 describe('the status line is a projection of the state', () => {
   it('every running phase names the opening or the thinking by mode', () => {
     for (const phase of ['prompting', 'finishing'] as const) {
-      expect(statusKeyOf({ phase, mode: 'opening' })).toBe('app.generatingOpening')
-      expect(statusKeyOf({ phase, mode: 'turn' })).toBe('story.thinking')
+      expect(statusKeyOf({ phase, mode: 'opening', node: null })).toBe('app.generatingOpening')
+      expect(statusKeyOf({ phase, mode: 'turn', node: null })).toBe('story.thinking')
     }
   })
 
   it('idle and the two terminal phases have no status line of their own', () => {
     expect(statusKeyOf(IDLE)).toBeNull()
-    expect(statusKeyOf({ phase: 'committed', mode: 'turn' })).toBeNull()
-    expect(statusKeyOf({ phase: 'rolled-back', mode: 'turn' })).toBeNull()
+    expect(statusKeyOf({ phase: 'committed', mode: 'turn', node: null })).toBeNull()
+    expect(statusKeyOf({ phase: 'rolled-back', mode: 'turn', node: null })).toBeNull()
+  })
+
+  it('names the node that is running, and only while the turn is running', () => {
+    // 状态行走的是 runningNodeOf：跑到哪个节点就报哪个（卡里的节点 id）
+    const running = advance(advance(IDLE, { type: 'start', mode: 'turn' }), { type: 'node', id: 'outline' })
+    expect(runningNodeOf(running)).toBe('outline')
+
+    // 终态与空闲都没有「正在跑的节点」—— 即使 state 里还留着一个 id
+    expect(runningNodeOf({ phase: 'committed', mode: 'turn', node: 'outline' })).toBeNull()
+    expect(runningNodeOf(IDLE)).toBeNull()
   })
 
   it('isRunning is true for exactly the running phases', () => {

@@ -10,6 +10,7 @@ import { isDevHost, readStoredDebug, resolveDebug, storeDebug, useGame } from '.
 import { initialState, hydrateFromSave, turn } from '../src/game/state'
 import { openingOf } from '../src/game/opening'
 import { currentCard } from '../src/game/current-card'
+import { nodeLabel } from '../src/game/display'
 import { SAVE_KEY } from '../src/utils/storage'
 import { hourToSegment, SEGMENTS } from '../src/utils/calendar'
 import { t } from '../src/i18n'
@@ -328,7 +329,11 @@ describe('status line: in-progress and notices are computed, never stored', () =
     const g = useGame()
     fake = installFakeLlm(cardTurnReplies({ story: WAKE_REPLY }))
     const opening = g.runTurnAction()
-    expect(g.status.value).toEqual({ kind: 'busy', text: t('app.generatingOpening') })
+    // 开场那一轮也报节点名（「正在生成开场…（精神分析）」），不再是笼统的一句
+    expect(g.status.value).toEqual({
+      kind: 'busy',
+      text: t('app.openingNodeRunning', { node: nodeLabel(currentCard, CARD_TOPOLOGY[0]) }),
+    })
 
     await opening
     fake.restore()
@@ -342,7 +347,11 @@ describe('status line: in-progress and notices are computed, never stored', () =
     g.notify('exported')
     fake = installFakeLlm(cardTurnReplies({ story: WAKE_REPLY }))
     const running = g.runTurnAction(OPEN_EYES)
-    expect(g.status.value).toEqual({ kind: 'busy', text: t('story.thinking') })
+    // 状态行写出正在跑的那个节点（显示名来自卡）；此刻是拓扑里的第一个
+    expect(g.status.value).toEqual({
+      kind: 'busy',
+      text: t('story.nodeRunning', { node: nodeLabel(currentCard, CARD_TOPOLOGY[0]) }),
+    })
 
     await running
     fake.restore()

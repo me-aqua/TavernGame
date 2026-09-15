@@ -129,6 +129,26 @@ function sidebarNames(display: Record<string, unknown>): string[] {
   return blocks.map((block) => block[K.KEY_BLOCK])
 }
 
+/**
+ * 图里某个节点的显示名 —— 状态行写着「正在跑「故事大纲」…」时要用的那一个。
+ *
+ * ⚠️ 节点 id 是**引擎报出来的**（卡已校验，拓扑里的 id 必然有节点）：读不到就抛错，
+ *    不退回 id 假装没事 —— 那种静默兜底只会让状态行显示一串内部 id。
+ */
+export function nodeLabel(card: CardData, id: string): string {
+  const nodes = requireRecord(
+    requireRecord(requireRecord(card, K.KEY_DECL, ''), K.KEY_GRAPH, K.KEY_DECL),
+    K.KEY_NODES,
+    at(K.KEY_DECL, K.KEY_GRAPH),
+  )
+  const where = at(at(K.KEY_DECL, K.KEY_GRAPH), K.KEY_NODES) + '.' + id
+  return requireText(
+    requireRecord(nodes, id, at(at(K.KEY_DECL, K.KEY_GRAPH), K.KEY_NODES)),
+    K.KEY_NODE_NAME,
+    where,
+  )
+}
+
 /** 声明.世界.区域：每个区域带上它的「必有地点」 */
 export function areasOf(card: CardData): AreaView[] {
   const base = at(K.KEY_DECL, K.KEY_WORLD)

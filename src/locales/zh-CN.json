@@ -5,6 +5,7 @@
     "debugOn": "🔧 调试模式已开启 —— 之后会显示模型的原始输出",
     "debugOff": "🔧 调试模式已关闭",
     "generatingOpening": "正在生成开场…",
+    "openingNodeRunning": "正在生成开场…（{node}）",
     "openingFailed": "生成开场失败：{message}",
     "saveFileName": "taverngame-存档-{date}.json",
     "saveExported": "存档已导出为文件",
@@ -198,6 +199,7 @@
     "turnAdvanced": "回合 +1（当前第 {turn} 回合）"
   },
   "story": {
+    "nodeRunning": "正在跑「{node}」…",
     "thinking": "思考中…",
     "rawToggle": " —— 点击展开"
   },

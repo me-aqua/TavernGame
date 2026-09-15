@@ -82,6 +82,7 @@ function draftOf(source: GameState): GameState {
  *    阶段在 prompting 里自环（表里那条自环就是为这件事留的）。
  */
 function lifecycleEventOf(evt: AgentEvent): TurnEvent | null {
+  if (evt.type === 'node') return { type: 'node', id: evt.id }
   return evt.type === 'thinking' ? { type: 'request-model' } : null
 }
 
@@ -92,7 +93,7 @@ export function createTurnRunner(deps: TurnDeps): {
 } {
   const { state, addEvent, notify, endTurn, snapshot, save, history, phase, debugMode } = deps
   let controller: AbortController | null = null
-  /** 本轮已经写下的调试痕迹（失败时要留下来 —— 见 catch 里的例外） */
+  /** 本轮已经写下的调试痕迹（失败时要留下来 —— 见失败分支里的那条例外） */
   let roundTraces: Array<{ kind: EventKind; text: string; detail?: string }> = []
 
   /** 中止在飞的回合；没有则什么也不做 */
