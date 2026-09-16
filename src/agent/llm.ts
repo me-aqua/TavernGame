@@ -54,11 +54,21 @@ export interface ToolCallRequest {
  */
 export interface ChatRequest {
   model: string
+  /**
+   * 上下文。⚠️ assistant 消息**只含 `role` / `content` / `tool_calls`** ——
+   * 思维链（`reasoning_content`）不进上下文：回传它只会让请求体一轮比一轮大，
+   * 还要多养一套存取代码，而关思考的响应里根本没有这个键。
+   */
   messages: ChatMessage[]
   temperature: number
   stream: boolean
   tools?: ToolSchema[]
   tool_choice?: 'auto' | 'none' | 'required'
+  /**
+   * 关思考的声明，**只有 `disabled` 这一种取值** —— `enabled` 不是对称选项：
+   * 带 tools 的请求一旦开思考，后续每轮都得把思维链完整回传，那是另一整套机制。
+   */
+  thinking?: { type: 'disabled' }
 }
 
 /** 一次模型回复：可能只有文字，也可能在协议层要求调工具 */
@@ -78,6 +88,11 @@ interface ChatOptions {
   tools?: ToolSchema[]
   /** 给模型看的服务商侧提示（一般不用） */
   toolChoice?: 'auto' | 'none' | 'required'
+  /**
+   * 这次调用要不要思考：`true` = 要，`false` = 不要（请求体带 `thinking:{type:"disabled"}`）。
+   * 不传则照服务商预设的声明走。
+   */
+  thinking?: boolean
   /**
    * 请求**发出去之前**的回调：把真正要发的请求体交出去。
    *
@@ -148,6 +163,10 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
     body.tools = options.tools
     body.tool_choice = options.toolChoice ?? 'auto'
   }
+  // 关思考必须显式发：不发这个键等于让服务商按自己的默认走（DeepSeek 那边默认就是思考）。
+  // 谁都没声明时也不发 —— 没实测过这个顶层字段的服务商，不替它赌
+  const thinking = options.thinking ?? preset?.thinking
+  if (thinking === false) body.thinking = { type: 'disabled' }
   options.onRequest?.(body)
 
   let res: Response
