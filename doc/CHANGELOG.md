@@ -29,6 +29,11 @@
   （被取代的结论、AI 提错过的记录）
 
 ### 修改
+- **默认模型换 `deepseek-flash` + 默认关思考（决定 #51）** —— 预设声明 `thinking: false` 时，请求体带 `{"thinking":{"type":"disabled"}}`；
+  声明住在**服务商预设**、不挂模型上；谁都没声明时**不发这个键**（让服务商按自己的默认走）。真 API 实测：`deepseek-flash`
+  默认会思考（响应带 `reasoning_content`），而**思考模式下 `temperature` 静默失效**；模型名单同一天按 `GET /models` 取
+  （只剩 `deepseek-flash` / `deepseek-v4-pro`）。**旧模型名不做兼容** —— 存档里存着 `deepseek-chat` 的会直接报错
+
 - **卡格式 card/3 + 引擎只做四件事（决定 #48 / #49）** —— 卡改成「键名全 ASCII、节点为中心、卡只装内容、只做结构校验」：
   中文键名与 `card-keys.ts`（63 个 `\u` 转义常量）、散文校验（`card-notes.ts`）、节点 `输出` 死声明、`script.原稿` 重复
   全部删掉；原稿与推导搬去 `doc/cards/晨风镇-原稿.md`（一字未改、逐叶核对）。引擎现在只做四件事：持有卡声明的状态
