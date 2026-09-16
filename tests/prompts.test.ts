@@ -130,7 +130,8 @@ describe('engine prompt files', () => {
 
 describe('the card-side sections', () => {
   it('renders the five setting blocks in the card order, each line verbatim', () => {
-    const text = settingsPrompt(currentCard)
+    // 设定块按节点声明筛（决定 #52）：这一个节点没写 settings，于是它读得到全部五块
+    const text = settingsPrompt(currentCard, NODE_WITH_USES)
     expect(text).toContain('## ' + t('prompts.setting'))
     let cursor = 0
     for (const [key, lines] of Object.entries(currentCard.settings)) {
@@ -350,12 +351,13 @@ describe('model language follows the UI language', () => {
    */
   it('switches the engine-written headings but keeps the card content as written', () => {
     setLocale('zh-CN')
-    const zh = systemOf(FIRST_NODE)
+    // 这一个节点没写 settings ⇒ 五块全发：卡的内容两版都在（引擎写的标题随语言变）
+    const zh = systemOf(NODE_WITH_USES)
     const zhNow = t('prompts.now')
     const zhSetting = t('prompts.settingBlock.world')
 
     setLocale('en')
-    const en = systemOf(FIRST_NODE)
+    const en = systemOf(NODE_WITH_USES)
     const enNow = t('prompts.now')
     const enSetting = t('prompts.settingBlock.world')
 

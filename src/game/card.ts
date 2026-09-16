@@ -86,6 +86,8 @@ export interface GraphNode {
   reads?: string[]
   /** 这个节点要读哪几条生成器（不写 = 不带生成器） */
   uses?: string[]
+  /** 这个节点要读哪几块设定（不写 = 五块全发）—— 取值是卡里 settings 的键 */
+  settings?: string[]
 }
 
 /** 执行图：拓扑（顺序的唯一声明）+ 节点表 */
@@ -174,7 +176,7 @@ const TOP_LEVEL_KEYS = [
 
 const META_KEYS = ['id', 'name', 'version', 'compat', 'author', 'format', 'language', 'summary']
 const SETTING_KEYS = ['world', 'core', 'common', 'style', 'lead']
-const NODE_KEYS = ['name', 'duty', 'prompt', 'role', 'tools', 'reads', 'uses']
+const NODE_KEYS = ['name', 'duty', 'prompt', 'role', 'tools', 'reads', 'uses', 'settings']
 const ACTION_KEYS = ['what', 'path', 'effect', 'mode', 'key']
 const GENERATOR_KEYS = ['name', 'applies', 'principles']
 const OPENING_KEYS = ['canName', 'defaultName', 'requirements']
@@ -340,6 +342,7 @@ function checkGraph(card: Record<string, unknown>): void {
   for (const id of Object.keys(nodes)) {
     if (!seen.includes(id)) fail(at('graph.nodes', id), 'is not in graph.topology')
   }
+  const settings = requireRecord(card, 'settings', '')
   const actions = requireRecord(card, 'actions', '')
   const state = requireRecord(card, 'state', '')
   const generators = requireArray(card, 'generators', '')
@@ -368,6 +371,7 @@ function checkGraph(card: Record<string, unknown>): void {
     checkTools(node, where, actions)
     checkReads(node, where, state)
     checkUses(node, where, knownGenerators)
+    checkNodeSettings(node, where, settings)
   }
   if (stories.length !== 1) {
     fail(
@@ -408,6 +412,28 @@ function checkUses(node: Record<string, unknown>, where: string, names: unknown[
       fail(at(where, 'uses') + '[' + index + ']', 'is not a generator declared in this card')
     }
   })
+}
+
+/** 节点的 settings：不写 = 五块全发；写了必须非空、不重复、且每一块都是卡里声明的设定块 */
+function checkNodeSettings(
+  node: Record<string, unknown>,
+  where: string,
+  settings: Record<string, unknown>,
+): void {
+  const names = readTextList(node, 'settings', where)
+  if (names === undefined) return
+  const path = at(where, 'settings')
+  // 空表是写错了，不是「什么也不给」—— 后者由「不写这个键」表达
+  if (names.length === 0) fail(path, 'must not be empty (leave the key out to send every block)')
+  const seen: string[] = []
+  for (const name of names) {
+    // 坏名字要点出来：只报位置的话，「style2」与任何别的错名长得一模一样
+    if (!Object.hasOwn(settings, name)) {
+      fail(path, JSON.stringify(name) + ' is not a setting block this card declares')
+    }
+    if (seen.includes(name)) fail(path, 'duplicate setting block "' + name + '"')
+    seen.push(name)
+  }
 }
 
 /** 生成器：名字唯一（uses 按名字引用它）、适用与原则都不能空 */
