@@ -19,6 +19,12 @@ interface ProviderPreset {
   corsOk: boolean | null
   /** 这个服务不需要 key（本地 Ollama） */
   noKey?: boolean
+  /**
+   * 这一档服务商的模型**默认是否思考**：`false` ⇒ 请求体带 `thinking:{type:"disabled"}`，
+   * `true` ⇒ 请求体里连这个键都不出现（不发键等于让服务商按自己的默认走）。
+   * ⚠️ 只有**实测过**这个顶层字段的服务商才写：没写 = 不往它的请求体里塞没验过的字段。
+   */
+  thinking?: boolean
 }
 
 export interface GameConfig {
@@ -36,9 +42,10 @@ export interface GameConfig {
 export const PRESETS: Record<string, ProviderPreset> = {
   deepseek: {
     apiBase: 'https://api.deepseek.com',
-    models: ['deepseek-chat', 'deepseek-reasoner'],
+    models: ['deepseek-flash', 'deepseek-v4-pro'],
     keyUrl: 'https://platform.deepseek.com/api_keys',
     corsOk: true,
+    thinking: false,
   },
   siliconflow: {
     apiBase: 'https://api.siliconflow.cn/v1',
