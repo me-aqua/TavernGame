@@ -564,6 +564,12 @@
           "world",
           "roles",
           "lead"
+        ],
+        "settings": [
+          "world",
+          "core",
+          "common",
+          "lead"
         ]
       },
       "story-chain": {
@@ -616,6 +622,12 @@
           "world",
           "roles",
           "lead"
+        ],
+        "settings": [
+          "world",
+          "core",
+          "common",
+          "lead"
         ]
       },
       "judge": {
@@ -651,6 +663,12 @@
         "reads": [
           "world",
           "roles",
+          "lead"
+        ],
+        "settings": [
+          "world",
+          "core",
+          "common",
           "lead"
         ]
       },
@@ -706,6 +724,12 @@
           "world",
           "roles",
           "lead"
+        ],
+        "settings": [
+          "world",
+          "core",
+          "common",
+          "lead"
         ]
       },
       "map": {
@@ -735,6 +759,12 @@
         "uses": [
           "填充晨风镇",
           "生成地牢新层"
+        ],
+        "settings": [
+          "world",
+          "core",
+          "common",
+          "lead"
         ]
       },
       "cast": {
@@ -773,6 +803,12 @@
         ],
         "uses": [
           "生成新 NPC"
+        ],
+        "settings": [
+          "world",
+          "core",
+          "common",
+          "lead"
         ]
       },
       "story": {
@@ -822,6 +858,12 @@
         "reads": [
           "world",
           "roles",
+          "lead"
+        ],
+        "settings": [
+          "world",
+          "core",
+          "common",
           "lead"
         ]
       }

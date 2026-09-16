@@ -120,14 +120,19 @@ function renderCardValue(value: unknown, level = 0): string {
 }
 
 /**
- * 卡的五块设定：每块一节，顺序 = 卡里声明的顺序（世界 / 核心 / 常见 / 风格 / 主控）。
+ * 卡的五块设定里，**这个节点**读得到的那几块：每块一节，顺序 = 卡里声明的顺序
+ * （世界 / 核心 / 常见 / 风格 / 主控）。
+ *
+ * 节点的 `settings` 声明要哪几块（不写 = 五块全发）—— 这里是**筛**，不重排：
+ * 用户写的顺序不影响块的先后（见 doc/DESIGN.md 决定 #52）。
  *
  * 块的标题走 locale —— 卡里的键是 ASCII，给模型看的名字不该是一串机器标识符。
  */
-export function settingsPrompt(card: CardData): string {
-  const blocks = Object.entries(card.settings).map(
-    ([key, lines]) => '### ' + t('prompts.settingBlock.' + key) + '\n' + lines.join('\n'),
-  )
+export function settingsPrompt(card: CardData, node: string): string {
+  const keys = card.graph.nodes[node].settings ?? Object.keys(card.settings)
+  const blocks = Object.entries(card.settings)
+    .filter(([key]) => keys.includes(key))
+    .map(([key, lines]) => '### ' + t('prompts.settingBlock.' + key) + '\n' + lines.join('\n'))
   return section(t('prompts.setting'), blocks.join('\n\n'))
 }
 
@@ -174,14 +179,16 @@ export function nodePrompt(card: CardData, id: string): string {
 }
 
 /**
- * 公共部分的 system 消息：五块设定 + 剧本 + 节点约定 + 该节点点名的生成器。
+ * 公共部分的 system 消息：该节点读得到的设定块 + 剧本 + 节点约定 + 该节点点名的生成器。
  *
  * ⚠️ **所有节点各自一份**（决定 #26）：上游与逐节点提示词都不在这里；
  *    工具的名字与说明也不在这里 —— 它们只走原生 tools 协议。
+ * ⚠️ 设定块按节点自己的声明筛（决定 #52）：引擎不认识任何节点名，
+ *    「谁读哪几块」只由卡说了算。
  */
 export function cardSystemPrompt(card: CardData, node: string): string {
   return joinSections([
-    settingsPrompt(card),
+    settingsPrompt(card, node),
     scriptPrompt(card),
     conventionPrompt(card),
     generatorsPrompt(card, node),
