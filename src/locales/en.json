@@ -156,6 +156,11 @@
     "declAllReads": "all state",
     "declNoUses": "no generators",
     "save": "Save",
+    "resourcesTitle": "Prompt resources",
+    "resourceOpen": "Open",
+    "resourceSave": "Save to card",
+    "resourceAtLeastOne": "Keep at least one: sending nothing is an empty list, which the card format cannot express",
+    "resourceEmpty": "This one cannot be left empty: the card would keep a blank body",
     "saveFailed": "Save failed: {message}",
     "fallback": "The stored card could not be read - falling back to the built-in example:\n{message}",
     "fallbackShort": "The stored card could not be read - falling back to the built-in example: {message}"

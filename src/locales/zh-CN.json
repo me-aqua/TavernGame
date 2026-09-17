@@ -156,6 +156,11 @@
     "declAllReads": "全部状态",
     "declNoUses": "不带生成器",
     "save": "保存",
+    "resourcesTitle": "提示词资源",
+    "resourceOpen": "展开",
+    "resourceSave": "存回卡",
+    "resourceAtLeastOne": "至少留一块：一块都不发是空表，卡格式里表达不出来",
+    "resourceEmpty": "这一项不能留空：卡里会留下一段空正文",
     "saveFailed": "保存失败：{message}",
     "fallback": "存着的卡读不出来，已退回内置示例：\n{message}",
     "fallbackShort": "存着的卡读不出来，已退回内置示例：{message}"
