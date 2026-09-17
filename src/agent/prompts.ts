@@ -4,12 +4,14 @@
  * ⚠️ **这里不放任何提示词内容**：
  *   · 卡里的提示词（五块设定 / 剧本 / 节点约定 / 生成器 / 逐节点）从卡取 —— 那才是作者改的地方；
  *   · 引擎自带的说明在 `prompts/<lang>/*.md`（构建期编码成虚拟模块）。
- * 本文件的职责只有四件：
+ * 本文件的职责只有五件：
  *   1. 把构建期编码的提示词解码成字符串
  *   2. **按当前界面语言选那一套**（模型语言跟随界面语言，见 doc/DESIGN.md 决定 #19）
  *   3. 按卡的声明拼出一次节点请求：system（设定 + 剧本 + 规矩 + 该节点点名的生成器）
  *      + user（现在 / 玩家 / 上游 / 该节点提示词）；「现在」里的最近发生的事就是模型的记忆
  *   4. 填占位符并**确认没有漏填**
+ *   5. **把拼出去的消息按段交出来**（requestBlocks / blockText）—— 段的边界与行结构
+ *      只在这里定义；调试界面按块渲染的就是它，界面自己一行都不切
  *
  * ⚠️ 引擎**不解析模型输出**（决定 #46）：这里只拼请求，不声明「节点该输出哪些键」——
  *    要引擎做的事一律走原生工具调用，工具的名字与说明由 toolSchemas() 经原生 tools
@@ -310,6 +312,111 @@ export function buildNodeMessages(input: NodeRequestInput): ChatMessage[] {
   if (input.hint) messages.push({ role: 'system', content: input.hint })
   messages.push({ role: 'user', content: user })
   return messages
+}
+
+/**
+ * 块正文的一行。
+ *
+ * ⚠️ 行结构由**装配器**交出：界面一行都不许自己切提示词 —— 切错了不会报错，
+ *    只会静默显示成另一副样子（本文件的 `## ` 与 `### ` 才是这两种行的定义处）。
+ */
+export interface BlockLine {
+  /** subhead = 原文里以 `### ` 开头的那一行（小标题） */
+  kind: 'text' | 'subhead'
+  /** text：这一行的逐字原文（**空行就是空串**）；subhead：标题（**不含** `### `） */
+  text: string
+}
+
+/** 提示词里的一段：`section()` 写出来的 `## ` 段（level 2），或一条没有标题行的消息整体（level 0） */
+export interface PromptBlock {
+  title: string
+  /** 原文标题行的 `#` 个数：2 = `## `；0 = 这一段在原文里没有标题行 */
+  level: 0 | 2
+  /** 正文按行交出，顺序 = 原文顺序；空行也是一行 */
+  lines: BlockLine[]
+}
+
+/** 一条消息的分块结果（调试界面按组分节显示） */
+export interface BlockGroup {
+  role: ChatMessage['role']
+  /** 组标签：标签是**数据**，界面不自己按角色猜 */
+  title: string
+  blocks: PromptBlock[]
+}
+
+/** 一行按结构交出去：原文里以 `### ` 开头的那一行是小标题（标题不带标记） */
+const lineOf = (text: string): BlockLine =>
+  text.startsWith('### ') ? { kind: 'subhead', text: text.slice(4) } : { kind: 'text', text }
+
+/** 一行的原文：小标题要把 `### ` 标记补回去（`lineOf` 的反向） */
+const textOf = (line: BlockLine): string => (line.kind === 'subhead' ? '### ' + line.text : line.text)
+
+/**
+ * 把一条消息的正文切回它被装配时的那几段。
+ *
+ * 段的边界 = `section()` 写出来的 `## ` 标题行，而两段之间隔着一个**空行**
+ * （joinSections 的 '\n\n'）—— 所以候选段头只有两种：消息的第一行，与紧跟空行的那一行。
+ *
+ * ⚠️ **候选还得底下真有正文才算一段**：正文自己长出来的 `## ` 行（玩家原话 / 上游产出 /
+ *    卡里的行）底下可以是空的，把它当段头就会拼回一个多出来的换行，还会交出一个**有标题、
+ *    0 行**的块 —— 那一行的字节没有任何块携带，界面与数据也就对不上号（契约 §6）。
+ *    所以这样的行一律并进前一块，当普通正文行原样搬。
+ *
+ * 一条**没有** `## ` 段的消息（重跑提示 / assistant / tool）整体是一块，块名用组标签。
+ */
+function blocksOf(content: string, fallbackTitle: string): PromptBlock[] {
+  if (content === '') return []
+  const lines = content.split('\n')
+  // 候选段头：消息第一行，或紧跟空行的 `## ` 行（段间那个空行是 joinSections 写的分隔符）
+  const candidates: number[] = []
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].startsWith('## ') && (i === 0 || lines[i - 1] === '')) candidates.push(i)
+  }
+  // 真段头：从这一行到下一个候选之前（不含它前面那个分隔空行）至少有一行不是空的
+  const heads = candidates.filter((head, index) => {
+    const stop = index + 1 < candidates.length ? candidates[index + 1] - 1 : lines.length
+    return lines.slice(head + 1, stop).some((line) => line !== '')
+  })
+  // 第一个真段头之前的内容自成一块（消息开头那一段没有标题行，块名用组标签）
+  const starts = heads[0] === 0 ? heads : [0, ...heads]
+  return starts.map((start, index) => {
+    const end = index + 1 < starts.length ? starts[index + 1] : lines.length
+    const heading = heads.includes(start) ? lines[start].slice(3) : null
+    const body = lines.slice(heading === null ? start : start + 1, end)
+    // 段间那个空行是**分隔符**：拼回去时由 joinSections 的 '\n\n' 负责，正文里不再留一份。
+    // ⚠️ 只有后面还有一块时它才是分隔符 —— 消息末尾的空行属于正文，得原样留在块里。
+    if (end < lines.length && body[body.length - 1] === '') body.pop()
+    return { title: heading ?? fallbackTitle, level: heading === null ? 0 : 2, lines: body.map(lineOf) }
+  })
+}
+
+/** 一段没有标题行的正文（回复那一侧的三块都是这种）：块名由调用方给 */
+export function textBlock(title: string, body: string): PromptBlock {
+  return { title, level: 0, lines: body.split('\n').map(lineOf) }
+}
+
+/**
+ * 把一次请求里的消息切成分块清单（调试界面用）。
+ *
+ * 一条消息一组，顺序 = 数组顺序；块名与组名走 locale —— 界面切英文时它们跟着换，
+ * 因为模型读到的提示词本来就跟着界面语言走（决定 #19）。
+ */
+export function requestBlocks(messages: ChatMessage[]): BlockGroup[] {
+  return messages.map((message, index) => {
+    // 第二条 system 消息是重跑提示：装配器只在带 hint 时插它（见 buildNodeMessages）
+    const hinted = message.role === 'system' && messages.slice(0, index).some((m) => m.role === 'system')
+    const title = t(hinted ? 'debug.role.redoHint' : 'debug.role.' + message.role)
+    return { role: message.role, title, blocks: blocksOf(message.content, title) }
+  })
+}
+
+/**
+ * 这一段拼回原文的文本（各行按 `\n` 拼回来，小标题补回 `### `）。
+ *
+ * ⚠️ 界面拿它算字数，于是不必自己知道标记该补在哪一行。
+ */
+export function blockText(block: PromptBlock): string {
+  return block.lines.map(textOf).join('\n')
 }
 
 /** 引擎自带的开场指令（卡里的开局要求由调用方接在它后面） */

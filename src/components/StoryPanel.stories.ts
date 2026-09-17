@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
+import { onMounted, ref } from 'vue'
 import StoryPanel from './StoryPanel.vue'
+import type { BlockGroup, BlockLine, PromptBlock } from '../agent/prompts'
 import type { Row } from '../stores/game'
 
 /**
@@ -32,7 +34,10 @@ const debugRow = (
 const meta = {
   title: '组件/StoryPanel',
   component: StoryPanel,
-  decorators: [() => ({ template: '<div class="flex h-[520px] flex-col bg-page"><story /></div>' })],
+  // ⚠️ `min-h-[520px]` 而**不是**固定高度：面板自己会随内容长高（`h-full` 撞上 auto 高度就是 auto），
+  //    于是内容多的故事（`DebugBlocks` 的两行块清单）不会被自己的滚动条切在画面外。
+  //    内容少的故事照样是 520 的取景 —— 外观与固定高度时一致。
+  decorators: [() => ({ template: '<div class="flex min-h-[520px] flex-col bg-page"><story /></div>' })],
   args: {
     rows: [
       story(0, 'action', '我推开酒馆的门，看看里面都有谁。'),
@@ -81,6 +86,118 @@ export const Debug: Story = {
       debugRow(6, 'toolResult', '   → 🕐 时间推进：5 分钟'),
       debugRow(7, 'warn', '⚠ 模型这一步只调用了工具，没有写叙事文字（第 1 步）'),
       story(8, 'narration', '门轴发出一声长叹。暖黄的光从屋里涌出来，混着麦酒和湿羊毛的味道。'),
+    ],
+  },
+}
+
+// ---------- 块清单（票 53）：两条痕迹都带分块，长行 / 空行 / 小标题一样不少 ----------
+
+/** 一条没有空格的超长串：结构检查要量的就是它会不会撑破版面 */
+const LONG_RUN = 'A'.repeat(240)
+
+const text = (value: string): BlockLine => ({ kind: 'text', text: value })
+const subhead = (value: string): BlockLine => ({ kind: 'subhead', text: value })
+const block = (title: string, lines: BlockLine[]): PromptBlock => ({ title, level: 2, lines })
+
+/** 一条带分块清单的调试行（模型输入 / 原始回复） */
+const blockRow = (
+  id: number,
+  kind: 'request' | 'model',
+  line: string,
+  detail: string,
+  blocks: BlockGroup[],
+): Row => ({ id, kind, text: line, debug: true, detail, blocks })
+
+/**
+ * 两个夹具是**照着 1280x800 的取景裁过的**（判据 9 只在真浏览器里跑）。
+ *
+ * 判据 9 要量的三样一块不少：超长无空格串（两条痕迹各一处）、块内空行、`### ` 小标题。
+ * 裁掉的是**多余又只占高度的块**（request 少两块、reply 少「其它」一块）——
+ * 目的是让 `request` 与 `model` 两行**都落在画面里**：它们在同一个列表里一上一下，
+ * 上头那一行多高，下头那一行就被推到多低。
+ */
+const REQUEST_BLOCKS: BlockGroup[] = [
+  {
+    role: 'system',
+    title: '系统消息',
+    blocks: [
+      block('设定', [
+        subhead('世界'),
+        text('晨风镇在赫兰王国的东北边陲，背靠雾岭，一条土路往南通向官道。'),
+        text(''),
+        subhead('核心'),
+        text('时间会往前走，玩家看不见的东西也在动。'),
+        text(''),
+        text('工具声明的原文：' + LONG_RUN),
+      ]),
+    ],
+  },
+  {
+    role: 'user',
+    title: '用户消息',
+    blocks: [
+      block('现在', [
+        text('时间：2026 年 9 月 14 日 · 星期一 · 晚上'),
+        subhead('最近发生的事'),
+        text('- 你(GM)：门轴发出一声长叹。'),
+        text(''),
+        text('玩家：' + "Player's action: look around"),
+      ]),
+    ],
+  },
+]
+
+const REPLY_BLOCKS: BlockGroup[] = [
+  {
+    role: 'assistant',
+    title: '助手消息',
+    blocks: [
+      // 模型写的 markdown 标题也是 `### ` 行：回复这一侧同样要按小标题画出来
+      { title: '模型说的话', level: 0, lines: [subhead('处境'), text('我把斗篷裹紧了一些，往柜台那边走。')] },
+      { title: 'advance_time', level: 0, lines: [text('{"minutes":7,"reason":"' + LONG_RUN + '"}')] },
+    ],
+  },
+]
+
+/**
+ * 展开态的块清单：两条痕迹都摊开。
+ *
+ * ⚠️ 折叠着的块清单量不到版面（`<details>` 里的东西不参与排版），而判据 9 要量的正是
+ *    **展开之后**的长行会不会撑破版面 —— 所以这里在挂载后打开两处折叠：
+ *      · 那两条痕迹本身（行数据里没有「展开」这个字段，这是这一屏的取景）；
+ *      · **回复那一行里的块**：组件只给整行的第一块带 `open`（契约 §4-1），
+ *        而回复的超长串在第二个块（工具参数）里 —— 不打开它，回复侧就没有任何版面覆盖。
+ */
+const openTraces = () => ({
+  /** 挂载后把两条痕迹与回复行的块都打开：结构检查要量的是**展开之后**的版面 */
+  setup() {
+    const root = ref<HTMLElement | null>(null)
+    onMounted(() => {
+      const opened = root.value?.querySelectorAll(
+        'details.trace, [data-role="assistant"] details[data-block]',
+      )
+      for (const el of opened ?? []) {
+        ;(el as HTMLDetailsElement).open = true
+      }
+    })
+    return { root }
+  },
+  template: '<div ref="root" class="flex h-full flex-col bg-page"><story /></div>',
+})
+
+/** 分块渲染：一条模型输入（两条消息）+ 一条模型原始回复 */
+export const DebugBlocks: Story = {
+  decorators: [openTraces],
+  args: {
+    rows: [
+      blockRow(
+        0,
+        'request',
+        '📤 模型输入（2 条消息）',
+        '{ "messages": [ { "role": "system", "content": "…" } ] }',
+        REQUEST_BLOCKS,
+      ),
+      blockRow(1, 'model', '🔍 模型原始回复', '{ "choices": [ { "message": { … } } ] }', REPLY_BLOCKS),
     ],
   },
 }

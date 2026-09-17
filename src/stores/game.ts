@@ -30,6 +30,7 @@ import { createTurnRunner, type NoticeLevel, type StateWrite } from './turn'
 export type { StateWrite }
 import { localStorageStore, type GameStore } from '../utils/storage'
 import { t } from '../i18n'
+import type { BlockGroup } from '../agent/prompts'
 import type { EventKind, GameData, GameEvent, StoryKind } from '../types/state'
 
 /** 界面能渲染的故事行 kind（引擎只写叙事这一种） */
@@ -57,6 +58,11 @@ export type Row =
       text: string
       /** 可折叠的原始内容（模型请求体 / 响应体 / 工具参数与结果） */
       detail?: string
+      /**
+       * 这一行的分块清单（模型输入 / 原始回复两条有）—— 块与行的边界写在痕迹上，
+       * 界面不切文本。旧痕迹没有这个字段，那一行就按原始文本显示。
+       */
+      blocks?: BlockGroup[]
       debug: true
     }
 
@@ -262,7 +268,9 @@ export function useGame() {
         return [{ id, kind: event.kind, text: event.text, debug: false }]
       }
       if (!debugMode.value) return []
-      return [{ id, kind: event.kind, text: event.text, detail: event.detail, debug: true }]
+      return [
+        { id, kind: event.kind, text: event.text, detail: event.detail, blocks: event.blocks, debug: true },
+      ]
     }),
   )
 

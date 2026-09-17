@@ -7,6 +7,7 @@
 
 import type { TimeValue } from '../game/card-calendar'
 import type { StateTree } from '../game/card-state'
+import type { BlockGroup } from '../agent/prompts'
 
 /**
  * 事件流里的一条事件的 kind。
@@ -63,6 +64,14 @@ export interface GameEvent {
   path?: string
   /** stateChange：写成了什么 */
   value?: unknown
+  /**
+   * 这一条痕迹的分块清单（request / model 两条有）—— 调试界面按块渲染的就是它。
+   *
+   * ⚠️ 块与行的边界在**写这条痕迹的时候**就定下来了（stores/turn.ts 调
+   *    agent/prompts.ts 的 requestBlocks / agent/llm.ts 的 replyBlocks）：
+   *    界面不许再拿文本去猜边界 —— 猜错了不会报错，只会静默显示成另一副样子。
+   */
+  blocks?: BlockGroup[]
   /** 写入时刻（ISO 字符串） */
   at: string
 }

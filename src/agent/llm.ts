@@ -16,7 +16,8 @@
 
 import { loadConfig, PRESETS } from './config'
 import { t } from '../i18n'
-import { connectionTestPrompt } from './prompts'
+import { connectionTestPrompt, textBlock, type BlockGroup, type PromptBlock } from './prompts'
+import { isRecord } from '../game/save'
 import type { ChatMessage } from '../types/state'
 
 /** OpenAI 兼容的工具声明 */
@@ -239,6 +240,49 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
   }
 
   return { content, toolCalls, request: body, raw: data }
+}
+
+/** 去掉这几个键，其余原样留着（分块的「其它」那一块用） */
+function without(source: Record<string, unknown>, keys: string[]): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(source).filter(([key]) => !keys.includes(key)))
+}
+
+/**
+ * 原始响应里**上面几块没有显示**的那部分：结束原因、用量、id、model……
+ *
+ * 顶层 + 每条 choice + 每个 message 三层合并，并去掉已经单独成块的
+ * `choices[].message.content` 与 `tool_calls`；一层都不剩就返回 null
+ * —— 接口没给的东西不许凭空造。
+ *
+ * ⚠️ 响应体是**外部数据**（服务商按自己的协议回），所以这里读它之前先看形状。
+ */
+function restOfReply(raw: unknown): string | null {
+  if (!isRecord(raw)) return null
+  const choices = (Array.isArray(raw.choices) ? raw.choices : []).filter(isRecord)
+  const restChoices = choices
+    .map((choice) => {
+      const message = isRecord(choice.message) ? choice.message : {}
+      return { ...without(choice, ['message']), ...without(message, ['content', 'tool_calls']) }
+    })
+    .filter((choice) => Object.keys(choice).length > 0)
+  const rest = without(raw, ['choices'])
+  if (restChoices.length) rest.choices = restChoices
+  return Object.keys(rest).length ? JSON.stringify(rest, null, 2) : null
+}
+
+/**
+ * 把一次回复切成调试界面要的那几块：模型说的话 / 它申请的每个工具调用 / 其它。
+ *
+ * 块顺序固定、块名走 locale；没有的东西不造空块（没写话就没有「说的话」，
+ * 没调工具就没有工具块）—— 界面因此不必为「空的块」开分支。
+ */
+export function replyBlocks(reply: ChatReply): BlockGroup[] {
+  const blocks: PromptBlock[] = []
+  if (reply.content !== '') blocks.push(textBlock(t('debug.block.reply'), reply.content))
+  for (const call of reply.toolCalls) blocks.push(textBlock(call.name, call.arguments))
+  const rest = restOfReply(reply.raw)
+  if (rest !== null) blocks.push(textBlock(t('debug.block.other'), rest))
+  return [{ role: 'assistant', title: t('debug.role.assistant'), blocks }]
 }
 
 interface TestResult {

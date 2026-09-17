@@ -10,6 +10,7 @@
  */
 import { nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import Blocks from './Blocks.vue'
 import type { DebugRowKind, Row, Status, StoryRowKind } from '../stores/game'
 
 const { t } = useI18n()
@@ -73,7 +74,21 @@ watch(
           <summary class="min-h-6 py-1 text-[12.5px] text-muted">
             {{ row.text }}{{ t('story.rawToggle') }}
           </summary>
-          <pre class="story-text mt-2 text-[12px] leading-relaxed text-faint">{{ row.detail }}</pre>
+          <!-- 模型输入 / 原始回复：按块清单渲染（块与行都由装配器交出，界面不切文本）；
+               旧痕迹没有这套结构，退回原来的「一坨原始文本」 -->
+          <template v-if="row.blocks?.length">
+            <Blocks :groups="row.blocks" />
+            <details data-raw class="mt-2">
+              <summary class="min-h-6 py-1 text-[12px] text-faint">{{ t('debug.raw') }}</summary>
+              <!-- 原始内容逐字节照旧：v-text 不带子节点，格式化器插不进空白 -->
+              <pre
+                data-raw-body
+                class="mt-1 overflow-x-auto text-[12px] leading-relaxed text-faint"
+                v-text="row.detail"
+              ></pre>
+            </details>
+          </template>
+          <pre v-else class="story-text mt-2 text-[12px] leading-relaxed text-faint">{{ row.detail }}</pre>
         </details>
         <p v-else-if="row.debug" class="trace max-w-[70ch]" :class="[row.kind, debugStyles[row.kind]]">
           {{ row.text }}
