@@ -187,7 +187,8 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
         })
         break
       case 'toolResult':
-        trace('toolResult', t('store.toolResultLine', { result: evt.result }), {
+        // 结果可能是一整段长正文：同样只把头部放上摘要行，完整结果一个字节不少地进 detail
+        trace('toolResult', t('store.toolResultLine', { result: previewOf(evt.result) }), {
           node: evt.node,
           tool: evt.tool,
           detail: evt.result,
