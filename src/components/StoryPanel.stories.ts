@@ -163,18 +163,21 @@ const REPLY_BLOCKS: BlockGroup[] = [
  * 展开态的块清单：两条痕迹都摊开。
  *
  * ⚠️ 折叠着的块清单量不到版面（`<details>` 里的东西不参与排版），而判据 9 要量的正是
- *    **展开之后**的长行会不会撑破版面 —— 所以这里在挂载后打开两处折叠：
+ *    **展开之后**的长行会不会撑破版面 —— 所以这里在挂载后打开两类折叠：
  *      · 那两条痕迹本身（行数据里没有「展开」这个字段，这是这一屏的取景）；
- *      · **回复那一行里的块**：组件只给整行的第一块带 `open`（契约 §4-1），
- *        而回复的超长串在第二个块（工具参数）里 —— 不打开它，回复侧就没有任何版面覆盖。
+ *      · **两种痕迹行里的块**：组件一块都不带 `open`（票 55 §6：所有块默认折叠），
+ *        而两条超长串分别在请求行的「设定」块与回复行的第二个块（工具参数）里 ——
+ *        不打开它们，两边都没有版面覆盖。
+ *    用户那条消息的「现在」块**不打开**：它只有空行与小标题（上面那几块已经有了），
+ *    而打开它要多 5 行 ≈ 95px，会把回复行挤出这一屏的取景（F3 量过余量只有 ~78px）。
  */
 const openTraces = () => ({
-  /** 挂载后把两条痕迹与回复行的块都打开：结构检查要量的是**展开之后**的版面 */
+  /** 挂载后把两条痕迹与要量的块都打开：结构检查要量的是**展开之后**的版面 */
   setup() {
     const root = ref<HTMLElement | null>(null)
     onMounted(() => {
       const opened = root.value?.querySelectorAll(
-        'details.trace, [data-role="assistant"] details[data-block]',
+        'details.trace, [data-role="system"] details[data-block], [data-role="assistant"] details[data-block]',
       )
       for (const el of opened ?? []) {
         ;(el as HTMLDetailsElement).open = true

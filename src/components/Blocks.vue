@@ -31,12 +31,11 @@ defineProps<{
       <p data-message-title class="border-l-2 border-accent-line pl-2 text-[11px] text-faint">
         {{ group.title }}
       </p>
-      <!-- 折叠靠原生 details：点标题条就能开合，不写 JS；只有整行的第一块默认展开 -->
+      <!-- 折叠靠原生 details：点标题条就能开合，不写 JS；进来时一块都不带 `open`（默认全折叠） -->
       <details
         v-for="(block, at) in group.blocks"
         :key="at"
         data-block
-        :open="index === 0 && at === 0"
         class="rounded border border-line bg-surface px-2.5 py-1"
       >
         <summary data-block-title class="min-h-6 cursor-pointer py-1 text-[12px] text-muted">

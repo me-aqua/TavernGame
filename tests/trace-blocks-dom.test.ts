@@ -37,10 +37,18 @@ function traceRow(over: Partial<DebugRow> = {}): DebugRow {
 }
 
 /** 一条真请求做出来的行：消息与原始文本都来自装配器与 chat()（假 fetch 接住） */
-async function requestRow(): Promise<{ row: DebugRow; groups: BlockGroup[]; roles: string[] }> {
+async function requestRow(): Promise<{
+  row: DebugRow
+  groups: BlockGroup[]
+  roles: string[]
+}> {
   const { sent, detail } = await nodeRequest(track, currentCard, currentCard.graph.topology[0])
   const groups = prompts.requestBlocks(sent)
-  return { row: traceRow({ detail: detail, blocks: groups }), groups, roles: sent.map((m) => m.role) }
+  return {
+    row: traceRow({ detail: detail, blocks: groups }),
+    groups,
+    roles: sent.map((m) => m.role),
+  }
 }
 
 function mountRows(rows: Row[]) {
@@ -118,18 +126,27 @@ describe('the request line: one group per message', () => {
     }
   })
 
-  it('comes in with the first block open and the rest folded', async () => {
+  // ⚠️ 期望改过一次（2026-09-17 用户拍板，票 55）：**所有块都默认折叠**。
+  //    守的性质没变（进来时的默认开合状态），只是更强了 —— 逐块断言，不只数几个开着：
+  //    「只把第一块改成折叠、别的又漏出来」这种改法也要拦得住。
+  it('comes in with every block folded', async () => {
     const { row, groups } = await requestRow()
     const w = mountRows([row])
 
-    expect(groups.flatMap((group) => group.blocks).length).toBeGreaterThan(1)
+    const all = groups.flatMap((group) => group.blocks)
+    expect(all.length, 'the fixture must have more than one block to fold').toBeGreaterThan(1)
     const blocks = w.findAll('[data-block]')
-    expect(blocks).toHaveLength(groups.flatMap((group) => group.blocks).length)
+    expect(blocks).toHaveLength(all.length)
+    for (const [index, el] of blocks.entries()) {
+      expect(
+        el.attributes('open'),
+        'block ' + index + ' must not be open when the line comes in',
+      ).toBeUndefined()
+    }
     expect(
       blocks.filter((el) => el.attributes('open') !== undefined),
-      'exactly one block is open',
-    ).toHaveLength(1)
-    expect(blocks[0].attributes('open'), 'and it is the first one').toBeDefined()
+      'not a single block is open',
+    ).toHaveLength(0)
   })
 
   it('keeps the raw payload one fold away', async () => {
@@ -152,7 +169,11 @@ describe('the reply line', () => {
         message: {
           content: SAID,
           tool_calls: [
-            { id: 'call_1', type: 'function', function: { name: 'advance_time', arguments: TOOL_ARGUMENTS } },
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'advance_time', arguments: TOOL_ARGUMENTS },
+            },
           ],
         },
       },
