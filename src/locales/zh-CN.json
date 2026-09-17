@@ -195,6 +195,7 @@
       "other": "其它"
     },
     "blockSize": "{count} 字",
+    "previewCut": "…",
     "raw": "原始"
   },
   "provider": {

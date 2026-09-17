@@ -195,6 +195,7 @@
       "other": "Other"
     },
     "blockSize": "{count} chars",
+    "previewCut": "…",
     "raw": "Raw"
   },
   "provider": {

@@ -80,6 +80,19 @@ export interface TurnRunner {
   writes: ShallowRef<StateWrite[]>
 }
 
+/** 摘要行上留多少个字符：超出的部分折进那一行的可展开原文里（完整内容一个字节都不丢） */
+const PREVIEW_LIMIT = 40
+
+/**
+ * 摘要用的预览：超过上限就取头部加省略号，没超过就原样给出。
+ *
+ * ⚠️ 判据是「**超出**才算截断」：正好等于上限时原样给出 —— 写成 `>=` 会平白多一个省略号。
+ * ⚠️ 标记走 locale（`debug.previewCut`）：它是一条产品文案，`…` 写进代码会被 ASCII 检查拦下。
+ */
+function previewOf(source: string): string {
+  return source.length <= PREVIEW_LIMIT ? source : source.slice(0, PREVIEW_LIMIT) + t('debug.previewCut')
+}
+
 /**
  * 拷一份工作副本：引擎、模型产出与调试痕迹都只改它，跑到终点才写回权威状态。
  *
@@ -166,8 +179,8 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
         })
         break
       case 'tool':
-        // args 是协议原样给的 JSON 字符串：既进摘要行，也当可展开的原始内容
-        trace('tool', t('toolbar.toolCall', { tool: evt.tool, args: evt.args }), {
+        // args 是协议原样给的 JSON 字符串：摘要只放头部预览，原样的那一份进 detail（折叠体读它）
+        trace('tool', t('toolbar.toolCall', { tool: evt.tool, args: previewOf(evt.args) }), {
           node: evt.node,
           tool: evt.tool,
           detail: evt.args,
