@@ -14,9 +14,11 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import CardResources from '../src/components/CardResources.vue'
+import { importCard } from '../src/game/current-card'
 import { i18n, t } from '../src/i18n'
 import { CARD_KEY, EXAMPLE, savedCard } from './support/card-resources'
 import { label, setLocale } from './support/trace-blocks'
+import type { CardData } from '../src/game/card'
 
 /** 卡里五块设定的键（顺序就是卡的声明顺序） */
 const SETTING_KEYS = Object.keys(EXAMPLE.settings)
@@ -141,17 +143,39 @@ describe('CardResources: the resource library', () => {
   })
 
   it('refuses a block that breaks the card: nothing is written and the reason is shown', async () => {
+    // ⚠️ 先种一份**已知文本**：`toBeNull()` 只证「存储里没有卡」，而这条用例全程没写过卡 ——
+    //    把 importCard 换成空操作它照样绿。要证「一个字节不动」，得先有东西可比。
+    const seeded = JSON.stringify(EXAMPLE, null, 2)
+    localStorage.setItem(CARD_KEY, seeded)
+    const before = JSON.stringify(EXAMPLE)
+
     const w = panel()
     await open(w, FIRST_BLOCK)
-    // 清空正文：设定块是「非空的行数组」，校验器会拒
+    // 清空正文：设定块是「非空的行数组」，而**一行空串是合法的** —— 所以这一判只能在组件里拦
     await w.find('[data-card-resource="' + FIRST_BLOCK + '"] [data-card-resource-text]').setValue('')
     await w.find('[data-card-resource="' + FIRST_BLOCK + '"] [data-card-resource-save]').trigger('click')
 
-    expect(localStorage.getItem(CARD_KEY), 'a rejected save must not touch storage').toBeNull()
+    expect(localStorage.getItem(CARD_KEY), 'a rejected save must not touch storage').toBe(seeded)
     expect(w.emitted('saved')).toBeUndefined()
-    expect(w.find('[data-card-error]').text()).toContain(t('card.saveFailed', { message: '' }).trim())
-    // 卡本身也一个字节没动（props 是拿来读的，失败时连它都不许被改）
-    expect(linesOf(FIRST_BLOCK)).toEqual(EXAMPLE.settings[FIRST_BLOCK as keyof typeof EXAMPLE.settings])
+    // 原因要有牙：模板前缀 + 那条「空正文」的说明（少了后半句，这条断言就该红）
+    const shown = w.find('[data-card-error]').text()
+    expect(shown).toContain(t('card.saveFailed', { message: '' }).trim())
+    expect(shown).toContain(t('card.resourceEmpty'))
+    // 卡本身也一个字节没动（保存前后各比一次整份 JSON —— 比「同一个引用」强）
+    expect(JSON.stringify(EXAMPLE), 'a rejected save must not touch the card').toBe(before)
+  })
+
+  it('accepts a hand-written empty line: the guard really lives in the component', () => {
+    // 反面证据：`['']`（一行空串）**过得去**校验器 —— 所以「清空正文」只能在组件那一层拦。
+    // 这条自给自足（不借上一条用例的存储）：谁把组件里那一判删掉，用例 7 会红，而这条照旧绿。
+    const card = JSON.parse(JSON.stringify(EXAMPLE)) as CardData
+    card.settings[FIRST_BLOCK as keyof CardData['settings']] = ['']
+    importCard(JSON.stringify(card))
+    expect(
+      (JSON.parse(localStorage.getItem(CARD_KEY) as string) as CardData).settings[
+        FIRST_BLOCK as keyof CardData['settings']
+      ],
+    ).toEqual([''])
   })
 
   it('keeps the reason the parent handed back', () => {
