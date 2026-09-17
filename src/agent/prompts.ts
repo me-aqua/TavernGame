@@ -355,23 +355,36 @@ const textOf = (line: BlockLine): string => (line.kind === 'subhead' ? '### ' + 
  * 把一条消息的正文切回它被装配时的那几段。
  *
  * 段的边界 = `section()` 写出来的 `## ` 标题行，而两段之间隔着一个**空行**
- * （joinSections 的 '\n\n'）—— 所以只有「消息的第一行」与「紧跟空行的那一行」才是段头。
- * 玩家原话里自己写的 `## ` 行因此不另起一段，它前后一个字节都不会丢。
+ * （joinSections 的 '\n\n'）—— 所以候选段头只有两种：消息的第一行，与紧跟空行的那一行。
+ *
+ * ⚠️ **候选还得底下真有正文才算一段**：正文自己长出来的 `## ` 行（玩家原话 / 上游产出 /
+ *    卡里的行）底下可以是空的，把它当段头就会拼回一个多出来的换行，还会交出一个**有标题、
+ *    0 行**的块 —— 那一行的字节没有任何块携带，界面与数据也就对不上号（契约 §6）。
+ *    所以这样的行一律并进前一块，当普通正文行原样搬。
  *
  * 一条**没有** `## ` 段的消息（重跑提示 / assistant / tool）整体是一块，块名用组标签。
  */
 function blocksOf(content: string, fallbackTitle: string): PromptBlock[] {
   if (content === '') return []
   const lines = content.split('\n')
-  const starts = [0]
-  for (let i = 1; i < lines.length; i += 1) {
-    if (lines[i - 1] === '' && lines[i].startsWith('## ')) starts.push(i)
+  // 候选段头：消息第一行，或紧跟空行的 `## ` 行（段间那个空行是 joinSections 写的分隔符）
+  const candidates: number[] = []
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].startsWith('## ') && (i === 0 || lines[i - 1] === '')) candidates.push(i)
   }
+  // 真段头：从这一行到下一个候选之前（不含它前面那个分隔空行）至少有一行不是空的
+  const heads = candidates.filter((head, index) => {
+    const stop = index + 1 < candidates.length ? candidates[index + 1] - 1 : lines.length
+    return lines.slice(head + 1, stop).some((line) => line !== '')
+  })
+  // 第一个真段头之前的内容自成一块（消息开头那一段没有标题行，块名用组标签）
+  const starts = heads[0] === 0 ? heads : [0, ...heads]
   return starts.map((start, index) => {
     const end = index + 1 < starts.length ? starts[index + 1] : lines.length
-    const heading = lines[start].startsWith('## ') ? lines[start].slice(3) : null
+    const heading = heads.includes(start) ? lines[start].slice(3) : null
     const body = lines.slice(heading === null ? start : start + 1, end)
-    // 段间那个空行是**分隔符**：拼回去时由 joinSections 的 '\n\n' 负责，正文里不再留一份
+    // 段间那个空行是**分隔符**：拼回去时由 joinSections 的 '\n\n' 负责，正文里不再留一份。
+    // ⚠️ 只有后面还有一块时它才是分隔符 —— 消息末尾的空行属于正文，得原样留在块里。
     if (end < lines.length && body[body.length - 1] === '') body.pop()
     return { title: heading ?? fallbackTitle, level: heading === null ? 0 : 2, lines: body.map(lineOf) }
   })

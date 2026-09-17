@@ -93,7 +93,7 @@ export async function nodeRequest(
   track: FakeTracker,
   card: CardData,
   node: string,
-  options: { hint?: string; upstream?: UpstreamOutput[] } = {},
+  options: { hint?: string; upstream?: UpstreamOutput[]; playerWords?: string } = {},
 ): Promise<{ sent: ChatMessage[]; detail: string }> {
   saveConfig(TEST_PROVIDER)
   const handle = track.install(['ok'])
@@ -108,7 +108,7 @@ export async function nodeRequest(
     time: data.time,
     events,
     memoryUpTo: events.length,
-    playerWords: PLAYER_WORDS,
+    playerWords: options.playerWords ?? PLAYER_WORDS,
     upstream: options.upstream ?? UPSTREAM,
     hint: options.hint,
   })

@@ -36,6 +36,7 @@ import {
   subheads,
 } from './support/trace-blocks'
 import type { BlockGroup, PromptBlock } from '../src/agent/prompts'
+import type { ChatMessage } from '../src/types/state'
 
 const track = fakeTracker()
 
@@ -288,6 +289,80 @@ describe('the boundaries are declared once - the blocks add up to the sent text'
     expect(linesText(blocks[0]), 'blank lines inside a body stay put').toContain('line one\n\nline three')
     // `### ` 行按小标题交出（模型写的 markdown 也一样），而原文一个字不丢
     expect(blocks.some((block) => subheads(block).includes('inner heading'))).toBe(true)
+  })
+})
+
+describe('a heading with no body under it - the shape family S3 found red', () => {
+  // 这一族形状都是**消息正文自己**长出来的 `## ` 行：卡里的行、玩家原话、上游产出都是逐字进段的，
+  // 所以分块必须把它们原样吞下去。一旦把「标题底下没有正文」也当成段边界，拼回来就会多一个换行，
+  // 界面上还会多出一个**有标题、0 字**的块 —— 用户看到那行只会以为那块内容丢了。
+  //
+  // ⚠️ 这里钉的是「**不产生**这样的块」（数据层），不是「产生了但界面不画」：契约 §4 里界面只负责
+  //    把 `blocks` 一层层画出来，多一条"看着是空就跳过"的规则会让界面与数据对不上号；而且 0 字的块
+  //    本身就意味着那段字节没有任何块携带 ⇒ 拼回来必然对不上（两条断言是同一件事的两面）。
+  const SHAPES = [
+    ['the whole message is one heading line', '## tail'],
+    ['the heading is the last line of the message', 'kept line\n\n## tail'],
+    ['the heading is the last line, with its newline', 'kept line\n\n## tail\n'],
+    ['only a blank line follows the heading', 'kept line\n\n## tail\n\n'],
+    ['two heading lines with no body in between', 'kept line\n\n## alpha\n\n## beta\nkept after'],
+  ] as const
+
+  /** 拼回来必须与每一条发出去的消息逐字节相等（契约 §6 第一行：划分可以更细，字节不许丢） */
+  function expectBytesKept(groups: BlockGroup[], messages: ChatMessage[], why: string): void {
+    expect(groups.length, why + ': one group per message').toBe(messages.length)
+    for (const [index, message] of messages.entries()) {
+      expect(reassemble(groups[index].blocks), why + ': message ' + index + ' (' + message.role + ')').toBe(
+        message.content,
+      )
+    }
+  }
+
+  /** 不许交出 0 字的块（见上面那段：钉的是"不产生"）；失败信息点名那几个块的标题 */
+  function expectNoGhostBlock(groups: BlockGroup[], why: string): void {
+    const titles = groups
+      .flatMap((group) => group.blocks)
+      .filter((block) => linesText(block) === '')
+      .map((block) => block.title)
+    expect(titles, why + ': a block with a title and 0 chars').toEqual([])
+  }
+
+  it('keeps every byte when the heading has no body under it', () => {
+    for (const [why, content] of SHAPES) {
+      const messages: ChatMessage[] = [{ role: 'user', content }]
+      expectBytesKept(prompts.requestBlocks(messages), messages, why)
+    }
+  })
+
+  it('invents no 0-char block when the heading has no body under it', () => {
+    for (const [why, content] of SHAPES) {
+      expectNoGhostBlock(prompts.requestBlocks([{ role: 'user', content }]), why)
+    }
+  })
+
+  it('keeps its promise on a real request whose player words end with a heading', async () => {
+    const { sent } = await nodeRequest(track, card, WITH_USES, {
+      playerWords: PLAYER_WORDS + '\n\n## note',
+    })
+    // 没有这一句，夹具一改就会变成一条什么都没测到的空用例
+    expect(sent[1].content, 'the shape must really have travelled into the user message').toContain(
+      '\n\n## note',
+    )
+    const groups = prompts.requestBlocks(sent)
+    expectBytesKept(groups, sent, 'player words')
+    expectNoGhostBlock(groups, 'player words')
+  })
+
+  it('keeps its promise on a real request whose upstream output ends with a heading', async () => {
+    const { sent } = await nodeRequest(track, card, WITH_USES, {
+      upstream: [{ node: 'OUTLINE', output: UPSTREAM_OUTPUT + '\n\n## tail' }],
+    })
+    expect(sent[1].content, 'the shape must really have travelled into the user message').toContain(
+      '\n\n## tail',
+    )
+    const groups = prompts.requestBlocks(sent)
+    expectBytesKept(groups, sent, 'upstream output')
+    expectNoGhostBlock(groups, 'upstream output')
   })
 })
 

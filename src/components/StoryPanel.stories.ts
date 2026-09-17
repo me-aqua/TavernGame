@@ -34,7 +34,10 @@ const debugRow = (
 const meta = {
   title: '组件/StoryPanel',
   component: StoryPanel,
-  decorators: [() => ({ template: '<div class="flex h-[520px] flex-col bg-page"><story /></div>' })],
+  // ⚠️ `min-h-[520px]` 而**不是**固定高度：面板自己会随内容长高（`h-full` 撞上 auto 高度就是 auto），
+  //    于是内容多的故事（`DebugBlocks` 的两行块清单）不会被自己的滚动条切在画面外。
+  //    内容少的故事照样是 520 的取景 —— 外观与固定高度时一致。
+  decorators: [() => ({ template: '<div class="flex min-h-[520px] flex-col bg-page"><story /></div>' })],
   args: {
     rows: [
       story(0, 'action', '我推开酒馆的门，看看里面都有谁。'),
@@ -105,6 +108,14 @@ const blockRow = (
   blocks: BlockGroup[],
 ): Row => ({ id, kind, text: line, debug: true, detail, blocks })
 
+/**
+ * 两个夹具是**照着 1280x800 的取景裁过的**（判据 9 只在真浏览器里跑）。
+ *
+ * 判据 9 要量的三样一块不少：超长无空格串（两条痕迹各一处）、块内空行、`### ` 小标题。
+ * 裁掉的是**多余又只占高度的块**（request 少两块、reply 少「其它」一块）——
+ * 目的是让 `request` 与 `model` 两行**都落在画面里**：它们在同一个列表里一上一下，
+ * 上头那一行多高，下头那一行就被推到多低。
+ */
 const REQUEST_BLOCKS: BlockGroup[] = [
   {
     role: 'system',
@@ -119,8 +130,6 @@ const REQUEST_BLOCKS: BlockGroup[] = [
         text(''),
         text('工具声明的原文：' + LONG_RUN),
       ]),
-      block('剧本', [text('镇上的钟楼底下埋着一样东西，只有守夜人知道。')]),
-      block('生成器', [subhead('生成地牢新层'), text('- 一次别生成太多：玩家推进到哪一层，就长到哪一层')]),
     ],
   },
   {
@@ -143,18 +152,9 @@ const REPLY_BLOCKS: BlockGroup[] = [
     role: 'assistant',
     title: '助手消息',
     blocks: [
-      { title: '模型说的话', level: 0, lines: [text('我把斗篷裹紧了一些，往柜台那边走。')] },
+      // 模型写的 markdown 标题也是 `### ` 行：回复这一侧同样要按小标题画出来
+      { title: '模型说的话', level: 0, lines: [subhead('处境'), text('我把斗篷裹紧了一些，往柜台那边走。')] },
       { title: 'advance_time', level: 0, lines: [text('{"minutes":7,"reason":"' + LONG_RUN + '"}')] },
-      {
-        title: '其它',
-        level: 0,
-        lines: [
-          text('{'),
-          text('  "finish_reason": "tool_calls",'),
-          text('  "usage": { "total_tokens": 418 }'),
-          text('}'),
-        ],
-      },
     ],
   },
 ]
@@ -162,16 +162,21 @@ const REPLY_BLOCKS: BlockGroup[] = [
 /**
  * 展开态的块清单：两条痕迹都摊开。
  *
- * ⚠️ 折叠着的块清单量不到版面（`<details>` 里的东西不参与排版），
- *    而判据 9 要量的正是**展开之后**的长行会不会撑破版面 —— 所以这里在挂载后
- *    把这两行的折叠条打开（行数据里没有「展开」这个字段，它只是这一屏的取景）。
+ * ⚠️ 折叠着的块清单量不到版面（`<details>` 里的东西不参与排版），而判据 9 要量的正是
+ *    **展开之后**的长行会不会撑破版面 —— 所以这里在挂载后打开两处折叠：
+ *      · 那两条痕迹本身（行数据里没有「展开」这个字段，这是这一屏的取景）；
+ *      · **回复那一行里的块**：组件只给整行的第一块带 `open`（契约 §4-1），
+ *        而回复的超长串在第二个块（工具参数）里 —— 不打开它，回复侧就没有任何版面覆盖。
  */
 const openTraces = () => ({
-  /** 挂载后把这两行的折叠条打开：结构检查要量的是**展开之后**的版面 */
+  /** 挂载后把两条痕迹与回复行的块都打开：结构检查要量的是**展开之后**的版面 */
   setup() {
     const root = ref<HTMLElement | null>(null)
     onMounted(() => {
-      for (const el of root.value?.querySelectorAll('details.trace') ?? []) {
+      const opened = root.value?.querySelectorAll(
+        'details.trace, [data-role="assistant"] details[data-block]',
+      )
+      for (const el of opened ?? []) {
         ;(el as HTMLDetailsElement).open = true
       }
     })
