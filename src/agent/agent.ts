@@ -23,7 +23,7 @@ import { openingInstruction } from './prompts'
 import { openingOf } from '../game/opening'
 import type { CardData } from '../game/card'
 import type { GameData, StoryKind } from '../types/state'
-import type { ChatReply } from './llm'
+import type { ChatReply, ChatRequest } from './llm'
 
 /**
  * 引擎干活需要的东西：**纯数据** + 卡 + 两个领域动作。
@@ -56,8 +56,9 @@ export type AgentEvent =
    *
    * ⚠️ 与 model 事件分开是有意的：模型调用失败时没有 model 事件，
    *    只有它能证明「我们发出去的是什么」—— 排查 401 / 500 / 请求体写错时全靠它。
+   *    类型就是 llm.ts 拼出来的那份（调试痕迹按段切它里面的 messages）。
    */
-  | { type: 'request'; step: number; body: unknown }
+  | { type: 'request'; step: number; body: ChatRequest }
   /** 模型这一步的原始响应（输入侧见上面的 request 事件） */
   | { type: 'model'; step: number; reply: ChatReply }
   /**

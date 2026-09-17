@@ -34,6 +34,8 @@
 import { shallowRef, toRaw, type Ref, type ShallowRef } from 'vue'
 import { t } from '../i18n'
 import { runTurn, type AgentEvent } from '../agent/agent'
+import { requestBlocks } from '../agent/prompts'
+import { replyBlocks } from '../agent/llm'
 import { advance, isRunning, type TurnEvent, type TurnState } from '../game/lifecycle'
 import { nodeLabel } from '../game/display'
 import type { CardData } from '../game/card'
@@ -150,15 +152,18 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
         trace('node', t('store.nodeLine', { node: nodeLabel(card, evt.id) }), { node: evt.id })
         break
       case 'request':
-        // 请求在发出去之前就写成一行：调用失败时这也是唯一能看到的输入
-        trace(
-          'request',
-          t('store.rawRequest', { count: (evt.body as { messages?: unknown[] }).messages?.length ?? 0 }),
-          { detail: JSON.stringify(evt.body, null, 2) },
-        )
+        // 请求在发出去之前就写成一行：调用失败时这也是唯一能看到的输入。
+        // 分块清单在这里算好（块的边界只由装配器说了算），界面拿到的是结构、不是一段文本
+        trace('request', t('store.rawRequest', { count: evt.body.messages.length }), {
+          detail: JSON.stringify(evt.body, null, 2),
+          blocks: requestBlocks(evt.body.messages),
+        })
         break
       case 'model':
-        trace('model', t('store.rawReply'), { detail: JSON.stringify(evt.reply.raw, null, 2) })
+        trace('model', t('store.rawReply'), {
+          detail: JSON.stringify(evt.reply.raw, null, 2),
+          blocks: replyBlocks(evt.reply),
+        })
         break
       case 'tool':
         // args 是协议原样给的 JSON 字符串：既进摘要行，也当可展开的原始内容

@@ -21,6 +21,7 @@ import { instantiate, validateValue, type StateTree } from './card-state'
 import { at } from './card-read'
 import { t } from '../i18n'
 import type { CardData } from './card'
+import type { BlockGroup, BlockLine, PromptBlock } from '../agent/prompts'
 import type { CardIdentity, EventKind, GameData, GameEvent, StoryKind, TimelineEntry } from '../types/state'
 
 /** 事件流的两类上限（写时裁剪；读档时也用它裁剪）—— 分别计数，见 trimEvents */
@@ -181,8 +182,8 @@ function pickState(card: CardData, value: unknown): StateTree {
  * text 缺失补空串，detail / node / tool / path 只收字符串，value 只收 stateChange 的。
  * 最后按类裁剪到上限。
  *
- * ⚠️ node / tool / path 是调试面板的结构化字段，必须跟着存档来回 —— 丢了它们，
- *    面板就只能回去反解文案。
+ * ⚠️ node / tool / path / blocks 是调试面板的结构化字段，必须跟着存档来回 ——
+ *    丢了它们，面板就只能回去反解文案。
  */
 function sanitizeEvents(list: unknown): GameEvent[] {
   if (!Array.isArray(list)) return []
@@ -201,10 +202,44 @@ function sanitizeEvents(list: unknown): GameEvent[] {
     if (typeof item.tool === 'string') event.tool = item.tool
     if (typeof item.path === 'string') event.path = item.path
     if (kind === 'stateChange' && Object.hasOwn(item, 'value')) event.value = item.value
+    if (Array.isArray(item.blocks)) {
+      const blocks = item.blocks.filter(isBlockGroup)
+      if (blocks.length) event.blocks = blocks
+    }
     events.push(event)
   }
   trimEvents(events)
   return events
+}
+
+/** 一行能不能画：不认得的行整组丢掉，界面退回按原始文本显示（它总比画崩强） */
+function isBlockLine(value: unknown): value is BlockLine {
+  return (
+    isRecord(value) && typeof value.text === 'string' && (value.kind === 'text' || value.kind === 'subhead')
+  )
+}
+
+/** 一块能不能画：标题 + 层级 + 每一行 */
+function isPromptBlock(value: unknown): value is PromptBlock {
+  return (
+    isRecord(value) &&
+    typeof value.title === 'string' &&
+    (value.level === 0 || value.level === 2) &&
+    Array.isArray(value.lines) &&
+    value.lines.every(isBlockLine)
+  )
+}
+
+/** 一组能不能画：角色 + 组标签 + 每一块 */
+function isBlockGroup(value: unknown): value is BlockGroup {
+  const role = isRecord(value) ? value.role : undefined
+  return (
+    isRecord(value) &&
+    (role === 'system' || role === 'user' || role === 'assistant' || role === 'tool') &&
+    typeof value.title === 'string' &&
+    Array.isArray(value.blocks) &&
+    value.blocks.every(isPromptBlock)
+  )
 }
 
 /** 时间线数组的边界清洗（外部数据，逐项校验） */

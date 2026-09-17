@@ -182,7 +182,20 @@
     "pending": "（还没回传）",
     "callWrites": "写到了",
     "toolFailed": "⚠ 没通过校验",
-    "redo": "↩ 退回「{node}」重跑"
+    "redo": "↩ 退回「{node}」重跑",
+    "role": {
+      "system": "系统消息",
+      "user": "用户消息",
+      "assistant": "助手消息",
+      "tool": "工具结果",
+      "redoHint": "重跑提示"
+    },
+    "block": {
+      "reply": "模型说的话",
+      "other": "其它"
+    },
+    "blockSize": "{count} 字",
+    "raw": "原始"
   },
   "provider": {
     "deepseek": "DeepSeek 官方",

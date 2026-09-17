@@ -182,7 +182,20 @@
     "pending": "(not answered yet)",
     "callWrites": "Wrote",
     "toolFailed": "⚠ rejected",
-    "redo": "↩ rolled back to \"{node}\""
+    "redo": "↩ rolled back to \"{node}\"",
+    "role": {
+      "system": "System",
+      "user": "User",
+      "assistant": "Assistant message",
+      "tool": "Tool result",
+      "redoHint": "Redo hint"
+    },
+    "block": {
+      "reply": "What the model said",
+      "other": "Other"
+    },
+    "blockSize": "{count} chars",
+    "raw": "Raw"
   },
   "provider": {
     "deepseek": "DeepSeek (official)",
