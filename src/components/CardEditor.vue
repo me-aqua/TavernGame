@@ -7,13 +7,18 @@
  * 显示在表单里。落盘成功只 emit saved，reload 由外层做（引擎与显示映射都在模块加载期
  * 读卡，见 game/current-card.ts）。
  *
- * 可改的只有节点的**名 / 职责 / 提示词**（graph.nodes[id] 里的那三处）；role / tools /
- * reads / uses 是机制（卡给了谁什么权力），表单只读展示，保存时整份复制、一个字节不动。
+ * 可改的只有节点的**名 / 职责 / 提示词**（graph.nodes[id] 里的那三处）与**这个节点读哪几块
+ * 资源**（settings / uses 两个勾选列）；role / tools / reads 是机制（卡给了谁什么权力），
+ * 表单只读展示，保存时整份复制、一个字节不动。
+ *
+ * 资源库面板（CardResources）是本浮层里的第二块：它管卡里那几块原始提示词的读与改，
+ * 保存走的也是同一个 importCard。
  */
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import CardGraph from './CardGraph.vue'
 import CardNodeForm from './CardNodeForm.vue'
+import CardResources from './CardResources.vue'
 import { cardMeta, importCard, type CardSource } from '../game/current-card'
 import type { CardData } from '../game/card'
 
@@ -36,6 +41,12 @@ const emit = defineEmits<{
 const selected = ref('')
 /** 保存失败的原因（原样显示，不吞） */
 const error = ref('')
+/** 资源库面板开着没有（表头那颗按钮开合它） */
+const resourcesOpen = ref(false)
+
+/** 卡里的五块设定与全部生成器名 —— 勾选区的两列就是它们 */
+const settingKeys = computed(() => Object.keys(props.card.settings))
+const generatorNames = computed(() => props.card.generators.map((generator) => generator.name))
 
 const meta = computed(() => cardMeta(props.card))
 const sourceLabel = computed(() =>
@@ -55,6 +66,7 @@ const editing = computed(() => {
     tools: node.tools ?? null,
     reads: node.reads ?? null,
     uses: node.uses ?? null,
+    settings: node.settings ?? null,
   }
 })
 
@@ -85,6 +97,35 @@ function save(value: { name: string; duty: string; prompt: string[] }) {
     error.value = t('card.saveFailed', { message: (err as Error).message })
   }
 }
+
+/**
+ * 勾选变了：把这个节点要读的设定块 / 生成器写回卡，再跑与导入同一套校验。
+ *
+ * ⚠️ 一个都没勾就**把这个键删掉**，不是写空表：卡格式里「不写 settings」＝ 五块全发、
+ *    「不写 uses」＝ 不带生成器，而空表会被校验器拒（`must not be empty`）—— 那是另一件事。
+ *
+ * 两份名单都按**卡自己的键序**过滤一遍：界面上的先后不该进卡（卡的声明顺序是唯一的顺序），
+ * 而界面上可能还留着卡里已经没有的块名（它由勾选列自己维护）。
+ */
+function markResources(value: { settings: string[]; uses: string[] }) {
+  const next = JSON.parse(JSON.stringify(props.card)) as CardData
+  const node = next.graph.nodes[selected.value] as { settings?: string[]; uses?: string[] }
+  const keptSettings = settingKeys.value.filter((key) => value.settings.includes(key))
+  const keptUses = generatorNames.value.filter((name) => value.uses.includes(name))
+  if (keptSettings.length) node.settings = keptSettings
+  else delete node.settings
+  if (keptUses.length) node.uses = keptUses
+  else delete node.uses
+  error.value = ''
+  try {
+    importCard(JSON.stringify(next))
+    emit('saved')
+  } catch (err) {
+    // 这里不往上抛：失败原因已经交给 error 显示在表单里了（不吞），而 importCard 是先校验后落盘
+    // —— 校验没过时存储与内存里那张卡一个字节都没动，勾选这一步也没有需要回滚的东西
+    error.value = t('card.saveFailed', { message: (err as Error).message })
+  }
+}
 </script>
 
 <template>
@@ -104,6 +145,21 @@ function save(value: { name: string; duty: string; prompt: string[] }) {
           </p>
         </div>
         <button
+          data-card-resources-open
+          :aria-label="t('card.resourcesTitle')"
+          :title="t('card.resourcesTitle')"
+          :aria-expanded="resourcesOpen"
+          class="shrink-0 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors"
+          :class="
+            resourcesOpen
+              ? 'border-accent-line bg-accent-soft text-accent'
+              : 'border-line text-muted hover:bg-surface-2 hover:text-text'
+          "
+          @click="resourcesOpen = !resourcesOpen"
+        >
+          {{ t('card.resourcesTitle') }}
+        </button>
+        <button
           data-card-close
           :aria-label="t('card.close')"
           :title="t('card.close')"
@@ -117,6 +173,10 @@ function save(value: { name: string; duty: string; prompt: string[] }) {
       <div class="min-h-0 flex-1 overflow-y-auto p-3">
         <p class="mb-2 text-[11.5px] text-muted">{{ t('card.graphLegend') }}</p>
         <CardGraph :card="card" :selected="selected" @select="select" />
+
+        <!-- 资源库面板：卡里那几块原始提示词的读与改（保存走它自己的 importCard） -->
+        <CardResources v-if="resourcesOpen" class="mt-2" :card="card" error="" @saved="emit('saved')" />
+
         <p v-if="!editing" class="mt-2 text-[12px] text-faint">{{ t('card.graphHint') }}</p>
         <CardNodeForm
           v-else
@@ -129,8 +189,12 @@ function save(value: { name: string; duty: string; prompt: string[] }) {
           :tools="editing.tools"
           :reads="editing.reads"
           :uses="editing.uses"
+          :settings="editing.settings"
+          :setting-keys="settingKeys"
+          :generator-names="generatorNames"
           :error="error"
           @save="save"
+          @marks="markResources"
         />
       </div>
     </div>
