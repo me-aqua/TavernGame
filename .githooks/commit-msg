@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// 提交信息检查：约定式前缀。
-// 这不是洁癖 —— CHANGELOG 与语义化版本号都依赖这个前缀（见 doc/CHANGELOG.md）。
-import { execSync } from 'node:child_process'
+// 提交信息检查：约定式前缀 + 改了东西却没记更新日志。
+// 前缀不是洁癖 —— CHANGELOG 与语义化版本号都依赖它（见 doc/CHANGELOG.md）。
+import { execFileSync, execSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 
 const messageFile = process.argv[2]
 if (!messageFile) process.exit(0)
@@ -23,4 +25,26 @@ try {
   console.error('  类型：feat / fix / docs / style / refactor / test / chore / perf / build / ci / revert')
   console.error('  例：feat: 支持自定义历法\n')
   process.exit(1)
+}
+
+// 改了东西却没记更新日志：feat / fix / perf 拦下，其它类型只提醒。
+// 挂这里而不是 pre-commit —— 只有这一关拿得到**这一次**的提交信息（见 checks/changelog.mjs 头注释）。
+//
+// ⚠️ **不传 `--merge-head`**：那个开关的意思是「我告诉你这就是一次合并」，给成常量
+//    就等于把判定整个关掉（合并与否 CLI 自己问 `MERGE_HEAD`）。
+// ⚠️ 这个脚本是 Node 程序，不是 shell —— 写 `node … --message "$1"` 那种行会当场语法错，
+//    钩子起不来会把**每一次**提交都拒掉。用 argv 传参，不拼字符串。
+// ⚠️ `stdio: 'inherit'`：检查的提醒与理由走 stderr，必须原样透到终端；
+//    退出码非零时由下面的 catch 原样传出去。
+const check = join(dirname(fileURLToPath(import.meta.url)), 'checks', 'changelog.mjs')
+try {
+  execFileSync(process.execPath, [check, '--message', messageFile], { stdio: 'inherit' })
+} catch (err) {
+  // 起不来（err.status 为空）也要拦下：这条纪律宁可拦住，也不许静默放行
+  if (err.status === undefined || err.status === null) {
+    console.error('\n✖ 更新日志检查没跑起来，已阻止提交：')
+    console.error('  ' + (err.message ?? String(err)))
+    process.exit(1)
+  }
+  process.exit(err.status)
 }
