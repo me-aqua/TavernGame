@@ -304,7 +304,7 @@
       "lead": "主控"
     },
     "gm": "你(GM)",
-    "recent": "最近发生的事",
+    "recent": "故事到目前为止",
     "recentLine": "- {who}：{text}"
   }
 }

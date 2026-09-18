@@ -8,7 +8,7 @@
  *   1. 把构建期编码的提示词解码成字符串
  *   2. **按当前界面语言选那一套**（模型语言跟随界面语言，见 doc/DESIGN.md 决定 #19）
  *   3. 按卡的声明拼出一次节点请求：system（设定 + 剧本 + 规矩 + 该节点点名的生成器）
- *      + user（现在 / 玩家 / 上游 / 该节点提示词）；「现在」里的最近发生的事就是模型的记忆
+ *      + user（现在 / 玩家 / 上游 / 该节点提示词）；「现在」里的「故事到目前为止」就是模型的记忆
  *   4. 填占位符并**确认没有漏填**
  *   5. **把拼出去的消息按段交出来**（requestBlocks / blockText）—— 段的边界与行结构
  *      只在这里定义；调试界面按块渲染的就是它，界面自己一行都不切
@@ -221,18 +221,10 @@ export function upstreamText(upstream: UpstreamOutput[] = []): string {
 }
 
 /**
- * 「最近发生的事」取事件流尾部多少条故事事件（action + narration）。
+ * 历史里的故事事件，一行一条：玩家说了什么、GM 写了什么。
  *
- * 8 ≈ 最近四轮（一轮 = 一条 action + 一条 narration）：够接上前文的口吻与正在进行的
- * 那件事，又不至于把四轮 300–800 字的正文都塞进**九个节点各自**的请求里。
- *
- * ⚠️ 它是**模型唯一的长期记忆**：事件流进存档，内存里的东西一概不留 —— 刷新之后
- *    模型仍然读得到前面发生过什么（旧实现靠内存里的对话历史，刷新即失忆）。
- */
-export const RECENT_STORY = 8
-
-/**
- * 历史里最近的故事事件，一行一条：玩家说了什么、GM 写了什么。
+ * ⚠️ **开局以来的每一条都发**（没有条数上限）：每轮故事才几百字，用户 2026-09-18 拍了板
+ *    ——「从开局到现在的所有完整故事记录都保留，别管 token 成本」。压缩是以后的事。
  *
  * ⚠️ 只看 `memoryUpTo` **之前**的事件：这一轮的原话（action）在事件流里已经写下了
  *    （顺序必须正确），但它同时就在「## 玩家」那一段里 —— 再出现在历史里，模型会以为
@@ -242,7 +234,6 @@ function renderRecent(events: GameEvent[], memoryUpTo: number): string {
   return events
     .slice(0, memoryUpTo)
     .filter((event) => isStoryKind(event.kind))
-    .slice(-RECENT_STORY)
     .map((event) => {
       const who = event.kind === 'action' ? t('prompts.player') : t('prompts.gm')
       return t('prompts.recentLine', { who, text: event.text.replace(/\s+/g, ' ') })
@@ -267,7 +258,7 @@ export interface NodeRequestInput {
    */
   events: GameEvent[]
   /**
-   * 渲染「最近发生的事」时的分界：只看这个下标**之前**的事件。
+   * 渲染「故事到目前为止」时的分界：只看这个下标**之前**的事件。
    *
    * 它是这一轮开始时事件流的长度 —— 历史只给这一轮之前的事，这一轮的原话在「## 玩家」里。
    */
@@ -284,7 +275,7 @@ export interface NodeRequestInput {
  * 拼出一次节点请求的消息列表：system（设定 / 剧本 / 规矩 / 生成器）
  * → （重跑时的系统提示）→ user（现在 / 玩家 / 上游 / 该节点提示词）。
  *
- * 「现在」= 时间（按卡的历法）+ 状态树（按节点的 reads 裁）+ 最近发生的事（这一轮之前）。
+ * 「现在」= 时间（按卡的历法）+ 状态树（按节点的 reads 裁）+ 「故事到目前为止」（这一轮之前）。
  *
  * ⚠️ 上游只含**已经跑完**的节点（决定 #26）；拿不到就不编（上游文本自己会跳过空产出）。
  */

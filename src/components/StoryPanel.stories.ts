@@ -138,7 +138,7 @@ const REQUEST_BLOCKS: BlockGroup[] = [
     blocks: [
       block('现在', [
         text('时间：2026 年 9 月 14 日 · 星期一 · 晚上'),
-        subhead('最近发生的事'),
+        subhead('故事到目前为止'),
         text('- 你(GM)：门轴发出一声长叹。'),
         text(''),
         text('玩家：' + "Player's action: look around"),

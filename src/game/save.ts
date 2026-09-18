@@ -24,9 +24,15 @@ import type { CardData } from './card'
 import type { BlockGroup, BlockLine, PromptBlock } from '../agent/prompts'
 import type { CardIdentity, EventKind, GameData, GameEvent, StoryKind, TimelineEntry } from '../types/state'
 
-/** 事件流的两类上限（写时裁剪；读档时也用它裁剪）—— 分别计数，见 trimEvents */
-export const MAX_STORY = 80
+/**
+ * 调试痕迹的上限（写时裁剪；读档时也用它裁剪）。
+ *
+ * ⚠️ **只有调试这一路有上限**：故事事件一条都不裁 —— 它们同时是**模型的记忆**
+ *    （用户 2026-09-18 拍板：从开局到现在的完整故事都留着，别管 token 成本），
+ *    裁掉就等于模型失忆。见 trimEvents。
+ */
 export const MAX_DEBUG = 120
+/** 时间线的上限（与事件流无关，本文件另一处用） */
 export const MAX_TIMELINE = 40
 
 /**
@@ -59,26 +65,23 @@ export function isStoryKind(kind: EventKind): kind is StoryKind {
 }
 
 /**
- * 按类裁剪事件流：故事与调试**各算各的上限**。
+ * 按类裁剪事件流：**只裁调试**，故事一条不动。
  *
- * ⚠️ 这就是「调试噪声不许挤掉模型记忆」的实现：如果只按总条数裁，
- *    调试开着时一个回合能产生十几条调试事件，几十个回合后模型能看到的
- *    故事就只剩最近几百字了。
+ * ⚠️ 为什么故事不裁：它是**模型的记忆**（`trimEvents` 在写入与读档两条路上都跑），
+ *    裁掉就等于模型忘了前面发生过什么。用户 2026-09-18 拍板留全部 ——
+ *    压缩/摘要是以后的事，不是这里的上限该干的。
+ *
+ * ⚠️ 为什么调试仍要裁：调试开着时一个回合能产生十几条，不裁会把存档撑爆；
+ *    而它**不许挤掉模型记忆**靠的就是「两路分开」——放宽故事 ≠ 顺手把调试也放宽。
  */
 export function trimEvents(events: GameEvent[]): void {
-  trimKind(events, isStoryKind, MAX_STORY)
-  trimKind(events, (kind) => !isStoryKind(kind), MAX_DEBUG)
-}
-
-/** 把某一类裁到上限（丢最旧的），其余条目的相对顺序不变 */
-function trimKind(events: GameEvent[], pick: (kind: EventKind) => boolean, max: number): void {
-  let count = events.filter((e) => pick(e.kind)).length
-  for (let i = 0; count > max && i < events.length;) {
-    if (pick(events[i].kind)) {
+  let count = events.filter((e) => !isStoryKind(e.kind)).length
+  for (let i = 0; count > MAX_DEBUG && i < events.length;) {
+    if (isStoryKind(events[i].kind)) {
+      i += 1
+    } else {
       events.splice(i, 1)
       count -= 1
-    } else {
-      i += 1
     }
   }
 }

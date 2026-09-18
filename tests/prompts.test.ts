@@ -20,7 +20,6 @@ import {
   generatorsPrompt,
   nodePrompt,
   openingInstruction,
-  RECENT_STORY,
   renderPrompt,
   scriptPrompt,
   settingsPrompt,
@@ -50,6 +49,9 @@ const NODE_WITHOUT_USES = topology.find(
 const PLAYER_WORDS = "Player's action: I go to the docks"
 const EARLIER = 'EARLIER LINE'
 const UPSTREAM_OUTPUT = 'UPSTREAM OUTPUT'
+
+/** 记忆那一段里每条故事事件的前缀（用来数「是不是每一条都在」） */
+const STORY_MARK = 'story event '
 
 /** 切界面语言（setup 在每个用例前钉回 zh-CN） */
 function setLocale(locale: 'zh-CN' | 'en'): void {
@@ -266,18 +268,21 @@ describe('buildNodeMessages - one request per node', () => {
     expect(user.indexOf(EARLIER)).toBeLessThan(user.indexOf('## ' + t('prompts.player')))
   })
 
-  it('keeps only the tail of the story events (RECENT_STORY lines, no debug noise)', () => {
+  it('renders every story event since the beginning (no tail window), and still no debug noise', () => {
     const data = createInitialState(currentCard)
-    const many: GameEvent[] = Array.from({ length: RECENT_STORY + 5 }, (_, i) => ({
+    // 400 条 ≈ 200 轮：够长 —— 任何「只留最近 N 条」的窗口都会在这里露出来
+    const many: GameEvent[] = Array.from({ length: 400 }, (_, i) => ({
       kind: 'narration',
-      text: 'line ' + i,
+      text: STORY_MARK + i,
       at: '',
     }))
     many.push({ kind: 'tool', text: 'debug noise', at: '' })
     const user = userOf(FIRST_NODE, data, many)
 
-    expect(user).toContain('line ' + (RECENT_STORY + 4))
-    expect(user).not.toContain('line 0')
+    // 「全部」= 每一条都渲染出来了：标记出现几次就是渲染了几条
+    expect(user.split(STORY_MARK).length - 1, 'every story event must reach the model').toBe(400)
+    expect(user).toContain(STORY_MARK + '0') // 开局那条
+    expect(user).toContain(STORY_MARK + '399') // 最新那条
     expect(user).not.toContain('debug noise')
   })
 

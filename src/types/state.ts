@@ -14,7 +14,7 @@ import type { BlockGroup } from '../agent/prompts'
  *
  * ⚠️ 故事与调试痕迹**共用这一个数组**（顺序即真相：痕迹就插在它发生的那段叙事之间）。
  *    谁能看到由**投影**决定，不由存储位置决定 —— 玩家与模型只看故事类，
- *    开发者看调试投影；分类与上限见 game/save.ts 的 isStoryKind / MAX_STORY / MAX_DEBUG。
+ *    开发者看调试投影；分类见 game/save.ts 的 isStoryKind，上限只有调试那一路（MAX_DEBUG）。
  */
 export type EventKind =
   /** 故事类：玩家这一轮的原话（一轮开始时写的；开场没有玩家原话，所以开场没有它） */
@@ -41,8 +41,9 @@ export type EventKind =
 /**
  * 故事类事件的 kind —— 玩家与模型看到的就是它。
  *
- * ⚠️ 它同时是**模型的记忆**：事件流进存档，节点请求里的「最近发生的事」就是它的尾部
- *    （刷新后模型仍然知道前面发生过什么，见 agent/prompts.ts 的 RECENT_STORY）。
+ * ⚠️ 它同时是**模型的记忆**：事件流进存档，节点请求里的「故事到目前为止」就是它的**全部**
+ *    （开局以来的每一条都发，只在 `memoryUpTo` 处截断 —— 见 agent/prompts.ts 的 renderRecent）。
+ *    刷新后模型仍然知道前面发生过什么。
  */
 export type StoryKind = 'action' | 'narration'
 

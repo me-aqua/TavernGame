@@ -151,14 +151,17 @@ describe('normalize - field-level sanitation', () => {
     expect(d.events[1].value).toBeUndefined()
   })
 
-  it('caps the event stream by class', () => {
+  it('keeps every story event in the stream (no cap on the model memory)', () => {
     const save = savedGame()
     save.events = Array.from({ length: 200 }, (_, i) => ({
       kind: 'narration',
       text: FILLER + i,
       at: '',
     })) as GameData['events']
-    expect(normalize(save, currentCard).events.length).toBeLessThanOrEqual(80)
+    const d = normalize(save, currentCard)
+    expect(d.events, 'reloading must not drop story events').toHaveLength(200)
+    expect(d.events[0].text, 'the earliest story event survives the reload').toBe(FILLER + '0')
+    expect(d.events.at(-1)?.text).toBe(FILLER + '199')
   })
 
   it('sanitizes timeline entries and caps them', () => {

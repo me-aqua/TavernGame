@@ -52,7 +52,7 @@ describe('timeText', () => {
   })
 })
 
-describe('addEvent - one stream, two limits', () => {
+describe('addEvent - one stream, only the debug side is capped', () => {
   it('appends one event with a timestamp', () => {
     const s = createGame()
     game.addEvent(s.data, { kind: 'narration', text: STORY_LINE })
@@ -61,16 +61,20 @@ describe('addEvent - one stream, two limits', () => {
     expect(Number.isNaN(Date.parse(s.data.events[0].at))).toBe(false)
   })
 
-  it('keeps the last 80 story events and the last 120 debug events', () => {
+  it('keeps the whole story stream (the model memory is never trimmed)', () => {
     const s = createGame()
     for (let i = 0; i < 100; i += 1) game.addEvent(s.data, { kind: 'narration', text: logText(i) })
-    expect(s.data.events).toHaveLength(80)
-    expect(s.data.events[0].text).toBe(logText(20))
+    expect(s.data.events, 'no story event may be dropped').toHaveLength(100)
+    expect(s.data.events[0].text, 'the earliest story event is still there').toBe(logText(0))
+  })
 
+  it('still caps the debug stream at the last 120 (only the story window was widened)', () => {
     const debug = createGame()
     for (let i = 0; i < 200; i += 1) game.addEvent(debug.data, { kind: 'tool', text: logText(i) })
+    // ⚠️ 120 是**故意写死**的：调试预算是老板没碰的那一路，从源头现取会让「顺手改上限」悄悄通过
     expect(debug.data.events).toHaveLength(120)
     expect(debug.data.events[0].text).toBe(logText(80))
+    expect(debug.data.events.at(-1)?.text).toBe(logText(199))
   })
 
   it('debug noise cannot push the story out (that is the model memory)', () => {
