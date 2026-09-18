@@ -56,12 +56,21 @@ const nameText = ref(props.name)
 const dutyText = ref(props.duty)
 const promptText = ref(props.prompt.join('\n'))
 
+/**
+ * 一条声明怎么念：没写这个键 = 卡里的全部（uses 是「不带生成器」），
+ * 写了个空表 = 一个都没有 —— 两件事长得一样就糟了，空表不能画成空白。
+ */
+function declaration(value: string[] | null, whenAbsent: string): string {
+  if (value === null) return whenAbsent
+  return value.length === 0 ? t('card.declNone') : value.join(' ')
+}
+
 /** 只读声明的四行：值缺了就说清「是什么都没有」还是「卡里全部」 */
 const declarations = computed(() => [
   { key: 'card.declRole', value: props.role ?? t('card.declNone') },
-  { key: 'card.declTools', value: props.tools ? props.tools.join(' ') : t('card.declAllTools') },
-  { key: 'card.declReads', value: props.reads ? props.reads.join(' ') : t('card.declAllReads') },
-  { key: 'card.declUses', value: props.uses ? props.uses.join(' ') : t('card.declNoUses') },
+  { key: 'card.declTools', value: declaration(props.tools, t('card.declAllTools')) },
+  { key: 'card.declReads', value: declaration(props.reads, t('card.declAllReads')) },
+  { key: 'card.declUses', value: declaration(props.uses, t('card.declNoUses')) },
 ])
 
 /** 勾选区的两个列头：设定那一列的名字与调试痕迹、资源库面板同一套键 */

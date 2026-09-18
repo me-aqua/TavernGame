@@ -68,8 +68,14 @@ export type AgentEvent =
    *    不必从渲染好的文案里反解。
    */
   | { type: 'tool'; node: string; tool: string; args: string }
-  /** 引擎执行完那次调用，原样回传给模型的结果（node / tool 同 tool 事件） */
-  | { type: 'toolResult'; node: string; tool: string; result: string }
+  /**
+   * 引擎执行完那次调用，原样回传给模型的结果（node / tool 同 tool 事件）。
+   *
+   * ⚠️ failed 说的是**引擎有没有把这次调用打回**（参数不合法、不在白名单里、动作不存在）。
+   *    界面不许拿 result 那段文案去猜 —— 成功的 redo 与「被拒的 redo」文案不同但都
+   *    没有状态写入，从「有没有写入」反推会把后者当成成功（决定 #22 的老毛病）。
+   */
+  | { type: 'toolResult'; node: string; tool: string; result: string; failed: boolean }
   /** 一次工具调用写进了状态树的哪条路径、写成了什么（调试面板的「本轮写入清单」） */
   | { type: 'stateChange'; node: string; path: string; value: unknown }
   /** 有节点要求退回重来（引擎已经把工作副本回滚到 from 开跑前，接下来从 from 重跑） */

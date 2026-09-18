@@ -111,11 +111,11 @@ function timeOf(iso: string): TimeValue {
   }
 }
 
-/** real 预设：整小时走 utils/calendar.ts 的历法，余下的分钟数用 Date 补进位 */
+/** real 预设：整小时走 utils/calendar.ts 的公历算术，余下的分钟数用 Date 补进位 */
 function advanceReal(time: TimeValue, minutes: number): TimeValue {
   const hours = Math.trunc(minutes / 60)
   const rest = minutes - hours * 60
-  const shifted = new Date(realCalendar.advance(isoOf(time), hours, 'hour').iso)
+  const shifted = new Date(realCalendar.advanceHours(isoOf(time), hours))
   shifted.setMinutes(shifted.getMinutes() + rest)
   return timeOf(shifted.toISOString())
 }

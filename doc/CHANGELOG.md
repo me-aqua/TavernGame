@@ -180,6 +180,48 @@
 - `AGENTS.md` 两处**过时声明**：「示例卡已起草」→ 设计已定稿；
   `cards/` 不再是「只有草稿」，而是「JSON 事实来源 + md 渲染产物」
 
+#### 一轮针对卡系统的代码审查（2026-09-18）
+
+用户要求「看看新写的代码质量」，逐条读 + 探针实测，修掉这些：
+
+- **`redo` 回滚漏了时间线**（真 bug，探针复现）—— 节点快照只存了状态树 + 时刻
+  （`src/agent/card-graph.ts` 的 `snapshotOf`），而 `advanceTime` 除了推时刻还会往
+  `data.timeline` 里记一条跳跃。于是一次「退回时间节点重跑」之后，**时钟倒回去了、
+  时间线还留着那一段**，而时间线是落盘、玩家在侧栏看得见的。快照与回滚补齐第三样
+  （`Snapshot.timeline`），新增一条会红的测试（redo 越过时间节点后时间线必须归零）
+- **节点的 `tools` 白名单只在请求里「广告」，执行时不校验**（真 bug，探针复现）——
+  DESIGN 写着「只有时间节点能推时间是机制保证的」，实际 `runAction` 只查「这个动作在卡里存在吗」，
+  模型报一个没给它的动作（`tools: []` 的 judge 也一样）会被照单执行。`runAction` 现在先查
+  `availableActions(card, nodeId)`，不在名单里的回结构化错误让模型自己改。
+  ⚠️ **两个老测试原本就靠这个洞跑通**（让 `cast` 节点调只有 `story-chain` 才有的 `set_chain`），
+  一并改成用该节点真拿到的动作
+- **作者写在条目里的简介永远不显示** —— 地图 / 角色块用 `scalarText(条目)` 取简介，
+  只有「整段是一个字符串」时才有值，而卡里 `world.map` 与 `roles` 的条目都是对象：
+  「边境小镇，三百来口人……」这类作者内容一个字都进不了面板（`v-if` 是死分支）。
+  新增 `state-view.ts` 的 `noteOf()`：对象读它的 `note`，字符串用它自己；角色块同时把
+  `note` 从明细行里摘掉（不然同一句话出现两遍）
+- **被引擎拒绝的 `redo` 在调试面板里算「成功」** —— 判据是「没写状态 + 不是 redo」，
+  而**成功的 redo 同样不写状态**，两者一起被放过。改成引擎在 `toolResult` 事件上带
+  结构化 `failed`（`AgentEvent` → `GameEvent` → 存档清洗 → 面板投影），界面不再反推
+- **`tools: []` / `reads: []` / `uses: []` 画成空白** —— 空表与「没写这个键」（= 卡里全部）
+  长得一样，读卡的人会以为这块漏写了。空表现在念「无」，两个组件走同一个判据
+- **顶栏的恒等映射表** —— `display-blocks.ts` 里那张 `{ time: 'time', scene: 'scene', turn: 'turn' }`
+  没有第二处用途，删掉；`TopbarItem` 改成从词表 `KNOWN_TOPBAR` 取，不再手抄一份字面量联合
+- **`utils/calendar.ts` 的旧单位接口** —— card/3 之后推进量只有一个数 `minutes`，
+  而 `advance(iso, step, unit)` 的六个单位里生产路径只走 `'hour'`，其余分支只有测试在调。
+  收成 `advanceHours(iso, hours)`（单位表、穷尽性分支、`elapsedMs` 一并删掉）；
+  `tests/calendar-extra.test.ts` 随它存在的理由一起删除（剩下的边界断言与 `calendar.test.ts` 重复）
+- **调试痕迹里的写入值曾经走「文本往返」** —— `stateChange` 的写入值被 `JSON.stringify` 进
+  `detail`，界面再 `JSON.parse` 回来；而 `GameEvent.value` 这个结构化字段**没有任何地方写它**
+  （存档清洗还专门写了一句「保留它」，收一份永远不来的数据）。同一个文件里 `redoFromOf`
+  对同样是外部数据的参数却防了一手 —— 口径散在「值走文本」这件事上。后果：手改 / 导入的存档里
+  那条 `detail` 不是 JSON 时，调试面板在渲染期抛 `SyntaxError` 整个挂掉。
+  现在痕迹只存结构化的 `value`，展开体（给人看的原文）由投影**现写**（`stores/game.ts` 的
+  `detailOf`），`parsedOf` 删掉
+- **文档三处过时**：`DESIGN.md` 第十一节「工具：无 —— 节点产出 JSON」、决定 #46 里
+  「`src/agent/tools.ts` 是动作白名单」（该文件已不存在）、开发路线第 5 步与那 4 处引擎缺口
+  （第 1/2/3 条已被 card/3 消灭，第 4 条「时段 8 段」仍未做）
+
 #### 收工前的一轮全库审查（2026-09-14）
 
 一次独立审查 + 一遍机器扫描，查出并修掉：

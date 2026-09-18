@@ -63,7 +63,20 @@ export interface GameEvent {
   tool?: string
   /** 写到了哪条路径（stateChange 用它；工具痕迹不带） */
   path?: string
-  /** stateChange：写成了什么 */
+  /**
+   * 这次工具调用是不是被引擎打回了（只有 toolResult 有）。
+   *
+   * ⚠️ 面板靠它标红。**不许**改成「看这次调用有没有写状态」——成功的 redo 也不写状态，
+   *    两者会混成一种（引擎在事件里把答案给出来，界面不猜）。
+   */
+  failed?: boolean
+  /**
+   * stateChange：写成了什么 —— **结构化的真值**。
+   *
+   * ⚠️ 这是这一行的唯一真相：界面要显示文本时从它现写（stores/game.ts 的 detailOf），
+   *    痕迹里不再存第二份 JSON 文本 —— 那份文本会变成「必须是合法 JSON」的隐藏契约，
+   *    而存档是外部数据（旧痕迹 / 手改过的 / 导入的都可能不合契约）。
+   */
   value?: unknown
   /**
    * 这一条痕迹的分块清单（request / model 两条有）—— 调试界面按块渲染的就是它。

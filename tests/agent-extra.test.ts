@@ -112,13 +112,23 @@ describe('bad protocol input goes back to the model, never throws', () => {
       }),
     )
     const ctx = createAgentContext()
-    const result = await runTurn(ctx, { action: PLAYER_ACTION })
+    const events: AgentEvent[] = []
+    const result = await runTurn(ctx, { action: PLAYER_ACTION, onEvent: (evt) => events.push(evt) })
 
     expect(result.text).toBe(STORY_TEXT)
     const followUp = fake.calls[CARD_TOPOLOGY.indexOf(VERIFY) + 1].body.messages ?? []
     expect(
       followUp.some((message) => message.role === 'tool' && message.content.includes('no-such-node')),
     ).toBe(true)
+    // 被拒的 redo 在痕迹上是**失败**：面板靠这个 failed 标红，不靠「有没有写状态」反推
+    // （成功的 redo 同样不写状态 —— 反推会把这一条一起放过）
+    expect(events).toContainEqual({
+      type: 'toolResult',
+      node: VERIFY,
+      tool: 'redo',
+      result: expect.stringContaining('from must be one of'),
+      failed: true,
+    })
   })
 })
 

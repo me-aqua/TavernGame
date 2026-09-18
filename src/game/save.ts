@@ -204,6 +204,7 @@ function sanitizeEvents(list: unknown): GameEvent[] {
     if (typeof item.node === 'string') event.node = item.node
     if (typeof item.tool === 'string') event.tool = item.tool
     if (typeof item.path === 'string') event.path = item.path
+    if (typeof item.failed === 'boolean') event.failed = item.failed
     if (kind === 'stateChange' && Object.hasOwn(item, 'value')) event.value = item.value
     if (Array.isArray(item.blocks)) {
       const blocks = item.blocks.filter(isBlockGroup)

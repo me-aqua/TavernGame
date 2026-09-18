@@ -172,9 +172,9 @@ describe('CardGraph', () => {
     const storyId = topology.find((id) => nodes[id].role === 'story') as string
     const story = drawn.find((node) => node.id === storyId)
 
-    // 故事节点：声明了 role，tools 是一个都不给（空表 ≠ 不写），reads 只列三块状态
+    // 故事节点：声明了 role，tools 是一个都不给（空表 = 一个都没有，不是「没写」），reads 只列三块状态
     expect(story?.data.role).toBe('story')
-    expect(story?.data.tools).toBe('')
+    expect(story?.data.tools).toBe(t('card.declNone'))
     expect(story?.data.reads).toBe((nodes[storyId].reads ?? []).join(' '))
 
     const first = nodes[topology[0]]
@@ -307,6 +307,24 @@ describe('CardNodeForm', () => {
     expect(text).toContain('player world')
     expect(text).toContain('gen')
     expect(text).toContain('story')
+  })
+
+  it('says "none" for a declaration that is an empty list (judge declares tools: [])', () => {
+    const w = render(CardNodeForm, {
+      props: formProps({ role: 'story', tools: [], reads: [], uses: [] }),
+    })
+    const rows = w.findAll('[data-card-declarations] > div')
+    /** 取某一行声明的值那一格（dt 是键、dd 是值） */
+    const valueOf = (key: string) =>
+      rows
+        .find((row) => row.text().startsWith(t(key)))
+        ?.find('dd')
+        .text()
+
+    // 空表 = 一个都没有。画成空白会让读卡的人以为这块漏写了
+    expect(valueOf('card.declTools')).toBe(t('card.declNone'))
+    expect(valueOf('card.declReads')).toBe(t('card.declNone'))
+    expect(valueOf('card.declUses')).toBe(t('card.declNone'))
   })
 
   it('turns the multi-line prompt back into one entry per line on save', async () => {

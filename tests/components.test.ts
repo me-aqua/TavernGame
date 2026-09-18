@@ -327,6 +327,18 @@ describe('WorldCast', () => {
     const w = render(WorldCast, { props: { cast: ['\u8389\u5a1c'] } })
     expect(w.findAll('[data-cast]')).toHaveLength(0)
   })
+
+  it('takes the note of a person whose section is a record, and does not print it twice', () => {
+    const w = render(WorldCast, {
+      props: { cast: { Salen: { note: 'red hair, twenty-six', role: 'smith' } } },
+    })
+    const text = w.find('[data-cast]').text()
+
+    // 卡把角色写成对象（示例卡就是这样）：简介读条目里的 note，明细行里不再重复一遍
+    expect(text).toContain('red hair, twenty-six')
+    expect(text.match(/red hair, twenty-six/g)).toHaveLength(1)
+    expect(text).toContain('smith')
+  })
 })
 
 describe('WorldMap', () => {
@@ -353,6 +365,20 @@ describe('WorldMap', () => {
     })
     expect(w.find('[data-area]').text()).toContain('a foggy pier')
     expect(w.findAll('[data-current]')).toHaveLength(0)
+  })
+
+  it('takes the note of an area whose section is a record (what the example card looks like)', () => {
+    const w = render(WorldMap, {
+      props: {
+        areas: { port: { kind: 'authored', note: 'a town of three hundred', spots: ['inn'] } },
+        location: undefined,
+      },
+    })
+    const text = w.find('[data-area]').text()
+
+    // 作者写在条目里的那句话必须画出来（只认「整段是字符串」的话，它永远不会出现）
+    expect(text).toContain('a town of three hundred')
+    expect(text).toContain('inn')
   })
 })
 
@@ -512,20 +538,36 @@ function toolEvent(node: string, tool: string, args: string): Record<string, unk
   return { kind: 'tool', text: t('toolbar.toolCall', { tool, args }), node, tool, detail: args }
 }
 
-/** 一行写入痕迹（结构化字段：路径；detail 是写成的值） */
+/**
+ * 一行写入痕迹（结构化字段：路径 + 写成的值）。
+ *
+ * ⚠️ 值存的是**真值**（`value`），不是一份 JSON 文本 —— 界面要文本时自己现写。
+ */
 function writeEvent(path: string, value?: unknown): Record<string, unknown> {
   const event: Record<string, unknown> = {
     kind: 'stateChange',
     text: t('store.stateChangeLine', { path }),
     path,
   }
-  if (value !== undefined) event.detail = JSON.stringify(value)
+  if (value !== undefined) event.value = value
   return event
 }
 
-/** 一行工具结果（结构化字段：哪个节点、什么工具；detail 是回传的原文） */
-function resultEvent(node: string, tool: string, result: string): Record<string, unknown> {
-  return { kind: 'toolResult', text: t('store.toolResultLine', { result }), node, tool, detail: result }
+/**
+ * 一行工具结果（结构化字段：哪个节点、什么工具；detail 是回传的原文）。
+ *
+ * failed 由**引擎**写在痕迹上（参数不合法 / 不在白名单 / 动作不存在）—— 面板只读它，
+ * 所以夹具也必须把它写出来，不然造出来的是「旧存档里没有这个字段的那种痕迹」。
+ */
+function resultEvent(node: string, tool: string, result: string, failed = false): Record<string, unknown> {
+  return {
+    kind: 'toolResult',
+    text: t('store.toolResultLine', { result }),
+    node,
+    tool,
+    detail: result,
+    failed,
+  }
 }
 
 /** 一份存档：一整轮的工具痕迹（含一次失败、一次退回重来），前面还压着上一轮的故事 */
@@ -536,7 +578,7 @@ function saveWithTrace(): string {
     // 上一轮的痕迹：不该进「最近一轮」的投影
     { kind: 'action', text: 'older action' },
     toolEvent(topology[0], 'set_profile', '{not json'),
-    resultEvent(topology[0], 'set_profile', 'bad arguments'),
+    resultEvent(topology[0], 'set_profile', 'bad arguments', true),
     { kind: 'action', text: 'this turn action' },
     // 没有调用在飞的时候也会有写入：它不该被算到任何一次调用头上
     writeEvent('time'),
@@ -551,7 +593,7 @@ function saveWithTrace(): string {
     // 一次失败的地图调用：它在图里是会标红的那个节点
     nodeEvent(topology[5]),
     toolEvent(topology[5], 'move_to', '{"area":"x"}'),
-    resultEvent(topology[5], 'move_to', 'move_to: spot is required'),
+    resultEvent(topology[5], 'move_to', 'move_to: spot is required', true),
   ]
   data.events = events.map((event) => ({ at: '2026-09-15T10:00:00.000Z', ...event })) as GameEvent[]
   return JSON.stringify(data)
@@ -592,17 +634,74 @@ describe('store: the debug projections', () => {
     expect(calls[1].redoFrom).toBe(topology[6])
     expect(calls[1].failed).toBe(false)
 
-    // 一个字节都没写成 = 引擎把结构化错误回传给了模型
+    // 一个字节都没写成、引擎回了结构化错误 —— 失败这件事写在 failed 上
     expect(calls[2].node).toBe(topology[5])
     expect(calls[2].writes).toEqual([])
     expect(calls[2].failed).toBe(true)
+  })
+
+  it('reads a write from the structured value, and writes the fold text itself', async () => {
+    const data = createInitialState(card)
+    data.events = [
+      nodeEvent(topology[6]),
+      toolEvent(topology[6], 'move_to', '{"area":"x","spot":"y","scene":"z"}'),
+      writeEvent('world.location', { area: 'x', spot: 'y', scene: 'z' }),
+      resultEvent(topology[6], 'move_to', 'wrote it'),
+    ].map((event) => ({ at: '2026-09-15T10:00:00.000Z', ...event })) as GameEvent[]
+
+    const game = await freshGame(JSON.stringify(data))
+    // 调试行只在调试模式进列表（叙事与它无关）
+    game.debugMode.value = true
+
+    expect(game.debugTools.value[0].writes).toEqual([
+      { path: 'world.location', value: { area: 'x', spot: 'y', scene: 'z' } },
+    ])
+    // 展开体（给人看的原文）是从结构化值**现写**的：痕迹里没有第二份 JSON 文本
+    const folded = game.rows.value.map((row) => ('detail' in row ? row.detail : '')).join('\n')
+    expect(folded).toContain('"area": "x"')
+  })
+
+  it('survives a write trace whose detail is not JSON (hand-edited or imported save)', async () => {
+    const data = createInitialState(card)
+    data.events = [
+      toolEvent(topology[6], 'move_to', '{"area":"x"}'),
+      // 外部数据：旧痕迹 / 手改过的存档里，写入那一行的 detail 可能只是一句人话
+      { kind: 'stateChange', text: 'rendered however', detail: 'time advanced' },
+      resultEvent(topology[6], 'move_to', 'wrote it'),
+    ].map((event) => ({ at: '2026-09-15T10:00:00.000Z', ...event })) as GameEvent[]
+
+    const game = await freshGame(JSON.stringify(data))
+
+    // 以前这里会把那句人话 JSON.parse 一遍 —— 在渲染期抛 SyntaxError，整个面板挂掉
+    expect(() => game.debugTools.value).not.toThrow()
+    expect(game.debugTools.value[0].writes).toEqual([{ path: '', value: undefined }])
+  })
+
+  it('marks a redo the engine refused as failed (a successful redo writes nothing either)', async () => {
+    const data = createInitialState(card)
+    data.events = [
+      nodeEvent(topology[8]),
+      // 成功的 redo：回滚不写状态，但引擎认下了（failed: false）
+      toolEvent(topology[8], 'redo', '{"from":"' + topology[6] + '","why":"missing"}'),
+      resultEvent(topology[8], 'redo', 'rolling back'),
+      // 被拒的 redo：from 不在拓扑里，引擎回结构化错误
+      toolEvent(topology[8], 'redo', '{"from":"no-such-node","why":"nope"}'),
+      resultEvent(topology[8], 'redo', 'redo: from must be one of [...]', true),
+    ].map((event) => ({ at: '2026-09-15T10:00:00.000Z', ...event })) as GameEvent[]
+
+    const game = await freshGame(JSON.stringify(data))
+    const [accepted, refused] = game.debugTools.value
+    expect(accepted.failed).toBe(false)
+    expect(refused.failed).toBe(true)
+    // 被退回去的那个节点标红（成功的 redo），被拒的那次标红的是**发起它的节点**
+    expect(game.debugFailedNodes.value).toEqual([topology[6], topology[8]])
   })
 
   it('reads the structured fields, not the rendered line (the line may be any language)', async () => {
     const data = createInitialState(card)
     data.events = [
       { kind: 'tool', text: 'rendered however', node: topology[6], tool: 'move_to', detail: '{"area":"x"}' },
-      { kind: 'stateChange', text: 'rendered however', path: 'world.location', detail: '{"area":"x"}' },
+      { kind: 'stateChange', text: 'rendered however', path: 'world.location', value: { area: 'x' } },
       {
         kind: 'toolResult',
         text: 'rendered however',
@@ -636,7 +735,7 @@ describe('store: the debug projections', () => {
     const data = createInitialState(card)
     data.events = [
       { kind: 'tool', text: 'a line from an older save' },
-      { kind: 'stateChange', text: 'a line from an older save', detail: '{"year":2026}' },
+      { kind: 'stateChange', text: 'a line from an older save', value: { year: 2026 } },
       { kind: 'toolResult', text: 'a line from an older save' },
     ].map((event) => ({ at: '2026-09-15T10:00:00.000Z', ...event })) as GameEvent[]
 
@@ -647,7 +746,7 @@ describe('store: the debug projections', () => {
     expect(call.args).toBe('')
     expect(call.result).toBe('')
     expect(call.writes).toEqual([{ path: '', value: { year: 2026 } }])
-    // 有写入就不算失败；没有节点可归，图上也就没有要标红的
+    // 旧痕迹里没有 failed 这个字段（它是后来才加的）：不当成失败，图上也就没有要标红的
     expect(call.failed).toBe(false)
     expect(game.debugFailedNodes.value).toEqual([])
   })

@@ -12,7 +12,8 @@
  * schema 上的 note（给模型的规则）拼进对应动作的 tool description —— 规则与形状不分家，
  * 也不用每次调用都发一遍。
  *
- * 执行：校验参数 → 按 mode 写进**工作副本** → 返回 { result, change }（change 给调试面板与
+ * 执行：**先按节点的 tools 白名单挡一次**（不在名单里的动作直接回结构化错误）→ 校验参数
+ * → 按 mode 写进**工作副本** → 返回 { result, change }（change 给调试面板与
  * stateChange 事件用）。**参数不合法不抛错**：返回一句结构化错误，由调用方当工具结果回传给
  * 模型自己改 —— 这正是原生工具调用比解析文本强的地方。
  *
@@ -327,6 +328,14 @@ export function runAction(
   nodeId?: string,
 ): ActionOutcome {
   if (!Object.hasOwn(card.actions, name)) return { ok: false, error: 'unknown action "' + name + '"' }
+  // 节点的 tools 白名单是**机制**，不是给模型看的广告：请求里的 tools 表只说明「有哪些牌」，
+  // 而模型的输出是外部输入 —— 它报一个没给它的动作时，在这里挡下，照旧回结构化错误
+  if (nodeId !== undefined) {
+    const allowed = availableActions(card, nodeId)
+    if (!allowed.includes(name)) {
+      return { ok: false, error: name + ': this node may only use ' + JSON.stringify(allowed) }
+    }
+  }
   const action = card.actions[name]
   if (!isRecord(args)) return { ok: false, error: name + ': arguments must be a JSON object' }
 

@@ -56,7 +56,11 @@ export type Row =
       id: number
       kind: DebugRowKind
       text: string
-      /** 可折叠的原始内容（模型请求体 / 响应体 / 工具参数与结果） */
+      /**
+       * 可折叠的原始内容（模型请求体 / 响应体 / 工具参数与结果）。
+       *
+       * ⚠️ 写入那一行的原文不在痕迹里 —— 它是从结构化的 `value` 现写的（见 detailOf）。
+       */
       detail?: string
       /**
        * 这一行的分块清单（模型输入 / 原始回复两条有）—— 块与行的边界写在痕迹上，
@@ -95,10 +99,16 @@ export interface ToolCall {
   redoFrom: string | null
 }
 
-/** 原始内容那一格（写入值 / 工具结果都是 JSON 文本）；空的就当作没有 */
-function parsedOf(detail: string | undefined): unknown {
-  if (detail === undefined) return undefined
-  return JSON.parse(detail)
+/**
+ * 一行调试痕迹的**展开体**（给人看的原始文本）。
+ *
+ * ⚠️ 写入那一行的原文从结构化 `value` **现写**：痕迹里只存真值，不存第二份文本
+ *    （存两份的话，存档里那份就成了「必须是合法 JSON」的隐藏契约，读它的人得自己防一手）。
+ *    旧痕迹里可能只有 detail、没有 value —— 那就没有展开体，不猜。
+ */
+function detailOf(event: GameEvent): string | undefined {
+  if (event.kind !== 'stateChange') return event.detail
+  return event.value === undefined ? undefined : JSON.stringify(event.value, null, 2)
 }
 
 /** 参数 JSON 里的 from —— 参数是**模型给的**外部数据，必须是卡里拓扑中的一个节点 id */
@@ -144,14 +154,15 @@ function toolCallsOf(events: GameEvent[]): ToolCall[] {
       continue
     }
     if (event.kind === 'stateChange') {
-      open?.writes.push({ path: event.path ?? '', value: parsedOf(event.detail) })
+      open?.writes.push({ path: event.path ?? '', value: event.value })
       continue
     }
     if (event.kind === 'toolResult' && open) {
       const effect = currentCard.actions[open.tool]?.effect
       open.result = event.detail ?? ''
-      // 一次都没写成 = 引擎把结构化错误回传给了模型（或参数根本不是合法 JSON）
-      open.failed = open.writes.length === 0 && effect !== 'redo'
+      // 打没打回由引擎说了算（痕迹上的 failed）。**别从「有没有写入」反推**：
+      // 成功的 redo 也不写状态，两个一起被放过（被拒的 redo 就成了看不见的失败）
+      open.failed = event.failed === true
       if (effect === 'redo') open.redoFrom = redoFromOf(open.args)
       open = null
     }
@@ -269,7 +280,14 @@ export function useGame() {
       }
       if (!debugMode.value) return []
       return [
-        { id, kind: event.kind, text: event.text, detail: event.detail, blocks: event.blocks, debug: true },
+        {
+          id,
+          kind: event.kind,
+          text: event.text,
+          detail: detailOf(event),
+          blocks: event.blocks,
+          debug: true,
+        },
       ]
     }),
   )

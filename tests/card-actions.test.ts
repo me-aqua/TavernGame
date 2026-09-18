@@ -248,13 +248,30 @@ describe('runAction: invalid arguments come back as a message, not an exception'
   })
 
   it('checks the redo effect against the caller', () => {
-    const outcome = runAction(card(), instantiate(card()), 'redo', { from: 'first', why: 'wrong' }, 'second')
+    // 夹具的两个节点都没拿到 redo：先按声明给它们（白名单是机制，得先过它这一关）
+    const source = card()
+    source.graph.nodes.first.tools = ['redo']
+    source.graph.nodes.second.tools = ['redo']
+    const outcome = runAction(source, instantiate(source), 'redo', { from: 'first', why: 'wrong' }, 'second')
     expect(outcome).toEqual({ ok: true, kind: 'redo', from: 'first', why: 'wrong' })
-    expect(errorOf(card(), 'redo', { from: 'second', why: 'wrong' }, 'first')).toContain(
+    expect(errorOf(source, 'redo', { from: 'second', why: 'wrong' }, 'first')).toContain(
       'from must be one of',
     )
-    expect(errorOf(card(), 'redo', { from: 'nope', why: 'wrong' })).toContain('from must be one of')
-    expect(errorOf(card(), 'redo', { from: 'first', why: '' })).toContain('why must be a non-empty string')
+    expect(errorOf(source, 'redo', { from: 'nope', why: 'wrong' })).toContain('from must be one of')
+    expect(errorOf(source, 'redo', { from: 'first', why: '' })).toContain('why must be a non-empty string')
+  })
+
+  it('turns down an action the calling node was not granted', () => {
+    const args = { area: 'a', spot: 'b', scene: 'c' }
+    // 夹具的 second 一个动作都没拿到（tools: []）—— 它报什么都被挡在门外
+    expect(runAction(card(), instantiate(card()), 'set_place', args, 'second')).toEqual({
+      ok: false,
+      error: 'set_place: this node may only use []',
+    })
+    // 没写 tools 的节点 = 卡里全部动作：这一档一个字都没变
+    const open = card()
+    delete open.graph.nodes.second.tools
+    expect(runAction(open, instantiate(open), 'set_place', args, 'second').ok).toBe(true)
   })
 
   it('rejects an unknown action and arguments that are not an object', () => {

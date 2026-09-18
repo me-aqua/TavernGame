@@ -3,8 +3,9 @@
  *
  * 状态是卡声明的（game/card-state.ts）：引擎不认识「地牢」「萨伦」，界面同样不认识 ——
  * 这里只按 JSON 的形状走（对象 = 键值行、一串标量 = 标签、标量 = 一行文字），
- * 于是换一张卡面板照样画得出来。字段名里只有两处是**界面约定**：
- * 列表条目的 name（标题）与 count（数量）—— 卡不写这两个键，条目就按一般键值行画。
+ * 于是换一张卡面板照样画得出来。字段名里只有三处是**界面约定**：
+ * 列表条目的 name（标题）、count（数量）与 note（简介）—— 卡不写这三个键，
+ * 条目就按一般键值行画。
  *
  * 与 game/display.ts 的分工：那里说「哪一块读哪段状态」（引擎词表），
  * 这里说「那段状态怎么摆成几行」（界面的事）。
@@ -28,6 +29,21 @@ export const ITEM_NAME = 'name'
 
 /** 列表条目里当数量的键 */
 export const ITEM_COUNT = 'count'
+
+/** 列表条目里当简介的键（区域的一句话介绍、角色的外貌那类） */
+export const ITEM_NOTE = 'note'
+
+/**
+ * 条目的简介。
+ *
+ * ⚠️ 两种形状都要认：卡把条目写成**对象**时读它的 note（示例卡的区域与角色都是这样），
+ *    条目本身就是**一个字符串**时用它自己。只认后者的话，作者写在对象里的简介
+ *    永远不会出现在面板上 —— 而那正是玩家要看的那句话。
+ */
+export function noteOf(value: unknown): string {
+  if (isRecord(value)) return scalarText(value[ITEM_NOTE])
+  return scalarText(value)
+}
 
 /** 一段状态摊成键值对（不是对象就一个都没有） */
 export function entriesOf(value: unknown): StateEntry[] {

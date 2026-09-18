@@ -54,6 +54,7 @@ function nodeWithTool(tool: string): string {
 
 const MAP = nodeWithTool('move_to')
 const CAST = nodeWithTool('update_role')
+const CHAIN = nodeWithTool('set_chain')
 const STORY = storyNodeOf()
 const VERIFY = nodeWithTool('redo')
 
@@ -225,10 +226,11 @@ describe('tools: the model asks, the engine acts', () => {
   })
 
   it('writes a state-tree path through the card action (keyed map merge)', async () => {
+    // 写链的那个动作只给了一个节点（白名单是机制）：测试也得从卡里查，不能随手挑一个
     fake = installFakeLlm(
       cardTurnReplies({
         story: STORY_TEXT,
-        node: (id) => (id === CAST ? [setChainCall(KEYED_NAME)] : undefined),
+        node: (id) => (id === CHAIN ? [setChainCall(KEYED_NAME)] : undefined),
       }),
     )
     const ctx = createAgentContext()
@@ -241,7 +243,7 @@ describe('tools: the model asks, the engine acts', () => {
     const change = events.find((evt) => evt.type === 'stateChange')
     expect(change).toEqual({
       type: 'stateChange',
-      node: CAST,
+      node: CHAIN,
       path: 'world.chains.' + KEYED_NAME,
       value: { stage: 1 },
     })
@@ -249,11 +251,11 @@ describe('tools: the model asks, the engine acts', () => {
   })
 
   it('turns an invalid tool call into a tool result the model can fix (the turn still commits)', async () => {
-    // 第一次给一个引擎不接受的参数（map 的键是空串），第二次才写对
+    // 第一次给一个引擎不接受的参数（map 的键是空串），第二次才写对 —— 两次都用这个节点真拿到的动作
     fake = installFakeLlm(
       cardTurnReplies({
         story: STORY_TEXT,
-        node: (id) => (id === CAST ? [setChainCall(''), setChainCall(KEYED_NAME), 'cast done'] : undefined),
+        node: (id) => (id === CAST ? [addRoleCall(''), addRoleCall(KEYED_NAME), 'cast done'] : undefined),
       }),
     )
     const ctx = createAgentContext()
@@ -264,9 +266,9 @@ describe('tools: the model asks, the engine acts', () => {
     expect(followUp.some((message) => message.role === 'tool' && message.content.includes('must be'))).toBe(
       true,
     )
-    const chains = (ctx.data.state.world as Record<string, unknown>).chains as Record<string, unknown>
-    expect(chains[KEYED_NAME]).toBeDefined()
-    expect(chains['']).toBeUndefined()
+    const roles = ctx.data.state.roles as Record<string, unknown>
+    expect(roles[KEYED_NAME]).toBeDefined()
+    expect(roles['']).toBeUndefined()
   })
 
   it('fails the node when it keeps calling tools without ever writing text', async () => {
@@ -278,6 +280,36 @@ describe('tools: the model asks, the engine acts', () => {
     await expect(runTurn(ctx, { action: PLAYER_ACTION })).rejects.toThrow(
       t('agent.nodeStepLimit', { node: currentCard.graph.nodes[CAST].name, max: MAX_TOOL_ROUNDS }),
     )
+  })
+
+  it('refuses an action the node was never granted (the whitelist is a gate, not an advert)', async () => {
+    // 找一个「有工具、但没有推时间这个工具」的节点：它报一个卡里存在、没给它的动作
+    const NARROW = CARD_TOPOLOGY.find((id) => {
+      const granted = availableActions(currentCard, id)
+      return granted.length > 0 && !granted.includes('advance_time')
+    }) as string
+    fake = installFakeLlm(
+      cardTurnReplies({
+        story: STORY_TEXT,
+        node: (id) => (id === NARROW ? [advanceTimeCall(TIME_MINUTES, TIME_REASON), 'node done'] : undefined),
+      }),
+    )
+    const ctx = createAgentContext()
+    const events: AgentEvent[] = []
+    const before = { ...ctx.data.time }
+
+    await runTurn(ctx, { action: PLAYER_ACTION, onEvent: (evt) => events.push(evt) })
+
+    // 引擎把结构化错误当工具结果回传（模型自己改）；时间与时间线一个字节都没动
+    expect(events).toContainEqual({
+      type: 'toolResult',
+      node: NARROW,
+      tool: 'advance_time',
+      result: expect.stringContaining('may only use'),
+      failed: true,
+    })
+    expect(ctx.data.time).toEqual(before)
+    expect(ctx.data.timeline).toEqual([])
   })
 })
 
@@ -319,6 +351,29 @@ describe('redo: partial rollback, then rerun from that step to the end', () => {
     const nodeEvents = events.filter((evt) => evt.type === 'node') as Array<{ id: string }>
     expect(nodeEvents.map((evt) => evt.id)).toEqual([...CARD_TOPOLOGY, MAP, CAST, STORY, VERIFY])
     expect(events).toContainEqual({ type: 'redo', from: MAP, why: REDO_WHY })
+  })
+
+  it('rolls the timeline back with the clock (a jump the rerun undid must not survive)', async () => {
+    const TIME = timeNodeOf()
+    // 第一遍：时间节点推进 10 小时（够「值得记」）；校对要求退回**时间节点本身**
+    fake = installFakeLlm([
+      ...cardPassReplies(CARD_TOPOLOGY, (id) => {
+        if (id === TIME) return [advanceTimeCall(TIME_MINUTES * 7, TIME_REASON), 'time first pass']
+        if (id === VERIFY) return redoCall(TIME, REDO_WHY)
+        return undefined
+      }),
+      // 重跑那一段：时间原地不动 —— 被撤掉的那次推进不能在时间线上留痕
+      ...cardPassReplies(CARD_TOPOLOGY.slice(CARD_TOPOLOGY.indexOf(TIME)), (id) =>
+        id === STORY ? SECOND_STORY : undefined,
+      ),
+    ])
+    const ctx = createAgentContext()
+    const before = { ...ctx.data.time }
+
+    await runTurn(ctx, { action: PLAYER_ACTION })
+
+    expect(ctx.data.time).toEqual(before)
+    expect(ctx.data.timeline).toEqual([])
   })
 
   it('hands the reason to the rerun node as a system message', async () => {

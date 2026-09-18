@@ -131,6 +131,14 @@ export function event(kind: string, text: string, detail?: string): Record<strin
 }
 
 /**
+ * 一行写入痕迹：写成的值存的是**结构化真值**（`value`），不是一份 JSON 文本 ——
+ * 给人看的展开体由界面从 value 现写（stores/game.ts 的 detailOf）。
+ */
+export function writeEvent(text: string, value: unknown): Record<string, unknown> {
+  return { kind: 'stateChange', text, value, at: '2026-09-14T10:00:00.000Z' }
+}
+
+/**
  * 按卡的 state 建一棵初始状态树：只取写了 initial 的字段（与引擎同一套规则）。
  *
  * e2e 不 import 应用模块（见文件头），所以这十来行在这里重写一份 —— 它只认「initial」

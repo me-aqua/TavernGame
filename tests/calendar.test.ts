@@ -19,49 +19,37 @@ describe('Hour to segment mapping', () => {
   })
 })
 
-describe('advance - date boundaries', () => {
-  it('overflows upward when the target month has no such day (Date behaviour, not a bug)', () => {
-    // 1 月 31 日 + 1 个月：2 月没有 31 日 → 溢出到 3 月 3 日（平年）
-    const { iso } = realCalendar.advance('2026-01-31T10:00:00.000Z', 1, 'month')
-    const d = new Date(iso)
-    expect(d.getFullYear()).toBe(2026)
-    expect(d.getMonth()).toBe(2) // 3 月
-    expect(d.getDate()).toBe(3)
+describe('advanceHours - date boundaries', () => {
+  it('adds whole hours', () => {
+    const from = '2026-09-10T02:00'
+    expect(Date.parse(realCalendar.advanceHours(from, 3)) - Date.parse(from)).toBe(3 * 3600000)
   })
 
-  it('in a leap year, Feb 28 plus one day is Feb 29', () => {
-    const { iso } = realCalendar.advance('2024-02-28T10:00:00.000Z', 1, 'day')
-    const d = new Date(iso)
-    expect(d.getMonth()).toBe(1)
-    expect(d.getDate()).toBe(29)
+  it('crosses midnight into the next day', () => {
+    const d = new Date(realCalendar.advanceHours('2026-09-10T23:00', 2))
+    expect([d.getDate(), d.getHours()]).toEqual([11, 1])
   })
 
-  it('in a common year, Feb 28 plus one day is Mar 1', () => {
-    const { iso } = realCalendar.advance('2026-02-28T10:00:00.000Z', 1, 'day')
-    const d = new Date(iso)
-    expect(d.getMonth()).toBe(2)
-    expect(d.getDate()).toBe(1)
+  it('in a leap year, Feb 28 plus 24 hours is Feb 29', () => {
+    const d = new Date(realCalendar.advanceHours('2024-02-28T10:00', 24))
+    expect([d.getMonth(), d.getDate()]).toEqual([1, 29])
   })
 
-  it('crosses the year boundary', () => {
-    const { iso } = realCalendar.advance('2026-12-31T10:00:00.000Z', 1, 'day')
-    expect(new Date(iso).getFullYear()).toBe(2027)
+  it('in a common year, Feb 28 plus 24 hours is Mar 1', () => {
+    const d = new Date(realCalendar.advanceHours('2026-02-28T10:00', 24))
+    expect([d.getMonth(), d.getDate()]).toEqual([2, 1])
   })
 
-  it('treats one segment as four hours', () => {
-    const { elapsedMs } = realCalendar.advance('2026-09-10T02:00:00.000Z', 1, 'segment')
-    expect(elapsedMs).toBe(4 * 3600000)
+  it('crosses the end of a month and the end of a year', () => {
+    // 1 月 31 日 + 24 小时 = 2 月 1 日（不跳月，Date 按天数走）
+    const d = new Date(realCalendar.advanceHours('2026-01-31T10:00', 24))
+    expect([d.getMonth(), d.getDate()]).toEqual([1, 1])
+    expect(new Date(realCalendar.advanceHours('2026-12-31T10:00', 24)).getFullYear()).toBe(2027)
   })
 
-  it('treats one week as seven days', () => {
-    const { elapsedMs } = realCalendar.advance('2026-09-10T02:00:00.000Z', 2, 'week')
-    expect(elapsedMs).toBe(14 * 86400000)
-  })
-
-  it('reports an elapsedMs equal to the difference between the two ISO instants', () => {
-    const from = '2026-09-10T02:00:00.000Z'
-    const { iso, elapsedMs } = realCalendar.advance(from, 3, 'day')
-    expect(elapsedMs).toBe(Date.parse(iso) - Date.parse(from))
+  it('accepts zero hours (a turn that does not move the clock)', () => {
+    const from = '2026-09-10T02:00'
+    expect(realCalendar.advanceHours(from, 0)).toBe(new Date(from).toISOString())
   })
 })
 
@@ -76,12 +64,6 @@ describe('format', () => {
       t('calendar.dateSeparator') +
       segmentName(d.getHours())
     expect(realCalendar.format(iso)).toBe(expected)
-  })
-
-  it('throws on an unknown time unit (input outside the union type)', () => {
-    expect(() => realCalendar.advance('2026-09-10T02:00:00.000Z', 1, 'light-year' as never)).toThrow(
-      /Unknown time unit/,
-    )
   })
 })
 

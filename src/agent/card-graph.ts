@@ -12,7 +12,7 @@
  *
  * ## 快照与退回重来
  *
- * 每个节点**开跑之前**给工作副本（状态树 + 时间）拍一张快照。某个节点调用 redo 时：
+ * 每个节点**开跑之前**给工作副本（状态树 + 时间 + 时间线）拍一张快照。某个节点调用 redo 时：
  *   1. 把工作副本恢复到 from **开跑前**那张快照 —— 同时撤销 from、它之后的节点、
  *      以及调用者自己写下的东西；
  *   2. 把「哪里不对、谁要求重来」作为一条系统提示交给重跑的那个节点；
@@ -31,7 +31,7 @@ import { t } from '../i18n'
 import type { CardData } from '../game/card'
 import type { StateTree } from '../game/card-state'
 import type { TimeValue } from '../game/card-calendar'
-import type { GameData } from '../types/state'
+import type { GameData, TimelineEntry } from '../types/state'
 import type { AgentEvent } from './agent'
 
 /**
@@ -46,10 +46,17 @@ export const MAX_TOOL_ROUNDS = 3
 /** 一轮里最多退回重来几次 —— 没有这个上限，两个节点可以互相退回把额度烧光 */
 export const MAX_REDO = 2
 
-/** 一个节点开跑前的那张快照：状态树 + 时间 */
+/**
+ * 一个节点开跑前的那张快照 —— 工作副本里**节点改得动的全部三样**。
+ *
+ * ⚠️ 少一样就是「只回滚了一半」：`advanceTime` 除了把 `time` 推到新时刻，还会往
+ *    `timeline` 里记一条跳跃（game/state.ts）。漏掉 timeline，被退回的那一段就会
+ *    留下一条时钟对不上的记录 —— 而时间线是**落盘、玩家看得见**的。
+ */
 interface Snapshot {
   state: StateTree
   time: TimeValue
+  timeline: TimelineEntry[]
 }
 
 /** 一个节点的产出：写出文字，或申请退回重来 */
@@ -73,9 +80,13 @@ export interface CardGraphInput {
   onEvent?: (evt: AgentEvent) => void
 }
 
-/** 拷一张「状态树 + 时间」的快照（工具原地改状态树，存引用等于没拍） */
+/** 拷一张快照（工具原地改状态树，存引用等于没拍）—— 三样都得拷，见 Snapshot */
 function snapshotOf(data: GameData): Snapshot {
-  return { state: structuredClone(data.state), time: { ...data.time } }
+  return {
+    state: structuredClone(data.state),
+    time: { ...data.time },
+    timeline: structuredClone(data.timeline),
+  }
 }
 
 /** 拓扑前缀的产出（按拓扑顺序，跳过还没有产出的节点）—— 上游 = 已经跑完的那些 */
@@ -161,7 +172,13 @@ export async function runCardGraph(input: CardGraphInput): Promise<string[]> {
         input.onEvent?.({ type: 'tool', node: id, tool: call.name, args: call.arguments })
         // 参数不是合法 JSON 对象：把 llm.ts 给的结构化错误原样回传，让它自己改
         if (!call.args.ok) {
-          input.onEvent?.({ type: 'toolResult', node: id, tool: call.name, result: call.args.message })
+          input.onEvent?.({
+            type: 'toolResult',
+            node: id,
+            tool: call.name,
+            result: call.args.message,
+            failed: true,
+          })
           messages.push({ role: 'tool', tool_call_id: call.id, content: call.args.message })
           continue
         }
@@ -169,7 +186,13 @@ export async function runCardGraph(input: CardGraphInput): Promise<string[]> {
         const outcome = runAction(card, data.state, call.name, call.args.value, id)
         // 校验不过**不抛错**：把结构化错误当工具结果回传，让模型自己改（决定 #46）
         if (!outcome.ok) {
-          input.onEvent?.({ type: 'toolResult', node: id, tool: call.name, result: outcome.error })
+          input.onEvent?.({
+            type: 'toolResult',
+            node: id,
+            tool: call.name,
+            result: outcome.error,
+            failed: true,
+          })
           messages.push({ role: 'tool', tool_call_id: call.id, content: outcome.error })
           continue
         }
@@ -179,7 +202,7 @@ export async function runCardGraph(input: CardGraphInput): Promise<string[]> {
             node: card.graph.nodes[outcome.from].name,
             why: outcome.why,
           })
-          input.onEvent?.({ type: 'toolResult', node: id, tool: call.name, result })
+          input.onEvent?.({ type: 'toolResult', node: id, tool: call.name, result, failed: false })
           // 退回重来：这个节点这一步就到此为止（这条对话与剩下的工具调用一起作废，
           // 调用方会回滚并从 from 重跑）
           return { kind: 'redo', from: outcome.from, why: outcome.why }
@@ -189,7 +212,7 @@ export async function runCardGraph(input: CardGraphInput): Promise<string[]> {
           // 时间由引擎按这张卡的历法推进（minutes = 0 合法）；结果文案原样回传给模型
           const result = advanceTime(data, card.time.calendar, outcome.minutes, outcome.reason)
           input.onEvent?.({ type: 'stateChange', node: id, path: 'time', value: { ...data.time } })
-          input.onEvent?.({ type: 'toolResult', node: id, tool: call.name, result })
+          input.onEvent?.({ type: 'toolResult', node: id, tool: call.name, result, failed: false })
           messages.push({ role: 'tool', tool_call_id: call.id, content: result })
           continue
         }
@@ -200,7 +223,13 @@ export async function runCardGraph(input: CardGraphInput): Promise<string[]> {
           path: outcome.change.path,
           value: outcome.change.value,
         })
-        input.onEvent?.({ type: 'toolResult', node: id, tool: call.name, result: outcome.result })
+        input.onEvent?.({
+          type: 'toolResult',
+          node: id,
+          tool: call.name,
+          result: outcome.result,
+          failed: false,
+        })
         messages.push({ role: 'tool', tool_call_id: call.id, content: outcome.result })
       }
     }
@@ -238,6 +267,7 @@ export async function runCardGraph(input: CardGraphInput): Promise<string[]> {
     const snapshot = snapshots.get(from) as Snapshot
     data.state = structuredClone(snapshot.state)
     data.time = { ...snapshot.time }
+    data.timeline = structuredClone(snapshot.timeline)
     // 「哪里不对、谁要求重来」只交给重跑的那个节点（下游从它的新产出里读结论）
     hints.set(from, t('agent.redoHint', { node: card.graph.nodes[id].name, why: outcome.why }))
     index = from

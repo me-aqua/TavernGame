@@ -88,6 +88,15 @@ const upstream = computed(() => {
 /** 声明里的「不写 = 全部」—— 卡里的动作全给它 / 状态全看得见 */
 const all = computed(() => t('card.declAll'))
 
+/** 声明里的「写了个空表 = 一个都没有」—— judge 那种「不给它任何动作」的节点就长这样 */
+const none = computed(() => t('card.declNone'))
+
+/** 一条声明怎么念：没写这个键 = 全部，空表 = 一个都没有，其余按空格连起来 */
+function declaration(value: string[] | null): string {
+  if (value === null) return all.value
+  return value.length === 0 ? none.value : value.join(' ')
+}
+
 /**
  * 摆正视口：先 fitView（整张图缩进画布），再把位移夹回容器里。
  *
@@ -135,8 +144,8 @@ const nodes = computed<Node<CardNodeData>[]>(() =>
         label: node.label,
         sublabel: node.sublabel,
         role: node.role,
-        tools: node.tools === null ? all.value : node.tools.join(' '),
-        reads: node.reads === null ? all.value : node.reads.join(' '),
+        tools: declaration(node.tools),
+        reads: declaration(node.reads),
         failed: isFailed,
         active: node.id === props.active && !isFailed,
         selected: node.id === props.selected,

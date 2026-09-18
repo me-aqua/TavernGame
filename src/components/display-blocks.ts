@@ -30,8 +30,11 @@ import WorldMap from './world/WorldMap.vue'
 import WorldCast from './world/WorldCast.vue'
 import WorldPack from './world/WorldPack.vue'
 
-/** 顶栏能显示的条目 —— 卡里的名字由 TOPBAR 映射到它 */
-export type TopbarItem = 'time' | 'scene' | 'turn'
+/** 顶栏能显示的条目 —— 名字本身就是渲染键，词表在 game/card.ts（这里不抄第二份） */
+export type TopbarItem = (typeof KNOWN_TOPBAR)[number]
+
+/** 侧栏块名 —— 词表里的字面量类型 */
+type BlockName = (typeof KNOWN_BLOCKS)[number]
 
 /** 世界面板的一块：卡里的块名 + 标题文案键 + 组件 + 它读哪段状态 */
 export interface WorldBlock {
@@ -45,12 +48,6 @@ export interface WorldBlock {
   props: (state: StateTree) => Record<string, unknown>
 }
 
-/** 顶栏条目名 —— 词表里的字面量类型 */
-type TopbarName = (typeof KNOWN_TOPBAR)[number]
-
-/** 侧栏块名 —— 词表里的字面量类型 */
-type BlockName = (typeof KNOWN_BLOCKS)[number]
-
 /** 侧栏块名 → 组件与它读的状态（块名与路径的对应在 game/display.ts，这里只连组件） */
 const BLOCKS: Record<BlockName, Omit<WorldBlock, 'name'>> = {
   map: { title: 'world.map', view: WorldMap, props: (state) => ({ ...mapOf(state) }) },
@@ -58,18 +55,9 @@ const BLOCKS: Record<BlockName, Omit<WorldBlock, 'name'>> = {
   pack: { title: 'world.pack', view: WorldPack, props: (state) => ({ items: packOf(state) }) },
 }
 
-/** 顶栏条目名 → 界面上的哪一个 */
-const TOPBAR: Record<TopbarName, TopbarItem> = {
-  time: 'time',
-  scene: 'scene',
-  turn: 'turn',
-}
-
 /** 坏名字的报错：说清是哪个名字、应用认识哪些 —— 名字来自卡，是数据不是文案 */
-function unknownName(kind: string, name: string, known: object): string {
-  return (
-    kind + ' ' + JSON.stringify(name) + ' has no renderer (known: ' + Object.keys(known).join(' / ') + ')'
-  )
+function unknownName(kind: string, name: string, known: readonly string[]): string {
+  return kind + ' ' + JSON.stringify(name) + ' has no renderer (known: ' + known.join(' / ') + ')'
 }
 
 /** 按卡声明的顺序把侧栏块名解析成「组件 + 数据来源」；不认识的块名抛错 */
@@ -77,17 +65,23 @@ export function worldBlocks(decl: DisplayDecl): WorldBlock[] {
   return decl.sidebar.map((name) => {
     // 名字来自卡，运行时是普通字符串：先按 string 查一次表，认不出来才是坏卡
     const block = Object.hasOwn(BLOCKS, name) ? BLOCKS[name as BlockName] : undefined
-    if (!block) throw new Error(unknownName('display block', name, BLOCKS))
+    if (!block) throw new Error(unknownName('display block', name, Object.keys(BLOCKS)))
     return { name, ...block }
   })
 }
 
-/** 按卡声明的顺序把顶栏条目名解析成渲染键；不认识的条目抛错 */
+/**
+ * 按卡声明的顺序把顶栏条目名解析成渲染键；不认识的条目抛错。
+ *
+ * ⚠️ 顶栏**没有**「卡里的名字 → 界面上的谁」这一层映射：名字本身就是渲染键
+ *    （App 按它决定那一条画什么），所以这里只查词表 —— 别再加一张键值全相同的表。
+ */
 export function topbarItems(decl: DisplayDecl): TopbarItem[] {
   return decl.topbar.map((name) => {
-    const item = Object.hasOwn(TOPBAR, name) ? TOPBAR[name as TopbarName] : undefined
-    if (!item) throw new Error(unknownName('topbar entry', name, TOPBAR))
-    return item
+    if (!(KNOWN_TOPBAR as readonly string[]).includes(name)) {
+      throw new Error(unknownName('topbar entry', name, KNOWN_TOPBAR))
+    }
+    return name as TopbarItem
   })
 }
 

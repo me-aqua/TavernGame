@@ -18,6 +18,7 @@ import {
   fakeLlm,
   saveWith,
   seedStorage,
+  writeEvent,
   type FakeMode,
 } from './fixtures'
 import { PROBE, expectClean, type Probe } from './probe'
@@ -93,7 +94,7 @@ const DEBUG_EVENTS = [
     '⚙ 调用 advance_time({"minutes":5,"reason":"在酒馆待到深夜"})',
     '{"minutes":5,"reason":"在酒馆待到深夜"}',
   ),
-  event('stateChange', '✎ 写入 time', '{ "year": 2026, "month": 9, "day": 14, "hour": 19, "minute": 35 }'),
+  writeEvent('✎ 写入 time', { year: 2026, month: 9, day: 14, hour: 19, minute: 35 }),
   event('toolResult', '   → 🕐 时间推进：5 分钟', '🕐 时间推进：5 分钟'),
   ...STORY,
 ]

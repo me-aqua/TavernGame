@@ -187,18 +187,22 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
         })
         break
       case 'toolResult':
-        // 结果可能是一整段长正文：同样只把头部放上摘要行，完整结果一个字节不少地进 detail
+        // 结果可能是一整段长正文：同样只把头部放上摘要行，完整结果一个字节不少地进 detail。
+        // failed 是引擎给的答案（这次调用被没被打回）—— 面板据此标红，不自己反推
         trace('toolResult', t('store.toolResultLine', { result: previewOf(evt.result) }), {
           node: evt.node,
           tool: evt.tool,
           detail: evt.result,
+          failed: evt.failed,
         })
         break
       case 'stateChange':
+        // 写入的值是**结构化的**（value），不是一段 JSON 文本：展开体要文本时由投影现写
+        // （存两份的话，存档里那份文本就成了隐藏契约 —— 读它的界面得自己防一手不是 JSON）
         trace('stateChange', t('store.stateChangeLine', { path: evt.path }), {
           node: evt.node,
           path: evt.path,
-          detail: JSON.stringify(evt.value, null, 2),
+          value: evt.value,
         })
         writes.value = [...writes.value, { path: evt.path, value: evt.value }]
         break
