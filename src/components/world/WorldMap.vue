@@ -9,7 +9,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isRecord } from '../../game/save'
-import { entriesOf, noteOf, scalarText, textsOf } from '../state-view'
+import { entriesOf, scalarText, textsOf } from '../state-view'
 
 const { t } = useI18n()
 
@@ -20,11 +20,14 @@ const props = defineProps<{
   location: unknown
 }>()
 
-/** 区域摊成「名字 + 简介 + 地点」——简介读条目里的 note（整段就是一个字符串时用它自己） */
+/**
+ * 区域摊成「名字 + 那句话 + 地点」—— 名字是 map 的键；「那句话」只有**整条就是一个字符串**时才有
+ * （对象条目按形状摊不出「哪一栏是简介」：见 state-view 的文件头，最终形态归段 6）。
+ */
 const places = computed(() =>
   entriesOf(props.areas).map(({ key, value }) => ({
     name: key,
-    note: noteOf(value),
+    note: scalarText(value),
     spots: textsOf(value),
   })),
 )

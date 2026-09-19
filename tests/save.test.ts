@@ -203,9 +203,16 @@ describe('normalize - the state tree must match the card schema', () => {
   it('refuses a value that does not fit the schema', () => {
     const save = savedGame()
     const lead = save.state.lead as Record<string, unknown>
-    const traits = lead.traits as Record<string, unknown>
-    traits.strength = 'strong'
-    expect(() => normalize(save, currentCard)).toThrow('state.lead.traits.strength')
+    // ⚠️ 段 3 之后作者起的键名是中文（测试代码必须 ASCII）⇒ 那两个名字从卡的 schema 里现取：
+    //    「里面还有一层 fields 的那一段」+「它下面类型是 integer 的那一栏」
+    const leadFields = (currentCard.state as unknown as { lead: { fields: Record<string, any> } }).lead.fields
+    const traitsKey = Object.keys(leadFields).find((key) => leadFields[key].fields !== undefined) as string
+    const numberKey = Object.keys(leadFields[traitsKey].fields).find(
+      (key) => leadFields[traitsKey].fields[key].type === 'integer',
+    ) as string
+    const traits = lead[traitsKey] as Record<string, unknown>
+    traits[numberKey] = 'strong'
+    expect(() => normalize(save, currentCard)).toThrow('state.lead.' + traitsKey + '.' + numberKey)
   })
 
   it('refuses a state that is not an object', () => {

@@ -75,8 +75,10 @@ describe('toolSchemas: the parameters are derived from the state schema', () => 
       required: ['value'],
     })
     const log = paramsOf(nightWatch(), 'write_log')
-    expect(Object.keys(log.properties)).toEqual(['what', 'when'])
-    expect(log.required).toEqual(['what', 'when'])
+    // ⚠️ 段 3 之后作者起的字段名**可以不是 ASCII** ⇒ 从那张卡里现取，不在这里抄一份名字
+    const logFields = Object.keys((nightWatch().state as any).log.of.fields)
+    expect(Object.keys(log.properties)).toEqual(logFields)
+    expect(log.required).toEqual(logFields)
   })
 
   it('has a single value parameter when the target is a scalar', () => {
@@ -181,29 +183,33 @@ describe('runAction: writes go into the working copy', () => {
 
     const night = nightWatch()
     const nightState = instantiate(night)
-    const outcome = runAction(night, nightState, 'write_log', { what: 'fog', when: 'late' })
+    // ⚠️ 元素的两个字段名从卡里现取（段 3 之后它们是中文，测试代码里写不了中文字面量）
+    const [first, second] = Object.keys((night.state as any).log.of.fields)
+    const entry: Record<string, string> = { [first]: 'fog', [second]: 'late' }
+    const outcome = runAction(night, nightState, 'write_log', entry)
     expect(outcome).toEqual({
       ok: true,
       kind: 'state',
-      result: 'pushed to log: {"what":"fog","when":"late"}',
-      change: { path: 'log', value: { what: 'fog', when: 'late' } },
+      result: 'pushed to log: ' + JSON.stringify(entry),
+      change: { path: 'log', value: entry },
     })
-    expect(nightState.log).toEqual([{ what: 'fog', when: 'late' }])
+    expect(nightState.log).toEqual([entry])
   })
 
   it('writes into a real card the same way', () => {
     const source = example()
     const state = instantiate(source)
-    // 取值从卡里现拿：测试代码必须 ASCII，而卡的内容不是
-    const sample = Object.values((source.state.roles as any).initial)[0] as { role: string }
-    const role = sample.role
+    // 名字与取值都从卡里现拿：测试代码必须 ASCII，而卡里的键名与内容都不是
+    const roles = (source.state as any).roles
+    const keyField = (source.actions as any).update_role.key
+    const sample = Object.values(roles.initial)[0] as Record<string, string>
+    const field = Object.keys(sample)[0]
     const outcome = runAction(source, state, 'update_role', {
-      name: 'Tester',
-      role,
-      now: { mood: 'wary' },
+      [keyField]: 'Tester',
+      [field]: sample[field],
     })
     expect(outcome.ok).toBe(true)
-    expect((state.roles as any).Tester).toEqual({ role, now: { mood: 'wary' } })
+    expect((state.roles as any).Tester).toEqual({ [field]: sample[field] })
   })
 })
 

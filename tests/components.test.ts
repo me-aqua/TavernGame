@@ -335,13 +335,13 @@ describe('WorldCast', () => {
     expect(w.findAll('[data-cast]')).toHaveLength(0)
   })
 
-  it('takes the note of a person whose section is a record, and does not print it twice', () => {
+  it('prints the fields of a record section as lines, each exactly once', () => {
     const w = render(WorldCast, {
       props: { cast: { Salen: { note: 'red hair, twenty-six', role: 'smith' } } },
     })
     const text = w.find('[data-cast]').text()
 
-    // 卡把角色写成对象（示例卡就是这样）：简介读条目里的 note，明细行里不再重复一遍
+    // 对象条目按形状摊：每一栏各一行（界面不认「哪一栏是简介」—— 见 state-view 的文件头）
     expect(text).toContain('red hair, twenty-six')
     expect(text.match(/red hair, twenty-six/g)).toHaveLength(1)
     expect(text).toContain('smith')
@@ -374,7 +374,7 @@ describe('WorldMap', () => {
     expect(w.findAll('[data-current]')).toHaveLength(0)
   })
 
-  it('takes the note of an area whose section is a record (what the example card looks like)', () => {
+  it('keeps a record area to its places: the fields are not read as a note any more', () => {
     const w = render(WorldMap, {
       props: {
         areas: { port: { kind: 'authored', note: 'a town of three hundred', spots: ['inn'] } },
@@ -383,34 +383,35 @@ describe('WorldMap', () => {
     })
     const text = w.find('[data-area]').text()
 
-    // 作者写在条目里的那句话必须画出来（只认「整段是字符串」的话，它永远不会出现）
-    expect(text).toContain('a town of three hundred')
+    // 界面不认「哪一栏是简介」⇒ 对象条目的那一句话不再单独画出来（归段 6：显示由格式驱动）
+    expect(text).not.toContain('a town of three hundred')
+    // 地点照旧：「它是一串标量」这条形状判据没变
     expect(text).toContain('inn')
   })
 })
 
 describe('WorldPack', () => {
-  it('draws list items with their count, and keeps the rest as detail lines', () => {
+  it('draws a record item by shape: every field is a detail line, no count badge', () => {
     const w = render(WorldPack, {
       props: { items: [{ name: 'dirk', count: 2, wear: 'chipped' }, 'rope'] },
     })
 
     const items = w.findAll('[data-item]')
     expect(items).toHaveLength(2)
+    // 对象条目没有标题（界面不认「哪一栏是名称」）—— 值都在明细行里
     expect(items[0].text()).toContain('dirk')
-    expect(items[0].text()).toContain(t('world.itemCount', { count: 2 }))
+    expect(items[0].text()).toContain('2')
     expect(items[0].text()).toContain('chipped')
-    // 数量只出现一次：name / count 已经当标题与数量画过了，不再重复成明细行
-    expect(items[0].text().split(t('world.itemCount', { count: 2 }))).toHaveLength(2)
+    // 整条是一个字符串时它自己就是标题
     expect(items[1].text()).toContain('rope')
-    expect(items[1].text()).not.toContain(t('world.itemCount', { count: 2 }))
+    expect(items[1].text()).not.toContain('2')
   })
 
   it('draws a pack written as a dictionary by its keys', () => {
     const w = render(WorldPack, { props: { items: { rope: { count: 3 } } } })
     const item = w.find('[data-item]')
     expect(item.text()).toContain('rope')
-    expect(item.text()).toContain(t('world.itemCount', { count: 3 }))
+    expect(item.text()).toContain('3')
   })
 
   it('draws nothing when the pack is neither a list nor a dictionary', () => {
@@ -455,12 +456,16 @@ describe('state-view: the shape walkers behind the world panel', () => {
     ])
   })
 
-  it('turns a list entry into title / count / details, by the two interface conventions', () => {
-    expect(itemOf('rope')).toEqual({ title: 'rope', count: '', lines: [] })
+  it('turns a list entry into a title or into detail lines, by shape alone', () => {
+    expect(itemOf('rope')).toEqual({ title: 'rope', lines: [] })
+    // 对象条目没有标题：整段摊成明细行，**一栏都不摘走**（没有「哪一栏是名称 / 数量」这套约定）
     expect(itemOf({ name: 'bread', count: 3, note: 'stale' })).toEqual({
-      title: 'bread',
-      count: '3',
-      lines: [{ key: 'note', text: 'stale' }],
+      title: '',
+      lines: [
+        { key: 'name', text: 'bread' },
+        { key: 'count', text: '3' },
+        { key: 'note', text: 'stale' },
+      ],
     })
   })
 })

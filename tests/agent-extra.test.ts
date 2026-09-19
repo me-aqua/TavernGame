@@ -47,6 +47,10 @@ afterEach(() => {
 /** 用第一张能写状态的节点（update_role 在卡里只给了两个节点，取第一个） */
 const CAST = CARD_TOPOLOGY.find((id) => availableActions(currentCard, id).includes('update_role')) as string
 const STORY = storyNodeOf()
+
+/** `update_role` 的 map 键参数叫什么 —— 段 3 之后作者起的键名是中文，从卡里现取 */
+const ROLE_KEY = (currentCard.actions as Record<string, { key?: string }>).update_role.key as string
+
 const TIME = timeNodeOf()
 
 describe('advance_time with minutes = 0', () => {
@@ -135,7 +139,7 @@ describe('bad protocol input goes back to the model, never throws', () => {
 describe('the debug events carry the raw material the panel needs', () => {
   it('request / model / tool / toolResult / stateChange are all reported', async () => {
     const writes = {
-      toolCalls: [{ name: 'update_role', arguments: JSON.stringify({ name: LOG_NAME }) }],
+      toolCalls: [{ name: 'update_role', arguments: JSON.stringify({ [ROLE_KEY]: LOG_NAME }) }],
     } as FakeReply
     fake = installFakeLlm(
       cardPassReplies(CARD_TOPOLOGY, (id) => {
@@ -166,7 +170,7 @@ describe('the debug events carry the raw material the panel needs', () => {
     }
     // tool 带协议原样的参数 JSON；toolResult 带回传的结果；stateChange 带路径与值
     const tool = events.find((event) => event.type === 'tool')
-    expect(tool?.args).toBe(JSON.stringify({ name: LOG_NAME }))
+    expect(tool?.args).toBe(JSON.stringify({ [ROLE_KEY]: LOG_NAME }))
     const toolResult = events.find((event) => event.type === 'toolResult')
     expect(String(toolResult?.result).length).toBeGreaterThan(0)
     const change = events.find((event) => event.type === 'stateChange')
@@ -195,7 +199,7 @@ describe('the debug events carry the raw material the panel needs', () => {
 
   it('warns when a step calls tools without writing any text', async () => {
     const call: FakeReply = {
-      toolCalls: [{ name: 'update_role', arguments: JSON.stringify({ name: LOG_NAME }) }],
+      toolCalls: [{ name: 'update_role', arguments: JSON.stringify({ [ROLE_KEY]: LOG_NAME }) }],
     }
     fake = installFakeLlm(cardTurnReplies({ node: (id) => (id === CAST ? [call, 'cast done'] : undefined) }))
     const ctx = createAgentContext()

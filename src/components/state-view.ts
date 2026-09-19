@@ -3,9 +3,15 @@
  *
  * 状态是卡声明的（game/card-state.ts）：引擎不认识「地牢」「萨伦」，界面同样不认识 ——
  * 这里只按 JSON 的形状走（对象 = 键值行、一串标量 = 标签、标量 = 一行文字），
- * 于是换一张卡面板照样画得出来。字段名里只有三处是**界面约定**：
- * 列表条目的 name（标题）、count（数量）与 note（简介）—— 卡不写这三个键，
- * 条目就按一般键值行画。
+ * 于是换一张卡面板照样画得出来。
+ *
+ * ⚠️ **界面不认任何字段名**，也没有「哪一栏是标题 / 数量 / 简介」这套约定：卡里的字段名由作者起、
+ *    可以是中文，而这里只能写 ASCII 的东西（`src/**` 不许出现非 ASCII 字面量，
+ *    `.githooks/checks/ascii.mjs` 拦）—— 按名字找「名称 / 数量 / 简介」时，名字对不上就
+ *    **静默读到空**、不报错，面板上少一句话而没人知道为什么。
+ *    ⇒ **代价（已知，作为中间态接受）**：地图与角色那两块没有「简介」那一行小字、
+ *      背包没有粗体标题与数量徽标（值本身仍在明细行里，只是不带栏目名）。
+ *      **这三块的最终形态归段 6** —— R12/R13：显示由**格式**驱动，不是引擎猜字段名。
  *
  * 与 game/display.ts 的分工：那里说「哪一块读哪段状态」（引擎词表），
  * 这里说「那段状态怎么摆成几行」（界面的事）。
@@ -22,27 +28,6 @@ export interface StateEntry {
 export interface StateLine {
   key: string
   text: string
-}
-
-/** 列表条目里当标题的键 */
-export const ITEM_NAME = 'name'
-
-/** 列表条目里当数量的键 */
-export const ITEM_COUNT = 'count'
-
-/** 列表条目里当简介的键（区域的一句话介绍、角色的外貌那类） */
-export const ITEM_NOTE = 'note'
-
-/**
- * 条目的简介。
- *
- * ⚠️ 两种形状都要认：卡把条目写成**对象**时读它的 note（示例卡的区域与角色都是这样），
- *    条目本身就是**一个字符串**时用它自己。只认后者的话，作者写在对象里的简介
- *    永远不会出现在面板上 —— 而那正是玩家要看的那句话。
- */
-export function noteOf(value: unknown): string {
-  if (isRecord(value)) return scalarText(value[ITEM_NOTE])
-  return scalarText(value)
 }
 
 /** 一段状态摊成键值对（不是对象就一个都没有） */
@@ -91,14 +76,13 @@ export function linesOf(value: unknown): StateLine[] {
   return lines
 }
 
-/** 列表条目：字符串条目直接是一行，对象条目取它的 name 当标题、count 当数量、其余当明细 */
-export function itemOf(value: unknown): { title: string; count: string; lines: StateLine[] } {
+/**
+ * 列表条目：条目本身就是一行文字时标题就是它；是对象时没有标题，整段摊成明细行。
+ *
+ * ⚠️ 标题只有"整条是一个标量"这一种来源 —— 对象条目的名字由调用方给（地图拿 map 的键当名字）。
+ */
+export function itemOf(value: unknown): { title: string; lines: StateLine[] } {
   const text = scalarText(value)
-  if (text !== '') return { title: text, count: '', lines: [] }
-  const record = isRecord(value) ? value : {}
-  return {
-    title: scalarText(record[ITEM_NAME]),
-    count: scalarText(record[ITEM_COUNT]),
-    lines: linesOf(value).filter((line) => line.key !== ITEM_NAME && line.key !== ITEM_COUNT),
-  }
+  if (text !== '') return { title: text, lines: [] }
+  return { title: '', lines: linesOf(value) }
 }

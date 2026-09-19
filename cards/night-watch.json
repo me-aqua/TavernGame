@@ -65,15 +65,15 @@
     "lead": {
       "type": "object",
       "fields": {
-        "name": { "type": "string", "initial": "守夜人" },
-        "mood": { "type": "string", "initial": "困" },
+        "名称": { "type": "string", "initial": "守夜人" },
+        "心情": { "type": "string", "initial": "困" },
         "pack": { "type": "list", "initial": ["雨衣", "煤油灯", "饼干"], "of": "string" }
       }
     },
     "log": {
       "type": "list",
       "initial": [],
-      "of": { "type": "object", "fields": { "what": "string", "when": "string" } }
+      "of": { "type": "object", "fields": { "事件": "string", "时刻": "string" } }
     }
   },
 

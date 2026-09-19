@@ -6,7 +6,7 @@
  * 字符串数组连成一行，嵌套对象不展开（面板是给人扫一眼的，不是状态树的全文）。
  */
 import { computed } from 'vue'
-import { linesOf, entriesOf, noteOf, ITEM_NOTE } from '../state-view'
+import { linesOf, entriesOf, scalarText } from '../state-view'
 
 const props = defineProps<{
   /** roles：人名 → 那个角色的几段状态 */
@@ -14,16 +14,16 @@ const props = defineProps<{
 }>()
 
 /**
- * 角色摊成「名字 + 简介 + 几行状态」。
+ * 角色摊成「名字 + 那一段 + 几行状态」。
  *
- * ⚠️ 简介那一行已经从条目里取走了（noteOf），明细行里就得把 note 摘掉 ——
- *    不然同一句话会在面板上出现两遍。
+ * ⚠️ 「那一段」只有**整条就是一个字符串**时才有（对象条目的每一栏都走明细行 ——
+ *    界面不认「哪一栏是简介」：见 state-view 的文件头，最终形态归段 6）。
  */
 const people = computed(() =>
   entriesOf(props.cast).map(({ key, value }) => ({
     name: key,
-    note: noteOf(value),
-    lines: linesOf(value).filter((line) => line.key !== ITEM_NOTE),
+    note: scalarText(value),
+    lines: linesOf(value),
   })),
 )
 </script>

@@ -17,7 +17,10 @@ import {
   LEAD_PLACE,
   MOVED_PLACE,
   NARRATION,
+  PLACE_FIELDS,
   TIME_NODE,
+  WHERE_PATH,
+  WHO_KEY,
   openApp,
   saveWith,
   translate,
@@ -41,7 +44,7 @@ const TURN_TIMEOUT = 20_000
 /**
  * R20：**主控的位置在 `whoIsWhere` 那本册子里** —— `world.location` 那一枝与 `move_to` 都没了。
  *
- * 每一条都是 `{area, spot, scene}`（R20 ③），**键是主控的名字**（R20 ②）——
+ * 每一条都是三栏（R20 ③），**键是主控的名字**（R20 ②）——
  * 卡的状态初值里现在就有主控那一条，新开局那一帧答得出"你在哪"。
  */
 const LEAD = { name: LEAD_NAME, place: LEAD_PLACE }
@@ -77,7 +80,7 @@ test.describe('第一屏', () => {
     const pill = page.locator('aside')
     // ⚠️ 目标形态（R20）：那条「场景」显示**主控在谁在哪里的那一条**。
     //    R32 说顶栏先不做、显示搬进侧栏 ⇒ 这一条 **归段 6**，**今天红着**（交付说明 §八.1）。
-    await expect(pill.locator('.scene-name')).toContainText(LEAD.place.spot)
+    await expect(pill.locator('.scene-name')).toContainText(LEAD.place[PLACE_FIELDS.spot])
     await expect(pill.locator('[data-turn]')).toHaveText('0')
     // 侧栏在手机与桌面上是两种排布，:visible 只取当前那一份
     await expect(page.locator('.time-display:visible')).toHaveText(TIME_PATTERN)
@@ -148,7 +151,7 @@ test.describe('世界面板', () => {
     //    **今天红着**（交付说明 §八.1）。
     const here = panel.locator('[data-place][data-current]')
     await expect(here).toHaveCount(1)
-    await expect(here).toHaveText(LEAD.place.spot)
+    await expect(here).toHaveText(LEAD.place[PLACE_FIELDS.spot])
     await expect(panel.locator('[data-area][data-current]')).toHaveCount(1)
 
     await page.locator('button[data-world-close]').click()
@@ -236,17 +239,18 @@ test.describe('调试面板', () => {
     await expect(panel).toContainText('advance_time')
     await expect(panel).toContainText('"minutes"')
     await expect(panel).toContainText('set_whereabouts')
-    await expect(panel).toContainText('"who"')
+    await expect(panel).toContainText('"' + WHO_KEY + '"')
     // 原始参数里就是那条位置（假模型让地图节点把主控记到铁匠铺）——
-    // ⚠️ R20 ③ 之后那一条是**三栏**（不再是"三段拼成的一条串"），所以这里断它的 `spot`
-    await expect(panel).toContainText(MOVED_PLACE.spot)
-    // 每次调用都写着它写了哪条路径 —— R20：位置写进谁在哪那本册子的**主控那一条**
-    await expect(panel).toContainText('world.whoIsWhere.' + LEAD.name)
+    // ⚠️ R20 ③ 之后那一条是**三栏**（不再是"三段拼成的一条串"），所以这里断它的「地点」栏
+    await expect(panel).toContainText(MOVED_PLACE[PLACE_FIELDS.spot])
+    // 每次调用都写着它写了哪条路径 —— R20：位置写进「谁在哪」那本册子的**主控那一条**
+    // （路径从卡自己的动作现读：段 3 之后那一段是中文的）
+    await expect(panel).toContainText(WHERE_PATH + '.' + LEAD.name)
 
     // 引擎状态那一页：本轮写入清单跟着出来了
     await panel.locator('[data-debug-tab="state"]').click()
     await expect(panel.locator('[data-debug-write]')).toHaveCount(2)
-    await expect(panel).toContainText('world.whoIsWhere.' + LEAD.name)
+    await expect(panel).toContainText(WHERE_PATH + '.' + LEAD.name)
   })
 })
 

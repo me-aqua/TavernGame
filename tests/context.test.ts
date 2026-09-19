@@ -55,7 +55,9 @@ describe('reads - a node only sees the branches it declares', () => {
     expect(readers).toHaveLength(1)
 
     const data = createInitialState(card)
-    const profile = (data.state.player as Record<string, unknown>).profile as string
+    // ⚠️ 玩家画像那一栏的键名从卡里现取（段 3 之后是中文的「画像」，测试代码里写不了中文字面量）
+    const [profileField] = Object.keys((card.state.player as { fields: Record<string, unknown> }).fields)
+    const profile = (data.state.player as Record<string, unknown>)[profileField] as string
     expect(profile.length).toBeGreaterThan(0)
 
     const user = userOf(readers[0], data)

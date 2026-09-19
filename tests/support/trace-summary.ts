@@ -9,11 +9,24 @@
  * ⚠️ 跑出来的两行都带 `detail`（协议原样的参数 / 引擎回传的结果）——「内容不丢」比的就是它。
  */
 import { useGame } from '../../src/stores/game'
+import { currentCard } from '../../src/game/current-card'
 import { configureFakeProvider } from './game-fixtures'
 import { cardTurnReplies, nodeWith } from './card-replies'
 import { installFakeLlm, type FakeReply } from './fakeLlm'
 import { label } from './trace-blocks'
 import type { Row } from '../../src/stores/game'
+
+/**
+ * `update_role` 参数里那两个名字 —— 都从卡里现取（作者起的名字不是 ASCII，抄不了字面量）。
+ *
+ * ⚠️ `ascii.mjs` 连 `tests/` 的字符串字面量一起拦 ⇒ 键名只能**派生**：
+ *    一个是动作自己的 map 键（`actions[].key`），另一个是它写的那一段里的某个字段。
+ *    这个夹具只要求两个键不一样、值一长一短，所以取哪个字段无所谓。
+ */
+const ROLE_KEY = (currentCard.actions as Record<string, { key?: string }>).update_role.key as string
+const ROLE_FIELDS = (currentCard.state as unknown as { roles: { of: { fields: Record<string, unknown> } } })
+  .roles.of.fields
+const ROLE_FIELD = Object.keys(ROLE_FIELDS).find((key) => key !== ROLE_KEY) as string
 
 /** 界面上的调试行（Row 的 debug 那一支）—— 契约要它带 detail、摘要收短 */
 export type DebugRow = Extract<Row, { debug: true }>
@@ -31,10 +44,10 @@ export const TAIL_SENTINEL = 'TAIL-SENTINEL'
 export const LONG_NOTE = 'a long role note. '.repeat(8) + TAIL_SENTINEL
 
 /** 模型给的参数（协议原样的一串 JSON）—— 摘要要收短的那个源串 */
-export const LONG_ARGS = JSON.stringify({ name: ROLE_NAME, note: LONG_NOTE })
+export const LONG_ARGS = JSON.stringify({ [ROLE_KEY]: ROLE_NAME, [ROLE_FIELD]: LONG_NOTE })
 
 /** 只写人名、不写别的字段的参数（14 个字）：短到不该被截断 */
-export const SHORT_ARGS = JSON.stringify({ name: ROLE_NAME })
+export const SHORT_ARGS = JSON.stringify({ [ROLE_KEY]: ROLE_NAME })
 
 /** 预览上限：**写死的那个值**（契约 §2）。超出才算截断，正好等于上限不算 */
 export const PREVIEW_LIMIT = 40
@@ -48,15 +61,15 @@ export function previewOf(source: string): string {
 }
 
 /**
- * 造一串**恰好 size 个字**的参数 JSON（`name` 之外只剩 `note`）。
+ * 造一串**恰好 size 个字**的参数 JSON（人名那一栏之外只剩另一个字段）。
  *
  * 边界用例要的是「正好等于上限」：多一个字就该截断，少一个字就不该。
  */
 export function argsOfLength(size: number): string {
-  const shell = JSON.stringify({ name: ROLE_NAME, note: '' })
+  const shell = JSON.stringify({ [ROLE_KEY]: ROLE_NAME, [ROLE_FIELD]: '' })
   return JSON.stringify({
-    name: ROLE_NAME,
-    note: 'x'.repeat(size - shell.length),
+    [ROLE_KEY]: ROLE_NAME,
+    [ROLE_FIELD]: 'x'.repeat(size - shell.length),
   })
 }
 

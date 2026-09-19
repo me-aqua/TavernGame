@@ -57,6 +57,18 @@ const CAST = nodeWithTool('update_role')
 const STORY = storyNodeOf()
 const VERIFY = nodeWithTool('redo')
 
+/**
+ * 卡里那几个**作者起的参数名** —— 段 3 之后它们是中文（作者的键名不再要求 ASCII）⇒
+ * 一律从卡里现取，测试里既不抄字面量、也写不了中文字面量（`ascii.mjs` 连 `tests/` 的字符串也拦）。
+ */
+const ACTIONS = currentCard.actions as Record<string, { key?: string; path?: string }>
+const ROLE_KEY = ACTIONS.update_role.key as string
+const PLACE_KEY = ACTIONS.add_place.key as string
+const PLACE_FIELD = Object.keys(
+  (currentCard.state as unknown as { world: { fields: { map: { of: { fields: object } } } } }).world.fields
+    .map.of.fields,
+)[0]
+
 let fake: FakeLlm | null = null
 
 beforeEach(() => {
@@ -75,12 +87,14 @@ function advanceTimeCall(minutes: number, reason = ''): FakeReply {
 
 /** 造一次 update_role 调用：只给名字（元素 schema 的字段都可以不写） */
 function addRoleCall(name: string): FakeReply {
-  return { toolCalls: [{ name: 'update_role', arguments: JSON.stringify({ name }) }] }
+  return { toolCalls: [{ name: 'update_role', arguments: JSON.stringify({ [ROLE_KEY]: name }) }] }
 }
 
 /** 造一次 add_place 调用（字典写入，键 = 区域名；元素的字段都是可选的） */
 function addPlaceCall(area: string): FakeReply {
-  return { toolCalls: [{ name: 'add_place', arguments: JSON.stringify({ area, note: area }) }] }
+  return {
+    toolCalls: [{ name: 'add_place', arguments: JSON.stringify({ [PLACE_KEY]: area, [PLACE_FIELD]: area }) }],
+  }
 }
 
 /** 从一次请求里取要发给模型的工具名 */
@@ -231,13 +245,13 @@ describe('tools: the model asks, the engine acts', () => {
     await runTurn(ctx, { action: PLAYER_ACTION, onEvent: (evt) => events.push(evt) })
 
     const world = ctx.data.state.world as Record<string, unknown>
-    expect((world.map as Record<string, unknown>)[KEYED_NAME]).toEqual({ note: KEYED_NAME })
+    expect((world.map as Record<string, unknown>)[KEYED_NAME]).toEqual({ [PLACE_FIELD]: KEYED_NAME })
     const change = events.find((evt) => evt.type === 'stateChange')
     expect(change).toEqual({
       type: 'stateChange',
       node: MAP,
       path: 'world.map.' + KEYED_NAME,
-      value: { note: KEYED_NAME },
+      value: { [PLACE_FIELD]: KEYED_NAME },
     })
     expect(ctx.data.timeline).toEqual([])
   })
@@ -337,7 +351,7 @@ describe('redo: partial rollback, then rerun from that step to the end', () => {
     expect(result.text).toBe(SECOND_STORY)
     const world = ctx.data.state.world as Record<string, unknown>
     // 重跑那一段写的是最后一遍的值（第一遍写的「wrong」已经被回滚掉）
-    expect((world.map as Record<string, unknown>).right).toEqual({ note: 'right' })
+    expect((world.map as Record<string, unknown>).right).toEqual({ [PLACE_FIELD]: 'right' })
     expect((world.map as Record<string, unknown>).wrong).toBeUndefined()
     // 第一遍写下的角色被回滚掉（重跑时没有再写它）
     expect((ctx.data.state.roles as Record<string, unknown>)[ROLLED_BACK_ROLE]).toBeUndefined()

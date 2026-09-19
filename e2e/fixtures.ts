@@ -46,20 +46,51 @@ export const TIME_NODE = nodeWithAction('advance_time')
  */
 const MAP_NODE = nodeWithAction('set_whereabouts')
 
-/** 主控在 `whoIsWhere` 那本册子上的键 —— 从卡的初值现读（`lead.name`），不在这里抄一份 */
-export const LEAD_NAME: string = CARD.state.lead.fields.name.initial
+/**
+ * 主控在那本「谁在哪」册子上的键 —— **主控的名字**（R20 ②），从卡的 schema 现读。
+ *
+ * ⚠️ 认的是**形状**（`lead.fields` 里那个标量字段）不是字段名：作者起的名字可以是中文，
+ *    按名字读的那行（`lead.fields.name.initial`）读不到时**不报错**，只会静默给出 `undefined`。
+ */
+const LEAD_FIELDS = (CARD.state as { lead: { fields: Record<string, { type: string; initial: string }> } })
+  .lead.fields
+const [, LEAD_NAME_SCHEMA] = Object.entries(LEAD_FIELDS).find(([, field]) => field.type === 'string') as [
+  string,
+  { initial: string },
+]
+export const LEAD_NAME: string = LEAD_NAME_SCHEMA.initial
 
 /**
- * R20：**主控的位置在 `world.whoIsWhere` 里**（不再是独立的一枝 `world.location`），
+ * R20：**主控的位置在「谁在哪」那本册子里**（不再是独立的一枝 `world.location`），
  * 移动由地图节点的 `set_whereabouts` 写进去。
  *
- * 每一条都是 `{area, spot, scene}` 三栏（R20 ③："scene 对所有人都有"）—— 卡里
- * `whoIsWhere.of` 的形状就是它；**键是主控的名字**（R20 ②）。
+ * 每一条都是三栏（R20 ③："场景对所有人都有"）—— 卡里那本册子的形状就是它，
+ * **键是人名**（R20 ②）。册子的路径、栏名、那个「谁」的参数名**全从卡现读**：
+ * 它们都是作者起的名字，抄一份的代价是卡改了它不跟着改，而且读不到时**不报错**、
+ * 只是写进去别人的键（写入路径与面板上显示的都是这个 `path`）。
  */
-export const LEAD_PLACE = { area: '晨风镇', spot: '酒馆', scene: '大堂' }
+export const WHERE_PATH: string = CARD.actions.set_whereabouts.path
+/** 册子在 `world` 那一枝里的键（`world.谁在哪` 的第二段） */
+export const WHERE_KEY: string = WHERE_PATH.split('.')[1]
+const [AREA_FIELD, SPOT_FIELD, SCENE_FIELD] = Object.keys(CARD.state.world.fields[WHERE_KEY].of.fields)
+/** 三栏各叫什么 —— 断言靠它取自己要的那一栏 */
+export const PLACE_FIELDS = { area: AREA_FIELD, spot: SPOT_FIELD, scene: SCENE_FIELD }
+
+/** 假模型调 `set_whereabouts` 时那个「谁」的参数名：引擎按 `actions[].key` 起名 */
+export const WHO_KEY: string = CARD.actions.set_whereabouts.key
+
+export const LEAD_PLACE = {
+  [AREA_FIELD]: '晨风镇',
+  [SPOT_FIELD]: '酒馆',
+  [SCENE_FIELD]: '大堂',
+}
 
 /** 地图节点这一轮把主控记到哪儿（假模型让地图节点调 `set_whereabouts` 写的那一条） */
-export const MOVED_PLACE = { area: '晨风镇', spot: '萨伦铁匠铺', scene: '铺面' }
+export const MOVED_PLACE = {
+  [AREA_FIELD]: '晨风镇',
+  [SPOT_FIELD]: '萨伦铁匠铺',
+  [SCENE_FIELD]: '铺面',
+}
 
 /**
  * 假模型的行为：
@@ -127,7 +158,7 @@ function messageOf(id: string, asked: AskedCounts, mode: FakeMode): Record<strin
     return toolCall('call-time', 'advance_time', { minutes, reason: TIME_REASON })
   }
   if (id === MAP_NODE && count === 1) {
-    return toolCall('call-map', 'set_whereabouts', { who: LEAD_NAME, ...MOVED_PLACE })
+    return toolCall('call-map', 'set_whereabouts', { [WHO_KEY]: LEAD_NAME, ...MOVED_PLACE })
   }
   if (id === STORY_NODE) return { role: 'assistant', content: NARRATION }
   return { role: 'assistant', content: id + ' node output' }
@@ -207,9 +238,9 @@ function identity(): Record<string, string> {
 export function saveWith(over: Record<string, unknown> = {}): string {
   const data = initialState()
   const state = data.state as Record<string, any>
-  // 主控站在镇上的酒馆里 —— R20：位置记在 whoIsWhere 那本册子的**主控那一条**上
+  // 主控站在镇上的酒馆里 —— R20：位置记在那本「谁在哪」册子的**主控那一条**上
   // （面板的「当前所在」与顶栏那条「场景」都该读它；今天它们还读着已删的 world.location）
-  state.world.whoIsWhere = { ...state.world.whoIsWhere, [LEAD_NAME]: { ...LEAD_PLACE } }
+  state.world[WHERE_KEY] = { ...state.world[WHERE_KEY], [LEAD_NAME]: { ...LEAD_PLACE } }
   return JSON.stringify({
     ...data,
     meta: { turn: 6, card: identity() },
