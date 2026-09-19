@@ -61,13 +61,15 @@ async function runOneTurn(draft = WAKE_REPLY) {
 }
 
 describe('derived state (what the topbar and the panels read)', () => {
-  it('starts at the card clock, turn 0, and the card starting spot', () => {
+  it('starts at the card clock, turn 0, and the scene line reads the state tree', () => {
     const g = useGame()
     expect(g.timeLabel.value).toBe(format(currentCard.time.calendar, initialState().data.time))
     expect(g.turn.value).toBe(0)
-    // 场景读状态树的 world.location（卡声明的起始位置就在那里）
+    // 场景读状态树的 world.location —— 这张卡没有声明那一段，于是三段都是空串
+    // （顶栏那个条目照样画，只是什么都不显示；卡声明了它就有内容）
     const world = initialState().data.state.world as Record<string, unknown>
-    expect(g.scene.value).toEqual(world.location)
+    expect(world.location).toBeUndefined()
+    expect(g.scene.value).toEqual({ area: '', spot: '', scene: '' })
     // 状态树与卡都摆出来了（界面按它们渲染）
     expect(g.stateTree.value).toEqual(initialState().data.state)
     expect(g.card).toBe(currentCard)

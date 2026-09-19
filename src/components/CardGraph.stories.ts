@@ -34,7 +34,7 @@ const FAILED_INDEX = 2
 const SELECTED_INDEX = 1
 
 const meta = {
-  title: '组件/CardGraph（9 节点 / 44 边）',
+  title: '组件/CardGraph（8 节点 / 35 边）',
   component: CardGraph,
   args: { card },
   decorators: [

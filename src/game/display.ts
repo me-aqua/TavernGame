@@ -104,11 +104,20 @@ export interface MapView {
   location: unknown
 }
 
-/** 地图块的数据（world.map + world.location） */
+/**
+ * 「当前所在」读的状态路径（顶栏的「场景」条与地图块都用它）。
+ *
+ * ⚠️ **与 `BLOCK_STATE_PATHS` 分开**：那几张表是**卡必须声明**的（不声明就校验失败），
+ *    而这一段是**可选**的 —— 卡没声明 `world.location` 时顶栏那一条什么都不显示、
+ *    地图块也没有「当前所在」。这与「卡声明了场景条而没有 world」是同一种情况。
+ */
+export const SPOT_STATE_PATH = 'world.location'
+
+/** 地图块的数据（world.map + 当前所在） */
 export function mapOf(state: StateTree): MapView {
   return {
     areas: atPath(state, BLOCK_STATE_PATHS.map[0]),
-    location: atPath(state, BLOCK_STATE_PATHS.map[1]),
+    location: atPath(state, SPOT_STATE_PATH),
   }
 }
 
@@ -130,11 +139,11 @@ export interface Spot {
 }
 
 /**
- * 顶栏「场景」那一条的数据：world.location 的三段；卡没声明这一段时是三个空串
+ * 顶栏「场景」那一条的数据：`world.location` 的三段；卡没声明这一段时是三个空串
  * （顶栏可以声明 scene 而状态里没有 world —— 那一条就什么也不显示）。
  */
 export function spotOf(state: StateTree): Spot {
-  const location = atPath(state, BLOCK_STATE_PATHS.map[1])
+  const location = atPath(state, SPOT_STATE_PATH)
   /** 读一段字符串；不是字符串（卡没声明 / 类型不对）就是空串 */
   const text = (key: string): string =>
     isRecord(location) && typeof location[key] === 'string' ? (location[key] as string) : ''

@@ -45,7 +45,7 @@ export const SIDEBAR_BLOCKS = ['map', 'cast', 'pack'] as const
 
 /** 每个侧栏块要读哪几段状态 —— 卡必须声明这些路径，否则块画不出来（校验期就报错） */
 export const BLOCK_STATE_PATHS: Record<(typeof SIDEBAR_BLOCKS)[number], string[]> = {
-  map: ['world.map', 'world.location'],
+  map: ['world.map'],
   cast: ['roles'],
   pack: ['lead.pack'],
 }

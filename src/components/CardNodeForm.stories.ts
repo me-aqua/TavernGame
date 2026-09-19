@@ -46,7 +46,7 @@ export const WithTools: Story = {
     name: '地图',
     duty: '维护世界的空间',
     role: null,
-    tools: ['move_to', 'add_place', 'set_whereabouts'],
+    tools: ['add_place', 'set_whereabouts'],
     reads: ['world', 'roles', 'lead'],
     // ⚠️ 只点一条：`uses` 那行与勾选区是同一件事的两面，两处对不上就是假数据
     uses: [generatorNames[0]],

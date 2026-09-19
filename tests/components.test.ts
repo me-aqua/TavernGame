@@ -24,6 +24,7 @@ import { instantiate } from '../src/game/card-state'
 import { createInitialState } from '../src/game/save'
 import { format } from '../src/game/card-calendar'
 import { EXAMPLE_CARD } from './support/card-fixtures'
+import { nodeWith } from './support/card-replies'
 import { i18n, t } from '../src/i18n'
 import type { GameEvent } from '../src/types/state'
 
@@ -49,10 +50,18 @@ const state = instantiate(card)
 const topology = card.graph.topology
 const nodes = card.graph.nodes
 
+/**
+ * 痕迹里要用到的节点 id —— **从卡里查，不写下标**：拓扑里删掉一个节点，后面每一个的下标
+ * 都往前挪一位，而"同一个下标换成了另一个节点"在读数是看不出来的。
+ */
+const TIME = nodeWith('advance_time', card)
+const MAP = nodeWith('add_place', card)
+const CAST = nodeWith('update_role', card)
+const VERIFY = nodeWith('redo', card)
+
 /** 状态树是卡定义的（unknown）：这几段用例里要读的具体形状在这里说清 */
 const worldState = state.world as {
   map: Record<string, unknown>
-  location: { area: string; spot: string; scene: string }
 }
 
 // 用卡自己的历法念时刻，标签不受时区影响
@@ -269,14 +278,12 @@ describe('WorldPanel', () => {
     expect(w.text()).toContain(areas[0])
   })
 
-  it('marks the current area and place from world.location, and only those', () => {
+  it('marks nothing when the card declares no spot (there is no world.location any more)', () => {
     const w = render(WorldPanel, { props: { blocks: world, state } })
-    const location = worldState.location
 
-    const here = w.findAll('[data-place][data-current]')
-    expect(here).toHaveLength(1)
-    expect(here[0].text()).toBe(location.spot)
-    expect(w.findAll('[data-area][data-current]')).toHaveLength(1)
+    expect((state.world as Record<string, unknown>).location).toBeUndefined()
+    expect(w.findAll('[data-place][data-current]')).toHaveLength(0)
+    expect(w.findAll('[data-area][data-current]')).toHaveLength(0)
   })
 
   it('follows the state tree when the lead moves (the panel is not frozen at the opening)', () => {
@@ -582,18 +589,18 @@ function saveWithTrace(): string {
     { kind: 'action', text: 'this turn action' },
     // 没有调用在飞的时候也会有写入：它不该被算到任何一次调用头上
     writeEvent('time'),
-    nodeEvent(topology[4]),
-    toolEvent(topology[4], 'advance_time', BABEL_TEXT),
+    nodeEvent(TIME),
+    toolEvent(TIME, 'advance_time', BABEL_TEXT),
     writeEvent('time', { year: 2026, month: 9, day: 14, hour: 19, minute: 35 }),
-    resultEvent(topology[4], 'advance_time', 'time advanced'),
-    toolEvent(topology[8], 'redo', '{"from":"' + topology[6] + '","why":"missing"}'),
-    resultEvent(topology[8], 'redo', 'rolling back'),
+    resultEvent(TIME, 'advance_time', 'time advanced'),
+    toolEvent(VERIFY, 'redo', '{"from":"' + CAST + '","why":"missing"}'),
+    resultEvent(VERIFY, 'redo', 'rolling back'),
     // 结果之后又冒出一条结果：没有调用在对，丢掉
     { kind: 'toolResult', text: 'stray', detail: 'stray' },
     // 一次失败的地图调用：它在图里是会标红的那个节点
-    nodeEvent(topology[5]),
-    toolEvent(topology[5], 'move_to', '{"area":"x"}'),
-    resultEvent(topology[5], 'move_to', 'move_to: spot is required', true),
+    nodeEvent(MAP),
+    toolEvent(MAP, 'add_place', '{"note":"late"}'),
+    resultEvent(MAP, 'add_place', 'add_place: area must be a non-empty string (the map key)', true),
   ]
   data.events = events.map((event) => ({ at: '2026-09-15T10:00:00.000Z', ...event })) as GameEvent[]
   return JSON.stringify(data)
@@ -621,8 +628,8 @@ describe('store: the debug projections', () => {
 
     // 上一轮那次 set_profile 不在里面：投影只看最近一轮
     expect(calls).toHaveLength(3)
-    expect(calls.map((call) => call.tool)).toEqual(['advance_time', 'redo', 'move_to'])
-    expect(calls[0].node).toBe(topology[4])
+    expect(calls.map((call) => call.tool)).toEqual(['advance_time', 'redo', 'add_place'])
+    expect(calls[0].node).toBe(TIME)
     expect(calls[0].args).toBe(BABEL_TEXT)
     expect(calls[0].result).toBe('time advanced')
     expect(calls[0].writes).toEqual([
@@ -631,11 +638,11 @@ describe('store: the debug projections', () => {
     expect(calls[0].failed).toBe(false)
 
     // 退回重来：from 在参数里，图上要标红的是被退回去的那个节点
-    expect(calls[1].redoFrom).toBe(topology[6])
+    expect(calls[1].redoFrom).toBe(CAST)
     expect(calls[1].failed).toBe(false)
 
     // 一个字节都没写成、引擎回了结构化错误 —— 失败这件事写在 failed 上
-    expect(calls[2].node).toBe(topology[5])
+    expect(calls[2].node).toBe(MAP)
     expect(calls[2].writes).toEqual([])
     expect(calls[2].failed).toBe(true)
   })
@@ -643,31 +650,29 @@ describe('store: the debug projections', () => {
   it('reads a write from the structured value, and writes the fold text itself', async () => {
     const data = createInitialState(card)
     data.events = [
-      nodeEvent(topology[6]),
-      toolEvent(topology[6], 'move_to', '{"area":"x","spot":"y","scene":"z"}'),
-      writeEvent('world.location', { area: 'x', spot: 'y', scene: 'z' }),
-      resultEvent(topology[6], 'move_to', 'wrote it'),
+      nodeEvent(MAP),
+      toolEvent(MAP, 'add_place', '{"area":"x","note":"late"}'),
+      writeEvent('world.map.x', { note: 'late' }),
+      resultEvent(MAP, 'add_place', 'wrote it'),
     ].map((event) => ({ at: '2026-09-15T10:00:00.000Z', ...event })) as GameEvent[]
 
     const game = await freshGame(JSON.stringify(data))
     // 调试行只在调试模式进列表（叙事与它无关）
     game.debugMode.value = true
 
-    expect(game.debugTools.value[0].writes).toEqual([
-      { path: 'world.location', value: { area: 'x', spot: 'y', scene: 'z' } },
-    ])
+    expect(game.debugTools.value[0].writes).toEqual([{ path: 'world.map.x', value: { note: 'late' } }])
     // 展开体（给人看的原文）是从结构化值**现写**的：痕迹里没有第二份 JSON 文本
     const folded = game.rows.value.map((row) => ('detail' in row ? row.detail : '')).join('\n')
-    expect(folded).toContain('"area": "x"')
+    expect(folded).toContain('"note": "late"')
   })
 
   it('survives a write trace whose detail is not JSON (hand-edited or imported save)', async () => {
     const data = createInitialState(card)
     data.events = [
-      toolEvent(topology[6], 'move_to', '{"area":"x"}'),
+      toolEvent(MAP, 'add_place', '{"area":"x"}'),
       // 外部数据：旧痕迹 / 手改过的存档里，写入那一行的 detail 可能只是一句人话
       { kind: 'stateChange', text: 'rendered however', detail: 'time advanced' },
-      resultEvent(topology[6], 'move_to', 'wrote it'),
+      resultEvent(MAP, 'add_place', 'wrote it'),
     ].map((event) => ({ at: '2026-09-15T10:00:00.000Z', ...event })) as GameEvent[]
 
     const game = await freshGame(JSON.stringify(data))
@@ -680,13 +685,13 @@ describe('store: the debug projections', () => {
   it('marks a redo the engine refused as failed (a successful redo writes nothing either)', async () => {
     const data = createInitialState(card)
     data.events = [
-      nodeEvent(topology[8]),
+      nodeEvent(VERIFY),
       // 成功的 redo：回滚不写状态，但引擎认下了（failed: false）
-      toolEvent(topology[8], 'redo', '{"from":"' + topology[6] + '","why":"missing"}'),
-      resultEvent(topology[8], 'redo', 'rolling back'),
+      toolEvent(VERIFY, 'redo', '{"from":"' + CAST + '","why":"missing"}'),
+      resultEvent(VERIFY, 'redo', 'rolling back'),
       // 被拒的 redo：from 不在拓扑里，引擎回结构化错误
-      toolEvent(topology[8], 'redo', '{"from":"no-such-node","why":"nope"}'),
-      resultEvent(topology[8], 'redo', 'redo: from must be one of [...]', true),
+      toolEvent(VERIFY, 'redo', '{"from":"no-such-node","why":"nope"}'),
+      resultEvent(VERIFY, 'redo', 'redo: from must be one of [...]', true),
     ].map((event) => ({ at: '2026-09-15T10:00:00.000Z', ...event })) as GameEvent[]
 
     const game = await freshGame(JSON.stringify(data))
@@ -694,33 +699,33 @@ describe('store: the debug projections', () => {
     expect(accepted.failed).toBe(false)
     expect(refused.failed).toBe(true)
     // 被退回去的那个节点标红（成功的 redo），被拒的那次标红的是**发起它的节点**
-    expect(game.debugFailedNodes.value).toEqual([topology[6], topology[8]])
+    expect(game.debugFailedNodes.value).toEqual([CAST, VERIFY])
   })
 
   it('reads the structured fields, not the rendered line (the line may be any language)', async () => {
     const data = createInitialState(card)
     data.events = [
-      { kind: 'tool', text: 'rendered however', node: topology[6], tool: 'move_to', detail: '{"area":"x"}' },
-      { kind: 'stateChange', text: 'rendered however', path: 'world.location', value: { area: 'x' } },
+      { kind: 'tool', text: 'rendered however', node: MAP, tool: 'add_place', detail: '{"area":"x"}' },
+      { kind: 'stateChange', text: 'rendered however', path: 'world.map.x', value: { note: 'late' } },
       {
         kind: 'toolResult',
         text: 'rendered however',
-        node: topology[6],
-        tool: 'move_to',
+        node: MAP,
+        tool: 'add_place',
         detail: 'wrote it',
       },
     ].map((event) => ({ at: '2026-09-15T10:00:00.000Z', ...event })) as GameEvent[]
 
     const [call] = (await freshGame(JSON.stringify(data))).debugTools.value
-    expect(call.node).toBe(topology[6])
-    expect(call.tool).toBe('move_to')
+    expect(call.node).toBe(MAP)
+    expect(call.tool).toBe('add_place')
     expect(call.result).toBe('wrote it')
-    expect(call.writes).toEqual([{ path: 'world.location', value: { area: 'x' } }])
+    expect(call.writes).toEqual([{ path: 'world.map.x', value: { note: 'late' } }])
   })
 
   it('marks the nodes to redraw in red: the failed one and the node a redo rolled back', async () => {
     const game = await freshGame(saveWithTrace())
-    expect(game.debugFailedNodes.value).toEqual([topology[5], topology[6]])
+    expect(game.debugFailedNodes.value).toEqual([MAP, CAST])
   })
 
   it('has nothing to show when no turn has run yet, and knows the turn is idle', async () => {
@@ -754,13 +759,13 @@ describe('store: the debug projections', () => {
   it('reads a write with no value, and a redo whose arguments are not JSON', async () => {
     const data = createInitialState(card)
     data.events = [
-      nodeEvent(topology[6]),
-      toolEvent(topology[6], 'redo', '{not json'),
+      nodeEvent(VERIFY),
+      toolEvent(VERIFY, 'redo', '{not json'),
       writeEvent('roles'),
-      resultEvent(topology[6], 'redo', 'rolled back'),
+      resultEvent(VERIFY, 'redo', 'rolled back'),
       // 合法 JSON、但不是对象：一样读不出 from（模型给的参数是外部数据）
-      toolEvent(topology[6], 'redo', '[]'),
-      resultEvent(topology[6], 'redo', 'rolled back'),
+      toolEvent(VERIFY, 'redo', '[]'),
+      resultEvent(VERIFY, 'redo', 'rolled back'),
     ].map((event) => ({ at: '2026-09-15T10:00:00.000Z', ...event })) as GameEvent[]
 
     const game = await freshGame(JSON.stringify(data))

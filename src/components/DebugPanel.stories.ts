@@ -30,7 +30,7 @@ const draft: GameData = {
 
 const tools: ToolCall[] = [
   {
-    node: currentCard.graph.topology[4],
+    node: currentCard.graph.topology[3],
     tool: 'advance_time',
     args: '{"minutes":5,"reason":"从醒来坐到桌边"}',
     result: '🕐 时间推进：5 分钟（现在是 2026 年 9 月 14 日 · 星期一 · 晚上）',
@@ -39,22 +39,22 @@ const tools: ToolCall[] = [
     redoFrom: null,
   },
   {
-    node: currentCard.graph.topology[5],
-    tool: 'move_to',
-    args: '{"area":"镇郊"}',
-    result: 'move_to: spot is required',
+    node: currentCard.graph.topology[4],
+    tool: 'add_place',
+    args: '{"note":"新修的石桥"}',
+    result: 'add_place: area must be a non-empty string (the map key)',
     writes: [],
     failed: true,
     redoFrom: null,
   },
   {
-    node: currentCard.graph.topology[8],
+    node: currentCard.graph.topology[7],
     tool: 'redo',
     args: '{"from":"cast","why":"正文引用了角色表里没有的东西"}',
     result: '已退回「角色」重跑',
     writes: [],
     failed: false,
-    redoFrom: currentCard.graph.topology[6],
+    redoFrom: currentCard.graph.topology[5],
   },
 ]
 
@@ -72,11 +72,11 @@ const meta = {
     draft: null,
     writes: [
       { path: 'time', value: { year: 2026, month: 9, day: 14, hour: 19, minute: 35 } },
-      { path: 'world.location', value: { area: '晨风镇', spot: '醉猫旅店', scene: '旅店大堂' } },
+      { path: 'world.map.镇郊', value: { note: '镇子外面那片林子，晚上起雾。' } },
     ],
     tools,
     running,
-    failed: [currentCard.graph.topology[6]],
+    failed: [currentCard.graph.topology[5]],
   },
 } satisfies Meta<typeof DebugPanel>
 

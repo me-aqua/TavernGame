@@ -4,7 +4,7 @@
  * 三件事集中在这里，避免每个 spec 各写一份：
  *   · 种子数据：localStorage 必须在应用脚本之前写好（语言 / 主题 / 存档 / 配置）
  *   · 假模型：用 page.route 拦住 chat/completions —— 不注入脚本、不改全局 fetch；
- *     它**按节点回话**：时间节点先调 advance_time、地图节点先调 move_to，其余回文字
+ *     它**按节点回话**：时间节点先调 advance_time、地图节点先调 set_whereabouts，其余回文字
  *   · 取词：检查界面文案时走应用自己的 i18n 表（window.__dshE2E），不抄第二份
  *
  * ⚠️ 不 import 应用模块（那条链会拖进 i18n 的 .json，Playwright 的 ESM 加载器要
@@ -41,14 +41,31 @@ function nodeWithAction(action: string): string {
 /** 时间节点（调 advance_time）—— 冒烟用例拿它断言「标红的是哪一个」 */
 export const TIME_NODE = nodeWithAction('advance_time')
 
-/** 地图节点（调 move_to） */
-const MAP_NODE = nodeWithAction('move_to')
+/**
+ * 地图节点 —— R20 之后**移动由 `set_whereabouts` 承担**（`move_to` 与 `world.location` 都没了）。
+ */
+const MAP_NODE = nodeWithAction('set_whereabouts')
+
+/** 主控在 `whoIsWhere` 那本册子上的键 —— 从卡的初值现读（`lead.name`），不在这里抄一份 */
+export const LEAD_NAME: string = CARD.state.lead.fields.name.initial
+
+/**
+ * R20：**主控的位置在 `world.whoIsWhere` 里**（不再是独立的一枝 `world.location`），
+ * 移动由地图节点的 `set_whereabouts` 写进去。
+ *
+ * 每一条都是 `{area, spot, scene}` 三栏（R20 ③："scene 对所有人都有"）—— 卡里
+ * `whoIsWhere.of` 的形状就是它；**键是主控的名字**（R20 ②）。
+ */
+export const LEAD_PLACE = { area: '晨风镇', spot: '酒馆', scene: '大堂' }
+
+/** 地图节点这一轮把主控记到哪儿（假模型让地图节点调 `set_whereabouts` 写的那一条） */
+export const MOVED_PLACE = { area: '晨风镇', spot: '萨伦铁匠铺', scene: '铺面' }
 
 /**
  * 假模型的行为：
  *   narration = 按「这次是哪个节点」分别回话：时间节点第一次回一条 advance_time 的
  *               tool_calls（引擎执行完会再问一次），第二次才回文字；地图节点第一次回
- *               move_to；故事节点回正文；其余节点回一段普通文字
+ *               set_whereabouts；故事节点回正文；其余节点回一段普通文字
  *   slow      = 第一次调用拖 5 秒（看得见「正在生成开场…」）；error = 上游 500
  *   toolError = 时间节点的第一个参数故意给个负数：引擎不抛错，把结构化错误回传给模型
  *               （于是这一轮里有一个「工具调用失败过」的节点，调试图上要标红）
@@ -67,8 +84,6 @@ const TIME_REASON = '聊到深夜'
 const TIME_MINUTES = 5
 /** toolError 模式给的那个参数：负数过不了引擎的校验（引擎只回传错误，不抛） */
 const BAD_MINUTES = -3
-/** 地图节点把主控挪到哪儿（必须一次给全三段：动作写的是整个 world.location） */
-const MOVED = { area: '晨风镇', spot: '萨伦铁匠铺', scene: '铺面' }
 
 /** 这次请求是哪个节点发出来的：看最后一条 user 消息里最后出现的那个节点显示名 */
 function nodeOf(messages: Array<{ role?: string; content?: string }>): string {
@@ -111,7 +126,9 @@ function messageOf(id: string, asked: AskedCounts, mode: FakeMode): Record<strin
     const minutes = mode === 'toolError' ? BAD_MINUTES : TIME_MINUTES
     return toolCall('call-time', 'advance_time', { minutes, reason: TIME_REASON })
   }
-  if (id === MAP_NODE && count === 1) return toolCall('call-map', 'move_to', MOVED)
+  if (id === MAP_NODE && count === 1) {
+    return toolCall('call-map', 'set_whereabouts', { who: LEAD_NAME, ...MOVED_PLACE })
+  }
   if (id === STORY_NODE) return { role: 'assistant', content: NARRATION }
   return { role: 'assistant', content: id + ' node output' }
 }
@@ -190,8 +207,9 @@ function identity(): Record<string, string> {
 export function saveWith(over: Record<string, unknown> = {}): string {
   const data = initialState()
   const state = data.state as Record<string, any>
-  // 站在镇上的酒馆里：地图块的高亮、顶栏的场景都读这一处
-  state.world.location = { area: '晨风镇', spot: '酒馆', scene: '大堂' }
+  // 主控站在镇上的酒馆里 —— R20：位置记在 whoIsWhere 那本册子的**主控那一条**上
+  // （面板的「当前所在」与顶栏那条「场景」都该读它；今天它们还读着已删的 world.location）
+  state.world.whoIsWhere = { ...state.world.whoIsWhere, [LEAD_NAME]: { ...LEAD_PLACE } }
   return JSON.stringify({
     ...data,
     meta: { turn: 6, card: identity() },

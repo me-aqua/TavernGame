@@ -52,9 +52,8 @@ function nodeWithTool(tool: string): string {
   return id
 }
 
-const MAP = nodeWithTool('move_to')
+const MAP = nodeWithTool('add_place')
 const CAST = nodeWithTool('update_role')
-const CHAIN = nodeWithTool('set_chain')
 const STORY = storyNodeOf()
 const VERIFY = nodeWithTool('redo')
 
@@ -79,16 +78,9 @@ function addRoleCall(name: string): FakeReply {
   return { toolCalls: [{ name: 'update_role', arguments: JSON.stringify({ name }) }] }
 }
 
-/** 造一次 set_chain 调用（字典写入，键 = 链名） */
-function setChainCall(name: string): FakeReply {
-  return { toolCalls: [{ name: 'set_chain', arguments: JSON.stringify({ name, stage: 1 }) }] }
-}
-
-/** 造一次 move_to 调用（world.location 是整体替换，三个字段都得给） */
-function moveToCall(where: string): FakeReply {
-  return {
-    toolCalls: [{ name: 'move_to', arguments: JSON.stringify({ area: where, spot: where, scene: where }) }],
-  }
+/** 造一次 add_place 调用（字典写入，键 = 区域名；元素的字段都是可选的） */
+function addPlaceCall(area: string): FakeReply {
+  return { toolCalls: [{ name: 'add_place', arguments: JSON.stringify({ area, note: area }) }] }
 }
 
 /** 从一次请求里取要发给模型的工具名 */
@@ -226,11 +218,11 @@ describe('tools: the model asks, the engine acts', () => {
   })
 
   it('writes a state-tree path through the card action (keyed map merge)', async () => {
-    // 写链的那个动作只给了一个节点（白名单是机制）：测试也得从卡里查，不能随手挑一个
+    // 写地图的那个动作只给了一个节点（白名单是机制）：测试也得从卡里查，不能随手挑一个
     fake = installFakeLlm(
       cardTurnReplies({
         story: STORY_TEXT,
-        node: (id) => (id === CHAIN ? [setChainCall(KEYED_NAME)] : undefined),
+        node: (id) => (id === MAP ? [addPlaceCall(KEYED_NAME)] : undefined),
       }),
     )
     const ctx = createAgentContext()
@@ -239,13 +231,13 @@ describe('tools: the model asks, the engine acts', () => {
     await runTurn(ctx, { action: PLAYER_ACTION, onEvent: (evt) => events.push(evt) })
 
     const world = ctx.data.state.world as Record<string, unknown>
-    expect((world.chains as Record<string, unknown>)[KEYED_NAME]).toEqual({ stage: 1 })
+    expect((world.map as Record<string, unknown>)[KEYED_NAME]).toEqual({ note: KEYED_NAME })
     const change = events.find((evt) => evt.type === 'stateChange')
     expect(change).toEqual({
       type: 'stateChange',
-      node: CHAIN,
-      path: 'world.chains.' + KEYED_NAME,
-      value: { stage: 1 },
+      node: MAP,
+      path: 'world.map.' + KEYED_NAME,
+      value: { note: KEYED_NAME },
     })
     expect(ctx.data.timeline).toEqual([])
   })
@@ -317,7 +309,7 @@ describe('redo: partial rollback, then rerun from that step to the end', () => {
   /** 第一遍：地图写「错的」、角色写一个临时条目、校对要求退回地图 */
   function firstPass(): FakeReply[] {
     return cardPassReplies(CARD_TOPOLOGY, (id) => {
-      if (id === MAP) return [moveToCall('wrong'), 'map first pass']
+      if (id === MAP) return [addPlaceCall('wrong'), 'map first pass']
       if (id === CAST) return [addRoleCall(ROLLED_BACK_ROLE), 'cast first pass']
       if (id === STORY) return 'first body'
       if (id === VERIFY) return redoCall(MAP, REDO_WHY)
@@ -328,7 +320,7 @@ describe('redo: partial rollback, then rerun from that step to the end', () => {
   /** 重跑那一段：地图写「对的」、角色不再写那条、正文重写、校对通过 */
   function rerunPass(story = SECOND_STORY): FakeReply[] {
     return cardPassReplies([MAP, CAST, STORY, VERIFY], (id) => {
-      if (id === MAP) return [moveToCall('right'), 'map second pass']
+      if (id === MAP) return [addPlaceCall('right'), 'map second pass']
       if (id === STORY) return story
       return undefined
     })
@@ -344,7 +336,9 @@ describe('redo: partial rollback, then rerun from that step to the end', () => {
     // 叙事取**最后一次**重跑的结果
     expect(result.text).toBe(SECOND_STORY)
     const world = ctx.data.state.world as Record<string, unknown>
-    expect(world.location).toEqual({ area: 'right', spot: 'right', scene: 'right' })
+    // 重跑那一段写的是最后一遍的值（第一遍写的「wrong」已经被回滚掉）
+    expect((world.map as Record<string, unknown>).right).toEqual({ note: 'right' })
+    expect((world.map as Record<string, unknown>).wrong).toBeUndefined()
     // 第一遍写下的角色被回滚掉（重跑时没有再写它）
     expect((ctx.data.state.roles as Record<string, unknown>)[ROLLED_BACK_ROLE]).toBeUndefined()
     // 节点事件：跑完一遍之后从地图重跑到末尾
@@ -400,7 +394,7 @@ describe('redo: partial rollback, then rerun from that step to the end', () => {
     const minutes = 30
     const first = cardPassReplies(CARD_TOPOLOGY, (id) => {
       if (id === timeNodeOf()) return [advanceTimeCall(minutes), 'time pass']
-      if (id === MAP) return [moveToCall('wrong'), 'map first pass']
+      if (id === MAP) return [addPlaceCall('wrong'), 'map first pass']
       if (id === STORY) return 'first body'
       if (id === VERIFY) return redoCall(MAP, REDO_WHY)
       return undefined

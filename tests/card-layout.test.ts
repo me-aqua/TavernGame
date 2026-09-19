@@ -33,8 +33,8 @@ const COLUMNS = 5
 describe('toGraph: the example card', () => {
   it('draws one node per card node, ordered by topology, numbered from 1', () => {
     expect(graph.nodes.map((node) => node.id)).toEqual(topology)
-    expect(graph.nodes).toHaveLength(9)
-    expect(graph.nodes.map((node) => node.index)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
+    expect(graph.nodes).toHaveLength(topology.length)
+    expect(graph.nodes.map((node) => node.index)).toEqual(topology.map((_, index) => index + 1))
   })
 
   it('labels each node with its number and name, and its id plus duty in the sublabel', () => {
@@ -61,11 +61,12 @@ describe('toGraph: the example card', () => {
     expect(graph.nodes.filter((node) => node.role === 'story')).toHaveLength(1)
   })
 
-  it('chains adjacent nodes with one solid edge each (8 edges for 9 nodes)', () => {
+  it('chains adjacent nodes with one solid edge each', () => {
     const chainIds = topology.slice(1).map((id, index) => ({ source: topology[index], target: id }))
-    expect(chain).toHaveLength(8)
+    // 相邻两两一条实线，最后一条换成折行回边（wrap）
+    expect(chain).toHaveLength(topology.length - 1)
     expect(chain.map(({ source, target }) => ({ source, target }))).toEqual(chainIds)
-    expect(chain.filter((edge) => edge.kind === 'chain')).toHaveLength(7)
+    expect(chain.filter((edge) => edge.kind === 'chain')).toHaveLength(topology.length - 2)
   })
 
   it('wraps the chain once and writes the target number on the wrap edge', () => {
@@ -98,7 +99,8 @@ describe('toGraph: the example card', () => {
   })
 
   it('draws one dashed read edge per upstream: the whole topology prefix', () => {
-    expect(reads).toHaveLength(36)
+    // 每个节点都读它前面所有的节点 ⇒ 条数是 n(n-1)/2（下面的循环逐条钉住"读了谁"）
+    expect(reads).toHaveLength((topology.length * (topology.length - 1)) / 2)
     topology.forEach((id, index) => {
       const sources = reads.filter((edge) => edge.target === id).map((edge) => edge.source)
       expect(sources).toEqual(topology.slice(0, index))

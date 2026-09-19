@@ -14,6 +14,7 @@ import {
   APP_PATH,
   CARD_IDENTITY,
   CONFIG,
+  LEAD_NAME,
   event,
   fakeLlm,
   saveWith,
@@ -112,14 +113,15 @@ const SUBMIT_TURN = `(async () => {
 const OPEN_DEBUG_PANEL = "document.querySelector('button[data-debug-panel-toggle]')?.click()"
 
 /**
- * 换掉存档里状态树的「当前所在」—— 地图高亮与顶栏的场景都读它。
+ * 换掉存档里状态树的「当前所在」—— **R20：它在 `whoIsWhere` 那本册子的主控那一条上**
+ * （`world.location` 那一枝与 `move_to` 都没了），每一条是 `{area, spot, scene}` 三栏。
  *
  * ⚠️ 覆盖 meta 时一定要带上卡身份（CARD_IDENTITY）：存档认亲比 id / version / format，
  *    少一个字段就会被判成「不属于这张卡」，整局退回空白开局（长故事那一屏曾因此拍成报错页）。
  */
-function withLocation(save: string, location: Record<string, string>): string {
+function withWhereabouts(save: string, place: Record<string, string>): string {
   const data = JSON.parse(save) as { state: Record<string, any> }
-  data.state.world.location = location
+  data.state.world.whoIsWhere = { ...data.state.world.whoIsWhere, [LEAD_NAME]: place }
   return JSON.stringify(data)
 }
 
@@ -140,7 +142,7 @@ const STATES: State[] = [
     seed: {
       lang: 'en',
       config: CONFIG,
-      save: withLocation(saveWith({ events: EN_STORY }), {
+      save: withWhereabouts(saveWith({ events: EN_STORY }), {
         area: 'Morningwind',
         spot: 'Tavern',
         scene: 'Common room',

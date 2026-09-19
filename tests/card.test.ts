@@ -41,7 +41,7 @@ const storyNodes = (card: ReturnType<typeof parseCard>) =>
 describe('validateCard: the cards that must pass', () => {
   it('accepts the three cards in the repo', () => {
     const example = parseCard(readFileSync(EXAMPLE_CARD, 'utf8'))
-    expect(example.graph.topology).toHaveLength(9)
+    expect(example.graph.topology).toHaveLength(8)
     const nightWatch = parseCard(readFileSync(NIGHT_WATCH_CARD, 'utf8'))
     expect(nightWatch.graph.topology).toEqual(['time', 'story'])
     const longNight = parseCard(readFileSync(LONG_NIGHT_CARD, 'utf8'))

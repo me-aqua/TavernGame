@@ -194,15 +194,16 @@ describe('runAction: writes go into the working copy', () => {
   it('writes into a real card the same way', () => {
     const source = example()
     const state = instantiate(source)
-    // 枚举值从卡里读：测试代码必须 ASCII，而卡的内容不是
-    const tier = (source.state.roles as any).of.fields.tier.values[1]
+    // 取值从卡里现拿：测试代码必须 ASCII，而卡的内容不是
+    const sample = Object.values((source.state.roles as any).initial)[0] as { role: string }
+    const role = sample.role
     const outcome = runAction(source, state, 'update_role', {
       name: 'Tester',
-      tier,
+      role,
       now: { mood: 'wary' },
     })
     expect(outcome.ok).toBe(true)
-    expect((state.roles as any).Tester).toEqual({ tier, now: { mood: 'wary' } })
+    expect((state.roles as any).Tester).toEqual({ role, now: { mood: 'wary' } })
   })
 })
 

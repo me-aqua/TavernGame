@@ -71,9 +71,17 @@ describe('renderCard: the invariants', () => {
   it('gives every node of the example card one upstream line', () => {
     const card = JSON.parse(readFileSync(EXAMPLE_CARD, 'utf8'))
     const md = renderCard(card, EXAMPLE_CARD)
-    expect(upstreamLines(md)).toHaveLength(9)
-    const last = upstreamLines(md)[8]
-    expect(last).toContain([0, 1, 2, 3, 4, 5, 6, 7].map(mark).join(''))
+    const ids = card.graph.topology as string[]
+    const lines = upstreamLines(md)
+    expect(lines).toHaveLength(ids.length)
+    // 最后那个节点的上游 = 它前面的每一个（圈号从 0 起）
+    const last = lines[ids.length - 1]
+    expect(last).toContain(
+      ids
+        .slice(0, -1)
+        .map((_, index) => mark(index))
+        .join(''),
+    )
   })
 
   it('prints the notes block raw and fences the prompt blocks', () => {

@@ -151,7 +151,7 @@ describe('handleEvent - each trace branch (debug only)', () => {
   })
 
   it('writes the redo trace with the node it rolled back to (the panel marks it red)', async () => {
-    const back = nodeWith('move_to')
+    const back = nodeWith('add_place')
     const verify = nodeWith('redo')
     const why = 'the map is wrong'
     const first = cardPassReplies(CARD_TOPOLOGY, (id) => (id === verify ? redoCall(back, why) : undefined))

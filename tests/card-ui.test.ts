@@ -27,6 +27,7 @@ import { toGraph } from '../src/game/card-layout'
 import { instantiate } from '../src/game/card-state'
 import { format } from '../src/game/card-calendar'
 import { EXAMPLE_CARD } from './support/card-fixtures'
+import { nodeWith } from './support/card-replies'
 import { i18n, t } from '../src/i18n'
 
 /** 示例卡（节点数、名字、提示词与声明全部从卡里现读：卡是唯一事实来源） */
@@ -34,6 +35,15 @@ const card = parseCard(readFileSync(EXAMPLE_CARD, 'utf8'))
 const graph = toGraph(card)
 const topology = card.graph.topology
 const nodes = card.graph.nodes
+
+/**
+ * 痕迹里要用到的节点 id —— **从卡里查，不写下标**：拓扑里删掉一个节点，后面每一个的下标
+ * 都往前挪一位，"同一个下标换成了另一个节点"在读数是看不出来的。
+ */
+const TIME = nodeWith('advance_time', card)
+const MAP = nodeWith('add_place', card)
+const CAST = nodeWith('update_role', card)
+const VERIFY = nodeWith('redo', card)
 
 /** 活动卡的存储键（与产品一致） */
 const CARD_KEY = 'tavernGame.card'
@@ -428,7 +438,7 @@ describe('DebugPanel', () => {
       writes: [{ path: 'time', value: { minute: 35 } }],
       tools: [
         {
-          node: topology[4],
+          node: TIME,
           tool: 'advance_time',
           args: '{"minutes":5}',
           result: 'ok',
@@ -437,10 +447,10 @@ describe('DebugPanel', () => {
           redoFrom: null,
         },
         {
-          node: topology[5],
-          tool: 'move_to',
-          args: '{"area":"x"}',
-          result: 'move_to: spot is required',
+          node: MAP,
+          tool: 'add_place',
+          args: '{"note":"late"}',
+          result: 'add_place: area must be a non-empty string (the map key)',
           writes: [],
           failed: true,
           redoFrom: null,
@@ -517,7 +527,7 @@ describe('DebugPanel', () => {
     const calls = w.findAll('[data-tool-call]')
 
     const first = calls[0].text()
-    expect(first).toContain(nodes[topology[4]].name)
+    expect(first).toContain(nodes[TIME].name)
     expect(first).toContain('advance_time')
     expect(first).toContain('{"minutes":5}')
     expect(first).toContain('ok')
@@ -526,7 +536,8 @@ describe('DebugPanel', () => {
     // 失败的那次：标红 + 写着引擎回传的结构化错误
     const second = calls[1]
     expect(second.find('[data-tool-failed]').exists()).toBe(true)
-    expect(second.text()).toContain('spot is required')
+    expect(second.text()).toContain(nodes[MAP].name)
+    expect(second.text()).toContain('must be a non-empty string')
   })
 
   it('marks a redo call with the node it rolled back to', () => {
@@ -534,17 +545,17 @@ describe('DebugPanel', () => {
       initialTab: 'tools',
       tools: [
         {
-          node: topology[8],
+          node: VERIFY,
           tool: 'redo',
-          args: '{"from":"' + topology[6] + '","why":"x"}',
+          args: '{"from":"' + CAST + '","why":"x"}',
           result: 'ok',
           writes: [],
           failed: false,
-          redoFrom: topology[6],
+          redoFrom: CAST,
         },
       ],
     })
-    expect(w.find('[data-tool-redo]').text()).toContain(nodes[topology[6]].name)
+    expect(w.find('[data-tool-redo]').text()).toContain(nodes[CAST].name)
   })
 
   it('says so when the latest turn made no tool calls', () => {
