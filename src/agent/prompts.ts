@@ -33,7 +33,8 @@ import openingEn from 'virtual:prompt/en/opening'
 import connectionTestZh from 'virtual:prompt/zh-CN/connection-test'
 import connectionTestEn from 'virtual:prompt/en/connection-test'
 
-import { format as formatCalendar, type TimeValue } from '../game/card-calendar'
+import { format as formatCalendar } from '../game/card-calendar'
+import { clockIn, withoutClock } from '../game/card-time'
 import { renderState, type StateTree } from '../game/card-state'
 import { isRecord, isStoryKind } from '../game/save'
 import type { CardData, Generator } from '../game/card'
@@ -246,10 +247,8 @@ export interface NodeRequestInput {
   card: CardData
   /** 本节点的 id */
   node: string
-  /** 工作副本里的状态树（**每个节点请求前重新渲染**） */
+  /** 工作副本里的状态树（**每个节点请求前重新渲染**）—— 这一局现在是几点也在它里面 */
   state: StateTree
-  /** 工作副本里的时刻（按卡的历法渲染） */
-  time: TimeValue
   /**
    * 工作副本里的事件流 —— 模型记忆的唯一来源。
    *
@@ -275,18 +274,23 @@ export interface NodeRequestInput {
  * 拼出一次节点请求的消息列表：system（设定 / 剧本 / 规矩 / 生成器）
  * → （重跑时的系统提示）→ user（现在 / 玩家 / 上游 / 该节点提示词）。
  *
- * 「现在」= 时间（按卡的历法）+ 状态树（按节点的 reads 裁）+ 「故事到目前为止」（这一轮之前）。
+ * 「现在」= 时刻（按卡的历法念）+ 状态树（按节点的 reads 裁）+ 「故事到目前为止」（这一轮之前）。
+ *
+ * ⚠️ 时刻**只从状态树里现取**（`state.world.time`，R39）—— 每个节点请求前都重取一次，
+ *    所以「另一条只写状态树的路」改动的时刻，它后面的节点立刻看得见。
+ * ⚠️ 状态快照里**不含**那一格（同一个事实不说两遍）：时刻已经在「现在」那一行里了。
  *
  * ⚠️ 上游只含**已经跑完**的节点（决定 #26）；拿不到就不编（上游文本自己会跳过空产出）。
  */
 export function buildNodeMessages(input: NodeRequestInput): ChatMessage[] {
   const node = input.card.graph.nodes[input.node]
   const recent = renderRecent(input.events, input.memoryUpTo)
+  const clock = clockIn(input.state)
   const now = section(
     t('prompts.now'),
     [
-      t('prompts.timeLine', { time: formatCalendar(input.card.time.calendar, input.time) }),
-      renderState(input.state, { reads: node.reads }),
+      t('prompts.timeLine', { time: formatCalendar(input.card.time.calendar, clock) }),
+      renderState(withoutClock(input.state), { reads: node.reads }),
       recent ? '### ' + t('prompts.recent') + '\n' + recent : '',
     ]
       .filter(Boolean)

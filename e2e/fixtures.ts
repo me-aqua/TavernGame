@@ -72,6 +72,8 @@ export const LEAD_NAME: string = LEAD_NAME_SCHEMA.initial
 export const WHERE_PATH: string = CARD.actions.set_whereabouts.path
 /** 册子在 `world` 那一枝里的键（`world.谁在哪` 的第二段） */
 export const WHERE_KEY: string = WHERE_PATH.split('.')[1]
+/** 时钟在 `world` 那一枝里的键（`world.time`）—— 引擎点名的保留路径（段 5：时刻是世界状态的一部分） */
+export const TIME_KEY = 'time'
 const [AREA_FIELD, SPOT_FIELD, SCENE_FIELD] = Object.keys(CARD.state.world.fields[WHERE_KEY].of.fields)
 /** 三栏各叫什么 —— 断言靠它取自己要的那一栏 */
 export const PLACE_FIELDS = { area: AREA_FIELD, spot: SPOT_FIELD, scene: SCENE_FIELD }
@@ -205,16 +207,16 @@ function instantiate(schema: unknown): unknown {
   return Object.keys(out).length ? out : undefined
 }
 
-/** 新游戏的第一帧（与引擎的 createInitialState 同一份形状：meta / time / state / …） */
+/** 新游戏的第一帧（与引擎的 createInitialState 同一份形状：meta / state / …） */
 function initialState(): Record<string, unknown> {
   const state: Record<string, unknown> = {}
   for (const [branch, schema] of Object.entries(CARD.state as Record<string, unknown>)) {
     const value = instantiate(schema)
     if (value !== undefined) state[branch] = value
   }
+  // ⚠️ 顶层没有 `time`：时刻住在状态树里（`state.world.time`，R39），`instantiate` 已经把它带上了
   return {
     meta: { turn: 0, card: identity() },
-    time: { ...CARD.time.initial },
     state,
     events: [],
     timeline: [],
@@ -241,10 +243,11 @@ export function saveWith(over: Record<string, unknown> = {}): string {
   // 主控站在镇上的酒馆里 —— R20：位置记在那本「谁在哪」册子的**主控那一条**上
   // （面板的「当前所在」与顶栏那条「场景」都该读它；今天它们还读着已删的 world.location）
   state.world[WHERE_KEY] = { ...state.world[WHERE_KEY], [LEAD_NAME]: { ...LEAD_PLACE } }
+  // 时刻也住在状态树里（R39）：这一局的时刻改成「9 月 15 日上午」
+  state.world[TIME_KEY] = { year: 2026, month: 9, day: 15, hour: 9, minute: 0 }
   return JSON.stringify({
     ...data,
     meta: { turn: 6, card: identity() },
-    time: { year: 2026, month: 9, day: 15, hour: 9, minute: 0 },
     events: [
       event('action', '我推开酒馆的门，看看里面都有谁。'),
       event('narration', '门轴发出一声长叹。暖黄的光从屋里涌出来，混着麦酒和湿羊毛的味道。'),

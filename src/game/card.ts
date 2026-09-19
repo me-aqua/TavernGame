@@ -32,7 +32,8 @@ import {
   requireText,
   requireTextList,
 } from './card-read'
-import { checkCalendar, checkTime, type Calendar, type TimeValue } from './card-calendar'
+import { type Calendar } from './card-calendar'
+import { checkTimeBlock } from './card-time'
 import { checkSchema, schemaAt, schemaElement, schemaType, type StateSchema, type Schema } from './card-state'
 
 // ---------- 引擎词表 ----------
@@ -146,7 +147,8 @@ export interface CardData {
   graph: Graph
   actions: Record<string, Action>
   state: StateSchema
-  time: { calendar: Calendar; initial: TimeValue }
+  /** 这张卡的历法 —— 时刻本身声明在 `state.world.time`（R39） */
+  time: { calendar: Calendar }
   generators: Generator[]
   opening: Opening
   display: Display
@@ -250,14 +252,6 @@ function checkConvention(card: Record<string, unknown>): void {
 function checkState(card: Record<string, unknown>): void {
   const state = requireRecord(card, 'state', '')
   for (const [branch, schema] of Object.entries(state)) checkSchema(schema, at('state', branch))
-}
-
-/** 时间：历法（预设名或自定义 spec）+ 起始时刻（单位必须对得上这张历法） */
-function checkTimeBlock(card: Record<string, unknown>): void {
-  const time = requireRecord(card, 'time', '')
-  checkKeys(time, ['calendar', 'initial'], 'time')
-  const calendar: Calendar = checkCalendar(time.calendar, 'time.calendar')
-  checkTime(calendar, time.initial, 'time.initial')
 }
 
 /** 动作：名字是协议名、形状是两种之一、引用完整性（path 存在、mode / key 合法） */

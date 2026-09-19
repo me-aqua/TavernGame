@@ -143,14 +143,7 @@
     }
   },
   "time": {
-    "calendar": "real",
-    "initial": {
-      "year": 2189,
-      "month": 4,
-      "day": 12,
-      "hour": 21,
-      "minute": 40
-    }
+    "calendar": "real"
   },
   "actions": {
     "advance_time": {
@@ -261,6 +254,23 @@
               },
               "调子": "string"
             }
+          }
+        },
+        "time": {
+          "type": "object",
+          "initial": {
+            "year": 2189,
+            "month": 4,
+            "day": 12,
+            "hour": 21,
+            "minute": 40
+          },
+          "fields": {
+            "year": "integer",
+            "month": "integer",
+            "day": "integer",
+            "hour": "integer",
+            "minute": "integer"
           }
         }
       }

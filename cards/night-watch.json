@@ -52,8 +52,7 @@
       "month": { "days": 30 },
       "year": { "months": 12 },
       "display": "{year} 年 {month} 月 {day} 日 · 星期{weekday} · {segment}"
-    },
-    "initial": { "year": 1, "month": 4, "day": 12, "hour": 21, "minute": 40 }
+    }
   },
 
   "actions": {
@@ -62,6 +61,22 @@
   },
 
   "state": {
+    "world": {
+      "type": "object",
+      "fields": {
+        "time": {
+          "type": "object",
+          "initial": { "year": 1, "month": 4, "day": 12, "hour": 21, "minute": 40 },
+          "fields": {
+            "year": "integer",
+            "month": "integer",
+            "day": "integer",
+            "hour": "integer",
+            "minute": "integer"
+          }
+        }
+      }
+    },
     "lead": {
       "type": "object",
       "fields": {

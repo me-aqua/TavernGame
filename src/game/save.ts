@@ -4,9 +4,9 @@
  * 这里处理的都是**外部数据**（用户能手改、能从文件导入），按纪律只有系统边界
  * 才做校验，所以校验集中在这里；state.ts 只管「校验通过之后」的行为。
  *
- * 存档记的是 { meta: { turn, card }, time, state, events, timeline }：
- *   · state 就是卡的 instantiate() 那棵树（引擎不认识它的形状，只按卡的 schema 校验）；
- *   · time 是引擎持有的历法时刻（**不在**卡的 state 里）；
+ * 存档记的是 { meta: { turn, card }, state, events, timeline }：
+ *   · state 就是卡的 instantiate() 那棵树（引擎不认识它的形状，只按卡的 schema 校验）——
+ *     **这一局现在是几点也在里面**（`state.world.time`，R39：时刻是世界状态的一部分）；
  *   · card 是这一局的身份 —— 缺卡 / id / 版本 / 格式不同一律拒绝，不拿旧状态硬跑新卡。
  *
  * 事件流的分类与上限也在这一层：哪些 kind 算「故事」、哪些算「调试」、各留多少条
@@ -16,7 +16,7 @@
  */
 
 import { nowIso } from '../utils/calendar'
-import { checkTime, type TimeValue } from './card-calendar'
+import { checkSavedClock } from './card-time'
 import { instantiate, validateValue, type StateTree } from './card-state'
 import { at } from './card-read'
 import { t } from '../i18n'
@@ -132,13 +132,12 @@ function checkIdentity(saved: unknown, card: CardData): void {
 // ---------- 新游戏的第一帧 ----------
 
 /**
- * 新游戏的第一帧：状态树来自卡的 state（初值也在卡里）、时刻来自卡的 time.initial、
+ * 新游戏的第一帧：状态树来自卡的 state（初值也在卡里，**时刻也在树里**）、
  * 身份来自卡的 card。引擎不写死任何一样（决定 #42）。
  */
 export function createInitialState(card: CardData): GameData {
   return {
     meta: { turn: 0, card: identityOf(card) },
-    time: { ...card.time.initial },
     state: instantiate(card),
     events: [],
     timeline: [],
@@ -155,12 +154,15 @@ function pickTurn(v: unknown): number {
 
 /**
  * 存档里的时刻必须落在这张卡的历法里（月 13、时 24 都由 checkTime 拦下）。
- * 缺字段（手改坏了 / 半份旧数据）退回卡的起始时刻 —— 时间不该让整局打不开。
+ *
+ * ⚠️ 时刻住在状态树里（`state.world.time`），所以这一道紧跟在 `pickState` 之后：
+ *    形状由 schema 守（只认五个整数），**历法**那一道由这里补 —— 少了它，手改过的存档
+ *    能带着月 13 进来，之后每一次念时刻都是一句胡话。
+ * ⚠️ 缺那一格也拒（`clockIn` 抛）：那不是"少显示一行"，而是引擎没有时刻可用。
  */
-function pickTime(card: CardData, value: unknown): TimeValue {
-  if (value === undefined) return { ...card.time.initial }
+function checkClock(card: CardData, state: StateTree): void {
   try {
-    return { ...checkTime(card.time.calendar, value, 'time') }
+    checkSavedClock(card.time.calendar, state)
   } catch (err) {
     throw new Error(t('save.badTime', { message: (err as Error).message }), { cause: err })
   }
@@ -272,9 +274,9 @@ export function normalize(saved: unknown, card: CardData): GameData {
   const meta = isRecord(saved.meta) ? saved.meta : {}
   checkIdentity(meta.card, card)
   const state = pickState(card, saved.state)
+  checkClock(card, state)
   return {
     meta: { turn: pickTurn(meta.turn), card: identityOf(card) },
-    time: pickTime(card, saved.time),
     state,
     events: sanitizeEvents(saved.events),
     timeline: sanitizeTimeline(saved.timeline),

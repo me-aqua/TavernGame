@@ -5,7 +5,6 @@
  *    所以读存档时必须当 unknown 校验，不能信任类型标注 —— 见 game/save.ts。
  */
 
-import type { TimeValue } from '../game/card-calendar'
 import type { StateTree } from '../game/card-state'
 import type { BlockGroup } from '../agent/prompts'
 
@@ -119,9 +118,12 @@ export interface GameData {
     /** 这一局是哪张卡开的 —— 不拿旧状态硬跑新卡 */
     card: CardIdentity
   }
-  /** 引擎持有的历法时刻（时间与时间线**不在**卡的 state 里） */
-  time: TimeValue
-  /** 卡的 instantiate() 那一棵树 —— 状态由卡声明、初值也在卡里 */
+  /**
+   * 卡的 instantiate() 那一棵树 —— 状态由卡声明、初值也在卡里。
+   *
+   * ⚠️ **这一局现在是几点也在里面**（`state.world.time`，R39：时刻是世界状态的一部分）
+   *    —— 引擎手里没有第二份时钟，见 game/card-time.ts。
+   */
   state: StateTree
   events: GameEvent[]
   timeline: TimelineEntry[]

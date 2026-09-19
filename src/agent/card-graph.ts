@@ -26,11 +26,11 @@
 import { chat } from './llm'
 import { buildNodeMessages, type UpstreamOutput } from './prompts'
 import { runAction, toolSchemas } from '../game/card-actions'
+import { CLOCK_STATE_PATH, clockIn } from '../game/card-time'
 import { advanceTime } from '../game/state'
 import { t } from '../i18n'
 import type { CardData } from '../game/card'
 import type { StateTree } from '../game/card-state'
-import type { TimeValue } from '../game/card-calendar'
 import type { GameData, TimelineEntry } from '../types/state'
 import type { AgentEvent } from './agent'
 
@@ -47,15 +47,14 @@ export const MAX_TOOL_ROUNDS = 3
 export const MAX_REDO = 2
 
 /**
- * 一个节点开跑前的那张快照 —— 工作副本里**节点改得动的全部三样**。
+ * 一个节点开跑前的那张快照 —— 工作副本里**节点改得动的两样**。
  *
- * ⚠️ 少一样就是「只回滚了一半」：`advanceTime` 除了把 `time` 推到新时刻，还会往
- *    `timeline` 里记一条跳跃（game/state.ts）。漏掉 timeline，被退回的那一段就会
- *    留下一条时钟对不上的记录 —— 而时间线是**落盘、玩家看得见**的。
+ * ⚠️ 时刻**不单独拍**：它住在状态树里（`state.world.time`，R39）⇒ `state` 那一份就把它带上了。
+ *    少 `timeline` 就是「只回滚了一半」：`advanceTime` 除了把时刻推到新时刻，
+ *    还会往 `timeline` 里记一条跳跃（game/state.ts），而时间线是**落盘、玩家看得见**的。
  */
 interface Snapshot {
   state: StateTree
-  time: TimeValue
   timeline: TimelineEntry[]
 }
 
@@ -80,11 +79,10 @@ export interface CardGraphInput {
   onEvent?: (evt: AgentEvent) => void
 }
 
-/** 拷一张快照（工具原地改状态树，存引用等于没拍）—— 三样都得拷，见 Snapshot */
+/** 拷一张快照（工具原地改状态树，存引用等于没拍）—— 两样都得拷，见 Snapshot */
 function snapshotOf(data: GameData): Snapshot {
   return {
     state: structuredClone(data.state),
-    time: { ...data.time },
     timeline: structuredClone(data.timeline),
   }
 }
@@ -102,10 +100,163 @@ function upstreamOf(card: CardData, outputs: string[], index: number): UpstreamO
 }
 
 /**
+ * 这一轮跑图时**主循环与节点循环共用的那点台账**。
+ *
+ * 为什么要有它：节点循环（一个节点内的模型往返）与主循环（拓扑推进 + redo 记账）是两件事，
+ * 拆成两个函数才读得清；而节点循环需要「这张卡」「这一轮的入参」「整张图的调用计数」三样，
+ * 于是把它们收在一个对象里传。
+ *
+ * ⚠️ 工作副本不在这里单列：它就是 `input.data`（工具原地改它，redo 会把它的 `state` 整个换掉，
+ *    所以传的必须是 `data` 本身、不是某一时刻的 `data.state`）。
+ */
+interface GraphRun {
+  card: CardData
+  input: CardGraphInput
+  /** 整张图的模型调用计数（工具往返也算一次）—— request / model 事件的 step 用它 */
+  calls: number
+}
+
+/**
+ * 一个节点的一段模型循环：问模型 → 执行工具 → 回传 → 问到它写出文字（或申请退回重来）。
+ *
+ * 每个节点请求前**重新装配一次**提示词（`buildNodeMessages`）：于是「现在」与状态快照都是
+ * 它开跑那一刻的真相 —— 排在它前面的节点刚写进去的东西它看得见，之后写进去的看不见。
+ */
+async function runNode(
+  run: GraphRun,
+  id: string,
+  upstream: UpstreamOutput[],
+  hint?: string,
+): Promise<NodeOutcome> {
+  const { card, input } = run
+  const data = input.data
+  const messages = buildNodeMessages({
+    card,
+    node: id,
+    state: data.state,
+    // 每个节点请求前重新取一次事件流：模型记忆就在它这一轮之前的部分（刷新后仍在）
+    events: data.events,
+    memoryUpTo: input.memoryUpTo,
+    playerWords: input.playerWords,
+    upstream,
+    hint,
+  })
+
+  for (let round = 1; round <= MAX_TOOL_ROUNDS; round += 1) {
+    if (input.signal?.aborted) throw new DOMException('aborted', 'AbortError')
+    run.calls += 1
+    const step = run.calls
+    input.onEvent?.({ type: 'thinking', step })
+    const reply = await chat(messages, {
+      signal: input.signal,
+      tools: toolSchemas(card, id),
+      // 请求体在发出去之前就报一次：这样调用失败（401 / 500 / 断网）时
+      // 调试痕迹里也能看到我们到底发了什么
+      onRequest: (body) => input.onEvent?.({ type: 'request', step, body }),
+    })
+    input.onEvent?.({ type: 'model', step, reply })
+
+    // 没有工具调用 = 这个节点说完了：它的文字就是产出（不解析、不改写）
+    if (!reply.toolCalls.length) return { kind: 'text', text: reply.content.trim() }
+
+    // 只调工具、一个字都没写：提示一句，继续问（模型有时会偷懒）
+    if (!reply.content.trim()) {
+      input.onEvent?.({ type: 'warn', message: t('agent.toolsOnly', { step }) })
+    }
+
+    // 协议要求：先把模型这一步原样记进对话（id / name / arguments 一字不差），
+    // 再把每个工具的结果以 role:'tool' 回传 —— 模型靠 tool_call_id 对上号。
+    messages.push({
+      role: 'assistant',
+      content: reply.content,
+      tool_calls: reply.toolCalls.map((call) => ({
+        id: call.id,
+        type: 'function' as const,
+        function: { name: call.name, arguments: call.arguments },
+      })),
+    })
+    for (const call of reply.toolCalls) {
+      input.onEvent?.({ type: 'tool', node: id, tool: call.name, args: call.arguments })
+      // 参数不是合法 JSON 对象：把 llm.ts 给的结构化错误原样回传，让它自己改
+      if (!call.args.ok) {
+        input.onEvent?.({
+          type: 'toolResult',
+          node: id,
+          tool: call.name,
+          result: call.args.message,
+          failed: true,
+        })
+        messages.push({ role: 'tool', tool_call_id: call.id, content: call.args.message })
+        continue
+      }
+
+      const outcome = runAction(card, data.state, call.name, call.args.value, id)
+      // 校验不过**不抛错**：把结构化错误当工具结果回传，让模型自己改（决定 #46）
+      if (!outcome.ok) {
+        input.onEvent?.({
+          type: 'toolResult',
+          node: id,
+          tool: call.name,
+          result: outcome.error,
+          failed: true,
+        })
+        messages.push({ role: 'tool', tool_call_id: call.id, content: outcome.error })
+        continue
+      }
+
+      if (outcome.kind === 'redo') {
+        const result = t('agent.redoAccepted', {
+          node: card.graph.nodes[outcome.from].name,
+          why: outcome.why,
+        })
+        input.onEvent?.({ type: 'toolResult', node: id, tool: call.name, result, failed: false })
+        // 退回重来：这个节点这一步就到此为止（这条对话与剩下的工具调用一起作废，
+        // 调用方会回滚并从 from 重跑）
+        return { kind: 'redo', from: outcome.from, why: outcome.why }
+      }
+
+      if (outcome.kind === 'time') {
+        // 时间由引擎按这张卡的历法推进（minutes = 0 合法）；结果文案原样回传给模型。
+        // ⚠️ 写的是**状态树里那一格** ⇒ 痕迹里那条 path 是能解析到时刻的状态路径（不再是裸 'time'）
+        const result = advanceTime(data, card.time.calendar, outcome.minutes, outcome.reason)
+        input.onEvent?.({
+          type: 'stateChange',
+          node: id,
+          path: CLOCK_STATE_PATH,
+          value: clockIn(data.state),
+        })
+        input.onEvent?.({ type: 'toolResult', node: id, tool: call.name, result, failed: false })
+        messages.push({ role: 'tool', tool_call_id: call.id, content: result })
+        continue
+      }
+
+      input.onEvent?.({
+        type: 'stateChange',
+        node: id,
+        path: outcome.change.path,
+        value: outcome.change.value,
+      })
+      input.onEvent?.({
+        type: 'toolResult',
+        node: id,
+        tool: call.name,
+        result: outcome.result,
+        failed: false,
+      })
+      messages.push({ role: 'tool', tool_call_id: call.id, content: outcome.result })
+    }
+  }
+
+  // 到顶还在调工具 = 这个节点一个字都没写出来：不静默收场（决定 #27）
+  input.onEvent?.({ type: 'warn', message: t('agent.stepLimit', { max: MAX_TOOL_ROUNDS }) })
+  throw new Error(t('agent.nodeStepLimit', { node: card.graph.nodes[id].name, max: MAX_TOOL_ROUNDS }))
+}
+
+/**
  * 照卡里的图跑一轮，返回拓扑各节点的产出（顺序 = 拓扑；被退回重跑过就是**最后一次**的结果）。
  *
- * 每个节点一段模型循环：带工具问 → 执行 → 回传 → 再问；**没有工具调用的那一次的文字**
- * 就是这个节点的产出（trim 后进上游）。
+ * 一趟拓扑：每个节点开跑前拍一张快照，然后交给 `runNode` 跑它那一段模型循环；
+ * 某个节点申请退回重来时，把工作副本恢复到 `from` **开跑前**那张快照、带上一条系统提示、从 `from` 重跑。
  */
 export async function runCardGraph(input: CardGraphInput): Promise<string[]> {
   const { card, data } = input
@@ -115,129 +266,9 @@ export async function runCardGraph(input: CardGraphInput): Promise<string[]> {
   const snapshots = new Map<number, Snapshot>()
   /** 重跑节点要看到的系统提示（只对 from 那一次生效，用完即丢） */
   const hints = new Map<number, string>()
-  /** 整张图的模型调用计数（工具往返也算一次）—— request / model 事件的 step 用它 */
-  let calls = 0
+  const run: GraphRun = { card, input, calls: 0 }
   let redos = 0
   let index = 0
-
-  /** 一个节点的一段模型循环：问模型 → 执行工具 → 回传 → 问到它写出文字（或申请退回重来） */
-  async function runNode(id: string, upstream: UpstreamOutput[], hint?: string): Promise<NodeOutcome> {
-    const messages = buildNodeMessages({
-      card,
-      node: id,
-      state: data.state,
-      time: data.time,
-      // 每个节点请求前重新取一次事件流：模型记忆就在它这一轮之前的部分（刷新后仍在）
-      events: data.events,
-      memoryUpTo: input.memoryUpTo,
-      playerWords: input.playerWords,
-      upstream,
-      hint,
-    })
-
-    for (let round = 1; round <= MAX_TOOL_ROUNDS; round += 1) {
-      if (input.signal?.aborted) throw new DOMException('aborted', 'AbortError')
-      calls += 1
-      const step = calls
-      input.onEvent?.({ type: 'thinking', step })
-      const reply = await chat(messages, {
-        signal: input.signal,
-        tools: toolSchemas(card, id),
-        // 请求体在发出去之前就报一次：这样调用失败（401 / 500 / 断网）时
-        // 调试痕迹里也能看到我们到底发了什么
-        onRequest: (body) => input.onEvent?.({ type: 'request', step, body }),
-      })
-      input.onEvent?.({ type: 'model', step, reply })
-
-      // 没有工具调用 = 这个节点说完了：它的文字就是产出（不解析、不改写）
-      if (!reply.toolCalls.length) return { kind: 'text', text: reply.content.trim() }
-
-      // 只调工具、一个字都没写：提示一句，继续问（模型有时会偷懒）
-      if (!reply.content.trim()) {
-        input.onEvent?.({ type: 'warn', message: t('agent.toolsOnly', { step }) })
-      }
-
-      // 协议要求：先把模型这一步原样记进对话（id / name / arguments 一字不差），
-      // 再把每个工具的结果以 role:'tool' 回传 —— 模型靠 tool_call_id 对上号。
-      messages.push({
-        role: 'assistant',
-        content: reply.content,
-        tool_calls: reply.toolCalls.map((call) => ({
-          id: call.id,
-          type: 'function' as const,
-          function: { name: call.name, arguments: call.arguments },
-        })),
-      })
-      for (const call of reply.toolCalls) {
-        input.onEvent?.({ type: 'tool', node: id, tool: call.name, args: call.arguments })
-        // 参数不是合法 JSON 对象：把 llm.ts 给的结构化错误原样回传，让它自己改
-        if (!call.args.ok) {
-          input.onEvent?.({
-            type: 'toolResult',
-            node: id,
-            tool: call.name,
-            result: call.args.message,
-            failed: true,
-          })
-          messages.push({ role: 'tool', tool_call_id: call.id, content: call.args.message })
-          continue
-        }
-
-        const outcome = runAction(card, data.state, call.name, call.args.value, id)
-        // 校验不过**不抛错**：把结构化错误当工具结果回传，让模型自己改（决定 #46）
-        if (!outcome.ok) {
-          input.onEvent?.({
-            type: 'toolResult',
-            node: id,
-            tool: call.name,
-            result: outcome.error,
-            failed: true,
-          })
-          messages.push({ role: 'tool', tool_call_id: call.id, content: outcome.error })
-          continue
-        }
-
-        if (outcome.kind === 'redo') {
-          const result = t('agent.redoAccepted', {
-            node: card.graph.nodes[outcome.from].name,
-            why: outcome.why,
-          })
-          input.onEvent?.({ type: 'toolResult', node: id, tool: call.name, result, failed: false })
-          // 退回重来：这个节点这一步就到此为止（这条对话与剩下的工具调用一起作废，
-          // 调用方会回滚并从 from 重跑）
-          return { kind: 'redo', from: outcome.from, why: outcome.why }
-        }
-
-        if (outcome.kind === 'time') {
-          // 时间由引擎按这张卡的历法推进（minutes = 0 合法）；结果文案原样回传给模型
-          const result = advanceTime(data, card.time.calendar, outcome.minutes, outcome.reason)
-          input.onEvent?.({ type: 'stateChange', node: id, path: 'time', value: { ...data.time } })
-          input.onEvent?.({ type: 'toolResult', node: id, tool: call.name, result, failed: false })
-          messages.push({ role: 'tool', tool_call_id: call.id, content: result })
-          continue
-        }
-
-        input.onEvent?.({
-          type: 'stateChange',
-          node: id,
-          path: outcome.change.path,
-          value: outcome.change.value,
-        })
-        input.onEvent?.({
-          type: 'toolResult',
-          node: id,
-          tool: call.name,
-          result: outcome.result,
-          failed: false,
-        })
-        messages.push({ role: 'tool', tool_call_id: call.id, content: outcome.result })
-      }
-    }
-
-    // 到顶还在调工具 = 这个节点一个字都没写出来：不静默收场（决定 #27）
-    input.onEvent?.({ type: 'warn', message: t('agent.stepLimit', { max: MAX_TOOL_ROUNDS }) })
-    throw new Error(t('agent.nodeStepLimit', { node: card.graph.nodes[id].name, max: MAX_TOOL_ROUNDS }))
-  }
 
   while (index < topology.length) {
     const id = topology[index]
@@ -247,7 +278,7 @@ export async function runCardGraph(input: CardGraphInput): Promise<string[]> {
 
     const hint = hints.get(index)
     hints.delete(index)
-    const outcome = await runNode(id, upstreamOf(card, outputs, index), hint)
+    const outcome = await runNode(run, id, upstreamOf(card, outputs, index), hint)
 
     if (outcome.kind === 'text') {
       outputs[index] = outcome.text
@@ -264,9 +295,9 @@ export async function runCardGraph(input: CardGraphInput): Promise<string[]> {
 
     // 把工作副本恢复到 from 开跑前：撤销 from、它之后的一切、以及调用者自己写下的东西。
     // ⚠️ 恢复时再拷一份 —— 快照本身要留给「同一个节点再被退回一次」那种局面。
+    // ⚠️ 时刻不用单独恢复：它在 state 里，`data.state` 那一行就把它带回去了（R39 的收益）。
     const snapshot = snapshots.get(from) as Snapshot
     data.state = structuredClone(snapshot.state)
-    data.time = { ...snapshot.time }
     data.timeline = structuredClone(snapshot.timeline)
     // 「哪里不对、谁要求重来」只交给重跑的那个节点（下游从它的新产出里读结论）
     hints.set(from, t('agent.redoHint', { node: card.graph.nodes[id].name, why: outcome.why }))

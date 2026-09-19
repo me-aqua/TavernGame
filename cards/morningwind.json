@@ -1232,6 +1232,23 @@
             }
           },
           "note": "角色 → 位置（区域 / 地点 / 场景 三栏），也归地图 agent"
+        },
+        "time": {
+          "type": "object",
+          "initial": {
+            "year": 2026,
+            "month": 9,
+            "day": 14,
+            "hour": 19,
+            "minute": 30
+          },
+          "fields": {
+            "year": "integer",
+            "month": "integer",
+            "day": "integer",
+            "hour": "integer",
+            "minute": "integer"
+          }
         }
       }
     },
@@ -1247,14 +1264,7 @@
     }
   },
   "time": {
-    "calendar": "real",
-    "initial": {
-      "year": 2026,
-      "month": 9,
-      "day": 14,
-      "hour": 19,
-      "minute": 30
-    }
+    "calendar": "real"
   },
   "generators": [
     {

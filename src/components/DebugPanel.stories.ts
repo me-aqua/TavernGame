@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import DebugPanel from './DebugPanel.vue'
 import { currentCard } from '../game/current-card'
 import { instantiate } from '../game/card-state'
+import { CLOCK_STATE_PATH, clockIn } from '../game/card-time'
 import { format } from '../game/card-calendar'
 import type { ToolCall } from '../stores/game'
 import type { GameData } from '../types/state'
@@ -14,7 +15,7 @@ import type { GameData } from '../types/state'
  * 面板本身只读，故事里也没有一颗按钮会改游戏状态。
  */
 const state = instantiate(currentCard)
-const timeLabel = format(currentCard.time.calendar, currentCard.time.initial)
+const timeLabel = format(currentCard.time.calendar, clockIn(state))
 
 /** 正在跑的那个节点（卡里的第二个）—— 活卡图的高亮 */
 const running = currentCard.graph.topology[1]
@@ -22,7 +23,6 @@ const running = currentCard.graph.topology[1]
 /** 这一轮还没提交的工作副本（事务里那份；故事里造一份假的看看样子） */
 const draft: GameData = {
   meta: { turn: 3, card: { id: 'demo', name: 'demo', version: '0.0.0', format: 'card/4' } },
-  time: currentCard.time.initial,
   state,
   events: [],
   timeline: [],
@@ -34,7 +34,7 @@ const tools: ToolCall[] = [
     tool: 'advance_time',
     args: '{"minutes":5,"reason":"从醒来坐到桌边"}',
     result: '🕐 时间推进：5 分钟（现在是 2026 年 9 月 14 日 · 星期一 · 晚上）',
-    writes: [{ path: 'time', value: { year: 2026, month: 9, day: 14, hour: 19, minute: 35 } }],
+    writes: [{ path: CLOCK_STATE_PATH, value: clockIn(state) }],
     failed: false,
     redoFrom: null,
   },
@@ -71,7 +71,7 @@ const meta = {
     turn: 2,
     draft: null,
     writes: [
-      { path: 'time', value: { year: 2026, month: 9, day: 14, hour: 19, minute: 35 } },
+      { path: CLOCK_STATE_PATH, value: clockIn(state) },
       { path: 'world.map.镇郊', value: { note: '镇子外面那片林子，晚上起雾。' } },
     ],
     tools,

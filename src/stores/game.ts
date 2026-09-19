@@ -21,6 +21,7 @@
 import { computed, reactive, ref } from 'vue'
 import * as game from '../game/state'
 import { initialState } from '../game/state'
+import { clockIn } from '../game/card-time'
 import { isRecord, isStoryKind } from '../game/save'
 import { IDLE, isRunning, runningNodeOf, statusKeyOf, type TurnState } from '../game/lifecycle'
 import { nodeLabel, spotOf } from '../game/display'
@@ -253,8 +254,8 @@ const devHost = ref(false)
 /** store 的唯一入口；模块级单例，所有界面共享同一份状态 */
 export function useGame() {
   // ---------- 只读派生（读代理 → 自动响应） ----------
-  /** 时间标签：按**卡的历法**渲染（自定义历法也是它） */
-  const timeLabel = computed(() => game.timeText(currentCard.time.calendar, state.data.time))
+  /** 时间标签：读**状态树里那一格**（R39），按卡的历法渲染 —— 树一动它就动 */
+  const timeLabel = computed(() => game.timeText(currentCard.time.calendar, clockIn(state.data.state)))
   const timeline = computed(() => state.data.timeline.slice(-4))
   /** 当前场景：读状态树的 world.location（卡没声明这一段时是三个空串） */
   const scene = computed(() => spotOf(state.data.state))

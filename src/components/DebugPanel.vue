@@ -18,6 +18,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import CardGraph from './CardGraph.vue'
 import { format } from '../game/card-calendar'
+import { clockIn } from '../game/card-time'
 import { renderState, type StateTree } from '../game/card-state'
 import { nodeLabel } from '../game/display'
 import type { CardData } from '../game/card'
@@ -74,9 +75,9 @@ const showingDraft = computed(() => draftOn.value && props.draft !== null)
 /** 正在展示的状态树 */
 const shownTree = computed<StateTree>(() => (showingDraft.value ? props.draft!.state : props.state))
 
-/** 正在展示的时刻（草稿的时刻按同一张卡的历法现念） */
+/** 正在展示的时刻（草稿那份从它自己的状态树里现取，按同一张卡的历法念） */
 const shownTime = computed(() =>
-  showingDraft.value ? format(props.card.time.calendar, props.draft!.time) : props.timeLabel,
+  showingDraft.value ? format(props.card.time.calendar, clockIn(props.draft!.state)) : props.timeLabel,
 )
 
 /** 正在展示的回合数 */
