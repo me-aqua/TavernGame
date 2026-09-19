@@ -29,13 +29,13 @@ const entries = computed(() => {
 <template>
   <ul class="space-y-1.5">
     <li v-for="(item, index) in entries" :key="item.title + index" data-item>
-      <p class="text-[12px] text-text">
+      <p class="text-[12.5px] text-text">
         {{ item.title }}
         <span v-if="item.count" class="ml-1 text-[11px] text-accent tabular-nums">{{
           t('world.itemCount', { count: item.count })
         }}</span>
       </p>
-      <p v-for="line in item.lines" :key="line.key" class="line-clamp-2 text-[11px] leading-snug text-faint">
+      <p v-for="line in item.lines" :key="line.key" class="text-[11.5px] leading-snug text-faint">
         {{ line.text }}
       </p>
     </li>

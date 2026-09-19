@@ -122,7 +122,8 @@ describe('display follows each card declaration', () => {
   it('reads the blocks each card declares', () => {
     expect(displayOf(first).sidebar).toEqual(first.display.sidebar.map((block) => block.block))
     expect(displayOf(second).sidebar).toEqual(second.display.sidebar.map((block) => block.block))
-    expect(displayOf(second).sidebar.length).toBe(1)
+    // 两张卡声明的块不同：界面照各自的卡来，不共用一份写死的清单
+    expect(displayOf(first).sidebar).not.toEqual(displayOf(second).sidebar)
   })
 
   it('reads the panel data out of each state tree', () => {

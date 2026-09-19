@@ -29,26 +29,33 @@ const emit = defineEmits<{ close: [] }>()
     data-world-panel
     role="dialog"
     :aria-label="t('world.title')"
-    class="absolute top-14 right-3 z-20 flex max-h-[min(34rem,68vh)] w-[min(20rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-line/70 bg-surface/90 shadow-xl backdrop-blur-md xl:w-64"
+    class="absolute top-14 right-3 z-20 flex max-h-[min(36rem,72vh)] w-[min(20rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-xl border border-line/70 bg-surface/95 shadow-[0_30px_70px_-38px_rgba(20,12,4,0.75)] backdrop-blur-md xl:w-[19rem]"
   >
     <header
-      class="flex shrink-0 items-center justify-between gap-2 border-b border-line/60 py-1.5 pr-1.5 pl-3.5"
+      class="flex shrink-0 items-center justify-between gap-2 border-b border-line/60 py-2 pr-1.5 pl-3.5"
     >
-      <h2 class="text-[12px] font-semibold tracking-wide text-accent">{{ t('world.title') }}</h2>
+      <h2 class="font-serif text-[14px] font-semibold tracking-wide text-text">
+        {{ t('world.title') }}
+      </h2>
       <button
         data-world-close
         :aria-label="t('world.close')"
         :title="t('world.close')"
-        class="flex size-6 items-center justify-center rounded-full text-[12px] text-muted transition-colors hover:bg-surface-2 hover:text-text"
+        class="flex size-7 items-center justify-center rounded-full text-[12px] text-muted transition-colors hover:bg-surface-2 hover:text-text"
         @click="emit('close')"
       >
         <span aria-hidden="true">{{ t('world.closeIcon') }}</span>
       </button>
     </header>
 
-    <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-3.5 py-3">
+    <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-3.5 py-3.5">
       <section v-for="block in blocks" :key="block.name" :data-block="block.name">
-        <h3 class="mb-1.5 text-[11px] font-semibold text-faint">{{ t(block.title) }}</h3>
+        <h3
+          class="mb-1.5 flex items-center gap-2 text-[10.5px] font-semibold tracking-[0.14em] text-accent uppercase"
+        >
+          {{ t(block.title) }}
+          <span class="h-px flex-1 bg-line/70" aria-hidden="true" />
+        </h3>
         <component :is="block.view" v-bind="block.props(state)" />
       </section>
     </div>

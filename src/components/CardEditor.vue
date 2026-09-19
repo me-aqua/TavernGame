@@ -131,15 +131,15 @@ function markResources(value: { settings: string[]; uses: string[] }) {
 <template>
   <div
     data-card-editor
-    class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-3 backdrop-blur-sm"
+    class="fixed inset-0 z-[60] flex items-center justify-center bg-[#150f08]/60 p-3 backdrop-blur-sm"
     @click.self="emit('close')"
   >
     <div
-      class="flex max-h-[92vh] w-full max-w-[980px] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl xl:max-w-[1240px] 2xl:max-w-[1400px]"
+      class="flex max-h-[92vh] w-full max-w-[980px] flex-col overflow-hidden rounded-xl border border-line/70 bg-surface shadow-[0_40px_90px_-45px_rgba(15,9,3,0.85)] xl:max-w-[1240px] 2xl:max-w-[1400px]"
     >
-      <header class="flex shrink-0 items-start justify-between gap-2 border-b border-line px-4 py-3">
+      <header class="flex shrink-0 items-start justify-between gap-2 border-b border-line/70 px-4 py-3">
         <div class="min-w-0">
-          <h2 class="text-[15px] font-semibold text-text">{{ t('card.graphTitle') }}</h2>
+          <h2 class="font-serif text-[17px] font-semibold text-text">{{ t('card.graphTitle') }}</h2>
           <p class="mt-0.5 text-[11.5px] text-muted">
             {{ t('card.meta', { name: meta.name, version: meta.version, source: sourceLabel }) }}
           </p>

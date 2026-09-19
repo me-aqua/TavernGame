@@ -524,6 +524,22 @@ describe('validateCard: generators / opening / display / notes', () => {
     expect(validateCard(card)).toBeDefined()
   })
 
+  it('accepts a known atmosphere and rejects one no stage can light', () => {
+    const lit = fixture()
+    lit.display.atmosphere = 'lamplight'
+    expect(validateCard(lit)).toBeDefined()
+
+    const unknown = fixture()
+    unknown.display.atmosphere = 'neon'
+    expectRejected(unknown, 'display.atmosphere')
+  })
+
+  it('accepts the self block when the card declares lead', () => {
+    const card = fixture()
+    card.display.sidebar = [{ block: 'self' }]
+    expect(validateCard(card)).toBeDefined()
+  })
+
   it('rejects a notes entry that is empty or not text', () => {
     for (const value of ['', [], 7, ['ok', 7]]) {
       const card = fixture()

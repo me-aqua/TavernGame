@@ -13,7 +13,14 @@
  *
  * 纯函数、不 import Vue：「哪一块由谁渲染」是界面层的事（src/components/display-blocks.ts）。
  */
-import { BLOCK_STATE_PATHS, SIDEBAR_BLOCKS, TOPBAR_ITEMS, type CardData } from './card'
+import {
+  ATMOSPHERES,
+  BLOCK_STATE_PATHS,
+  SIDEBAR_BLOCKS,
+  TOPBAR_ITEMS,
+  type Atmosphere,
+  type CardData,
+} from './card'
 import { isRecord } from './save'
 import type { StateTree } from './card-state'
 
@@ -31,12 +38,20 @@ export const KNOWN_BLOCKS = SIDEBAR_BLOCKS
 /** 应用画得出来的顶栏条目名 */
 export const KNOWN_TOPBAR = TOPBAR_ITEMS
 
+/** 应用点得亮的气氛名 */
+export const KNOWN_ATMOSPHERES = ATMOSPHERES
+
 /** 声明.显示：顶栏条目名与侧栏块名，各自保持声明顺序 */
 export function displayOf(card: CardData): DisplayDecl {
   return {
     topbar: [...card.display.topbar],
     sidebar: card.display.sidebar.map((block) => block.block),
   }
+}
+
+/** 这一局该点哪盏灯；卡没写就用中性墨色 —— 默认值是引擎的，不占卡的声明 */
+export function atmosphereOf(card: CardData): Atmosphere {
+  return card.display.atmosphere ?? 'ink'
 }
 
 /** 判存在性用集合：名字来自卡，是普通字符串，不是字面量类型 */
@@ -117,6 +132,41 @@ export function castOf(state: StateTree): unknown {
   return atPath(state, BLOCK_STATE_PATHS.cast[0])
 }
 
+/** 主角角色牌的数据（lead 那一段） */
+export function selfOf(state: StateTree): unknown {
+  return atPath(state, BLOCK_STATE_PATHS.self[0])
+}
+
+/** 行踪块的数据（world.whoIsWhere） */
+export function whereOf(state: StateTree): unknown {
+  return atPath(state, BLOCK_STATE_PATHS.where[0])
+}
+
+/** 故事链块的数据（world.chains） */
+export function chainsOf(state: StateTree): unknown {
+  return atPath(state, BLOCK_STATE_PATHS.chains[0])
+}
+
+/**
+ * 主角角色牌要藏起来的字段：另一块已经展示同一段状态。
+ *
+ * 例：卡同时声明了 self 与 pack，而 pack 读 lead.pack —— 角色牌就把自己的 pack
+ * 收起来，让「行囊」那块专门展示，避免同一串东西在面板里出现两遍。
+ * 名字从引擎词表（BLOCK_STATE_PATHS）现算，不写死某张卡的字段。
+ */
+export function selfHiddenFields(decl: DisplayDecl): string[] {
+  const selfPath = BLOCK_STATE_PATHS.self[0]
+  const prefix = selfPath + '.'
+  const hidden = new Set<string>()
+  for (const name of decl.sidebar) {
+    if (name === 'self' || !Object.hasOwn(BLOCK_STATE_PATHS, name)) continue
+    for (const path of BLOCK_STATE_PATHS[name as keyof typeof BLOCK_STATE_PATHS]) {
+      if (path.startsWith(prefix)) hidden.add(path.slice(prefix.length))
+    }
+  }
+  return [...hidden]
+}
+
 /** 背包块的数据（lead.pack 列表） */
 export function packOf(state: StateTree): unknown {
   return atPath(state, BLOCK_STATE_PATHS.pack[0])
@@ -139,4 +189,35 @@ export function spotOf(state: StateTree): Spot {
   const text = (key: string): string =>
     isRecord(location) && typeof location[key] === 'string' ? (location[key] as string) : ''
   return { area: text('area'), spot: text('spot'), scene: text('scene') }
+}
+
+/**
+ * 游戏 HUD 要读的几段状态 —— **只取卡声明过的块**。
+ *
+ * 卡没声明 `where`，HUD 就不显示行踪；没声明 `chains`，就不显示故事链。
+ * 和世界面板同一条纪律：名字来自卡的 `display.sidebar`，代码不替作者决定画什么。
+ */
+export interface HudData {
+  lead: unknown
+  cast: unknown
+  where: unknown
+  chains: unknown
+  map: unknown
+  location: Spot
+  pack: unknown
+}
+
+/** 按显示声明挑出 HUD 数据；没声明的块一律 undefined（map 连带 location 空） */
+export function hudData(decl: DisplayDecl, state: StateTree): HudData {
+  const declared = new Set(decl.sidebar)
+  const map = mapOf(state)
+  return {
+    lead: declared.has('self') ? selfOf(state) : undefined,
+    cast: declared.has('cast') ? castOf(state) : undefined,
+    where: declared.has('where') ? whereOf(state) : undefined,
+    chains: declared.has('chains') ? chainsOf(state) : undefined,
+    map: declared.has('map') ? map.areas : undefined,
+    location: declared.has('map') ? spotOf(state) : { area: '', spot: '', scene: '' },
+    pack: declared.has('pack') ? packOf(state) : undefined,
+  }
 }

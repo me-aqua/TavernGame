@@ -2,26 +2,36 @@
 /**
  * App.vue —— 应用外壳（沉浸式布局）
  *
- * 分工只有一句话：**文字是主线，控件都浮在它上面**。故事区占满整屏，输入框浮在底部，
- * 状态（顶栏条目 + 最近一次时间跳跃）浮在左上角，世界 / 设置 / 调试浮在右上角。
+ * 分工只有一句话：**文字是主线，控件都退到它后面**。故事区占满中间整屏，
+ * 眉题（场景 / 时间 / 回合）是故事的第一行而不是左上角的白卡，输入区是故事底部
+ * 的一条「岸」，世界 / 设置 / 调试是右上角的静默控件。
  *
- * 左上角显示哪几条、世界面板有哪几块，都由当前卡的 声明.显示 决定（决定 #15）——
+ * 全新一局不再是空屏：StoryCover 给这张卡一张脸（卡名 / 印记 / 简介），
+ * 再给一条明确的下一步。主角与在场人物用「印记」出现在眉题下方 ——
+ * 没有立绘，也要让玩家知道「我是谁、身边有谁」。
+ *
+ * 眉题显示哪几条、世界手札有哪几块、点亮哪盏灯，都由当前卡声明（决定 #15 / #45）；
  * 名字到组件的映射在 components/display-blocks.ts，App 只负责把解析好的结果摆出来。
  *
  * ⚠️ 界面上的每一行都属于三类之一，各有各的家（见 stores/game.ts）：事件流（故事 +
- *    调试痕迹，rows 是它的投影，由 StoryPanel 渲染）、进行中与通知（status =
- *    phase 与单槽 notice 算出来的）。所以这里**不往事件流里写任何东西**：
- *    没有「写进去等会儿再删」的行。
+ *    调试痕迹，rows 是它的投影，游戏舞台由 GameStage 渲染、往事古书由 HistoryModal 打开、
+ *    调试痕迹由 StoryPanel 台账渲染）、进行中与通知（status = phase 与单槽 notice 算出来的）。
+ *    所以这里**不往事件流里写任何东西**。
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import StoryPanel from './components/StoryPanel.vue'
+import ActionDeck from './components/ActionDeck.vue'
+import GameStage from './components/GameStage.vue'
+import HistoryModal from './components/HistoryModal.vue'
+import StoryCover from './components/StoryCover.vue'
 import GameComposer from './components/GameComposer.vue'
 import AppSidebar from './components/AppSidebar.vue'
 import SettingsDrawer from './components/SettingsDrawer.vue'
 import CardEditor from './components/CardEditor.vue'
 import WorldPanel from './components/WorldPanel.vue'
 import DebugPanel from './components/DebugPanel.vue'
-import { topbar, world } from './components/display-blocks'
+import { atmosphere, topbar, world } from './components/display-blocks'
+import { displayOf, hudData } from './game/display'
 import { storeDebug, useGame } from './stores/game'
 import { useTheme } from './composables/useTheme'
 import { useLanguage } from './composables/useLanguage'
@@ -67,19 +77,35 @@ const { mode: themeMode, select: selectTheme } = useTheme()
 const { mode: languageMode, select: selectLanguage } = useLanguage()
 
 const settingsOpen = ref(false)
-/** 世界面板开着没有 —— 它是浮层，开关只影响这一层 */
+/** 世界手札开着没有 —— 它是浮层，开关只影响这一层 */
 const worldOpen = ref(false)
 /** 卡图浮层开着没有 —— 同样只影响这一层（设置面板还开在它下面） */
 const cardOpen = ref(false)
 /** 调试面板开着没有 —— 只在调试模式里有这一层（入口就在调试开关旁边） */
 const debugOpen = ref(false)
+/** 往事（古书历史）浮层开着没有 */
+const historyOpen = ref(false)
 const configState = ref(isConfigured())
 const statusLight = ref<'ok' | 'warn' | 'err'>('warn')
 
 const configured = computed(() => configState.value)
 
-/** 右上角那颗状态点的颜色：配好了是主题色，没配是暖色，出错是红色 */
-const lightColor = computed(() => ({ ok: 'bg-accent', warn: 'bg-warn', err: 'bg-danger' })[statusLight.value])
+/** 右上角那颗状态点的颜色：配好了是语义绿，没配是暖色，出错是红色 */
+const lightColor = computed(() => ({ ok: 'bg-ok', warn: 'bg-warn', err: 'bg-danger' })[statusLight.value])
+
+/** 游戏 HUD 的数据：只取卡声明过的块（lead / cast / where / chains / map / pack） */
+const hud = computed(() => hudData(displayOf(currentCard), stateTree.value))
+
+/** 行动牌填进输入框的种子；nonce 让同一张牌可以再点一次 */
+const actionSeed = ref<{ text: string; nonce: number } | null>(null)
+
+/** 点一张行动牌：只改草稿、聚焦，不自动提交 */
+function pickAction(text: string) {
+  actionSeed.value = { text, nonce: (actionSeed.value?.nonce ?? 0) + 1 }
+}
+
+/** 调试痕迹不进游戏舞台；它们留在下方那条台账里（只在调试模式出现） */
+const debugRows = computed(() => rows.value.filter((row) => row.debug))
 
 /** 刷新连接状态灯。成功的回合要把报错时的红灯恢复回来 */
 function refreshConfigStatus() {
@@ -272,48 +298,55 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="story-bg relative flex h-full flex-col overflow-hidden">
+  <div
+    class="story-bg relative flex h-full flex-col overflow-hidden"
+    :data-atmosphere="atmosphere"
+    data-tavern-shell
+  >
+    <!-- 桌面的烛光与浮尘：只做气氛，不接收指针；reduced motion 下静止 -->
+    <div class="desk-ambience" aria-hidden="true">
+      <span class="desk-lamp" />
+      <span class="dust dust-a" />
+      <span class="dust dust-b" />
+      <span class="dust dust-c" />
+    </div>
+
     <!--
-      三段式：上带（浮层）/ 故事（占满剩下的高度，自己滚）/ 下带（输入卡片）。
-      ⚠️ 常驻浮层（顶栏与那几颗按钮）有自己的**带**，不压在正文上 —— 文字滚到哪儿都不会被挡
+      上带：场景眉题 + 右上角静默控件。
+      ⚠️ 常驻控件有自己的**带**，不压在正文上 —— 文字滚到哪儿都不会被挡
       （e2e/probe.ts 有一条「正文不许被悬浮控件压住」在守着）。
-      世界面板是**玩家自己点开**的那一层（与设置面板同类），所以它在带之外。
+      世界手札是**玩家自己点开**的那一层（与设置面板同类），所以它在带之外。
     -->
-    <div class="flex shrink-0 items-start justify-between gap-2 px-3 pt-3">
-      <AppSidebar
-        class="min-w-0 max-w-[62%] sm:max-w-[46%] lg:max-w-[26rem]"
-        :items="topbar"
-        :time-label="timeLabel"
-        :timeline="timeline"
-        :scene="scene"
-        :turn="turn"
-      />
-      <!-- 三颗按钮成一组靠右：justify-between 会把中间那颗推到屏幕正中 -->
-      <div class="flex shrink-0 items-center gap-1.5">
+    <div class="relative shrink-0 px-4 pt-2 sm:px-6 sm:pt-4 xl:pt-5">
+      <!--
+        控件成一组靠右：justify-between 会把中间那颗推到屏幕正中。
+        xl 以上它们浮在右上角（那里有足够留白）；更窄时先占一行，避免压住眉题。
+      -->
+      <div
+        data-controls
+        class="mb-1.5 flex flex-wrap items-center justify-end gap-1.5 xl:absolute xl:top-5 xl:right-6 xl:z-20 xl:mb-0"
+      >
         <button
           data-world
           :title="t('world.toggleTitle')"
           :aria-expanded="worldOpen"
-          class="shrink-0 rounded-full border px-2.5 py-1 text-[11px] backdrop-blur transition-colors"
+          class="book-tab inline-flex min-h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] backdrop-blur transition-colors"
           :class="
             worldOpen
-              ? 'border-accent-line bg-accent-soft/70 text-accent'
-              : 'border-line/70 bg-surface/70 text-faint hover:text-muted'
+              ? 'border-accent-line bg-accent-soft/80 text-accent'
+              : 'border-line/60 bg-surface/45 text-muted hover:border-accent-line hover:text-text'
           "
           @click="worldOpen = !worldOpen"
         >
+          <span aria-hidden="true" class="text-[10px]">&#9671;</span>
           {{ t('world.toggle') }}
         </button>
         <button
           v-if="devHost"
           data-debug
           :title="t('header.debugToggleTitle')"
-          class="hidden shrink-0 rounded-full border px-2.5 py-1 text-[11px] backdrop-blur transition-colors sm:inline-block"
-          :class="
-            debugMode
-              ? 'border-warn/25 bg-warn-soft/60 text-warn/90 hover:text-warn'
-              : 'border-line/70 bg-surface/70 text-faint hover:text-muted'
-          "
+          class="hidden min-h-7 shrink-0 items-center rounded-full px-2 py-1 text-[11px] transition-colors sm:inline-flex"
+          :class="debugMode ? 'text-warn/90 hover:text-warn' : 'text-faint hover:text-muted'"
           @click="toggleDebug"
         >
           {{ debugMode ? t('header.debugToggleOn') : t('header.debugToggleOff') }}
@@ -323,12 +356,8 @@ onMounted(() => {
           data-debug-panel-toggle
           :title="t('header.debugPanelTitle')"
           :aria-expanded="debugOpen"
-          class="hidden shrink-0 rounded-full border px-2.5 py-1 text-[11px] backdrop-blur transition-colors sm:inline-block"
-          :class="
-            debugOpen
-              ? 'border-accent-line bg-accent-soft/70 text-accent'
-              : 'border-line/70 bg-surface/70 text-faint hover:text-muted'
-          "
+          class="book-tab hidden min-h-7 shrink-0 items-center rounded-full px-2 py-1 text-[11px] transition-colors sm:inline-flex"
+          :class="debugOpen ? 'text-accent' : 'text-faint hover:text-muted'"
           @click="debugOpen = !debugOpen"
         >
           {{ t('header.debugPanel') }}
@@ -337,16 +366,26 @@ onMounted(() => {
           data-settings
           :title="t('header.settings')"
           :aria-label="t('header.settings')"
-          class="flex shrink-0 items-center gap-2 rounded-full border border-line bg-surface/80 px-3 py-1.5 text-[12.5px] text-muted shadow-sm backdrop-blur transition-colors hover:text-text"
+          class="book-tab flex min-h-8 shrink-0 items-center gap-2 rounded-full border border-line/70 bg-surface/55 px-3 py-1.5 text-[12px] text-muted shadow-sm backdrop-blur transition-colors hover:text-text"
           @click="settingsOpen = true"
         >
           <span class="size-2 rounded-full" :class="lightColor" />
           {{ t('header.settings') }}
         </button>
       </div>
+
+      <div class="reading-column">
+        <AppSidebar
+          :items="topbar"
+          :time-label="timeLabel"
+          :timeline="timeline"
+          :scene="scene"
+          :turn="turn"
+        />
+      </div>
     </div>
 
-    <!-- 世界面板：浮在故事上，不占正文的宽度（块与顺序来自卡的声明，内容读状态树） -->
+    <!-- 世界手札：浮在故事上，不占正文的宽度（块与顺序来自卡的声明，内容读状态树） -->
     <WorldPanel v-if="worldOpen" :blocks="world" :state="stateTree" @close="worldOpen = false" />
 
     <!-- 调试面板：只在调试模式里存在的一层（只读，入口在调试开关旁边） -->
@@ -364,11 +403,60 @@ onMounted(() => {
       @close="debugOpen = false"
     />
 
-    <!-- 主线：故事（占满剩下的高度，只有它滚动） -->
-    <StoryPanel class="min-h-0 flex-1" :rows="rows" :status="status" />
+    <!-- 主线：游戏舞台（左主角牌 / 中叙事 / 右人物 / 底行动牌）；还没开始时是开场封面 -->
+    <GameStage
+      v-if="hasStory"
+      :rows="rows"
+      :turn="turn"
+      :busy="busy"
+      :status="status"
+      :scene="scene"
+      :time-label="timeLabel"
+      :card-name="currentCard.card.name"
+      :hud="hud"
+      @history="historyOpen = true"
+      @world="worldOpen = true"
+    />
+    <StoryCover
+      v-else
+      :name="currentCard.card.name"
+      :summary="currentCard.card.summary"
+      :configured="configured"
+      :busy="busy"
+      :status="status"
+      @configure="settingsOpen = true"
+      @start="startNewGame"
+    />
 
-    <!-- 下带：输入卡片（在流里，但视觉上浮起） -->
-    <GameComposer :disabled="busy" :configured="configured" @submit="submitAction" />
+    <!-- 常驻行动牌：贴在输入区上方；点一张只把句子填进草稿，不自动提交 -->
+    <ActionDeck v-if="hasStory" class="shrink-0" :hud="hud" @pick="pickAction" />
+
+    <!-- 调试台账：只在调试模式出现；游戏舞台里不放模型的请求体与工具调用 -->
+    <div v-if="debugMode && debugRows.length" class="h-32 shrink-0 border-t border-line/40 sm:h-40">
+      <StoryPanel :rows="debugRows" :status="null" />
+    </div>
+
+    <!-- 下带：书桌的羽毛笔与羊皮纸。故事还没开始时由封面负责「下一步」，不抢戏 -->
+    <GameComposer
+      v-if="hasStory"
+      :disabled="busy"
+      :configured="configured"
+      :seed="actionSeed"
+      @submit="submitAction"
+    />
+
+    <!-- 往事：古书历史图鉴，从叙事面板右上角的「翻阅历史」打开 -->
+    <HistoryModal
+      v-if="historyOpen"
+      :rows="rows"
+      :turn="turn"
+      :busy="busy"
+      :status="status"
+      :scene="scene"
+      :time-label="timeLabel"
+      :card-name="currentCard.card.name"
+      @close="historyOpen = false"
+    />
 
     <SettingsDrawer
       v-model:open="settingsOpen"

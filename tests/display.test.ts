@@ -7,20 +7,27 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  atmosphereOf,
   castOf,
+  chainsOf,
   checkRenderable,
   displayOf,
+  hudData,
+  KNOWN_ATMOSPHERES,
   KNOWN_BLOCKS,
   KNOWN_TOPBAR,
   mapOf,
   nodeLabel,
   packOf,
+  selfHiddenFields,
+  selfOf,
   spotOf,
+  whereOf,
 } from '../src/game/display'
-import { SIDEBAR_BLOCKS, TOPBAR_ITEMS } from '../src/game/card'
+import { ATMOSPHERES, SIDEBAR_BLOCKS, TOPBAR_ITEMS } from '../src/game/card'
 import { createInitialState } from '../src/game/save'
 import { currentCard } from '../src/game/current-card'
-import { loadCard, NIGHT_WATCH_CARD } from './support/card-fixtures'
+import { loadCard, NIGHT_WATCH_CARD, typedFixture } from './support/card-fixtures'
 import type { StateTree } from '../src/game/card-state'
 
 /** 一张卡的初始状态树 */
@@ -32,6 +39,28 @@ describe('the vocabulary lives in card.ts', () => {
   it('re-exports the engine word list instead of keeping a second copy', () => {
     expect(KNOWN_TOPBAR).toBe(TOPBAR_ITEMS)
     expect(KNOWN_BLOCKS).toBe(SIDEBAR_BLOCKS)
+    expect(KNOWN_ATMOSPHERES).toBe(ATMOSPHERES)
+  })
+})
+
+describe('atmosphereOf', () => {
+  it('reads the lamp the card declares', () => {
+    expect(atmosphereOf(currentCard)).toBe(currentCard.display.atmosphere)
+  })
+
+  it('falls back to ink when the card declares none', () => {
+    expect(atmosphereOf(typedFixture())).toBe('ink')
+  })
+})
+
+describe('selfHiddenFields', () => {
+  it('hides the part of lead another declared block already shows', () => {
+    expect(selfHiddenFields({ topbar: ['time'], sidebar: ['self', 'pack'] })).toEqual(['pack'])
+  })
+
+  it('hides nothing when self is the only block, or when the overlaps are elsewhere', () => {
+    expect(selfHiddenFields({ topbar: ['time'], sidebar: ['self'] })).toEqual([])
+    expect(selfHiddenFields({ topbar: ['time'], sidebar: ['self', 'map', 'cast'] })).toEqual([])
   })
 })
 
@@ -86,9 +115,10 @@ describe('panel data reads the state tree', () => {
     expect(mapOf(state)).toEqual({ areas: world.map, location: world.location })
   })
 
-  it('cast reads roles and pack reads lead.pack', () => {
+  it('cast reads roles, self reads lead, and pack reads lead.pack', () => {
     const state = treeOf()
     expect(castOf(state)).toBe(state.roles)
+    expect(selfOf(state)).toBe(state.lead)
     expect(packOf(state)).toBe((state.lead as Record<string, unknown>).pack)
   })
 
@@ -107,5 +137,48 @@ describe('panel data reads the state tree', () => {
     expect(spotOf(state)).toEqual({ area: '', spot: '', scene: '' })
     // 背包这一段这张卡有：面板照样画得出来
     expect(packOf(state)).toBe((state.lead as Record<string, unknown>).pack)
+  })
+})
+
+describe('where / chains / HUD data', () => {
+  it('reads whereabouts and chains out of the world branch', () => {
+    const state = treeOf()
+    const world = state.world as Record<string, unknown>
+    expect(whereOf(state)).toBe(world.whoIsWhere)
+    expect(chainsOf(state)).toBe(world.chains)
+  })
+
+  it('gives undefined for a card without those branches', () => {
+    const state = treeOf(loadCard(NIGHT_WATCH_CARD))
+    expect(whereOf(state)).toBeUndefined()
+    expect(chainsOf(state)).toBeUndefined()
+  })
+
+  it('hudData takes exactly the blocks the card declares', () => {
+    const state = treeOf()
+    const lead = state.lead as Record<string, unknown>
+    const world = state.world as Record<string, unknown>
+    const hud = hudData(displayOf(currentCard), state)
+
+    expect(hud.lead).toBe(state.lead)
+    expect(hud.cast).toBe(state.roles)
+    expect(hud.where).toBe(world.whoIsWhere)
+    expect(hud.chains).toBe(world.chains)
+    expect(hud.map).toEqual(world.map)
+    expect(hud.location).toEqual(spotOf(state))
+    expect(hud.pack).toBe(lead.pack)
+  })
+
+  it('hudData leaves undeclared blocks undefined (no silent peek at card content)', () => {
+    const state = treeOf()
+    const hud = hudData({ topbar: ['time'], sidebar: ['self'] }, state)
+
+    expect(hud.lead).toBe(state.lead)
+    expect(hud.cast).toBeUndefined()
+    expect(hud.where).toBeUndefined()
+    expect(hud.chains).toBeUndefined()
+    expect(hud.map).toBeUndefined()
+    expect(hud.location).toEqual({ area: '', spot: '', scene: '' })
+    expect(hud.pack).toBeUndefined()
   })
 })

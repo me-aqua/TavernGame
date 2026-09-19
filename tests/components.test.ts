@@ -9,11 +9,13 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import StoryPanel from '../src/components/StoryPanel.vue'
+import StoryCover from '../src/components/StoryCover.vue'
 import AppSidebar from '../src/components/AppSidebar.vue'
 import WorldPanel from '../src/components/WorldPanel.vue'
 import WorldCast from '../src/components/world/WorldCast.vue'
 import WorldMap from '../src/components/world/WorldMap.vue'
 import WorldPack from '../src/components/world/WorldPack.vue'
+import WorldSelf from '../src/components/world/WorldSelf.vue'
 import { world } from '../src/components/display-blocks'
 import { entriesOf, isScalar, itemOf, linesOf, scalarText, textsOf } from '../src/components/state-view'
 import GameComposer from '../src/components/GameComposer.vue'
@@ -338,6 +340,69 @@ describe('WorldCast', () => {
     expect(text).toContain('red hair, twenty-six')
     expect(text.match(/red hair, twenty-six/g)).toHaveLength(1)
     expect(text).toContain('smith')
+  })
+})
+
+describe('WorldSelf', () => {
+  const lead = state.lead as { name: string; now: { wearing: string } }
+
+  it('draws the protagonist as a name plus the authored fields', () => {
+    const w = render(WorldSelf, { props: { lead } })
+
+    expect(w.find('[data-self-name]').text()).toContain(lead.name)
+    expect(w.find('[data-self-field="now"]').text()).toContain(lead.now.wearing)
+    // 固有段按形状摊成键值行（面板认识形状，不认识「魔法」这个具体字段）
+    expect(w.find('[data-self-field="traits"]').text()).toContain('magic')
+  })
+
+  it('hides a field another panel already shows, without hiding the rest', () => {
+    const w = render(WorldSelf, { props: { lead, hidden: ['pack'] } })
+
+    expect(w.find('[data-self-field="pack"]').exists()).toBe(false)
+    expect(w.find('[data-self-field="now"]').exists()).toBe(true)
+  })
+
+  it('draws nothing when the lead is not a record', () => {
+    const w = render(WorldSelf, { props: { lead: ['not', 'a', 'person'] } })
+    expect(w.find('[data-self]').exists()).toBe(false)
+  })
+})
+
+describe('StoryCover', () => {
+  const cover = {
+    name: 'Demo',
+    summary: 'A quiet inn at dusk.',
+    configured: false,
+    busy: false,
+    status: null,
+  }
+
+  it('shows the welcome status and offers settings before a key is configured', async () => {
+    const welcome: Status = { kind: 'info', text: t('app.welcome') }
+    const w = render(StoryCover, { props: { ...cover, status: welcome } })
+
+    expect(w.find('[data-status]').text()).toBe(t('app.welcome'))
+    expect(w.find('[data-cover-start]').exists()).toBe(false)
+
+    await w.find('[data-cover-configure]').trigger('click')
+    expect(w.emitted('configure')).toHaveLength(1)
+  })
+
+  it('offers start when configured and idle, and emits it', async () => {
+    const w = render(StoryCover, { props: { ...cover, configured: true } })
+
+    const start = w.find('[data-cover-start]')
+    expect(start.exists()).toBe(true)
+    await start.trigger('click')
+    expect(w.emitted('start')).toHaveLength(1)
+  })
+
+  it('shows the opening progress instead of a start button while busy', () => {
+    const busy: Status = { kind: 'busy', text: 'opening' }
+    const w = render(StoryCover, { props: { ...cover, configured: true, busy: true, status: busy } })
+
+    expect(w.find('[data-status="busy"]').text()).toContain('opening')
+    expect(w.find('[data-cover-start]').exists()).toBe(false)
   })
 })
 

@@ -137,20 +137,21 @@ function forgetKey() {
 
 const fieldLabel = 'mb-1.5 block text-[12.5px] text-muted'
 const textareaRef =
-  'w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13.5px] text-text outline-none transition-colors focus:border-accent-line disabled:opacity-50'
+  'w-full rounded-md border border-line/70 bg-surface-2/70 px-3 py-2 text-[13.5px] text-text outline-none transition-colors focus:border-accent-line disabled:opacity-50'
 const hintText = 'mt-1.5 text-[11.5px] leading-relaxed text-faint'
 </script>
 
 <template>
   <div
     v-if="open"
-    class="drawer fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-5 backdrop-blur-sm"
+    class="drawer fixed inset-0 z-50 flex items-center justify-center bg-[#150f08]/60 p-4 backdrop-blur-sm sm:p-5"
     @click.self="emit('update:open', false)"
   >
     <div
-      class="sheet max-h-[88vh] w-full max-w-[540px] overflow-y-auto rounded-2xl border border-line bg-surface p-6 shadow-2xl"
+      class="sheet max-h-[88vh] w-full max-w-[540px] overflow-y-auto rounded-xl border border-line/70 bg-surface p-5 shadow-[0_40px_90px_-45px_rgba(15,9,3,0.85)] sm:p-6"
     >
-      <h2 class="text-[17px] font-semibold text-text">{{ t('settings.title') }}</h2>
+      <h2 class="font-serif text-[19px] font-semibold text-text">{{ t('settings.title') }}</h2>
+      <span class="mt-2 block h-px w-12 bg-accent-line" aria-hidden="true" />
 
       <!-- 主题与语言：顶栏收起来之后，这两件事归设置面板管（同一个面板、同一套三态） -->
       <div class="mt-4 flex flex-wrap items-center gap-2">

@@ -41,14 +41,28 @@ import { checkSchema, schemaAt, schemaElement, schemaType, type StateSchema, typ
 export const TOPBAR_ITEMS = ['time', 'scene', 'turn'] as const
 
 /** 侧栏块的引擎词表 —— 每个块画什么、读哪段状态都是引擎的事 */
-export const SIDEBAR_BLOCKS = ['map', 'cast', 'pack'] as const
+export const SIDEBAR_BLOCKS = ['self', 'map', 'cast', 'where', 'chains', 'pack'] as const
 
 /** 每个侧栏块要读哪几段状态 —— 卡必须声明这些路径，否则块画不出来（校验期就报错） */
 export const BLOCK_STATE_PATHS: Record<(typeof SIDEBAR_BLOCKS)[number], string[]> = {
+  self: ['lead'],
   map: ['world.map', 'world.location'],
   cast: ['roles'],
+  where: ['world.whoIsWhere'],
+  chains: ['world.chains'],
   pack: ['lead.pack'],
 }
+
+/**
+ * 舞台气氛的引擎词表 —— 卡声明「这一局该点哪盏灯」，界面提供灯。
+ *
+ * 它和顶栏 / 侧栏同一套纪律：名字来自闭集，认不出来就在**校验期**报错，
+ * 不静默退回默认（那等于替作者决定了另一个世界）。没写 = `ink`。
+ */
+export const ATMOSPHERES = ['ink', 'lamplight', 'void', 'beacon'] as const
+
+/** 气氛名 —— 界面用它选一套 CSS 变量与背景层 */
+export type Atmosphere = (typeof ATMOSPHERES)[number]
 
 // ---------- 通过校验的卡的形状 ----------
 
@@ -125,13 +139,15 @@ export interface SidebarBlock {
   note?: string
 }
 
-/** 界面怎么摆 —— 只有 topbar / sidebar 进代码，其余是给人看的 */
+/** 界面怎么摆 —— topbar / sidebar / atmosphere 进代码，其余是给人看的 */
 export interface Display {
   layout?: string
   topbar: string[]
   sidebar: SidebarBlock[]
   time?: string
   scroll?: string
+  /** 这一局点哪盏灯（不写 = ink）；取值是 ATMOSPHERES 里的名字 */
+  atmosphere?: Atmosphere
 }
 
 /** 一条短注：一行文字，或一组行 */
@@ -180,7 +196,7 @@ const NODE_KEYS = ['name', 'duty', 'prompt', 'role', 'tools', 'reads', 'uses', '
 const ACTION_KEYS = ['what', 'path', 'effect', 'mode', 'key']
 const GENERATOR_KEYS = ['name', 'applies', 'principles']
 const OPENING_KEYS = ['canName', 'defaultName', 'requirements']
-const DISPLAY_KEYS = ['layout', 'topbar', 'sidebar', 'time', 'scroll']
+const DISPLAY_KEYS = ['layout', 'topbar', 'sidebar', 'time', 'scroll', 'atmosphere']
 const BLOCK_KEYS = ['block', 'note']
 
 /** 动作的两种形状各自认的字段 */
@@ -463,12 +479,20 @@ function checkOpening(card: Record<string, unknown>): void {
   requireTextList(opening, 'requirements', 'opening')
 }
 
-/** 显示：词表内的顶栏条目与侧栏块；块要读的状态路径必须在卡里声明 */
+/** 显示：词表内的顶栏条目、侧栏块与气氛；块要读的状态路径必须在卡里声明 */
 function checkDisplay(card: Record<string, unknown>): void {
   const display = requireRecord(card, 'display', '')
   checkOptionalKeys(display, DISPLAY_KEYS, ['topbar', 'sidebar'], 'display')
   for (const key of ['layout', 'time', 'scroll']) {
     if (Object.hasOwn(display, key)) requireText(display, key, 'display')
+  }
+
+  if (Object.hasOwn(display, 'atmosphere')) {
+    const atmosphere = requireText(display, 'atmosphere', 'display')
+    if (!(ATMOSPHERES as readonly string[]).includes(atmosphere)) {
+      const known = ATMOSPHERES.join(' / ')
+      fail('display.atmosphere', JSON.stringify(atmosphere) + ' has no renderer (known: ' + known + ')')
+    }
   }
 
   const topbar = requireTextList(display, 'topbar', 'display')

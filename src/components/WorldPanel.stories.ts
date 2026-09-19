@@ -5,7 +5,7 @@ import { instantiate, type StateTree } from '../game/card-state'
 import { currentCard } from '../game/current-card'
 
 /**
- * 世界面板：卡声明的三块（地图 / 角色 / 背包）按声明顺序摆在一个浮层里。
+ * 世界手札：卡声明的几块（你 / 地图 / 人物 / 行囊）按声明顺序摆在一个浮层里。
  *
  * 数据全部来自**状态树**（当前卡的初值 —— 开局那一刻的真实状态），故事里不抄卡的内容；
  * 「站在别处」只换状态树里的 world.location，地图上的位置高亮跟着走。

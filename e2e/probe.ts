@@ -35,13 +35,22 @@ export const PROBE = `(() => {
     .map((el) => ({ el, r: el.getBoundingClientRect() }))
     .filter(({ r }) => r.width > 0.5 && r.height > 0.5)
   const overlaps = []
-  /** 元素最近的滚动容器（滚动区外的部分在几何上仍有坐标，但视觉上被裁掉了） */
+  /** 正文的可见纵向范围：被**所有**祖先滚动/裁剪容器取交集后的上下界（可能嵌套两层） */
   const clipOf = (el) => {
+    let top = -Infinity
+    let bottom = Infinity
+    let found = false
     for (let p = el.parentElement; p; p = p.parentElement) {
       const oy = getComputedStyle(p).overflowY
-      if (oy === 'auto' || oy === 'scroll') return p.getBoundingClientRect()
+      if (oy !== 'auto' && oy !== 'scroll' && oy !== 'hidden') continue
+      const r = p.getBoundingClientRect()
+      top = Math.max(top, r.top)
+      bottom = Math.min(bottom, r.bottom)
+      found = true
     }
-    return null
+    if (!found) return null
+    const raw = el.getBoundingClientRect()
+    return { left: raw.left, right: raw.right, top: Math.max(raw.top, top), bottom: Math.min(raw.bottom, bottom) }
   }
   for (const el of document.querySelectorAll('.line, .trace')) {
     // ⚠️ 先按滚动容器裁剪：滚出视口的那部分不算「看得见」，否则会误报遮挡

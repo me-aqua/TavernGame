@@ -1,9 +1,11 @@
 /**
  * src/components/display-blocks.ts —— 卡声明的显示条目 → 界面组件的**唯一映射**（决定 #15）。
  *
- * 卡说「顶栏有哪几条、侧栏有哪几块、什么顺序」，这里说「那一条 / 那一块由谁渲染」，
- * 以及**那一块读状态树的哪一段**（game/display.ts 的 mapOf / castOf / packOf：
- * 地图 ← world.map + world.location、角色 ← roles、背包 ← lead.pack）。
+ * 卡说「点哪盏灯（气氛）、顶栏有哪几条、侧栏有哪几块、什么顺序」，
+ * 这里说「那一条 / 那一块由谁渲染」，以及**那一块读状态树的哪一段**
+ * （game/display.ts 的 selfOf / mapOf / castOf / whereOf / chainsOf / packOf：
+ * 主角 ← lead、地图 ← world.map + world.location、角色 ← roles、行踪 ← world.whoIsWhere、
+ * 故事链 ← world.chains、背包 ← lead.pack）。
  * 卡声明了映射表里没有的名字 = 这一块界面画不出来 —— 这里**启动即失败**：
  * 静默少画一块等于替作者改卡，玩家会以为那块内容本来就不存在。
  *
@@ -17,10 +19,15 @@
 import type { Component } from 'vue'
 import { currentCard } from '../game/current-card'
 import {
+  atmosphereOf,
   castOf,
+  chainsOf,
   displayOf,
   mapOf,
   packOf,
+  selfHiddenFields,
+  selfOf,
+  whereOf,
   KNOWN_BLOCKS,
   KNOWN_TOPBAR,
   type DisplayDecl,
@@ -29,6 +36,9 @@ import type { StateTree } from '../game/card-state'
 import WorldMap from './world/WorldMap.vue'
 import WorldCast from './world/WorldCast.vue'
 import WorldPack from './world/WorldPack.vue'
+import WorldQuests from './world/WorldQuests.vue'
+import WorldSelf from './world/WorldSelf.vue'
+import WorldWhere from './world/WorldWhere.vue'
 
 /** 顶栏能显示的条目 —— 名字本身就是渲染键，词表在 game/card.ts（这里不抄第二份） */
 export type TopbarItem = (typeof KNOWN_TOPBAR)[number]
@@ -50,8 +60,19 @@ export interface WorldBlock {
 
 /** 侧栏块名 → 组件与它读的状态（块名与路径的对应在 game/display.ts，这里只连组件） */
 const BLOCKS: Record<BlockName, Omit<WorldBlock, 'name'>> = {
+  self: { title: 'world.self', view: WorldSelf, props: (state) => ({ lead: selfOf(state) }) },
   map: { title: 'world.map', view: WorldMap, props: (state) => ({ ...mapOf(state) }) },
   cast: { title: 'world.cast', view: WorldCast, props: (state) => ({ cast: castOf(state) }) },
+  where: {
+    title: 'world.where',
+    view: WorldWhere,
+    props: (state) => ({ where: whereOf(state) }),
+  },
+  chains: {
+    title: 'world.chains',
+    view: WorldQuests,
+    props: (state) => ({ chains: chainsOf(state) }),
+  },
   pack: { title: 'world.pack', view: WorldPack, props: (state) => ({ items: packOf(state) }) },
 }
 
@@ -62,10 +83,15 @@ function unknownName(kind: string, name: string, known: readonly string[]): stri
 
 /** 按卡声明的顺序把侧栏块名解析成「组件 + 数据来源」；不认识的块名抛错 */
 export function worldBlocks(decl: DisplayDecl): WorldBlock[] {
+  // 主角角色牌要藏起别的块已经展示的那几段（例如 pack 块专门展示 lead.pack）
+  const hidden = selfHiddenFields(decl)
   return decl.sidebar.map((name) => {
     // 名字来自卡，运行时是普通字符串：先按 string 查一次表，认不出来才是坏卡
     const block = Object.hasOwn(BLOCKS, name) ? BLOCKS[name as BlockName] : undefined
     if (!block) throw new Error(unknownName('display block', name, Object.keys(BLOCKS)))
+    if (name === 'self') {
+      return { name, ...block, props: (state) => ({ lead: selfOf(state), hidden }) }
+    }
     return { name, ...block }
   })
 }
@@ -88,3 +114,6 @@ export function topbarItems(decl: DisplayDecl): TopbarItem[] {
 /** 当前卡声明出来的世界面板与顶栏 —— 顺序即卡里的顺序 */
 export const world: WorldBlock[] = worldBlocks(displayOf(currentCard))
 export const topbar: TopbarItem[] = topbarItems(displayOf(currentCard))
+
+/** 当前卡的舞台气氛（没写 = ink）。App 把它落到根元素的 data-atmosphere 上 */
+export const atmosphere = atmosphereOf(currentCard)

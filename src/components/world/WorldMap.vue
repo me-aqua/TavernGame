@@ -43,21 +43,21 @@ const here = computed(() => {
       :key="area.name"
       data-area
       :data-current="area.name === here.area ? '' : undefined"
-      class="rounded-xl border px-2.5 py-1.5"
+      class="rounded-lg border px-2.5 py-1.5"
       :class="
         area.name === here.area ? 'border-accent-line/70 bg-accent-soft/50' : 'border-line/60 bg-surface-2/40'
       "
     >
-      <p class="text-[12px] font-semibold" :class="area.name === here.area ? 'text-accent' : 'text-muted'">
+      <p class="text-[12.5px] font-semibold" :class="area.name === here.area ? 'text-accent' : 'text-muted'">
         {{ area.name }}
       </p>
-      <p v-if="area.note" class="mt-0.5 text-[11px] leading-snug text-faint">{{ area.note }}</p>
+      <p v-if="area.note" class="mt-0.5 text-[11.5px] leading-snug text-faint">{{ area.note }}</p>
       <ul v-if="area.spots.length" class="mt-1 flex flex-wrap gap-1">
         <li
           v-for="place in area.spots"
           :key="place"
           data-place
-          class="rounded-full px-2 py-0.5 text-[11px] leading-tight"
+          class="rounded-full px-2 py-0.5 text-[11.5px] leading-tight"
           :class="
             area.name === here.area && place === here.spot ? 'bg-accent text-page' : 'bg-surface-2 text-muted'
           "
@@ -67,7 +67,7 @@ const here = computed(() => {
         </li>
       </ul>
       <!-- 没写固定地点的区域（地牢那种还没长出来的）：说清楚是没有，不是界面坏了 -->
-      <p v-else class="mt-0.5 text-[11px] leading-snug text-faint">{{ t('world.growingPlaces') }}</p>
+      <p v-else class="mt-0.5 text-[11.5px] leading-snug text-faint">{{ t('world.growingPlaces') }}</p>
     </div>
   </div>
 </template>

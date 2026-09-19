@@ -15,6 +15,7 @@ import {
   LANG_KEY,
   NARRATION,
   TIME_NODE,
+  event,
   openApp,
   saveWith,
   translate,
@@ -24,12 +25,15 @@ import { PROBE, expectClean, type Probe } from './probe'
 // 只读卡的 JSON：不 import 应用模块（那条链会拖进 i18n 的 .json，
 // Playwright 的 ESM 加载器需要 import attribute，而 Vite 构建不需要）
 import cardJson from '../cards/morningwind.json' with { type: 'json' }
+import longNightJson from '../cards/long-night.json' with { type: 'json' }
 
 /** 卡（期望值全部从卡里现读，不在这里抄一份内容） */
 const CARD = cardJson as unknown as Record<string, any>
+/** 第二张卡：两个节点的最小卡，用它证明「换一张卡就换一盏灯」 */
+const LONG_NIGHT = longNightJson as unknown as Record<string, any>
 
 /** 浅色主题的页面底色（与 src/styles/main.css 的 token 对应） */
-const LIGHT_BG = 'rgb(242, 244, 247)'
+const LIGHT_BG = 'rgb(237, 228, 211)'
 /** 时间标签的形状由历法决定，这里只看形状，不写死具体日期 */
 const TIME_PATTERN = /^\d{4} 年 \d+ 月 \d+ 日 · 星期[日一二三四五六] · (上午|下午|晚上)$/
 /** 一轮跑完要十来次模型调用 —— 等它跑完得给足时间 */
@@ -112,9 +116,29 @@ test.describe('第一屏', () => {
   })
 })
 
+test.describe('卡驱动气氛', () => {
+  test('换一张卡就换一盏灯，封面跟着这张卡走', async ({ page }) => {
+    await openApp(page, { card: JSON.stringify(LONG_NIGHT) })
+
+    // 气氛来自当前卡的 display.atmosphere，落到应用的根元素上
+    await expect(page.locator('[data-tavern-shell]')).toHaveAttribute(
+      'data-atmosphere',
+      LONG_NIGHT.display.atmosphere,
+    )
+    // 封面读的是当前卡的名字，不是代码里写死的内置示例
+    await expect(page.locator('[data-cover-name]')).toHaveText(LONG_NIGHT.card.name)
+  })
+})
+
 test.describe('世界面板', () => {
   test('按卡声明的块与顺序渲染，内容读状态树，高亮当前地点', async ({ page }) => {
     await openApp(page, { save: saveWith(), config: CONFIG })
+
+    // HUD 上的人物牌显示完整名字，不把中文名切成首字（「萨伦」不能显示成「萨」）
+    const saved = JSON.parse(saveWith()) as { state: Record<string, any> }
+    const cast = Object.keys(saved.state.roles)
+    await expect(page.locator('[data-person-card]').first().locator('[data-person-name]')).toHaveText(cast[0])
+    await expect(page.locator('[data-self-hud] [data-self-name]')).toHaveText(saved.state.lead.name)
 
     // 它是玩家点开的浮层：默认不在
     await expect(page.locator('[data-world-panel]')).toHaveCount(0)
@@ -131,10 +155,8 @@ test.describe('世界面板', () => {
     expect(rendered).toEqual(declared)
 
     // 内容读的是**状态树**：区域一个不少、背包一件不少、角色字典里的人都在
-    const saved = JSON.parse(saveWith()) as { state: Record<string, any> }
     const areas = Object.keys(saved.state.world.map)
     const pack = saved.state.lead.pack as unknown[]
-    const cast = Object.keys(saved.state.roles)
     await expect(panel.locator('[data-area]')).toHaveCount(areas.length)
     await expect(panel.locator('[data-item]')).toHaveCount(pack.length)
     for (const name of cast) await expect(panel).toContainText(name)
@@ -147,6 +169,66 @@ test.describe('世界面板', () => {
 
     await page.locator('button[data-world-close]').click()
     await expect(panel).toHaveCount(0)
+  })
+})
+
+test.describe('游戏舞台与往事', () => {
+  test('主界面显示最新一回；往事古书能翻回去，再回到最新', async ({ page }) => {
+    const events = [
+      event('action', '我推开酒馆的门。'),
+      event('narration', '门轴响了一声，暖光涌出来。'),
+      event('action', '我走向柜台。'),
+      event('narration', '她抬眼看了看你。'),
+    ]
+    await openApp(page, { save: saveWith({ events }), config: CONFIG })
+
+    // 主界面的叙事面板就是最新一回
+    await expect(page.locator('[data-narrative] .line.action')).toHaveText('我走向柜台。')
+    await expect(page.locator('[data-narrative] .line.narration')).toContainText('她抬眼看了看你。')
+
+    // 往事古书：从叙事面板右上角打开，打开就是最新一回
+    await page.locator('[data-history-open]').click()
+    const history = page.locator('[data-history]')
+    await expect(history).toBeVisible()
+    await expect(history.locator('[data-book-page="left"] .line.action')).toHaveText('我走向柜台。')
+
+    // 翻回去：一张书叶绕书脊转过去，左页换成第一次行动
+    await history.locator('button[data-book-prev]').click()
+    const leaf = history.locator('.book-leaf')
+    await expect(leaf).toHaveCount(1, { timeout: 500 })
+    expect(await leaf.evaluate((el) => getComputedStyle(el).animationName)).toBe('turn-prev')
+    await expect(history.locator('[data-book-page="left"] .line.action')).toHaveText('我推开酒馆的门。')
+    await expect(history.locator('[data-book-latest]')).toBeVisible()
+    await expect(leaf).toHaveCount(0, { timeout: 3000 })
+
+    // 回到最新，再关掉历史
+    await history.locator('button[data-book-latest]').click()
+    await expect(history.locator('[data-book-page="left"] .line.action')).toHaveText('我走向柜台。')
+    await history.locator('[data-history-close]').click()
+    await expect(history).toHaveCount(0)
+  })
+
+  test('模型的回答落在叙事面板，带着墨迹落笔动画', async ({ page }) => {
+    await openApp(page, { save: saveWith(), config: CONFIG })
+
+    const narration = page.locator('[data-panel-narration]')
+    await expect(narration).toContainText('门轴')
+
+    const first = narration.locator('.ink-para').first()
+    await expect(first).toBeVisible()
+    expect(await first.evaluate((el) => getComputedStyle(el).animationName)).toBe('ink-in')
+  })
+
+  test('行动牌只把句子填进输入框，不自动提交', async ({ page }) => {
+    await openApp(page, { save: saveWith(), config: CONFIG })
+
+    const look = page.locator('[data-action="verb"]').first()
+    await expect(look).toBeVisible()
+    await look.click()
+    await expect(page.locator('textarea')).toHaveValue(await translate(page, 'hud.actionLookText'))
+
+    // 还没有提交：叙事面板里仍是存档里的那条行动
+    await expect(page.locator('[data-narrative] .line.action')).toHaveText('我推开酒馆的门，看看里面都有谁。')
   })
 })
 

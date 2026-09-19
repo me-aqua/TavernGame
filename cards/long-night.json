@@ -318,12 +318,18 @@
     ]
   },
   "display": {
+    "atmosphere": "void",
     "topbar": [
-      "time",
       "scene",
+      "time",
       "turn"
     ],
-    "sidebar": []
+    "sidebar": [
+      {
+        "block": "self",
+        "note": "主角角色牌：醒来时你身上有什么、此刻是什么样子。船上暂时没有别的人物牌。"
+      }
+    ]
   },
   "notes": {
     "状态": [

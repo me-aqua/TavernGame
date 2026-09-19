@@ -2,8 +2,10 @@
 /**
  * 角色块：状态树里的角色字典（game/display.ts 的 castOf）—— 键是人名，值是他的那几段。
  *
+ * 每个人是一条细边 + 完整名字 + 简介 + 几行状态：面板是给人「认人」的，不是状态树的全文。
+ * 名字不再被切成一个首字当印记 —— 「萨伦」显示成「萨」没有信息，还容易看成另一个字。
  * 每段叫什么由卡决定（身份 / 种族 / 生平 / 性格……），界面按形状画：标量一行、
- * 字符串数组连成一行，嵌套对象不展开（面板是给人扫一眼的，不是状态树的全文）。
+ * 字符串数组连成一行，嵌套对象不展开；简介不再被截成两行 —— 一个人最值得看的就是那段话。
  */
 import { computed } from 'vue'
 import { linesOf, entriesOf, noteOf, ITEM_NOTE } from '../state-view'
@@ -29,20 +31,18 @@ const people = computed(() =>
 </script>
 
 <template>
-  <ul class="space-y-2">
-    <li v-for="person in people" :key="person.name" data-cast class="border-l-2 border-line/70 pl-2">
-      <p class="text-[12.5px] font-semibold text-text">{{ person.name }}</p>
-      <p v-if="person.note" class="mt-0.5 text-[11px] leading-snug text-muted">{{ person.note }}</p>
-      <ul v-if="person.lines.length" class="mt-0.5 space-y-0.5">
-        <li
-          v-for="line in person.lines"
-          :key="line.key"
-          class="line-clamp-2 text-[11px] leading-snug text-muted"
-        >
-          <span class="text-faint">{{ line.key }}</span>
+  <ul class="space-y-3">
+    <li v-for="person in people" :key="person.name" data-cast class="border-l-2 border-accent-line/45 pl-2.5">
+      <p class="font-serif text-[14px] font-semibold text-text">{{ person.name }}</p>
+      <p v-if="person.note" class="mt-0.5 text-[11.5px] leading-relaxed text-muted">
+        {{ person.note }}
+      </p>
+      <div v-if="person.lines.length" class="mt-1 space-y-0.5">
+        <p v-for="line in person.lines" :key="line.key" class="text-[11.5px] leading-snug text-muted">
+          <span class="text-[10px] tracking-wide text-faint uppercase">{{ line.key }}</span>
           {{ line.text }}
-        </li>
-      </ul>
+        </p>
+      </div>
     </li>
   </ul>
 </template>
