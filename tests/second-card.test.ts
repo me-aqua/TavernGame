@@ -49,8 +49,8 @@ function storyNodeOf(card: typeof first): string {
 
 describe('two cards, one engine', () => {
   it('both parse from their file text and look nothing alike', () => {
-    expect(first.card.format).toBe('card/3')
-    expect(second.card.format).toBe('card/3')
+    expect(first.card.format).toBe('card/4')
+    expect(second.card.format).toBe('card/4')
     expect(first.card.id).not.toBe(second.card.id)
     expect(first.graph.topology.length).toBeGreaterThan(second.graph.topology.length)
     // 历法：一个是引擎预设，一个是卡自己写的

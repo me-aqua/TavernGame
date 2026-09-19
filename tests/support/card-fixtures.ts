@@ -41,7 +41,7 @@ export function minimalCard(): Record<string, unknown> {
       version: '0.1.0',
       compat: '>=0.9.0',
       author: 'tester',
-      format: 'card/3',
+      format: 'card/4',
       language: 'en',
       summary: 'a minimal card',
     },

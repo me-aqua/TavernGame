@@ -1,15 +1,14 @@
 /**
  * src/game/card-state.ts —— 卡声明的状态：schema 的类型、实例化、参数校验与渲染。
  *
- * 只有 7 种类型（string / integer / number / boolean / enum / list / map / object ——
- * integer 与 number 是同一族的两个写法）：够表达卡里的一切，也让「校验」与「推导工具参数」
- * 有唯一的依据。每个字段可选 initial（初值；不写 = 初始状态里没有这个字段）、required
- * （写入时必给）、note（给模型的一句话规则，进动作的 tool description）。
+ * 只有 6 种类型（string / integer / enum / list / map / object）：够表达卡里的一切，也让
+ * 「校验」与「推导工具参数」有唯一的依据。每个字段可选 initial（初值；不写 = 初始状态里没有
+ * 这个字段）、note（给模型的一句话规则，进动作的 tool description）。
  *
  * 三件事：
  *   · instantiate(card)：只取有 initial 的字段建一棵**新**树（两次开局不共享数组）；
  *     没有 initial 的 object 由它的字段拼出来，一个字段都没有 initial 就整块缺席。
- *   · validateValue(schema, value, base, partial)：类型 / 枚举 / 区间 / 必填 / 未知字段。
+ *   · validateValue(schema, value, base, partial)：类型 / 枚举 / 区间 / 未知字段。
  *     通过返回 null，失败返回**一句带路径的话**（不抛错）—— 动作层要把它当工具结果回传。
  *   · renderState(state, { reads })：把状态渲染成给模型看的文本，按节点的 reads 裁顶层分支。
  *
@@ -20,16 +19,15 @@
 import { at, checkOptionalKeys, fail, isRecord, requireText } from './card-read'
 import type { CardData } from './card'
 
-/** 状态树的七种类型 */
-export type SchemaType = 'string' | 'integer' | 'number' | 'boolean' | 'enum' | 'list' | 'map' | 'object'
+/** 状态树的六种类型 */
+export type SchemaType = 'string' | 'integer' | 'enum' | 'list' | 'map' | 'object'
 
 /** 一个 schema 节点：完整写法；标量也可以缩写成 "string" 这样的字符串 */
 export interface SchemaNode {
   type: SchemaType
   initial?: unknown
-  required?: boolean
   note?: string
-  /** integer / number 的闭区间 */
+  /** integer 的闭区间 */
   range?: [number, number]
   /** enum 的取值白名单 */
   values?: string[]
@@ -49,17 +47,15 @@ export type StateTree = Record<string, unknown>
 export type StateSchema = Record<string, Schema>
 
 /** 类型表（checkSchema 报错时按它列已知值） */
-const SCHEMA_TYPES: SchemaType[] = ['string', 'integer', 'number', 'boolean', 'enum', 'list', 'map', 'object']
+const SCHEMA_TYPES: SchemaType[] = ['string', 'integer', 'enum', 'list', 'map', 'object']
 
 /** 允许写成裸字符串的类型 —— enum / list / map / object 还需要别的字段，缩写不了 */
-const SHORTHAND = ['string', 'integer', 'number', 'boolean']
+const SHORTHAND = ['string', 'integer']
 
 /** 每个类型额外的键（键集严判：range 写在 string 上会被当成未知键拦下） */
 const TYPE_KEYS: Record<SchemaType, string[]> = {
   string: [],
   integer: ['range'],
-  number: ['range'],
-  boolean: [],
   enum: ['values'],
   list: ['of'],
   map: ['of'],
@@ -67,7 +63,7 @@ const TYPE_KEYS: Record<SchemaType, string[]> = {
 }
 
 /** 所有类型都认识的键 */
-const SHARED_KEYS = ['type', 'initial', 'required', 'note']
+const SHARED_KEYS = ['type', 'initial', 'note']
 
 /** 一个 schema 的类型（字符串缩写就是它自己） */
 export function schemaType(schema: Schema): SchemaType {
@@ -114,11 +110,8 @@ export function checkSchema(value: unknown, where: string): Schema {
   const kind = type as SchemaType
   checkOptionalKeys(value, [...SHARED_KEYS, ...TYPE_KEYS[kind]], ['type'], where)
 
-  if (Object.hasOwn(value, 'required') && typeof value.required !== 'boolean') {
-    fail(at(where, 'required'), 'must be a boolean')
-  }
   if (Object.hasOwn(value, 'note')) requireText(value, 'note', where)
-  if (kind === 'integer' || kind === 'number') checkRange(value, where)
+  if (kind === 'integer') checkRange(value, where)
   if (kind === 'enum') checkValues(value, where)
   if (kind === 'list' || kind === 'map') checkSchema(value.of, at(where, 'of'))
   if (kind === 'object') {
@@ -213,17 +206,15 @@ function rangeProblem(node: SchemaNode, value: number, base: string): string | n
   return null
 }
 
-/** 这个字段标了 required 吗（写入时必给）—— card-actions 推导工具参数时也读它 */
-export function isRequired(sub: Schema): boolean {
-  return typeof sub !== 'string' && sub.required === true
-}
-
 /**
  * 校验一个值是否符合 schema。通过返回 null，失败返回一句带路径的话（ASCII，给模型看）。
  *
- * partial = 允许只写一部分字段（动作的 merge 写入用）。它只作用于**这一层**：
+ * partial = 允许只写一部分字段（动作的 merge 写入用，也可以只写一部分初值）。它只作用于**这一层**：
  * 顶层对象在整体替换（set / push）时字段一个不能少，嵌套的对象值一律允许只写一部分
  * —— 与「merge 是浅合并」同一套语义。
+ *
+ * ⚠️ schema 语言里**没有「必填」这个键**（2026-09-19 删）：写了它当未知键拦下。
+ *    所以 partial 那一层不看的字段**一律算「可以不给」**，没有第二个开关。
  */
 export function validateValue(schema: Schema, value: unknown, base: string, partial = false): string | null {
   const type = schemaType(schema)
@@ -239,15 +230,6 @@ export function validateValue(schema: Schema, value: unknown, base: string, part
         return problem(base, 'must be an integer (got ' + typeName(value) + ')')
       }
       return rangeProblem(node, value as number, base)
-    case 'number':
-      if (typeof value !== 'number' || !Number.isFinite(value)) {
-        return problem(base, 'must be a number (got ' + typeName(value) + ')')
-      }
-      return rangeProblem(node, value, base)
-    case 'boolean':
-      return typeof value === 'boolean'
-        ? null
-        : problem(base, 'must be a boolean (got ' + typeName(value) + ')')
     case 'enum': {
       const values = node.values ?? []
       if (typeof value === 'string' && values.includes(value)) return null
@@ -280,7 +262,7 @@ export function validateValue(schema: Schema, value: unknown, base: string, part
       }
       for (const [key, sub] of Object.entries(fields)) {
         if (!Object.hasOwn(value, key)) {
-          if (partial && !isRequired(sub)) continue
+          if (partial) continue
           return problem(at(base, key), 'is required')
         }
         const found = validateValue(sub, value[key], at(base, key), true)

@@ -34,7 +34,8 @@ function errorOf(run: () => unknown): string {
 
 describe('checkSchema', () => {
   it('accepts a shorthand and a full node of every type', () => {
-    for (const shorthand of ['string', 'integer', 'number', 'boolean']) {
+    // 六个类型里能缩写的只有两个（enum / list / map / object 还需要别的字段）
+    for (const shorthand of ['string', 'integer']) {
       expect(checkSchema(shorthand, 'state.x')).toBe(shorthand)
     }
     const nodes: Schema[] = [
@@ -42,7 +43,7 @@ describe('checkSchema', () => {
       { type: 'list', of: 'string' },
       { type: 'map', of: { type: 'object', fields: { a: 'string' } } },
       { type: 'object', fields: { a: 'string' } },
-      { type: 'integer', range: [1, 3], initial: 2, required: true, note: 'a rule' },
+      { type: 'integer', range: [1, 3], initial: 2, note: 'a rule' },
     ]
     for (const node of nodes) expect(checkSchema(node, 'state.x')).toBe(node)
   })
@@ -77,7 +78,7 @@ describe('checkSchema', () => {
       'must not be empty',
     )
     expect(errorOf(() => checkSchema({ type: 'string', required: 'yes' }, 'state.x'))).toContain(
-      'must be a boolean',
+      'unknown key',
     )
     expect(errorOf(() => checkSchema({ type: 'string', note: '' }, 'state.x'))).toContain(
       'must be a non-empty string',
@@ -147,11 +148,9 @@ describe('validateValue', () => {
   it('accepts the matching scalars and reports the type it got', () => {
     expect(validateValue('string', 'x', 'p')).toBeNull()
     expect(validateValue('integer', 3, 'p')).toBeNull()
-    expect(validateValue('number', 3.5, 'p')).toBeNull()
-    expect(validateValue('boolean', false, 'p')).toBeNull()
     expect(validateValue('string', 7, 'p')).toBe('p: must be a string (got number)')
     expect(validateValue('integer', 3.5, 'p')).toBe('p: must be an integer (got number)')
-    expect(validateValue('boolean', null, 'p')).toBe('p: must be a boolean (got null)')
+    expect(validateValue('string', null, 'p')).toBe('p: must be a string (got null)')
     expect(validateValue('string', ['a'], 'p')).toBe('p: must be a string (got array)')
   })
 
@@ -181,12 +180,6 @@ describe('validateValue', () => {
     expect(validateValue(object, { a: 'x', b: 'y' }, 'p')).toBeNull()
     expect(validateValue(object, { a: 'x', b: 'y', c: 1 }, 'p')).toBe('p.c: unknown field')
     expect(validateValue(object, { a: 'x' }, 'p')).toBe('p.b: is required')
-    expect(validateValue(object, { a: 'x' }, 'p', true)).toBeNull()
-  })
-
-  it('requires marked fields even in a partial write', () => {
-    const object: Schema = { type: 'object', fields: { a: { type: 'string', required: true }, b: 'string' } }
-    expect(validateValue(object, { b: 'y' }, 'p', true)).toBe('p.a: is required')
     expect(validateValue(object, { a: 'x' }, 'p', true)).toBeNull()
   })
 

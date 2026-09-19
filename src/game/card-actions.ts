@@ -3,7 +3,7 @@
  *
  * 作者只写两件事：这个动作叫什么、它写到哪（path / mode / key）或它是哪个内置效果
  * （effect）。**参数契约由引擎从 state schema 推导**，作者不写参数：
- *   · `path` 指向 object → 摊平它的字段（set 全部必给，merge 只必给标了 required 的）；
+ *   · `path` 指向 object → 摊平它的字段（set 全部必给，merge 一个都不必给）；
  *   · `path` 指向 list（push）或 map（必须给 key）→ 摊平**元素** schema，再看看 key 是不是
  *     元素自己的字段；元素不是 object 时参数只有一个 `value`；
  *   · `effect: "time"` → 引擎给的 { minutes, reason }（minutes 是唯一的推进量）；
@@ -23,7 +23,6 @@
 import type { Action, CardData } from './card'
 import { isRecord } from './card-read'
 import {
-  isRequired,
   schemaAt,
   schemaElement,
   schemaFields,
@@ -120,10 +119,6 @@ function paramSchema(schema: Schema): ToolParameter {
       return { type: 'string' }
     case 'integer':
       return withRange({ type: 'integer' }, node)
-    case 'number':
-      return withRange({ type: 'number' }, node)
-    case 'boolean':
-      return { type: 'boolean' }
     case 'enum':
       return { type: 'string', enum: [...(node.values ?? [])] }
     case 'list':
@@ -145,7 +140,13 @@ function withRange(param: ToolParameter, node: { range?: [number, number] }): To
   return { ...param, minimum: node.range[0], maximum: node.range[1] }
 }
 
-/** object schema 摊平成顶层参数：set 全部必给，merge 只必给标了 required 的 */
+/**
+ * object schema 摊平成顶层参数：set 全部必给，merge **一个都不必给**。
+ *
+ * ⚠️ merge 的 `[]` 是**有意的**（老板 2026-09-18：「没有"必填"这个东西了」）：schema 里那个
+ *    「必填」标记整个删掉了，于是 merge 的模型理论上能报一个空 patch —— 那是接受的语义，
+ *    不是漏的（CHANGELOG 记了一笔）。`set` 是整条替换，每一栏都得给，不受影响。
+ */
 function fieldParams(
   schema: Schema,
   mode: Mode,
@@ -153,12 +154,7 @@ function fieldParams(
   const fields = schemaFields(schema) ?? {}
   const properties: Record<string, ToolParameter> = {}
   for (const [name, sub] of Object.entries(fields)) properties[name] = paramSchema(sub)
-  const required =
-    mode === 'merge'
-      ? Object.entries(fields)
-          .filter(([, sub]) => isRequired(sub))
-          .map(([name]) => name)
-      : Object.keys(fields)
+  const required = mode === 'merge' ? [] : Object.keys(fields)
   return { properties, required }
 }
 

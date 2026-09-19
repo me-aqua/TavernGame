@@ -1,11 +1,11 @@
 /**
- * src/game/card.ts —— card/3：一张卡的形状、结构校验与引擎词表。
+ * src/game/card.ts —— card/4：一张卡的形状、结构校验与引擎词表。
  *
  * 卡是**外部数据**（作者手写、从别人那儿导入），按纪律只有系统边界才做校验，所以卡的校验
  * 集中在这里。**只做结构校验**：键集 / 类型 / 枚举 / 引用完整性 —— 不解析任何一句散文
  * （「说明里有五个地点」这种判断和「引擎解析模型输出」是同一个错误，决定 #46）。
  *
- * ⚠️ 只认 card/3。格式不认识就直接拒 —— 不做字段改名、不做版本迁移。
+ * ⚠️ 只认 card/4。格式不认识就直接拒 —— 不做字段改名、不做版本迁移。
  *
  * 顶层 12 键（读者三分，字段级成立）：
  *   · 引擎读：card · state · time · actions · graph（id / 拓扑 / role / tools）· display
@@ -59,7 +59,7 @@ export interface CardMeta {
   version: string
   compat: string
   author: string
-  format: 'card/3'
+  format: 'card/4'
   language: string
   summary: string
 }
@@ -156,7 +156,7 @@ export interface CardData {
 // ---------- 键集与格式 ----------
 
 /** 卡格式版本 —— 别的格式直接拒（这个字段就是干这个的） */
-export const CARD_FORMAT = 'card/3'
+export const CARD_FORMAT = 'card/4'
 
 /** 顶层 12 键，一个不少、一个不多 */
 const TOP_LEVEL_KEYS = [

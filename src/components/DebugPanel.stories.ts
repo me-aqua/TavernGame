@@ -21,7 +21,7 @@ const running = currentCard.graph.topology[1]
 
 /** 这一轮还没提交的工作副本（事务里那份；故事里造一份假的看看样子） */
 const draft: GameData = {
-  meta: { turn: 3, card: { id: 'demo', name: 'demo', version: '0.0.0', format: 'card/3' } },
+  meta: { turn: 3, card: { id: 'demo', name: 'demo', version: '0.0.0', format: 'card/4' } },
   time: currentCard.time.initial,
   state,
   events: [],

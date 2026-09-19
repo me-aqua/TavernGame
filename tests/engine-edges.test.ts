@@ -59,11 +59,11 @@ describe('card-state.ts - the value shapes the schema rejects', () => {
     )
   })
 
-  it('a number that is not a number, and one outside its range', () => {
-    const schema = { type: 'number' as const, range: [0, 1] as [number, number] }
-    expect(validateValue(schema, 'x', 'score')).toContain('must be a number')
+  it('an integer that is not an integer, and one outside its range', () => {
+    const schema = { type: 'integer' as const, range: [0, 1] as [number, number] }
+    expect(validateValue(schema, 'x', 'score')).toContain('must be an integer')
     expect(validateValue(schema, 5, 'score')).toContain('must be within [0, 1]')
-    expect(validateValue(schema, 0.5, 'score')).toBeNull()
+    expect(validateValue(schema, 0, 'score')).toBeNull()
   })
 })
 
@@ -101,13 +101,10 @@ describe('card-actions.ts - every parameter shape is derived from the state sche
   /** 一张把所有参数形状都摆出来的卡：每个动作写到一种 schema 上 */
   const shapes = (): CardData => {
     const card = fixture()
-    // 参数形状：boolean / 带区间的 number / 不带区间的 integer / 嵌套 map / required 字段
+    // 参数形状：带区间的 integer / 不带区间的 integer / 嵌套 map
     card.state.lead.fields.rank = { type: 'integer', initial: 1, range: [1, 5] }
     card.state.lead.fields.level = { type: 'integer', initial: 1 }
-    card.state.lead.fields.flag = { type: 'boolean', initial: false }
-    card.state.lead.fields.score = { type: 'number', initial: 0, range: [0, 100] }
     card.state.lead.fields.tags = { type: 'map', initial: {}, of: 'string' }
-    card.state.lead.fields.must = { type: 'string', initial: 'x', required: true }
     card.actions.patch_lead = { what: 'patch the lead', path: 'lead', mode: 'merge' }
     // map 的元素自己声明了键字段
     card.state.people = {
@@ -136,13 +133,11 @@ describe('card-actions.ts - every parameter shape is derived from the state sche
 
   it('maps each state type to the matching tool parameter', () => {
     const params = schemaOf(shapes(), 'patch_lead')
-    expect(params.properties.flag).toEqual({ type: 'boolean' })
     expect(params.properties.rank).toEqual({ type: 'integer', minimum: 1, maximum: 5 })
     expect(params.properties.level).toEqual({ type: 'integer' })
-    expect(params.properties.score).toEqual({ type: 'number', minimum: 0, maximum: 100 })
     expect(params.properties.tags).toEqual({ type: 'object', additionalProperties: { type: 'string' } })
-    // merge 只强制标了 required 的字段
-    expect(params.required).toEqual(['must'])
+    // merge 一个字段都不必给（schema 里没有「必填」这个键了）
+    expect(params.required).toEqual([])
   })
 
   it('takes the key from the map element when the element declares that field', () => {

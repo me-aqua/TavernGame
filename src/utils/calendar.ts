@@ -1,5 +1,5 @@
 /**
- * src/utils/calendar.ts —— 现实公历的**算术**（card/3 的 real 预设用它）。
+ * src/utils/calendar.ts —— 现实公历的**算术**（card/4 的 real 预设用它）。
  *
  * 时间推进的入口在 game/card-calendar.ts：卡声明用哪个历法、推进多少**分钟**。
  * 这里只有一件加减：**按整小时推**（分钟的零头由调用方用 Date 补）—— 日期运算全部

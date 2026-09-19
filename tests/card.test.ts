@@ -356,22 +356,15 @@ describe('validateCard: state schema', () => {
     const unknown = fixture()
     lead(unknown).name = { type: 'object', initial: { nope: 1 }, fields: { ok: 'string' } }
     expectRejected(unknown, path + '.initial.nope')
-    const required = fixture()
-    lead(required).name = {
-      type: 'object',
-      initial: {},
-      fields: { ok: { type: 'string', required: true } },
-    }
-    expectRejected(required, path + '.initial.ok')
   })
 
-  it('rejects a required flag that is not a boolean, or an empty note', () => {
+  it('rejects a required flag: the key does not exist in the schema language any more', () => {
     const required = fixture()
     lead(required).name = { type: 'string', required: 'yes' }
     expectRejected(required, path + '.required')
-    const note = fixture()
-    lead(note).name = { type: 'string', note: '' }
-    expectRejected(note, path + '.note')
+    const emptyNote = fixture()
+    lead(emptyNote).name = { type: 'string', note: '' }
+    expectRejected(emptyNote, path + '.note')
   })
 })
 
