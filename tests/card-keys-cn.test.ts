@@ -41,11 +41,27 @@ const FORMAT_NODE_KEYS = new Set(['type', 'fields', 'of', 'initial', 'note', 'ra
  * `parseCard` 当场拒（实测原文：`block "map" needs state.world.map, which this card does not declare`），
  * 或者取数路径落空。
  *
- * ⚠️ **只有引擎自己写死的那四条**。`player.profile` / `world.whoIsWhere` 一度被我放进这份名单 ——
+ * ⚠️ **只有引擎自己写死的那几条**。`player.profile` / `world.whoIsWhere` 一度被我放进这份名单 ——
  *    **核过了，是错的**：全库 grep `whoIsWhere` / `profile` 在 `src/**` 里**一处都没有**
  *    （它们只是卡自己的 `actions[].path` 取值）⇒ 它们**可以改**，跟着动作路径一起改就行。
+ * ⚠️ **`world.time` 是段 5（票 62）落地的那一条**：那一刻由**引擎**取、推、念
+ *    （R39 把时间搬进世界状态）⇒ 它的键名也由引擎定、保持 ASCII。
+ *    ⚠️ **它跟上面那四条不是同一种**：那四条只是"这一条路径"由引擎点名，**它底下的子键仍是作者起的**
+ *    （`world.map.*.note` → `简介`、`roles.*.<名字>` → 中文 —— 段 3 都改了、判据 1 照样要求它们改）；
+ *    而 `world.time` **底下那五个也是引擎词表**（`TimeValue` 的形状：引擎按 `clock.year` 取那一刻）。
+ *    ⇒ 见下面那两张表：**路径名单**管"这一条"，**子树名单**管"连底下一起"。
  */
-const ENGINE_RESERVED_PATHS = new Set(['world.map', 'world.location', 'roles', 'lead.pack'])
+const ENGINE_RESERVED_PATHS = new Set(['world.map', 'world.location', 'roles', 'lead.pack', 'world.time'])
+
+/**
+ * 引擎点名的**整棵子树** —— 这些路径**底下的键**也是引擎词表，一律不许改。
+ *
+ * ⚠️ 为什么不能把上面那张表整体改成"前缀规则"：那会把 `world.map.*` / `roles.*` / `lead.pack.*`
+ *    底下**作者起的字段**（`简介` / `名称` / …）也一起放行 —— 判据 1 就不再要求它们改中文了。
+ *    `world.time` 是唯一一条"连底下都是引擎的"：`checkTime` 要 `year`/`month`/`day`/`hour`/`minute`
+ *    这五个名字（`card-calendar.ts:249`），少一个或换一个名字，那一刻就读不出来。
+ */
+const ENGINE_RESERVED_SUBTREES = new Set(['world.time'])
 
 /**
  * 引擎**自己起名**的词：工具参数（`value` / `minutes` / `reason` / `from` / `why`）、
@@ -192,21 +208,38 @@ function fieldNames(card: Record<string, unknown>): string[] {
 }
 
 /**
+ * 这一段路径（含它**底下整棵子树**）是不是引擎点名的。
+ *
+ * ⚠️ **必须按前缀判，不能只比那一条路径**：保留名单里的键自己是引擎词表，
+ * **它底下的子键也是**（`world.time` 下面那五个 `year`/`month`/`day`/`hour`/`minute`
+ * 就是 `TimeValue` 的形状 —— 引擎按它们取/推/念那一刻）。
+ * 只比相等的话，`world.time` 一落地，判据 1 就会把那五个名字数成"作者起的 ASCII 键"报红。
+ * 用前缀规则还有一层好处：以后那底下再加一格（时区）也不用回来补名单。
+ */
+function isEngineReservedPath(path: string): boolean {
+  if (ENGINE_RESERVED_PATHS.has(path)) return true
+  for (const wanted of ENGINE_RESERVED_SUBTREES) {
+    if (path === wanted || path.startsWith(wanted + '.')) return true
+  }
+  return false
+}
+
+/**
  * schema 里**允许改中文**的字段名 = 全部字段名 − 引擎按路径点名的那些（**按路径判，不按名字判**）。
  *
- * ⚠️ 例外不是我图省事：`world.map` / `roles` / `lead.pack` / `player.profile` 这几段是
+ * ⚠️ 例外不是我图省事：`world.map` / `roles` / `lead.pack` / `world.time` 这几段是
  * **引擎自己写死**的取数路径（见 `ENGINE_RESERVED_PATHS` 的来历）。参考实现照判据 1 全改时
  * **判据 8 红了** —— 那次是判据对、实现错。范围以本函数为准。
  */
 function renamableFieldNames(card: Record<string, unknown>): string[] {
   const reserved = new Set<string>()
-  /** 往下走一遍，把"落在引擎点名路径上"的键名收进 `reserved` */
+  /** 往下走一遍，把"落在引擎点名路径（含子树）上"的键名收进 `reserved` */
   const collect = (node: unknown, path: string): void => {
     if (node === null || typeof node !== 'object') return
     for (const [key, sub] of Object.entries((node as Record<string, unknown>).fields ?? {})) {
       const child = path === '' ? key : path + '.' + key
       // 自己或**祖先**落在保留名单里 ⇒ 这一段的键不许改
-      if (ENGINE_RESERVED_PATHS.has(child)) reserved.add(key)
+      if (isEngineReservedPath(child)) reserved.add(key)
       collect(sub, child)
     }
     collect((node as Record<string, unknown>).of, path === '' ? '*' : path + '.*')
@@ -364,7 +397,7 @@ describe('the author-chosen key names are no longer ASCII', () => {
           m[1].replace(/\.$/, ''),
         ),
       )
-      const leaked = [...survivors].filter((path) => !ENGINE_RESERVED_PATHS.has(path))
+      const leaked = [...survivors].filter((path) => !isEngineReservedPath(path))
       expect(leaked, name + ' still has a non-engine ASCII dotted path in model-facing text').toEqual([])
     }
   })
@@ -479,6 +512,22 @@ describe('the reverse controls: what must stay ASCII', () => {
           paths.some((path) => path === wanted),
           name + ' has no literal ' + wanted + ' path any more (only element paths like ' + wanted + '.*)',
         ).toBe(true)
+      }
+      // ④ ⚠️ **引擎点名的整棵子树**也必须仍是 ASCII（`world.time` 底下那五个）。
+      //    为什么单列：判据 1 把它们**排除**在"要求改中文"之外 ——
+      //    **"排除"不等于"没人管"**：从一条判据里放行的东西，必须有另一条钉住它，
+      //    否则那底下改名（`year` → 年份）两条判据都不出声，而引擎的 `checkTime` 会当场读不出来。
+      for (const root of ENGINE_RESERVED_SUBTREES) {
+        const inside = paths.filter((path) => path === root || path.startsWith(root + '.'))
+        expect(inside.length, name + ' declares no ' + root).toBeGreaterThan(0)
+        for (const path of inside) {
+          for (const segment of path.split('.')) {
+            if (segment === '*') continue
+            expect(ASCII_ID.test(segment), name + ' renamed something inside ' + root + ': ' + path).toBe(
+              true,
+            )
+          }
+        }
       }
     }
   })

@@ -257,7 +257,11 @@ describe('the cards must stay loadable and consistent', () => {
 
   it('11 night-watch is not dirtied: it never had any of the seven', () => {
     const card = nightWatch as Record<string, unknown>
-    expect(at(card, 'state.world')).toBeUndefined()
+    // ⚠️ 段 5（票 62）给这张卡新增了 `world` 那一枝（时刻住在 `state.world.time`，R39）
+    //    ⇒ 「没有 world 枝」不再是"没被那七刀碰过"的判据，改断那七样**本身**还在不在。
+    expect(at(card, 'state.world.fields.location')).toBeUndefined()
+    expect(at(card, 'state.world.fields.map')).toBeUndefined()
+    expect(at(card, 'state.world.fields.' + LEDGER)).toBeUndefined()
     expect(at(card, 'state.roles')).toBeUndefined()
     expect(at(card, 'state.chains')).toBeUndefined()
     expect(at(card, 'actions.move_to')).toBeUndefined()
