@@ -11,6 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useGame } from '../src/stores/game'
 import { advance } from '../src/game/card-calendar'
+import { clockIn } from '../src/game/card-time'
 import { initialState } from '../src/game/state'
 import { t } from '../src/i18n'
 import { nodeLabel } from '../src/game/display'
@@ -145,7 +146,7 @@ describe('handleEvent - each trace branch (debug only)', () => {
     fake.restore()
     fake = null
 
-    expect(g.debugWrites.value.map((write) => write.path)).toEqual(['time'])
+    expect(g.debugWrites.value.map((write) => write.path)).toEqual(['world.time'])
     expect(g.debugDraft.value).toBeNull()
     g.debugMode.value = false
   })
@@ -190,14 +191,14 @@ describe('handleEvent - each trace branch (debug only)', () => {
     const timeNode = timeNodeOf()
     const before = g.exportSave()
     expect(g.debugTools.value.map((call) => [call.node, call.tool])).toEqual([[timeNode, 'advance_time']])
-    expect(g.debugTools.value[0].writes.map((write) => write.path)).toEqual(['time'])
+    expect(g.debugTools.value[0].writes.map((write) => write.path)).toEqual(['world.time'])
 
     // 落盘再读回来：这三个字段必须一起回来（save.ts 的清洗不许丢）
     g.importSave(before)
     expect(g.debugTools.value.map((call) => [call.node, call.tool])).toEqual([[timeNode, 'advance_time']])
-    expect(g.debugTools.value[0].writes.map((write) => write.path)).toEqual(['time'])
+    expect(g.debugTools.value[0].writes.map((write) => write.path)).toEqual(['world.time'])
     expect(g.debugTools.value[0].writes[0].value).toEqual(
-      advance(currentCard.time.calendar, initialState().data.time, TIME_MINUTES),
+      advance(currentCard.time.calendar, clockIn(initialState().data.state), TIME_MINUTES),
     )
 
     g.debugMode.value = false

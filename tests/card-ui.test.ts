@@ -25,6 +25,7 @@ import cardGraphStory, { Failed, Running, Selected } from '../src/components/Car
 import { parseCard } from '../src/game/card'
 import { toGraph } from '../src/game/card-layout'
 import { instantiate } from '../src/game/card-state'
+import { clockIn, writeClock } from '../src/game/card-time'
 import { format } from '../src/game/card-calendar'
 import { EXAMPLE_CARD } from './support/card-fixtures'
 import { nodeWith } from './support/card-replies'
@@ -432,10 +433,10 @@ describe('DebugPanel', () => {
     return {
       card,
       state,
-      timeLabel: format(card.time.calendar, card.time.initial),
+      timeLabel: format(card.time.calendar, clockIn(instantiate(card))),
       turn: 2,
       draft: null,
-      writes: [{ path: 'time', value: { minute: 35 } }],
+      writes: [{ path: 'world.time', value: { minute: 35 } }],
       tools: [
         {
           node: TIME,
@@ -493,17 +494,19 @@ describe('DebugPanel', () => {
     expect(w.findAll('[data-debug-branch]').map((el) => el.attributes('data-debug-branch'))).toEqual(
       Object.keys(state),
     )
-    expect(w.text()).toContain(format(card.time.calendar, card.time.initial))
+    expect(w.text()).toContain(format(card.time.calendar, clockIn(instantiate(card))))
     expect(w.text()).toContain('2')
     expect(w.findAll('[data-debug-write]')).toHaveLength(1)
-    expect(w.find('[data-debug-write]').text()).toContain('time')
+    expect(w.find('[data-debug-write]').text()).toContain('world.time')
   })
 
   it('switches to the working draft, and says so when there is no turn in flight', async () => {
+    const draftState = instantiate(card)
+    // 草稿里的时刻也住在状态树里（R39）—— 换一格，面板那条标签要跟着变
+    writeClock(draftState, { year: 2026, month: 9, day: 15, hour: 8, minute: 0 })
     const draft = {
       meta: { turn: 9, card: card.card },
-      time: { year: 2026, month: 9, day: 15, hour: 8, minute: 0 },
-      state: instantiate(card),
+      state: draftState,
       events: [],
       timeline: [],
     }
@@ -513,7 +516,7 @@ describe('DebugPanel', () => {
     await w.find('[data-debug-draft]').trigger('click')
     expect(w.find('[data-debug-draft]').attributes('aria-pressed')).toBe('true')
     expect(w.text()).toContain('9')
-    expect(w.text()).toContain(format(card.time.calendar, draft.time))
+    expect(w.text()).toContain(format(card.time.calendar, clockIn(draftState)))
 
     // 没有工作副本时按钮点不动，并说明为什么
     const idle = panel({ initialTab: 'state' })

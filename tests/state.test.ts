@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 import * as game from '../src/game/state'
 import { createInitialState, identityOf } from '../src/game/save'
 import { instantiate } from '../src/game/card-state'
+import { clockIn } from '../src/game/card-time'
 import { advance, format } from '../src/game/card-calendar'
 import { localStorageStore, SAVE_KEY } from '../src/utils/storage'
 import { currentCard } from '../src/game/current-card'
@@ -26,7 +27,8 @@ const logText = (i: number) => 'entry ' + i
 describe('initialState - the first frame comes from the card', () => {
   it('has exactly the four top-level pieces', () => {
     const s = game.initialState()
-    expect(Object.keys(s.data).sort()).toEqual(['events', 'meta', 'state', 'time', 'timeline'])
+    // ⚠️ 顶层没有 `time` —— 时刻住在状态树里（R39），引擎手里不留第二份
+    expect(Object.keys(s.data).sort()).toEqual(['events', 'meta', 'state', 'timeline'])
     expect(s.loadError).toBeNull()
     expect(s.data.meta.turn).toBe(0)
     expect(s.data.events).toEqual([])
@@ -40,14 +42,14 @@ describe('initialState - the first frame comes from the card', () => {
   it('instantiates the state tree and the clock from the card (nothing hardcoded)', () => {
     const s = game.initialState()
     expect(s.data.state).toEqual(instantiate(currentCard))
-    expect(s.data.time).toEqual(currentCard.time.initial)
+    expect(clockIn(s.data.state)).toEqual(clockIn(instantiate(currentCard)))
   })
 })
 
 describe('timeText', () => {
   it('renders a moment with the given card calendar', () => {
-    expect(game.timeText(currentCard.time.calendar, currentCard.time.initial)).toBe(
-      format(currentCard.time.calendar, currentCard.time.initial),
+    expect(game.timeText(currentCard.time.calendar, clockIn(instantiate(currentCard)))).toBe(
+      format(currentCard.time.calendar, clockIn(instantiate(currentCard))),
     )
   })
 })
@@ -89,14 +91,14 @@ describe('advanceTime - the clock moves by minutes of the card calendar', () => 
   it('moves the clock and reports the new moment', () => {
     const s = createGame()
     const calendar = currentCard.time.calendar
-    const before = s.data.time
+    const before = clockIn(s.data.state)
     // 具体进位由历法负责（tests/card-calendar.test.ts 逐条走通）；
     // 这里证明 state 层真的把它接上了：时钟走到历法算出来的那一刻
     const expected = format(calendar, advance(calendar, before, 60))
 
     const out = game.advanceTime(s.data, calendar, 60, WAITED)
 
-    expect(game.timeText(calendar, s.data.time)).toBe(expected)
+    expect(game.timeText(calendar, clockIn(s.data.state))).toBe(expected)
     expect(out).toContain(t('tools.advanceDone', { minutes: 60, time: expected }))
     expect(out).toContain(t('tools.advanceReason', { reason: WAITED }))
   })
@@ -104,11 +106,11 @@ describe('advanceTime - the clock moves by minutes of the card calendar', () => 
   it('minutes = 0 is legal: the clock stands still and nothing reaches the timeline', () => {
     const s = createGame()
     const calendar = currentCard.time.calendar
-    const before = { ...s.data.time }
+    const before = { ...clockIn(s.data.state) }
 
     const out = game.advanceTime(s.data, calendar, 0, WAITED)
 
-    expect(s.data.time).toEqual(before)
+    expect(clockIn(s.data.state)).toEqual(before)
     expect(s.data.timeline).toEqual([])
     expect(out).toContain(t('tools.advanceStill', { time: game.timeText(calendar, before) }))
   })
@@ -120,7 +122,7 @@ describe('advanceTime - the clock moves by minutes of the card calendar', () => 
 
     // 这张卡的一天三段是它自己声明的：推进量按分钟算，进位由历法负责
     const expected = { year: 1, month: 4, day: 13, hour: 5, minute: 40 }
-    expect(data.time).toEqual(expected)
+    expect(clockIn(data.state)).toEqual(expected)
     expect(out).toContain(
       t('tools.advanceDone', { minutes: CUSTOM_STEP, time: format(card.time.calendar, expected) }),
     )
@@ -129,7 +131,7 @@ describe('advanceTime - the clock moves by minutes of the card calendar', () => 
   it('records a notable jump with its start, its end and its reason', () => {
     const s = createGame()
     const calendar = currentCard.time.calendar
-    const from = game.timeText(calendar, s.data.time)
+    const from = game.timeText(calendar, clockIn(s.data.state))
 
     game.advanceTime(s.data, calendar, 1440, WAITED)
 
@@ -181,7 +183,7 @@ describe('save / reset / import / export', () => {
 
     expect(other.data.events.map((event) => event.text)).toEqual([STORY_LINE])
     expect(other.data.timeline).toHaveLength(1)
-    expect(other.data.time).toEqual(s.data.time)
+    expect(clockIn(other.data.state)).toEqual(clockIn(s.data.state))
   })
 
   it('rejects JSON that is not a save', () => {

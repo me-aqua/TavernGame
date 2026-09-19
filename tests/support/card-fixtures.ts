@@ -125,11 +125,23 @@ export function minimalCard(): Record<string, unknown> {
             of: { type: 'object', fields: { kind: 'string', note: 'string' } },
           },
           whoIsWhere: { type: 'map', initial: {}, of: 'string' },
+          // 时钟那一格（R39：时刻是世界状态的一部分，声明在 state.world.time）
+          time: {
+            type: 'object',
+            initial: { year: 2026, month: 9, day: 14, hour: 19, minute: 30 },
+            fields: {
+              year: 'integer',
+              month: 'integer',
+              day: 'integer',
+              hour: 'integer',
+              minute: 'integer',
+            },
+          },
         },
       },
       player: { type: 'object', fields: { profile: { type: 'string', initial: 'a tester' } } },
     },
-    time: { calendar: 'real', initial: { year: 2026, month: 9, day: 14, hour: 19, minute: 30 } },
+    time: { calendar: 'real' },
     generators: [{ name: 'places', applies: 'when a place is needed', principles: ['grow one at a time'] }],
     opening: { canName: true, defaultName: 'nobody', requirements: ['write the opening'] },
     display: {

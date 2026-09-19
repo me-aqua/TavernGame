@@ -9,6 +9,7 @@ import { watchEffect } from 'vue'
 import { isDevHost, readStoredDebug, resolveDebug, storeDebug, useGame } from '../src/stores/game'
 import { initialState, hydrateFromSave, turn } from '../src/game/state'
 import { format } from '../src/game/card-calendar'
+import { clockIn } from '../src/game/card-time'
 import { currentCard } from '../src/game/current-card'
 import { nodeLabel } from '../src/game/display'
 import { SAVE_KEY } from '../src/utils/storage'
@@ -63,7 +64,7 @@ async function runOneTurn(draft = WAKE_REPLY) {
 describe('derived state (what the topbar and the panels read)', () => {
   it('starts at the card clock, turn 0, and the scene line reads the state tree', () => {
     const g = useGame()
-    expect(g.timeLabel.value).toBe(format(currentCard.time.calendar, initialState().data.time))
+    expect(g.timeLabel.value).toBe(format(currentCard.time.calendar, clockIn(initialState().data.state)))
     expect(g.turn.value).toBe(0)
     // 场景读状态树的 world.location —— 这张卡没有声明那一段，于是三段都是空串
     // （顶栏那个条目照样画，只是什么都不显示；卡声明了它就有内容）
@@ -206,10 +207,8 @@ describe('debugMode', () => {
     for (const kind of ['node', 'request', 'model', 'tool', 'toolResult', 'stateChange']) {
       expect(kinds, kind).toContain(kind)
     }
-    // 写入清单只给调试面板，不进故事
-    expect(g.debugWrites.value).toEqual([
-      { path: 'time', value: g.debugDraft.value?.time ?? expect.anything() },
-    ])
+    // 写入清单只给调试面板，不进故事（时刻那一笔现在写在状态树里的 world.time）
+    expect(g.debugWrites.value).toEqual([{ path: 'world.time', value: expect.anything() }])
     expect(g.debugDraft.value).toBeNull()
     g.debugMode.value = false
   })

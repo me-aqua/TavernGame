@@ -5,6 +5,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createInitialState, identityOf, normalize, parseSave } from '../src/game/save'
+import { instantiate } from '../src/game/card-state'
+import { clockIn } from '../src/game/card-time'
 import { currentCard } from '../src/game/current-card'
 import { t } from '../src/i18n'
 import { loadCard, NIGHT_WATCH_CARD } from './support/card-fixtures'
@@ -26,7 +28,8 @@ describe('createInitialState', () => {
     const b = createInitialState(currentCard)
     expect(a).not.toBe(b)
     expect(a.state).not.toBe(b.state)
-    expect(a.time).not.toBe(b.time)
+    // ⚠️ 时刻住在状态树里（R39）⇒ 两份开局不共享那一刻的那一格
+    expect(clockIn(a.state)).not.toBe(clockIn(b.state))
     const untouched = structuredClone(b.state.roles)
     ;(a.state.roles as Record<string, unknown>)['someone'] = { tier: 'major' }
     expect(b.state.roles).toEqual(untouched)
@@ -36,7 +39,9 @@ describe('createInitialState', () => {
     const d = createInitialState(currentCard)
     expect(d.meta.card).toEqual(identityOf(currentCard))
     expect(d.meta.turn).toBe(0)
-    expect(d.time).toEqual(currentCard.time.initial)
+    expect(clockIn(d.state)).toEqual(clockIn(instantiate(currentCard)))
+    // 引擎手里没有第二份时钟（顶层那个字段没有了）
+    expect(Object.hasOwn(d, 'time')).toBe(false)
   })
 
   it('works for any card (the identity follows the card, not the engine)', () => {
@@ -186,10 +191,11 @@ describe('normalize - field-level sanitation', () => {
     expect(normalize(many, currentCard).timeline).toHaveLength(40)
   })
 
-  it('fills a missing clock with the card starting moment', () => {
+  it('refuses a save whose state tree lost the clock', () => {
     const save = savedGame() as unknown as Record<string, unknown>
-    delete save.time
-    expect(normalize(save, currentCard).time).toEqual(currentCard.time.initial)
+    const world = (save.state as Record<string, unknown>).world as Record<string, unknown>
+    delete world.time
+    expect(() => normalize(save, currentCard)).toThrow(t('save.badTime', { message: '' }).slice(0, 6))
   })
 })
 
@@ -223,7 +229,8 @@ describe('normalize - the state tree must match the card schema', () => {
 
   it('refuses a clock outside the card calendar', () => {
     const save = savedGame()
-    save.time = { ...save.time, month: 13 }
+    const world = save.state.world as Record<string, unknown>
+    world.time = { ...(world.time as Record<string, unknown>), month: 13 }
     expect(() => normalize(save, currentCard)).toThrow('time.month')
   })
 })

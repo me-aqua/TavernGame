@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { buildNodeMessages } from '../src/agent/prompts'
 import { renderState } from '../src/game/card-state'
 import { format } from '../src/game/card-calendar'
+import { clockIn, withoutClock } from '../src/game/card-time'
 import { createInitialState } from '../src/game/save'
 import { advanceTime } from '../src/game/state'
 import { currentCard } from '../src/game/current-card'
@@ -25,7 +26,6 @@ function messagesFor(node: string, data: GameData = createInitialState(card), so
     card: source,
     node,
     state: data.state,
-    time: data.time,
     events: data.events,
     memoryUpTo: data.events.length,
     playerWords: PLAYER_WORDS,
@@ -46,7 +46,8 @@ describe('reads - a node only sees the branches it declares', () => {
     const data = createInitialState(card)
     for (const id of topology) {
       const reads = card.graph.nodes[id].reads
-      expect(userOf(id, data), id).toContain(renderState(data.state, { reads }))
+      // ⚠️ 给模型的那一份**去掉时钟那一格**（时刻已经在「现在」那一行里说过一遍了）
+      expect(userOf(id, data), id).toContain(renderState(withoutClock(data.state), { reads }))
     }
   })
 
@@ -76,7 +77,7 @@ describe('reads - a node only sees the branches it declares', () => {
     // 这张卡的两个节点都没写 reads（不写 = 全部）
     for (const id of source.graph.topology) {
       expect(source.graph.nodes[id].reads).toBeUndefined()
-      expect(userOf(id, data, source)).toContain(renderState(data.state))
+      expect(userOf(id, data, source)).toContain(renderState(withoutClock(data.state)))
     }
   })
 })
@@ -116,7 +117,8 @@ describe('the snapshot is rendered per request (tools move the clock)', () => {
     const after = userOf(story, data)
 
     expect(after).not.toBe(before)
-    expect(after).toContain(t('prompts.timeLine', { time: format(card.time.calendar, data.time) }))
-    expect(before).not.toContain(t('prompts.timeLine', { time: format(card.time.calendar, data.time) }))
+    const clock = clockIn(data.state)
+    expect(after).toContain(t('prompts.timeLine', { time: format(card.time.calendar, clock) }))
+    expect(before).not.toContain(t('prompts.timeLine', { time: format(card.time.calendar, clock) }))
   })
 })

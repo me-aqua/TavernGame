@@ -13,6 +13,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runTurn } from '../src/agent/agent'
 import { narrationOf } from '../src/agent/card-graph'
 import { format } from '../src/game/card-calendar'
+import { clockIn } from '../src/game/card-time'
+import { instantiate } from '../src/game/card-state'
 import { castOf, displayOf, mapOf, nodeLabel, packOf, spotOf } from '../src/game/display'
 import { openingOf } from '../src/game/opening'
 import { createInitialState, identityOf, normalize } from '../src/game/save'
@@ -77,11 +79,12 @@ describe('two cards, one engine', () => {
     for (const card of [first, second]) {
       const data = createInitialState(card)
       expect(data.meta.card).toEqual(identityOf(card))
-      expect(data.time).toEqual(card.time.initial)
+      // 时刻住在状态树里（R39）：两张卡各按自己声明的初值开局
+      expect(clockIn(data.state)).toEqual(clockIn(instantiate(card)))
       expect(Object.keys(data.state).length).toBeGreaterThan(0)
     }
-    // 夜班没有 world / roles 这两支：它只声明了 lead 与 log
-    expect(Object.keys(createInitialState(second).state).sort()).toEqual(['lead', 'log'])
+    // 夜班没有 roles 那一支：它声明了 world（时钟在里面）、lead 与 log
+    expect(Object.keys(createInitialState(second).state).sort()).toEqual(['lead', 'log', 'world'])
   })
 })
 
@@ -97,9 +100,10 @@ describe('the second card: one whole turn through the engine', () => {
 
     expect(result.text).toBe(STORY_TEXT)
     // 自定义历法：4 月 12 日 21:40 + 480 分钟 = 4 月 13 日 05:40
-    expect(state.data.time).toEqual({ year: 1, month: 4, day: 13, hour: 5, minute: 40 })
+    const clock = clockIn(state.data.state)
+    expect(clock).toEqual({ year: 1, month: 4, day: 13, hour: 5, minute: 40 })
     // 时间标签按这张卡的模板渲染（三段是它自己声明的）
-    expect(format(second.time.calendar, state.data.time)).toContain(String(state.data.time.day))
+    expect(format(second.time.calendar, clock)).toContain(String(clock.day))
     // 模型调用 = 两个节点 + 时间节点的一次工具往返
     expect(fake.calls).toHaveLength(second.graph.topology.length + 1)
   })

@@ -17,6 +17,7 @@ import { IDLE, type TurnPhase, type TurnState } from '../src/game/lifecycle'
 import { addEvent, endTurn, initialState, save, type GameState } from '../src/game/state'
 import { isStoryKind } from '../src/game/save'
 import { advance } from '../src/game/card-calendar'
+import { clockIn } from '../src/game/card-time'
 import { currentCard } from '../src/game/current-card'
 import { configureFakeProvider } from './support/game-fixtures'
 import {
@@ -165,7 +166,7 @@ describe('a successful turn commits the draft', () => {
     fake = installFakeLlm(REPLIES)
     const state = initialState()
     const before = state.data
-    const startTime = { ...before.time }
+    const startTime = { ...clockIn(before.state) }
     const { write, runTurnAction } = createRunner(state)
 
     await runTurnAction(LOOK_ACTION)
@@ -173,7 +174,7 @@ describe('a successful turn commits the draft', () => {
     // 提交换了对象：跑之前那份数据一个字节都没被改过
     expect(state.data).not.toBe(before)
     expect(before.events).toEqual([])
-    expect(before.time).toEqual(startTime)
+    expect(clockIn(before.state)).toEqual(startTime)
     expect(before.meta.turn).toBe(0)
 
     // 落盘一次，拿到的就是刚提交的内存（save 读权威状态，所以提交必须先于它）
@@ -185,7 +186,7 @@ describe('a successful turn commits the draft', () => {
     expect(state.data.events.map((event) => event.kind)).toEqual(['action', 'narration'])
     expect(state.data.events[0].text).toBe(LOOK_ACTION)
     expect(state.data.events[1].text).toBe(SECOND_DRAFT)
-    expect(state.data.time).toEqual(advance(currentCard.time.calendar, startTime, TIME_MINUTES))
+    expect(clockIn(state.data.state)).toEqual(advance(currentCard.time.calendar, startTime, TIME_MINUTES))
     expect(state.data.timeline).toHaveLength(1)
   })
 })
@@ -255,11 +256,12 @@ describe('the debug projections (draft and write list)', () => {
 
     // 草稿就是正在跑的工作副本：时钟已经推进，而权威状态还没有
     expect(runner.draft.value).not.toBeNull()
-    expect(runner.draft.value?.time).toEqual(
-      advance(currentCard.time.calendar, runner.state.data.time, TIME_MINUTES),
+    const draftClock = clockIn(runner.draft.value!.state)
+    expect(draftClock).toEqual(
+      advance(currentCard.time.calendar, clockIn(runner.state.data.state), TIME_MINUTES),
     )
-    expect(runner.state.data.time).not.toEqual(runner.draft.value?.time)
-    expect(runner.writes.value).toEqual([{ path: 'time', value: runner.draft.value?.time }])
+    expect(clockIn(runner.state.data.state)).not.toEqual(draftClock)
+    expect(runner.writes.value).toEqual([{ path: 'world.time', value: draftClock }])
 
     runner.abortRunningTurn()
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })

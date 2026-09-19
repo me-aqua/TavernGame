@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runTurn, type AgentEvent } from '../src/agent/agent'
 import { availableActions } from '../src/game/card-actions'
 import { createInitialState } from '../src/game/save'
+import { clockIn } from '../src/game/card-time'
 import { currentCard } from '../src/game/current-card'
 import { t } from '../src/i18n'
 import { loadCard, NIGHT_WATCH_CARD } from './support/card-fixtures'
@@ -57,11 +58,11 @@ describe('advance_time with minutes = 0', () => {
   it('is legal: the clock stands still and the result says so', async () => {
     fake = installFakeLlm(cardTurnReplies({ story: STORY_TEXT, time: { minutes: 0 } }))
     const ctx = createAgentContext()
-    const before = { ...ctx.data.time }
+    const before = { ...clockIn(ctx.data.state) }
 
     await runTurn(ctx, { action: PLAYER_ACTION })
 
-    expect(ctx.data.time).toEqual(before)
+    expect(clockIn(ctx.data.state)).toEqual(before)
     expect(ctx.data.timeline).toEqual([])
     const followUp = fake.calls[CARD_TOPOLOGY.indexOf(TIME) + 1].body.messages ?? []
     const result = followUp.find((message) => message.role === 'tool')
@@ -194,7 +195,7 @@ describe('the debug events carry the raw material the panel needs', () => {
     })
 
     expect(events.filter((evt) => evt.type === 'warn')).toEqual([])
-    expect(ctx.data.time).not.toEqual(createInitialState(currentCard).time)
+    expect(clockIn(ctx.data.state)).not.toEqual(clockIn(createInitialState(currentCard).state))
   })
 
   it('warns when a step calls tools without writing any text', async () => {
@@ -228,7 +229,7 @@ describe('another card: the engine only reads declarations', () => {
     expect(result.text).toBe(STORY_TEXT)
     expect(state.data.events.map((event) => event.kind)).toEqual(['action', 'narration'])
     // 自定义历法真的生效：4 月 12 日 21:40 + 480 分钟 = 4 月 13 日 05:40
-    expect(state.data.time).toEqual({ year: 1, month: 4, day: 13, hour: 5, minute: 40 })
+    expect(clockIn(state.data.state)).toEqual({ year: 1, month: 4, day: 13, hour: 5, minute: 40 })
     // 这张卡只声明了两个节点：模型只被问了两次（时间节点多一次工具往返）
     expect(fake.calls).toHaveLength(card.graph.topology.length + 1)
   })
@@ -258,8 +259,8 @@ describe('another card: the engine only reads declarations', () => {
     expect(emitted.find((evt) => evt.type === 'stateChange')).toEqual({
       type: 'stateChange',
       node,
-      path: 'time',
-      value: state.data.time,
+      path: 'world.time',
+      value: clockIn(state.data.state),
     })
   })
 })

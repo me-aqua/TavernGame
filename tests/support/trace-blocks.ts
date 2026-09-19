@@ -105,7 +105,6 @@ export async function nodeRequest(
     card,
     node,
     state: data.state,
-    time: data.time,
     events,
     memoryUpTo: events.length,
     playerWords: options.playerWords ?? PLAYER_WORDS,

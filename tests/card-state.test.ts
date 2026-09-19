@@ -115,7 +115,13 @@ describe('instantiate', () => {
     expect(instantiate(card())).toEqual({
       lead: { name: 'nobody', pack: ['rope'] },
       roles: {},
-      world: { location: { area: 'a', spot: 'b', scene: 'c' }, map: {}, whoIsWhere: {} },
+      world: {
+        location: { area: 'a', spot: 'b', scene: 'c' },
+        map: {},
+        whoIsWhere: {},
+        // 时钟那一格（段 5：时刻是世界状态的一部分，声明在 state.world.time）
+        time: { year: 2026, month: 9, day: 14, hour: 19, minute: 30 },
+      },
       player: { profile: 'a tester' },
     })
   })

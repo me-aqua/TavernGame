@@ -21,6 +21,7 @@ import SettingsDrawer from '../src/components/SettingsDrawer.vue'
 import type { Row, Status } from '../src/stores/game'
 import { parseCard } from '../src/game/card'
 import { instantiate } from '../src/game/card-state'
+import { clockIn } from '../src/game/card-time'
 import { createInitialState } from '../src/game/save'
 import { format } from '../src/game/card-calendar'
 import { EXAMPLE_CARD } from './support/card-fixtures'
@@ -64,8 +65,8 @@ const worldState = state.world as {
   map: Record<string, unknown>
 }
 
-// 用卡自己的历法念时刻，标签不受时区影响
-const TIME_LABEL = format(card.time.calendar, card.time.initial)
+// 用卡自己的历法念时刻，标签不受时区影响（时刻那一格从卡的初值状态树里现取）
+const TIME_LABEL = format(card.time.calendar, clockIn(instantiate(card)))
 const NOW_LABEL = 'now'
 const TIMELINE_FROM = '9 \u6708 12 \u65e5 \u00b7 \u665a\u4e0a'
 const TIMELINE_TO = '9 \u6708 13 \u65e5 \u00b7 \u4e0a\u5348'

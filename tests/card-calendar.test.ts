@@ -185,7 +185,8 @@ describe('format', () => {
   it('reads the minimal card: its night is three segments starting at 18:00', () => {
     const card = JSON.parse(readFileSync(NIGHT_WATCH_CARD, 'utf8'))
     const calendar = card.time.calendar as CustomCalendar
-    const initial = card.time.initial as TimeValue
+    // 时刻住在状态树里（R39）：从那张卡的 schema 里现取
+    const initial = card.state.world.fields.time.initial as TimeValue
     // 段名是卡里的内容（测试代码必须 ASCII），所以只断言「落在第几段」
     expect(format(calendar, initial)).toContain(calendar.segments[0])
     const later = advance(calendar, initial, 480)

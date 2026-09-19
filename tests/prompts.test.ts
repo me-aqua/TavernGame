@@ -28,6 +28,7 @@ import {
 import { currentCard } from '../src/game/current-card'
 import { createInitialState } from '../src/game/save'
 import { renderState } from '../src/game/card-state'
+import { clockIn, withoutClock } from '../src/game/card-time'
 import { format } from '../src/game/card-calendar'
 import { i18n, t } from '../src/i18n'
 import type { GameData, GameEvent } from '../src/types/state'
@@ -69,7 +70,6 @@ function messagesFor(
     card: currentCard,
     node,
     state: data.state,
-    time: data.time,
     events,
     memoryUpTo,
     playerWords: PLAYER_WORDS,
@@ -224,7 +224,6 @@ describe('buildNodeMessages - one request per node', () => {
       card: currentCard,
       node: topology[1],
       state: data.state,
-      time: data.time,
       events: [],
       memoryUpTo: 0,
       playerWords: PLAYER_WORDS,
@@ -312,8 +311,12 @@ describe('buildNodeMessages - one request per node', () => {
     const data = createInitialState(currentCard)
     const node = FIRST_NODE
     const user = userOf(node, data)
-    expect(user).toContain(t('prompts.timeLine', { time: format(currentCard.time.calendar, data.time) }))
-    expect(user).toContain(renderState(data.state, { reads: currentCard.graph.nodes[node].reads }))
+    expect(user).toContain(
+      t('prompts.timeLine', { time: format(currentCard.time.calendar, clockIn(data.state)) }),
+    )
+    expect(user).toContain(
+      renderState(withoutClock(data.state), { reads: currentCard.graph.nodes[node].reads }),
+    )
   })
 
   it('omits the upstream section when there is no upstream (no invented headings)', () => {
@@ -337,7 +340,6 @@ describe('buildNodeMessages - one request per node', () => {
       card: currentCard,
       node: FIRST_NODE,
       state: data.state,
-      time: data.time,
       events: [],
       memoryUpTo: 0,
       playerWords: PLAYER_WORDS,

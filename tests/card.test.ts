@@ -381,7 +381,6 @@ describe('validateCard: time and calendar', () => {
       const calendar = { ...customCalendar() } as Record<string, unknown>
       delete calendar[key]
       card.time.calendar = calendar
-      card.time.initial = { year: 1, month: 4, day: 12, hour: 21, minute: 40 }
       expectRejected(card, 'time.calendar')
     }
   })
@@ -407,30 +406,32 @@ describe('validateCard: time and calendar', () => {
     expectRejected(card, 'time.calendar.display')
   })
 
-  it('rejects an initial instant outside the calendar units', () => {
-    const month = fixture()
+  it('rejects a starting clock outside the calendar units', () => {
+    // ⚠️ 时刻住在状态树那一格里（R39）⇒ 越界的初值改的是 **schema 里那份**
+    const clockOf = (card: any, clock: unknown): any => {
+      card.state.world.fields.time.initial = clock
+      return card
+    }
+    const month = clockOf(fixture(), { year: 1, month: 13, day: 1, hour: 0, minute: 0 })
     month.time.calendar = customCalendar()
-    month.time.initial = { year: 1, month: 13, day: 1, hour: 0, minute: 0 }
     expectRejected(month, 'time.initial.month')
-    const day = fixture()
+    const day = clockOf(fixture(), { year: 1, month: 4, day: 31, hour: 0, minute: 0 })
     day.time.calendar = customCalendar()
-    day.time.initial = { year: 1, month: 4, day: 31, hour: 0, minute: 0 }
     expectRejected(day, 'time.initial.day')
-    const hour = fixture()
-    hour.time.initial = { year: 2026, month: 9, day: 14, hour: 24, minute: 0 }
+    const hour = clockOf(fixture(), { year: 2026, month: 9, day: 14, hour: 24, minute: 0 })
     expectRejected(hour, 'time.initial.hour')
-    const leap = fixture()
-    leap.time.initial = { year: 2026, month: 2, day: 30, hour: 0, minute: 0 }
+    const leap = clockOf(fixture(), { year: 2026, month: 2, day: 30, hour: 0, minute: 0 })
     expectRejected(leap, 'time.initial.day')
   })
 
   it('rejects a time block with a missing or unknown key', () => {
-    const missing = fixture()
-    delete missing.time.initial
-    expectRejected(missing, 'time')
     const extra = fixture()
     extra.time.zone = 'UTC'
     expectRejected(extra, 'time.zone')
+    // ⚠️ 「缺的那一半」不再是缺 time.initial（那个键已经不存在了），而是**时钟那一格没声明**
+    const noClock = fixture()
+    delete noClock.state.world.fields.time
+    expectRejected(noClock, 'world.time')
   })
 })
 

@@ -18,6 +18,7 @@ import { MAX_REDO, MAX_TOOL_ROUNDS } from '../src/agent/card-graph'
 import { openingInstruction } from '../src/agent/prompts'
 import { availableActions } from '../src/game/card-actions'
 import { advance } from '../src/game/card-calendar'
+import { clockIn } from '../src/game/card-time'
 import { currentCard } from '../src/game/current-card'
 import { hydrateFromSave, initialState, save } from '../src/game/state'
 import { localStorageStore } from '../src/utils/storage'
@@ -213,11 +214,11 @@ describe('tools: the model asks, the engine acts', () => {
     )
     const ctx = createAgentContext()
     const events: AgentEvent[] = []
-    const before = { ...ctx.data.time }
+    const before = { ...clockIn(ctx.data.state) }
 
     await runTurn(ctx, { action: PLAYER_ACTION, onEvent: (evt) => events.push(evt) })
 
-    expect(ctx.data.time).toEqual(advance(currentCard.time.calendar, before, TIME_MINUTES))
+    expect(clockIn(ctx.data.state)).toEqual(advance(currentCard.time.calendar, before, TIME_MINUTES))
     // 时间节点的第二次请求里看得到引擎回传的结果（模型靠它知道现在几点）
     const timeIndex = CARD_TOPOLOGY.indexOf(timeNodeOf())
     const followUp = fake.calls[timeIndex + 1].body.messages ?? []
@@ -226,8 +227,8 @@ describe('tools: the model asks, the engine acts', () => {
     expect(events).toContainEqual({
       type: 'stateChange',
       node: timeNodeOf(),
-      path: 'time',
-      value: ctx.data.time,
+      path: 'world.time',
+      value: clockIn(ctx.data.state),
     })
   })
 
@@ -302,7 +303,7 @@ describe('tools: the model asks, the engine acts', () => {
     )
     const ctx = createAgentContext()
     const events: AgentEvent[] = []
-    const before = { ...ctx.data.time }
+    const before = { ...clockIn(ctx.data.state) }
 
     await runTurn(ctx, { action: PLAYER_ACTION, onEvent: (evt) => events.push(evt) })
 
@@ -314,7 +315,7 @@ describe('tools: the model asks, the engine acts', () => {
       result: expect.stringContaining('may only use'),
       failed: true,
     })
-    expect(ctx.data.time).toEqual(before)
+    expect(clockIn(ctx.data.state)).toEqual(before)
     expect(ctx.data.timeline).toEqual([])
   })
 })
@@ -376,11 +377,11 @@ describe('redo: partial rollback, then rerun from that step to the end', () => {
       ),
     ])
     const ctx = createAgentContext()
-    const before = { ...ctx.data.time }
+    const before = { ...clockIn(ctx.data.state) }
 
     await runTurn(ctx, { action: PLAYER_ACTION })
 
-    expect(ctx.data.time).toEqual(before)
+    expect(clockIn(ctx.data.state)).toEqual(before)
     expect(ctx.data.timeline).toEqual([])
   })
 
@@ -415,11 +416,11 @@ describe('redo: partial rollback, then rerun from that step to the end', () => {
     })
     fake = installFakeLlm([...first, ...rerunPass()])
     const ctx = createAgentContext()
-    const before = { ...ctx.data.time }
+    const before = { ...clockIn(ctx.data.state) }
 
     await runTurn(ctx, { action: PLAYER_ACTION })
 
-    expect(ctx.data.time).toEqual(advance(currentCard.time.calendar, before, minutes))
+    expect(clockIn(ctx.data.state)).toEqual(advance(currentCard.time.calendar, before, minutes))
   })
 
   it('gives up after MAX_REDO reruns in one round (no two nodes burning the budget)', async () => {
