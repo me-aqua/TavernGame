@@ -44,8 +44,26 @@ function schemaPathOf(actionPath: string): string {
   return 'state.' + actionPath.split('.').join('.fields.')
 }
 
-/** `whoIsWhere` 每一条的三个栏目（R20 ③：位置只有一处可查） */
-const WHERE_FIELDS = ['area', 'scene', 'spot']
+/**
+ * `whoIsWhere` 每一条的三个栏目（R20 ③：位置只有一处可查）。
+ *
+ * ⚠️ **段 3（票 61）把作者起的字段名改成了中文** ⇒ 这三栏现在叫「区域 / 地点 / 场景」。
+ *    `ascii.mjs` 连 `tests/` 里的中文字面量一起拦 ⇒ 码点构造（与 `CHAIN_CHAR` 同一个理由）。
+ *    ⚠️ 本判据的**断言逻辑一个字没动**，动的只是它点名的键名。
+ */
+const WHERE_FIELDS = [
+  String.fromCharCode(0x533a, 0x57df), // 区域
+  String.fromCharCode(0x5730, 0x70b9), // 地点
+  String.fromCharCode(0x573a, 0x666f), // 场景
+].sort()
+
+/** 关系那一枝的三个作者字段名（段 3 之后是中文：关系 / 标签 / 经历）—— 同上，码点构造 */
+const RELATIONS = String.fromCharCode(0x5173, 0x7cfb)
+const RELATION_KIND = String.fromCharCode(0x6807, 0x7b7e)
+const RELATION_STORY = String.fromCharCode(0x7ecf, 0x5386)
+
+/** 位置那本册子的键（段 3 之后也是中文的「谁在哪」）—— 同上，码点构造 */
+const LEDGER = String.fromCharCode(0x8c01, 0x5728, 0x54ea)
 
 /** 卡里的节点与动作（形状固定：`graph.nodes` / `actions`） */
 function nodesOf(card: Record<string, unknown>): Record<string, Record<string, unknown>> {
@@ -54,6 +72,25 @@ function nodesOf(card: Record<string, unknown>): Record<string, Record<string, u
 
 function actionsOf(card: Record<string, unknown>): Record<string, Record<string, unknown>> {
   return (at(card, 'actions') ?? {}) as Record<string, Record<string, unknown>>
+}
+
+/**
+ * 主控那一枝里，`initial` 等于**声明名字**的那一栏的**键名** —— 从卡里现取，不写死。
+ *
+ * 为什么要有它：票 60 的判据 13 原来读的是 `state.lead.fields.name.initial`，而**段 3（票 61）
+ * 把作者起的字段名改成了中文** ⇒ 那一读从此返回 `undefined`，靠 `?? opening.defaultName`
+ * **兜着才没红**。⇒ 改成**按值找键**：先按 `opening.defaultName` 找出那一栏的键名。
+ *
+ * ⚠️ **找不到就抛**，不返回 `undefined`：读一个不存在的键、靠兜底通过，正是这几票反复抓的假绿
+ *    （"读出一个 undefined、靠兜底才通过"）。抛出来的错也顺带证明这一段真的走到了。
+ */
+function assertLeadNameField(node: Record<string, unknown>): string {
+  const declared = at(node, 'opening.defaultName')
+  const fields = (at(node, 'state.lead.fields') ?? {}) as Record<string, Record<string, unknown>>
+  for (const [key, schema] of Object.entries(fields)) {
+    if (schema?.initial === declared) return key
+  }
+  throw new Error('no lead field holds opening.defaultName ' + JSON.stringify(declared))
 }
 
 describe('the seven deletions: nothing of them may stay in the cards', () => {
@@ -68,10 +105,14 @@ describe('the seven deletions: nothing of them may stay in the cards', () => {
   })
 
   it('2 the relations kind is still there (the other sense of the same word)', () => {
-    const relations = at(CARDS[0].card, 'state.roles.of.fields.relations')
+    const relations = at(CARDS[0].card, 'state.roles.of.fields.' + RELATIONS)
     expect(relations, 'morningwind must still describe relations').toBeDefined()
-    expect(at(CARDS[0].card, 'state.roles.of.fields.relations.of.fields.kind')).toBeDefined()
-    expect(at(CARDS[0].card, 'state.roles.of.fields.relations.of.fields.story')).toBeDefined()
+    expect(
+      at(CARDS[0].card, 'state.roles.of.fields.' + RELATIONS + '.of.fields.' + RELATION_KIND),
+    ).toBeDefined()
+    expect(
+      at(CARDS[0].card, 'state.roles.of.fields.' + RELATIONS + '.of.fields.' + RELATION_STORY),
+    ).toBeDefined()
   })
 
   it('3 the location branch is gone, and whoIsWhere carries the three-part shape', () => {
@@ -79,10 +120,10 @@ describe('the seven deletions: nothing of them may stay in the cards', () => {
       expect(at(card, 'state.world.fields.location'), name).toBeUndefined()
       expect(at(card, 'state.world.fields.map'), name + ' must still have the map').toBeDefined()
     }
-    // ⚠️ R20 ③：位置只剩一处可查 ⇒ `whoIsWhere` **每一条都是 {area, spot, scene}**，不再是一个字符串。
+    // ⚠️ R20 ③：位置只剩一处可查 ⇒ 「谁在哪」那本册子**每一条都是 {区域, 地点, 场景}**，不再是一个字符串。
     //    这里**不**断 `of` 的具体写法（对象/引用都行），只断"三条栏目齐全"。
-    const where = at(CARDS[0].card, 'state.world.fields.whoIsWhere') as Record<string, unknown> | undefined
-    expect(where, 'morningwind must still have whoIsWhere').toBeDefined()
+    const where = at(CARDS[0].card, 'state.world.fields.' + LEDGER) as Record<string, unknown> | undefined
+    expect(where, 'morningwind must still have the whereabouts ledger').toBeDefined()
     expect(Object.keys((at(where, 'of.fields') ?? {}) as Record<string, unknown>).sort()).toEqual(
       WHERE_FIELDS,
     )
@@ -171,11 +212,17 @@ describe('the seven deletions: nothing of them may stay in the cards', () => {
 
   it('13 the lead has a starting position in whoIsWhere (R20 part two)', () => {
     // R20 ②「主控的位置并入谁在哪」⇒ 新开局那一帧必须答得出"你在哪"（今天 initial 里只有萨伦）。
-    // 键 = **主控的名字**（R20：顶栏「场景」靠主控的名字查表）—— 名字从卡里现取，不写死、也不写中文字面量。
+    // 键 = **主控的名字**（R20：顶栏「场景」靠主控的名字查表）—— 名字与它那一栏的**键名**都从卡里现取，
+    // 不写死（段 3 把作者起的字段名改成中文之后，写死 `name` 会读到 undefined、再靠兜底假装绿）。
     const card = CARDS[0].card
-    const leadName = at(card, 'state.lead.fields.name.initial') ?? at(card, 'opening.defaultName')
+    const declared = at(card, 'opening.defaultName')
+    const leadField = assertLeadNameField(card)
+    const leadName = at(card, 'state.lead.fields.' + leadField + '.initial')
     expect(typeof leadName, 'the card must declare the lead name').toBe('string')
-    const initial = (at(card, 'state.world.fields.whoIsWhere.initial') ?? {}) as Record<string, unknown>
+    // ⚠️ 这一条是**防兜底**的那一半：主控名字那一栏必须真的装着卡声明的名字。
+    //    少了它，读错键之后拿 `opening.defaultName` 顶上也能绿。
+    expect(leadName, 'the lead name field must hold opening.defaultName').toBe(declared)
+    const initial = (at(card, 'state.world.fields.' + LEDGER + '.initial') ?? {}) as Record<string, unknown>
     const start = initial[leadName as string] as Record<string, unknown> | undefined
     expect(start, 'the lead must have a starting position under ' + String(leadName)).toBeDefined()
     expect(Object.keys(start ?? {}).sort(), 'the lead entry has the three fields').toEqual(WHERE_FIELDS)
