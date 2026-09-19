@@ -280,7 +280,12 @@ for (const file of allStaged) {
 }
 
 // ---------- 检查 9：语法（TypeScript 编译器 API，亚秒级）----------
-const syntaxTargets = staged.filter((f) => /\.(ts|vue)$/.test(f))
+// ⚠️ 必须用 `allStaged`：`staged` 在上面按目录豁免了 `.githooks/`（那条豁免是给**源码纪律**用的），
+//    语法检查跟着一起没了 —— 三个钩子入口（`pre-commit` / `pre-push` / `commit-msg`）与 `checks/` 下的脚本
+//    一个都不在名单里。钩子自己的语法错会挡住所有人的提交，而且拦的是提交本身，没人会想到去查钩子。
+const syntaxTargets = allStaged.filter(
+  (f) => /\.(ts|vue)$/.test(f) || /^\.githooks\/(checks\/[^/]+\.mjs|[^/.]+)$/.test(f),
+)
 if (syntaxTargets.length) {
   try {
     execSync('node .githooks/checks/syntax.mjs ' + syntaxTargets.map((f) => '"' + f + '"').join(' '), {
