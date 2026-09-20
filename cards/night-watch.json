@@ -108,8 +108,7 @@
 
   "display": {
     "layout": "正文占满整屏；时间 / 场景 / 回合收在左上角浮层；日志从右上角展开。",
-    "topbar": ["time", "scene", "turn"],
-    "sidebar": [{ "block": "pack", "note": "随身带的东西" }],
+    "sidebar": [{ "path": "lead.pack", "title": "随身", "format": "list" }],
     "scroll": "面板放不下就滚动。"
   },
 

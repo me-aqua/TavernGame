@@ -1,35 +1,32 @@
 <script setup lang="ts">
 /**
- * 状态浮层：顶栏条目（时间 / 当前场景 / 回合，按卡声明的顺序渲染）加最近一次
- * 「值得记」的时间跳跃。
+ * 状态浮层：时间 / 场景 / 回合三行（加最近一次「值得记」的时间跳跃）。
  *
  * 它是**浮在故事上的小块**，不是占一列的侧栏 —— 文字才是主线（决定 #24）。
- * 显示哪几条由卡的 声明.显示.顶栏 决定（决定 #15）：条目名 → 渲染键的映射在
- * display-blocks.ts，这里只管怎么画；卡声明了画不出来的条目会在模块加载期炸。
+ * ⚠️ 这三行是**引擎自己的**（R32：顶栏先不做，显示全进侧栏），卡不再声明它们；
+ *    顺序由 `display-blocks.topbar` 给，这里只管怎么画。
  */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { TopbarItem } from './display-blocks'
-import type { Spot } from '../game/display'
 import type { TimelineEntry } from '../types/state'
 
 const { t } = useI18n()
 
 const props = defineProps<{
-  /** 卡声明的顶栏条目，顺序即声明顺序 */
-  items: TopbarItem[]
+  /** 引擎自己的状态行（只读：它是引擎的一份常量），顺序即画出来的顺序 */
+  items: readonly TopbarItem[]
   timeLabel: string
   timeline: TimelineEntry[]
-  /** 当前所在 —— world.location 的三段（区域 / 地点 / 场景），从状态树读 */
-  scene: Spot
+  /** 当前所在 —— 卡声明的那本册子里、主控那一条的值（顺序即卡里的字段顺序） */
+  scene: string[]
   turn: number
 }>()
 
-/** 「场景」那一条写什么：地点 · 场景；卡只声明到区域时退回区域名 */
-const sceneLabel = computed(() => {
-  const parts = [props.scene.spot, props.scene.scene].filter((part) => part.length > 0)
-  return parts.length > 0 ? parts.join(t('sidebar.separator')) : props.scene.area
-})
+/** 「场景」那一条写什么：册子里主控那一条的值，按卡里的字段顺序用分隔点点开 */
+const sceneLabel = computed(() =>
+  props.scene.filter((value) => value.length > 0).join(t('sidebar.separator')),
+)
 
 /** 自己占一行的条目：时间在上，场景与回合跟在它下面 */
 function isWide(item: TopbarItem): boolean {

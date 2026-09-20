@@ -1,77 +1,195 @@
 /**
- * src/game/display.ts —— 卡声明的显示（顶栏条目 / 侧栏块）与界面要读的面板数据。
+ * src/game/display.ts —— 卡声明的显示：**一条侧栏声明 = 一枝状态的路径 + 标题 + 一种预设格式**（R12/R13/R14）。
  *
- * 词汇表（顶栏条目与侧栏块名）是**引擎的**，在 game/card.ts —— 这里只 import，
- * 不抄第二份；卡里出现引擎不认识的块名，校验期（card.ts）就报错。
+ * 这一层分两半：
+ *   · **声明侧**（这一票换掉的东西）：`display.sidebar[]` 从"点名一个引擎认识的块"变成
+ *     "点名一枝 + 标题 + 格式"；格式同时约束**渲染**与**数据形状** ⇒ 载入卡时校验，
+ *     不符**启动即失败**（R14）—— 坏声明不许静默少画一块（静默少画等于替作者改卡，
+ *     玩家会以为那块内容本来就不存在）。
+ *   · **数据侧**：按声明里的路径从**状态树**取那一段（`atPath`），以及「当前所在」那一行的值
+ *     （`sceneValues`）。引擎不认识任何一枝的名字，也不认识任何字段名（R13）。
  *
- * 面板数据读**状态树**（地图 ← world.map + world.location；角色 ← roles；
- * 背包 ← lead.pack），不再读卡里的预设：状态由卡声明，界面画的就是这一局的真相。
- * 「哪一块读哪段状态」也是引擎词汇表的一部分（card.ts 的 BLOCK_STATE_PATHS）。
- *
- * 卡没声明那几段状态时给空值 —— 一张只声明了 pack 面板的卡（cards/night-watch.json）
- * 照样能开，只是地图与角色两块没有内容。这不是兜底，是词汇表允许的声明。
- *
- * 纯函数、不 import Vue：「哪一块由谁渲染」是界面层的事（src/components/display-blocks.ts）。
+ * ⚠️ **引擎里不再有块名词表**：`map` / `cast` / `pack` 这些名字与"哪块读哪枝"的表都删了 ——
+ *    声明只此一处（卡里那份），换一张卡不用改引擎（R12 的收益）。
+ *    哪些路径是**引擎点名的**（键名保持 ASCII、不许作者改名）归别处管：`world.time` 见 `card-time.ts`，
+ *    `world.map` / `roles` / `lead.pack` 见 `tests/card-keys-cn.test.ts` 的保留名单。
+ * ⚠️ 纯函数、不 import Vue（只借 `card-read` 那份 isRecord）。
  */
-import { BLOCK_STATE_PATHS, SIDEBAR_BLOCKS, TOPBAR_ITEMS, type CardData } from './card'
-import { isRecord } from './save'
-import type { StateTree } from './card-state'
+import { at, checkKeys, fail, isRecord, requireArray, requireText } from './card-read'
+import {
+  schemaAt,
+  schemaType,
+  textValuesOf,
+  type Schema,
+  type StateSchema,
+  type StateTree,
+} from './card-state'
+import type { CardData } from './card'
 
-/** 顶栏与侧栏要摆什么 —— 两个名字列表，顺序即声明顺序 */
-export interface DisplayDecl {
-  /** 顶栏条目名（时间 / 当前场景 / 回合），顺序即卡里的顺序 */
-  topbar: string[]
-  /** 侧栏块名（地图 / 角色 / 背包），顺序即卡里的顺序 */
-  sidebar: string[]
+/** 三种**预设格式**的名字 —— 引擎词表，保持 ASCII（界面上的中文标签走 i18n） */
+export const DISPLAY_FORMATS = ['key-value', 'list', 'grouped'] as const
+
+export type DisplayFormat = (typeof DISPLAY_FORMATS)[number]
+
+/**
+ * 格式 → 它要求那一枝是什么容器。
+ *
+ * 容器名是**卡自己的 schema 词表**（`SchemaType`）：格式是形状的契约，不是内容的约定 ——
+ * 一张卡新长一枝、随手挑一种格式，引擎一个字都不用改。
+ */
+const FORMAT_CONTAINER: Record<DisplayFormat, string> = {
+  'key-value': 'object',
+  list: 'list',
+  grouped: 'map',
 }
 
-/** 应用画得出来的侧栏块名 —— 卡里写别的名字就只能换一张卡（导入的卡可能来自更新的版本） */
-export const KNOWN_BLOCKS = SIDEBAR_BLOCKS
+/** 一条侧栏声明：恰好三样，多一个键就是坏声明（旧形状的 `block` / `note` 不再合法） */
+export interface DisplayEntry {
+  path: string
+  title: string
+  format: DisplayFormat
+}
 
-/** 应用画得出来的顶栏条目名 */
-export const KNOWN_TOPBAR = TOPBAR_ITEMS
+/** 「当前所在」那一行的来源：册子（map）的路径 + 主控名字那一格（标量）的路径 */
+export interface SceneDecl {
+  path: string
+  who: string
+}
 
-/** 声明.显示：顶栏条目名与侧栏块名，各自保持声明顺序 */
-export function displayOf(card: CardData): DisplayDecl {
-  return {
-    topbar: [...card.display.topbar],
-    sidebar: card.display.sidebar.map((block) => block.block),
+/** 卡声明的显示：侧栏条目（顺序即画出来的顺序）+ 可选的场景来源 */
+export interface DisplayDecl {
+  sidebar: DisplayEntry[]
+  scene?: SceneDecl
+}
+
+/** 一条侧栏声明的键集（多一个少一个都拒） */
+const ENTRY_KEYS = ['path', 'title', 'format']
+
+/** 场景来源的键集 */
+const SCENE_KEYS = ['path', 'who']
+
+/** 一条声明里"画得出来"的三个条件：路径在、格式认识、格式与容器相符 */
+function checkEntry(entry: unknown, index: number, state: StateSchema, seen: Set<string>): void {
+  const where = 'display.sidebar[' + index + ']'
+  if (!isRecord(entry)) fail(where, 'must be an object {path, title, format}')
+  checkKeys(entry, ENTRY_KEYS, where)
+  requireText(entry, 'title', where)
+  const format = requireText(entry, 'format', where)
+  const path = requireText(entry, 'path', where)
+
+  // ① 格式在词表里（不认识的格式 ⇒ 那一块永远画不出来，点名拒掉）
+  if (!(DISPLAY_FORMATS as readonly string[]).includes(format)) {
+    fail(
+      at(where, 'format'),
+      JSON.stringify(format) + ' is no preset format (known: ' + DISPLAY_FORMATS.join(' / ') + ')',
+    )
+  }
+  const wanted = FORMAT_CONTAINER[format as DisplayFormat]
+
+  // ② 路径在卡的 schema 里（这条路径是画的时候唯一要读的东西）
+  const target: Schema | undefined = schemaAt(state, path)
+  if (target === undefined) {
+    fail(at(where, 'path'), JSON.stringify(path) + ' does not exist in state')
+  }
+
+  // ③ 格式与容器相符 —— **认识的**格式才比形状。这一处**不接**"格式认不认识"那个责：
+  //    它也顺手拒的话，两种拒绝的报错都会带上那个格式名，于是判据 7（未知格式被点名拒掉）
+  //    会分不清是谁拒的 —— 把上面那道词表检查整个拿掉，它照样绿。
+  //    ⇒ 这一道 `includes` 是**约束**，不是兜底：词表检查在跑时它恒为真（那一条路走不到），
+  //      词表检查一旦被拿掉，未知格式就会**被收下**，判据 7 当场红。
+  const container = schemaType(target)
+  if ((DISPLAY_FORMATS as readonly string[]).includes(format) && container !== wanted) {
+    fail(
+      at(where, 'path'),
+      JSON.stringify(path) +
+        ' is a ' +
+        container +
+        ', which format ' +
+        format +
+        ' cannot draw (needs ' +
+        wanted +
+        ')',
+    )
+  }
+
+  // ④ 一块 = 一枝，没有例外（同一枝画两遍 = 作者以为有两份）
+  if (seen.has(path)) fail(at(where, 'path'), JSON.stringify(path) + ' is already drawn by another block')
+  seen.add(path)
+}
+
+/** 场景来源：册子必须是 map、主控名字那一格必须是标量（`scene` 可选，缺了就是没有这一行） */
+function checkScene(scene: unknown, state: StateSchema): void {
+  if (scene === undefined) return
+  if (!isRecord(scene)) fail('display.scene', 'must be an object {path, who}')
+  checkKeys(scene, SCENE_KEYS, 'display.scene')
+  const path = requireText(scene, 'path', 'display.scene')
+  const who = requireText(scene, 'who', 'display.scene')
+  const book: Schema | undefined = schemaAt(state, path)
+  if (book === undefined) fail('display.scene.path', JSON.stringify(path) + ' does not exist in state')
+  const bookType = schemaType(book)
+  if (bookType !== 'map') {
+    fail(
+      'display.scene.path',
+      JSON.stringify(path) + ' is a ' + bookType + ', but the scene line needs a map (one row per name)',
+    )
+  }
+  const cell: Schema | undefined = schemaAt(state, who)
+  if (cell === undefined) fail('display.scene.who', JSON.stringify(who) + ' does not exist in state')
+  const cellType = schemaType(cell)
+  if (['map', 'list', 'object'].includes(cellType)) {
+    fail('display.scene.who', JSON.stringify(who) + ' is a ' + cellType + ', but the scene line needs a name')
   }
 }
 
-/** 判存在性用集合：名字来自卡，是普通字符串，不是字面量类型 */
-const BLOCK_SET: ReadonlySet<string> = new Set(KNOWN_BLOCKS)
-const TOPBAR_SET: ReadonlySet<string> = new Set(KNOWN_TOPBAR)
+/**
+ * 载入一张卡时校验显示声明（由 `card.ts` 调）。
+ *
+ * ⚠️ 这是那一条老纪律的新家：**画不出来的声明 ⇒ 载入即失败**。它原来住在
+ *    `components/display-blocks.ts` 的头注释里（模块加载期炸），形状换成卡声明之后
+ *    挪进校验器 —— 因为"这一块画不画得出来"现在完全由卡自己那三样决定。
+ */
+export function checkDisplayBlock(display: Record<string, unknown>, state: StateSchema): void {
+  const sidebar = requireArray(display, 'sidebar', 'display')
+  const seen = new Set<string>()
+  sidebar.forEach((entry, index) => checkEntry(entry, index, state, seen))
+  checkScene(display.scene, state)
+}
+
+/** 声明.显示：侧栏条目 + 场景来源，各自保持声明顺序（深拷一份，别把卡自己交出去） */
+export function displayOf(card: CardData): DisplayDecl {
+  const decl: DisplayDecl = {
+    sidebar: card.display.sidebar.map((entry) => ({ ...entry })),
+  }
+  if (card.display.scene !== undefined) decl.scene = { ...card.display.scene }
+  return decl
+}
+
+/** 点号路径 → 状态树里的值；中间缺一段就是 undefined（卡的声明可以没有那一块） */
+export function atPath(state: StateTree, path: string): unknown {
+  let scope: unknown = state
+  for (const segment of path.split('.')) {
+    if (!isRecord(scope) || !Object.hasOwn(scope, segment)) return undefined
+    scope = scope[segment]
+  }
+  return scope
+}
 
 /**
- * 显示声明必须是这个应用画得出来的：块名与顶栏名都在词汇表里。
+ * 「当前所在」那一行的值：按卡声明的指路（`display.scene`）去册子里取**主控那一条**的字符串值，
+ * 顺序即卡里字段的顺序。
  *
- * 卡的形状已经由 card.ts 守过；这里守的是**这一刻这个应用认不认** ——
- * 认不出来就是「界面上这一块永远不存在」，宁可换一张卡，也不静默少画一块。
+ * ⚠️ 界面**不认字段名**（字段名是作者起的，见 `components/state-view.ts` 的文件头）⇒
+ *    "哪一条是主控的"只能由卡说一次（`scene.who` 指向名字那一格）；缺声明 / 空册子
+ *    ⇒ 空数组（那一条什么都不显示，不是崩）。
  */
-export function checkRenderable(decl: DisplayDecl): void {
-  decl.sidebar.forEach((name, index) => {
-    if (!BLOCK_SET.has(name)) {
-      const known = KNOWN_BLOCKS.join(' / ')
-      throw new Error(
-        'display.sidebar[' +
-          index +
-          '].block ' +
-          JSON.stringify(name) +
-          ' has no renderer (known: ' +
-          known +
-          ')',
-      )
-    }
-  })
-  decl.topbar.forEach((name, index) => {
-    if (!TOPBAR_SET.has(name)) {
-      const known = KNOWN_TOPBAR.join(' / ')
-      throw new Error(
-        'display.topbar[' + index + '] ' + JSON.stringify(name) + ' has no renderer (known: ' + known + ')',
-      )
-    }
-  })
+export function sceneValues(decl: DisplayDecl, state: StateTree): string[] {
+  const scene = decl.scene
+  if (scene === undefined) return []
+  const book = atPath(state, scene.path)
+  const name = atPath(state, scene.who)
+  if (!isRecord(book) || typeof name !== 'string') return []
+  // 那一行的文字栏由**状态层**认形状（`textValuesOf`：值来自状态树，判类型是它那一层的事）
+  return textValuesOf(book[name])
 }
 
 /**
@@ -84,68 +202,4 @@ export function nodeLabel(card: CardData, id: string): string {
   const node = card.graph.nodes[id]
   if (node === undefined) throw new Error('card has no "' + id + '" node')
   return node.name
-}
-
-// ---------- 面板数据（读状态树） ----------
-
-/** 点号路径 → 状态树里的值；中间缺一段就是 undefined（卡的声明可以没有那一块） */
-function atPath(state: StateTree, path: string): unknown {
-  let scope: unknown = state
-  for (const segment of path.split('.')) {
-    if (!isRecord(scope) || !Object.hasOwn(scope, segment)) return undefined
-    scope = scope[segment]
-  }
-  return scope
-}
-
-/** 地图块要读的两段状态：区域表 + 当前所在 */
-export interface MapView {
-  areas: unknown
-  location: unknown
-}
-
-/**
- * 「当前所在」读的状态路径（顶栏的「场景」条与地图块都用它）。
- *
- * ⚠️ **与 `BLOCK_STATE_PATHS` 分开**：那几张表是**卡必须声明**的（不声明就校验失败），
- *    而这一段是**可选**的 —— 卡没声明 `world.location` 时顶栏那一条什么都不显示、
- *    地图块也没有「当前所在」。这与「卡声明了场景条而没有 world」是同一种情况。
- */
-export const SPOT_STATE_PATH = 'world.location'
-
-/** 地图块的数据（world.map + 当前所在） */
-export function mapOf(state: StateTree): MapView {
-  return {
-    areas: atPath(state, BLOCK_STATE_PATHS.map[0]),
-    location: atPath(state, SPOT_STATE_PATH),
-  }
-}
-
-/** 角色块的数据（roles 字典） */
-export function castOf(state: StateTree): unknown {
-  return atPath(state, BLOCK_STATE_PATHS.cast[0])
-}
-
-/** 背包块的数据（lead.pack 列表） */
-export function packOf(state: StateTree): unknown {
-  return atPath(state, BLOCK_STATE_PATHS.pack[0])
-}
-
-/** 当前所在：区域 / 地点 / 场景（顶栏「场景」那一条读它） */
-export interface Spot {
-  area: string
-  spot: string
-  scene: string
-}
-
-/**
- * 顶栏「场景」那一条的数据：`world.location` 的三段；卡没声明这一段时是三个空串
- * （顶栏可以声明 scene 而状态里没有 world —— 那一条就什么也不显示）。
- */
-export function spotOf(state: StateTree): Spot {
-  const location = atPath(state, SPOT_STATE_PATH)
-  /** 读一段字符串；不是字符串（卡没声明 / 类型不对）就是空串 */
-  const text = (key: string): string =>
-    isRecord(location) && typeof location[key] === 'string' ? (location[key] as string) : ''
-  return { area: text('area'), spot: text('spot'), scene: text('scene') }
 }

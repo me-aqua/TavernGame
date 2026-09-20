@@ -5,8 +5,9 @@
  * 分工只有一句话：**文字是主线，控件都浮在它上面**。故事区占满整屏，输入框浮在底部，
  * 状态（顶栏条目 + 最近一次时间跳跃）浮在左上角，世界 / 设置 / 调试浮在右上角。
  *
- * 左上角显示哪几条、世界面板有哪几块，都由当前卡的 声明.显示 决定（决定 #15）——
- * 名字到组件的映射在 components/display-blocks.ts，App 只负责把解析好的结果摆出来。
+ * 世界面板有哪几块由当前卡的 声明.显示.侧栏 决定（R12：一条 = 一枝状态的路径 + 标题 + 一种预设格式，
+ * 按声明解析出来的是 components/display-blocks.ts 的 `world`）；左上角那三行（时间 / 场景 / 回合）
+ * 是**引擎自己的**（R32，`topbar`）—— App 只负责把这两样摆出来。
  *
  * ⚠️ 界面上的每一行都属于三类之一，各有各的家（见 stores/game.ts）：事件流（故事 +
  *    调试痕迹，rows 是它的投影，由 StoryPanel 渲染）、进行中与通知（status =
@@ -175,7 +176,7 @@ function resetAll() {
 /**
  * 换卡之后整页重载。
  *
- * ⚠️ 必须 reload：引擎（agent/agent.ts）与显示块映射（components/display-blocks.ts）
+ * ⚠️ 必须 reload：引擎（agent/agent.ts）与卡声明解析出来的那几块（components/display-blocks.ts）
  *    都在**模块加载期**读当前卡，只改内存里的那份不会传到它们手里。
  */
 function reloadForCard() {

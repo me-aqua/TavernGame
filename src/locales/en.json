@@ -63,12 +63,7 @@
     "toggleTitle": "World panel: the blocks the card declares",
     "title": "World",
     "close": "Close the world panel",
-    "closeIcon": "✕",
-    "map": "Map",
-    "cast": "Characters",
-    "pack": "Inventory",
-    "growingPlaces": "Places appear as you play",
-    "itemCount": "×{count}"
+    "closeIcon": "✕"
   },
   "toolbar": {
     "toolCall": "⚙ call {tool}({args})"

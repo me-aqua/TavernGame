@@ -14,7 +14,7 @@
  *    调试痕迹在**同一个数组**里，顺序天然正确；谁看得到由投影决定：玩家看故事、
  *    开发者看调试。进行中看 phase、一次性提示进 notice，两者都由 computed 算出来。
  *
- * ⚠️ 状态树与时间都是**卡驱动**的：时间标签走卡里的历法、场景读 `state.world.location`，
+ * ⚠️ 状态树与时间都是**卡驱动**的：时间标签走卡里的历法、场景按卡声明的指路读册子里主控那一条，
  *    引擎不写死任何一段（决定 #45）。
  */
 
@@ -24,7 +24,7 @@ import { initialState } from '../game/state'
 import { clockIn } from '../game/card-time'
 import { isRecord, isStoryKind } from '../game/save'
 import { IDLE, isRunning, runningNodeOf, statusKeyOf, type TurnState } from '../game/lifecycle'
-import { nodeLabel, spotOf } from '../game/display'
+import { displayOf, nodeLabel, sceneValues } from '../game/display'
 import { cardStartup, currentCard } from '../game/current-card'
 import { createTurnRunner, type NoticeLevel, type StateWrite } from './turn'
 
@@ -257,8 +257,8 @@ export function useGame() {
   /** 时间标签：读**状态树里那一格**（R39），按卡的历法渲染 —— 树一动它就动 */
   const timeLabel = computed(() => game.timeText(currentCard.time.calendar, clockIn(state.data.state)))
   const timeline = computed(() => state.data.timeline.slice(-4))
-  /** 当前场景：读状态树的 world.location（卡没声明这一段时是三个空串） */
-  const scene = computed(() => spotOf(state.data.state))
+  /** 当前场景：按卡声明的指路读册子里主控那一条（卡没声明来源、册子空着都是空表） */
+  const scene = computed(() => sceneValues(displayOf(currentCard), state.data.state))
   const turn = computed(() => game.turn(state))
   /** 这一局的完整状态树（调试面板与将来的界面读它） */
   const stateTree = computed(() => state.data.state)

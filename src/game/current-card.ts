@@ -2,12 +2,11 @@
  * src/game/current-card.ts —— 应用当前认的那张卡，以及换卡 / 存卡的动作。
  *
  * 两张来源：localStorage 里存的（导入或编辑过的，键 tavernGame.card，值是卡的 JSON 文本），
- * 没有就用内置示例卡 cards/morningwind.json。存的卡过两道校验 —— 卡格式（card.ts 的
- * parseCard）与显示词汇表（界面画不出来的声明 = 那一块玩家永远看不到）；任何一步失败都
- * 退回内置卡，并把原因留在 cardStartup 里让界面播报：一张错的卡会变成玩家第一屏看到的
- * 世界，静默退回等于骗他。
+ * 没有就用内置示例卡 cards/morningwind.json。存的卡过一道校验（card.ts 的 parseCard：卡格式 +
+ * 显示声明，见 display.ts）；任何一步失败都退回内置卡，并把原因留在 cardStartup 里让界面播报：
+ * 一张错的卡会变成玩家第一屏看到的世界，静默退回等于骗他。
  *
- * ⚠️ 换卡之后必须整页 location.reload()：引擎（agent/agent.ts）与显示块映射
+ * ⚠️ 换卡之后必须整页 location.reload()：引擎（agent/agent.ts）与卡声明解析出来的那几块
  *    （components/display-blocks.ts）都在**模块加载期**读这张卡 —— reload 是唯一
  *    不会漏掉消费者的做法。所以这里只负责落盘 / 删键，reload 由调用方（界面）做。
  */
@@ -15,7 +14,6 @@
 // 会拒绝 .json（Playwright 的 TS 加载器就是这样报错的）；Vite 构建与 vue-tsc 两种写法都认
 import cardJson from '../../cards/morningwind.json' with { type: 'json' }
 import { parseCard, validateCard, type CardData } from './card'
-import { checkRenderable, displayOf } from './display'
 
 /** 活动卡的存储键（与存档 / 配置一样，谁用谁定义） */
 const CARD_KEY = 'tavernGame.card'
@@ -30,25 +28,19 @@ export interface CardStartup {
   failed: string | null
 }
 
-/** 卡格式 + 显示词汇表两道校验；通不过就抛错并带 JSON 路径 */
-function renderable(card: CardData): CardData {
-  checkRenderable(displayOf(card))
-  return card
-}
-
 /**
  * 内置示例卡（唯一事实来源 cards/morningwind.json）。
  *
  * 它是仓库里的编译期数据，坏掉只能是代码改错了 —— 所以直接启动即失败，没有「退回」可言。
  */
-const builtinCard: CardData = renderable(validateCard(cardJson))
+const builtinCard: CardData = validateCard(cardJson)
 
 /** 启动选卡：有存的就用存的（过校验），否则退回内置卡并记下原因 */
 function activate(): { card: CardData; startup: CardStartup } {
   const stored = localStorage.getItem(CARD_KEY)
   if (stored === null) return { card: builtinCard, startup: { source: 'builtin', failed: null } }
   try {
-    return { card: renderable(parseCard(stored)), startup: { source: 'imported', failed: null } }
+    return { card: parseCard(stored), startup: { source: 'imported', failed: null } }
   } catch (err) {
     // 边界：存着的卡是外部数据（玩家导入或手改 localStorage）—— 退回内置卡并让界面播报
     return { card: builtinCard, startup: { source: 'builtin', failed: (err as Error).message } }
@@ -73,7 +65,7 @@ function cardText(card: CardData): string {
  * 且存储原样不动。调用方负责 reload —— 见文件头。
  */
 export function importCard(text: string): void {
-  localStorage.setItem(CARD_KEY, cardText(renderable(parseCard(text))))
+  localStorage.setItem(CARD_KEY, cardText(parseCard(text)))
 }
 
 /** 导出当前卡的 JSON 文本（文件名由界面决定） */

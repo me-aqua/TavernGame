@@ -13,10 +13,10 @@
  *             opening.requirements · 每个动作的 what
  *   · 人读：notes · 各处的 note
  *
- * 引擎词表（顶栏条目与侧栏块名）也在这里：名字是引擎的，卡只声明用哪些；卡里出现引擎
- * 不认识的块名、或者块要读的状态路径没在卡里声明，**校验期就报错**（不是启动崩）。
+ * 显示声明（`display`）的形状与校验都在 `game/display.ts` —— 那里说「一条 = 一枝 + 标题 + 一种格式」，
+ * 这里只负责在读卡的路上叫它一声：坏声明**载入即失败**（不是启动崩）。
  *
- * 失败一律抛错并带 ASCII 路径（如 state.world.location.area），绝不静默纠正：在这里
+ * 失败一律抛错并带 ASCII 路径（如 state.world.map.晨风镇），绝不静默纠正：在这里
  * 「纠正」等于替作者改卡，下一轮谁也不知道卡里原本写的是什么。
  */
 
@@ -35,21 +35,7 @@ import {
 import { type Calendar } from './card-calendar'
 import { checkTimeBlock } from './card-time'
 import { checkSchema, schemaAt, schemaElement, schemaType, type StateSchema, type Schema } from './card-state'
-
-// ---------- 引擎词表 ----------
-
-/** 顶栏条目的引擎词表 —— 卡只能声明这些名字，顺序即声明顺序 */
-export const TOPBAR_ITEMS = ['time', 'scene', 'turn'] as const
-
-/** 侧栏块的引擎词表 —— 每个块画什么、读哪段状态都是引擎的事 */
-export const SIDEBAR_BLOCKS = ['map', 'cast', 'pack'] as const
-
-/** 每个侧栏块要读哪几段状态 —— 卡必须声明这些路径，否则块画不出来（校验期就报错） */
-export const BLOCK_STATE_PATHS: Record<(typeof SIDEBAR_BLOCKS)[number], string[]> = {
-  map: ['world.map'],
-  cast: ['roles'],
-  pack: ['lead.pack'],
-}
+import { checkDisplayBlock, type DisplayDecl } from './display'
 
 // ---------- 通过校验的卡的形状 ----------
 
@@ -120,17 +106,13 @@ export interface Opening {
   requirements: string[]
 }
 
-/** 侧栏的一块：块名（引擎词表）+ 一句给人看的说明 */
-export interface SidebarBlock {
-  block: string
-  note?: string
-}
-
-/** 界面怎么摆 —— 只有 topbar / sidebar 进代码，其余是给人看的 */
-export interface Display {
+/**
+ * 界面怎么摆 —— 侧栏声明（引擎读：一条 = 一枝 + 标题 + 一种格式）加三段散文（给人看，引擎不读）。
+ *
+ * ⚠️ 显示声明的形状只有一处定义（`game/display.ts`）：这里 extends 它，不另抄一份。
+ */
+export interface Display extends DisplayDecl {
   layout?: string
-  topbar: string[]
-  sidebar: SidebarBlock[]
   time?: string
   scroll?: string
 }
@@ -182,8 +164,7 @@ const NODE_KEYS = ['name', 'duty', 'prompt', 'role', 'tools', 'reads', 'uses', '
 const ACTION_KEYS = ['what', 'path', 'effect', 'mode', 'key']
 const GENERATOR_KEYS = ['name', 'applies', 'principles']
 const OPENING_KEYS = ['canName', 'defaultName', 'requirements']
-const DISPLAY_KEYS = ['layout', 'topbar', 'sidebar', 'time', 'scroll']
-const BLOCK_KEYS = ['block', 'note']
+const DISPLAY_KEYS = ['layout', 'sidebar', 'time', 'scroll', 'scene']
 
 /** 动作的两种形状各自认的字段 */
 const MODES = ['set', 'merge', 'push']
@@ -457,45 +438,14 @@ function checkOpening(card: Record<string, unknown>): void {
   requireTextList(opening, 'requirements', 'opening')
 }
 
-/** 显示：词表内的顶栏条目与侧栏块；块要读的状态路径必须在卡里声明 */
+/** 显示：三段散文可写可不写，侧栏声明与场景来源交给 display.ts 逐条查（它有卡的 schema 可对） */
 function checkDisplay(card: Record<string, unknown>): void {
   const display = requireRecord(card, 'display', '')
-  checkOptionalKeys(display, DISPLAY_KEYS, ['topbar', 'sidebar'], 'display')
+  checkOptionalKeys(display, DISPLAY_KEYS, ['sidebar'], 'display')
   for (const key of ['layout', 'time', 'scroll']) {
     if (Object.hasOwn(display, key)) requireText(display, key, 'display')
   }
-
-  const topbar = requireTextList(display, 'topbar', 'display')
-  topbar.forEach((name, index) => {
-    if (!(TOPBAR_ITEMS as readonly string[]).includes(name)) {
-      const known = TOPBAR_ITEMS.join(' / ')
-      fail('display.topbar[' + index + ']', JSON.stringify(name) + ' has no renderer (known: ' + known + ')')
-    }
-  })
-
-  const sidebar = requireArray(display, 'sidebar', 'display')
-  const state = requireRecord(card, 'state', '') as StateSchema
-  const blocks: string[] = []
-  sidebar.forEach((value, index) => {
-    const where = 'display.sidebar[' + index + ']'
-    if (!isRecord(value)) fail(where, 'must be an object')
-    checkOptionalKeys(value, BLOCK_KEYS, ['block'], where)
-    const block = requireText(value, 'block', where)
-    if (!(SIDEBAR_BLOCKS as readonly string[]).includes(block)) {
-      const known = SIDEBAR_BLOCKS.join(' / ')
-      fail(at(where, 'block'), JSON.stringify(block) + ' has no renderer (known: ' + known + ')')
-    }
-    if (blocks.includes(block)) fail(at(where, 'block'), 'duplicate block "' + block + '"')
-    blocks.push(block)
-    for (const path of BLOCK_STATE_PATHS[block as (typeof SIDEBAR_BLOCKS)[number]]) {
-      if (schemaAt(state, path) === undefined) {
-        fail(
-          at(where, 'block'),
-          'block "' + block + '" needs state.' + path + ', which this card does not declare',
-        )
-      }
-    }
-  })
+  checkDisplayBlock(display, requireRecord(card, 'state', '') as StateSchema)
 }
 
 /** 短注：键随便起，值必须是非空的一行文字或一组行（空的一节等于告诉人「这块本来就没内容」）*/

@@ -278,6 +278,18 @@ export interface RenderOptions {
   reads?: string[]
 }
 
+/**
+ * 一条记录里那些**文字**栏（按形状取、空串丢掉，顺序即字段顺序）—— 一行摘要（场景行那种）用它。
+ *
+ * ⚠️ 判类型这件事留在**状态层**（这个文件）：值来自状态树 —— 卡声明的 schema + 存档 + 模型给的参数，
+ *    三者都是外部数据，形状检查正是这一层的事（`.githooks/pre-commit` 检查 5 的放行理由逐字如此）。
+ *    `game/display.ts` 那种显示层拿到的必须是**已经认过形状**的文字，它自己不再判类型。
+ */
+export function textValuesOf(value: unknown): string[] {
+  if (!isRecord(value)) return []
+  return Object.values(value).filter((item): item is string => typeof item === 'string' && item !== '')
+}
+
 /** 标量写法：短文本原样，带换行的与其余类型走 JSON 写法（不然缩进会被折断） */
 function renderScalar(value: unknown): string {
   if (typeof value === 'string' && !value.includes('\n')) return value
