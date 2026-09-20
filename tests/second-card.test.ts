@@ -14,8 +14,8 @@ import { runTurn } from '../src/agent/agent'
 import { narrationOf } from '../src/agent/card-graph'
 import { format } from '../src/game/card-calendar'
 import { clockIn } from '../src/game/card-time'
-import { instantiate } from '../src/game/card-state'
-import { castOf, displayOf, mapOf, nodeLabel, packOf, spotOf } from '../src/game/display'
+import { instantiate, schemaAt } from '../src/game/card-state'
+import { nodeLabel } from '../src/game/display'
 import { openingOf } from '../src/game/opening'
 import { createInitialState, identityOf, normalize } from '../src/game/save'
 import { currentCard } from '../src/game/current-card'
@@ -123,24 +123,23 @@ describe('the second card: one whole turn through the engine', () => {
 })
 
 describe('display follows each card declaration', () => {
-  it('reads the blocks each card declares', () => {
-    expect(displayOf(first).sidebar).toEqual(first.display.sidebar.map((block) => block.block))
-    expect(displayOf(second).sidebar).toEqual(second.display.sidebar.map((block) => block.block))
-    expect(displayOf(second).sidebar.length).toBe(1)
-  })
-
-  it('reads the panel data out of each state tree', () => {
-    const firstState = createInitialState(first).state
-    expect(mapOf(firstState).location).toBe((firstState.world as Record<string, unknown>).location)
-    expect(castOf(firstState)).toBe(firstState.roles)
-    expect(packOf(firstState)).toBe((firstState.lead as Record<string, unknown>).pack)
-
-    const secondState = createInitialState(second).state
-    // 这张卡没有 world / roles：两块没有数据，但背包与场景读法不变
-    expect(mapOf(secondState)).toEqual({ areas: undefined, location: undefined })
-    expect(castOf(secondState)).toBeUndefined()
-    expect(spotOf(secondState)).toEqual({ area: '', spot: '', scene: '' })
-    expect(packOf(secondState)).toBe((secondState.lead as Record<string, unknown>).pack)
+  it('reads the blocks each card declares, and every path resolves in that card', () => {
+    for (const card of [first, second]) {
+      const declared = (JSON.parse(JSON.stringify(card.display)) as Record<string, any>).sidebar as Array<
+        Record<string, unknown>
+      >
+      expect(declared.length, card.card.id + ' declares no block').toBeGreaterThan(0)
+      for (const entry of declared) {
+        expect(
+          schemaAt(card.state, String(entry.path)),
+          card.card.id + ' declares the branch ' + String(entry.path),
+        ).toBeDefined()
+      }
+    }
+    // 夜班那张只声明一块（背包）—— 声明是卡的，不是引擎的
+    expect(
+      ((JSON.parse(JSON.stringify(second.display)) as Record<string, any>).sidebar as unknown[]).length,
+    ).toBe(1)
   })
 
   it('labels the nodes of each card with its own display names', () => {

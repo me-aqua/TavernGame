@@ -23,8 +23,6 @@ const TOPOLOGY = 'topology'
 const NODES = 'nodes'
 const DISPLAY = 'display'
 const SIDEBAR = 'sidebar'
-const TOPBAR = 'topbar'
-const BLOCK = 'block'
 
 /** 示例卡的 JSON 文本 */
 const example = readFileSync(EXAMPLE_CARD, 'utf8')
@@ -79,26 +77,26 @@ describe('which card is active', () => {
     expect(cardStartup.failed).toContain('not valid JSON')
   })
 
-  it('falls back when the stored card declares a sidebar block this app cannot render', async () => {
+  it('falls back when the stored card declares a sidebar entry this app cannot draw', async () => {
     const card = JSON.parse(goodCard()) as Record<string, any>
-    card[DISPLAY][SIDEBAR] = [{ [BLOCK]: 'nope' }]
+    card[DISPLAY][SIDEBAR] = [{ path: 'world.nowhere', title: 'nope', format: 'grouped' }]
     localStorage.setItem(CARD_KEY, JSON.stringify(card))
 
     const { currentCard, cardStartup } = await freshCard()
 
     expect(currentCard).toEqual(parseCard(example))
-    expect(cardStartup.failed).toContain('nope')
+    expect(cardStartup.failed).toContain('world.nowhere')
   })
 
-  it('falls back when the stored card declares a topbar entry this app cannot render', async () => {
+  it('falls back when the stored card declares a format this app cannot draw', async () => {
     const card = JSON.parse(goodCard()) as Record<string, any>
-    card[DISPLAY][TOPBAR] = ['nope']
+    card[DISPLAY][SIDEBAR] = [{ path: 'world.map', title: 'nope', format: 'weather' }]
     localStorage.setItem(CARD_KEY, JSON.stringify(card))
 
     const { currentCard, cardStartup } = await freshCard()
 
     expect(currentCard).toEqual(parseCard(example))
-    expect(cardStartup.failed).toContain('nope')
+    expect(cardStartup.failed).toContain('weather')
   })
 })
 
@@ -122,8 +120,8 @@ describe('importing a card', () => {
     expect(() => importCard('{}')).toThrow('missing top-level key')
 
     const card = JSON.parse(goodCard()) as Record<string, any>
-    card[DISPLAY][SIDEBAR] = [{ [BLOCK]: 'nope' }]
-    expect(() => importCard(JSON.stringify(card))).toThrow('nope')
+    card[DISPLAY][SIDEBAR] = [{ path: 'world.nowhere', title: 'nope', format: 'grouped' }]
+    expect(() => importCard(JSON.stringify(card))).toThrow('world.nowhere')
 
     // 三次都失败，存储里那份必须一个字节都没动
     expect(localStorage.getItem(CARD_KEY)).toBe(goodCard())

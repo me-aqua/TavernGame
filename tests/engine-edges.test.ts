@@ -37,7 +37,8 @@ describe('card.ts - the shapes that must be rejected', () => {
   })
 
   it('a sidebar block that is not an object', () => {
-    expect(broken((card) => card.display.sidebar.push('nope'))).toThrow(/display\.sidebar\[3\]/)
+    // 下标 = 夹具里声明的条数（它现在是四条：区域表 / 当前所在 / 角色 / 背包）
+    expect(broken((card) => card.display.sidebar.push('nope'))).toThrow(/display\.sidebar\[4\]/)
   })
 
   it('a generators block that is not an array', () => {

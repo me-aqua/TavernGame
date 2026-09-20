@@ -11,9 +11,6 @@ import { mount } from '@vue/test-utils'
 import StoryPanel from '../src/components/StoryPanel.vue'
 import AppSidebar from '../src/components/AppSidebar.vue'
 import WorldPanel from '../src/components/WorldPanel.vue'
-import WorldCast from '../src/components/world/WorldCast.vue'
-import WorldMap from '../src/components/world/WorldMap.vue'
-import WorldPack from '../src/components/world/WorldPack.vue'
 import { world } from '../src/components/display-blocks'
 import { entriesOf, isScalar, itemOf, linesOf, scalarText, textsOf } from '../src/components/state-view'
 import GameComposer from '../src/components/GameComposer.vue'
@@ -59,11 +56,6 @@ const TIME = nodeWith('advance_time', card)
 const MAP = nodeWith('add_place', card)
 const CAST = nodeWith('update_role', card)
 const VERIFY = nodeWith('redo', card)
-
-/** 状态树是卡定义的（unknown）：这几段用例里要读的具体形状在这里说清 */
-const worldState = state.world as {
-  map: Record<string, unknown>
-}
 
 // 用卡自己的历法念时刻，标签不受时区影响（时刻那一格从卡的初值状态树里现取）
 const TIME_LABEL = format(card.time.calendar, clockIn(instantiate(card)))
@@ -197,13 +189,16 @@ describe('StoryPanel', () => {
 })
 
 describe('AppSidebar', () => {
-  /** 常态 props；items 由每个用例按「卡声明了哪几条」给 */
+  /** 「当前所在」那一行的值：册子里主控那一条（区域 / 地点 / 场景），顺序即卡里的字段顺序 */
+  const WHEREABOUTS = [SCENE.area, SCENE.spot, SCENE.scene]
+
+  /** 常态 props；items 是**引擎自己的**状态行（时间 / 场景 / 回合），卡不再声明它们（R32） */
   function sidebarProps(over: Record<string, unknown> = {}) {
     return {
       items: ['time', 'scene', 'turn'],
       timeLabel: TIME_LABEL,
       timeline: [],
-      scene: SCENE,
+      scene: WHEREABOUTS,
       turn: 3,
       ...over,
     }
@@ -218,7 +213,7 @@ describe('AppSidebar', () => {
     expect(w.find('.timeline').exists()).toBe(false)
   })
 
-  it('renders exactly the items the card declares, in the declared order', () => {
+  it('renders exactly the status rows it is handed, in that order', () => {
     const sceneOnly = render(AppSidebar, { props: sidebarProps({ items: ['scene'] }) })
     expect(sceneOnly.find('.scene-name').exists()).toBe(true)
     expect(sceneOnly.find('.time-display').exists()).toBe(false)
@@ -229,11 +224,18 @@ describe('AppSidebar', () => {
     expect(html.indexOf('scene-name')).toBeLessThan(html.indexOf('time-display'))
   })
 
-  it('falls back to the area when the state tree only knows that much', () => {
-    const w = render(AppSidebar, {
-      props: sidebarProps({ scene: { area: SCENE.area, spot: '', scene: '' } }),
-    })
+  it('falls back to the one value the whereabouts book has', () => {
+    const w = render(AppSidebar, { props: sidebarProps({ scene: [SCENE.area] }) })
     expect(w.find('.scene-name').text()).toBe(SCENE.area)
+  })
+
+  it('keeps the scene line the end-to-end run looks for (smoke.spec.ts:83)', () => {
+    // e2e 断的是 `aside .scene-name` 里含**主控在册子里的那个 spot** ——
+    // 值的来源由 store（`useGame().scene` 读册子里主控那一条）保证，这里保证**那一行还在**。
+    const w = render(AppSidebar, { props: sidebarProps() })
+    const line = w.find('.scene-name')
+    expect(line.exists(), 'the sidebar lost its scene line').toBe(true)
+    expect(line.text(), 'the scene line does not say where the lead is').toContain(SCENE.spot)
   })
 
   it('renders the start point of a timeline entry (intentional design, not a bug)', () => {
@@ -252,54 +254,11 @@ describe('AppSidebar', () => {
 })
 
 describe('WorldPanel', () => {
-  it('renders the declared blocks in the declared order', () => {
-    const w = render(WorldPanel, { props: { blocks: world, state } })
-    expect(w.findAll('[data-block]').map((el) => el.attributes('data-block'))).toEqual(
-      card.display.sidebar.map((block) => block.block),
-    )
-  })
-
-  it('follows the blocks it is handed, not an order of its own', () => {
-    const reversed = [...world].reverse()
-    const w = render(WorldPanel, { props: { blocks: reversed, state } })
-    expect(w.findAll('[data-block]').map((el) => el.attributes('data-block'))).toEqual(
-      reversed.map((block) => block.name),
-    )
-  })
-
-  it('draws the world out of the state tree (not out of the card preset)', () => {
-    const w = render(WorldPanel, { props: { blocks: world, state } })
-    const areas = Object.keys(worldState.map)
-    const cast = Object.keys(state.roles as Record<string, unknown>)
-    const pack = (state.lead as { pack: unknown[] }).pack
-
-    expect(w.findAll('[data-area]')).toHaveLength(areas.length)
-    expect(w.findAll('[data-item]')).toHaveLength(pack.length)
-    expect(w.text()).toContain(cast[0])
-    expect(w.text()).toContain(areas[0])
-  })
-
-  it('marks nothing when the card declares no spot (there is no world.location any more)', () => {
-    const w = render(WorldPanel, { props: { blocks: world, state } })
-
-    expect((state.world as Record<string, unknown>).location).toBeUndefined()
-    expect(w.findAll('[data-place][data-current]')).toHaveLength(0)
-    expect(w.findAll('[data-area][data-current]')).toHaveLength(0)
-  })
-
-  it('follows the state tree when the lead moves (the panel is not frozen at the opening)', () => {
-    const moved = JSON.parse(JSON.stringify(state)) as typeof state
-    ;(moved.world as { location: unknown }).location = {
-      area: '\u9547\u90ca',
-      spot: '\u6797\u95f4\u5c0f\u9053',
-      scene: '\u5c94\u8def\u53e3',
-    }
-    const w = render(WorldPanel, { props: { blocks: world, state: moved } })
-
-    expect(w.findAll('[data-place][data-current]')[0].text()).toBe('\u6797\u95f4\u5c0f\u9053')
-    expect(w.findAll('[data-area][data-current]')[0].text()).toContain('\u9547\u90ca')
-  })
-
+  /**
+   * 面板画什么由**卡声明的侧栏条目**决定（路径 + 标题 + 一种预设格式），那一套判据只有一份，
+   * 在 `tests/display-render-dom.test.ts`（顺序 / 三种格式 / 每个值自己一个元素 / 当前所在怎么标）。
+   * 这里只剩组件自己的契约：关得掉。
+   */
   it('closes itself by emitting close', async () => {
     const w = render(WorldPanel, { props: { blocks: world, state } })
     await w.find('button[data-world-close]').trigger('click')
@@ -307,119 +266,18 @@ describe('WorldPanel', () => {
   })
 })
 
-describe('WorldCast', () => {
-  it('draws each person as a name plus the lines of their sections', () => {
-    const w = render(WorldCast, {
-      props: {
-        cast: { '\u8389\u5a1c': { title: 'keeper', traits: ['calm', 'sharp'], sealed: { deep: 1 } } },
-      },
-    })
-
-    expect(w.findAll('[data-cast]')).toHaveLength(1)
-    const text = w.find('[data-cast]').text()
-    expect(text).toContain('\u8389\u5a1c')
-    expect(text).toContain('keeper')
-    expect(text).toContain('calm / sharp')
-    // 嵌套对象不展开：面板是给人扫一眼的，不是状态树的全文
-    expect(text).not.toContain('sealed')
-    expect(text).not.toContain('deep')
-  })
-
-  it('writes a person whose whole section is one string as one line', () => {
-    const w = render(WorldCast, { props: { cast: { '\u964c\u751f\u4eba': 'a hooded stranger' } } })
-    expect(w.find('[data-cast]').text()).toContain('a hooded stranger')
-    expect(w.findAll('[data-cast] li')).toHaveLength(0)
-  })
-
-  it('draws nothing when the cast is not a dictionary of people', () => {
-    const w = render(WorldCast, { props: { cast: ['\u8389\u5a1c'] } })
-    expect(w.findAll('[data-cast]')).toHaveLength(0)
-  })
-
-  it('prints the fields of a record section as lines, each exactly once', () => {
-    const w = render(WorldCast, {
-      props: { cast: { Salen: { note: 'red hair, twenty-six', role: 'smith' } } },
-    })
-    const text = w.find('[data-cast]').text()
-
-    // 对象条目按形状摊：每一栏各一行（界面不认「哪一栏是简介」—— 见 state-view 的文件头）
-    expect(text).toContain('red hair, twenty-six')
-    expect(text.match(/red hair, twenty-six/g)).toHaveLength(1)
-    expect(text).toContain('smith')
-  })
-})
-
-describe('WorldMap', () => {
-  it('marks the current area and place, and only those', () => {
-    const w = render(WorldMap, {
-      props: {
-        areas: { '\u6668\u98ce\u9547': { spots: ['\u9152\u9986', '\u6e2f\u53e3'] }, '\u90ca\u5916': {} },
-        location: { area: '\u6668\u98ce\u9547', spot: '\u6e2f\u53e3', scene: '\u6e2f\u53e3' },
-      },
-    })
-
-    expect(w.findAll('[data-area]')).toHaveLength(2)
-    expect(w.findAll('[data-area][data-current]')).toHaveLength(1)
-    const place = w.findAll('[data-place][data-current]')
-    expect(place).toHaveLength(1)
-    expect(place[0].text()).toBe('\u6e2f\u53e3')
-    // 还没有固定地点的区域：说清是没有，不是界面坏了
-    expect(w.findAll('[data-area]')[1].text()).toContain(t('world.growingPlaces'))
-  })
-
-  it('takes the note of an area whose section is one string, and survives a missing location', () => {
-    const w = render(WorldMap, {
-      props: { areas: { '\u6e2f\u53e3': 'a foggy pier' }, location: undefined },
-    })
-    expect(w.find('[data-area]').text()).toContain('a foggy pier')
-    expect(w.findAll('[data-current]')).toHaveLength(0)
-  })
-
-  it('keeps a record area to its places: the fields are not read as a note any more', () => {
-    const w = render(WorldMap, {
-      props: {
-        areas: { port: { kind: 'authored', note: 'a town of three hundred', spots: ['inn'] } },
-        location: undefined,
-      },
-    })
-    const text = w.find('[data-area]').text()
-
-    // 界面不认「哪一栏是简介」⇒ 对象条目的那一句话不再单独画出来（归段 6：显示由格式驱动）
-    expect(text).not.toContain('a town of three hundred')
-    // 地点照旧：「它是一串标量」这条形状判据没变
-    expect(text).toContain('inn')
-  })
-})
-
-describe('WorldPack', () => {
-  it('draws a record item by shape: every field is a detail line, no count badge', () => {
-    const w = render(WorldPack, {
-      props: { items: [{ name: 'dirk', count: 2, wear: 'chipped' }, 'rope'] },
-    })
-
-    const items = w.findAll('[data-item]')
-    expect(items).toHaveLength(2)
-    // 对象条目没有标题（界面不认「哪一栏是名称」）—— 值都在明细行里
-    expect(items[0].text()).toContain('dirk')
-    expect(items[0].text()).toContain('2')
-    expect(items[0].text()).toContain('chipped')
-    // 整条是一个字符串时它自己就是标题
-    expect(items[1].text()).toContain('rope')
-    expect(items[1].text()).not.toContain('2')
-  })
-
-  it('draws a pack written as a dictionary by its keys', () => {
-    const w = render(WorldPack, { props: { items: { rope: { count: 3 } } } })
-    const item = w.find('[data-item]')
-    expect(item.text()).toContain('rope')
-    expect(item.text()).toContain('3')
-  })
-
-  it('draws nothing when the pack is neither a list nor a dictionary', () => {
-    const w = render(WorldPack, { props: { items: 'rope' } })
-    expect(w.findAll('[data-item]')).toHaveLength(0)
-  })
-})
+/**
+ * 段 6 删掉的三组判据：`WorldCast` / `WorldMap` / `WorldPack` 三个**专用渲染器**的用例。
+ *
+ * R12/R13 把它们换成了三种**预设格式**的渲染器 ⇒ 这三组判据没有主体了（组件本身要删）。
+ * 它们测过的行为由谁接住：
+ *   · 每一条目都画出来、每个人的每一栏各一行 ⇒ `display-render-dom.test.ts` 的 15 / 16 / 17
+ *     （按格式画：分组列表 / 列表 / 键值，值一个个现取）
+ *   · 「当前所在」高亮、且只标它 ⇒ 同文件 18（按**值**标，不认字段名），端到端由 e2e `smoke.spec.ts:152-155` 收
+ *   · 「当前所在」跟着状态树走（不是冻结在开局） ⇒ 同文件 22
+ *   · 主动放弃的两条（内容形状的判断，正是 R13 要消灭的）：区域那一栏的"还没有固定地点"提示语、
+ *     以及"对象条目哪一栏是简介" —— 界面不认字段名，这两条不再成立。
+ */
 
 describe('state-view: the shape walkers behind the world panel', () => {
   it('walks a record into key/value entries, and nothing else', () => {

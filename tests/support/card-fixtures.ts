@@ -146,8 +146,16 @@ export function minimalCard(): Record<string, unknown> {
     opening: { canName: true, defaultName: 'nobody', requirements: ['write the opening'] },
     display: {
       layout: 'full screen',
-      topbar: ['time', 'scene', 'turn'],
-      sidebar: [{ block: 'map' }, { block: 'cast' }, { block: 'pack' }],
+      // 一段 6：侧栏条目 = 一枝状态的路径 + 标题 + 一种预设格式（三种各来一条；
+      // 分组列表 ↔ map、键值 ↔ object、列表 ↔ list —— 容器名就是下面 `state` 里的 `type`）
+      sidebar: [
+        { path: 'world.map', title: 'the map', format: 'grouped' },
+        { path: 'world.location', title: 'where the lead is', format: 'key-value' },
+        { path: 'roles', title: 'the cast', format: 'grouped' },
+        { path: 'lead.pack', title: 'the pack', format: 'list' },
+      ],
+      // 「场景」那条固定状态行的来源：册子 + 主控名字那一格
+      scene: { path: 'world.whoIsWhere', who: 'lead.name' },
       time: 'a date and a segment',
       scroll: 'scroll when full',
     },

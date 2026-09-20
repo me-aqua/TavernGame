@@ -490,31 +490,36 @@ describe('validateCard: generators / opening / display / notes', () => {
     expect(validateCard(card)).toBeDefined()
   })
 
-  it('rejects a topbar entry or a sidebar block the engine has no renderer for', () => {
-    const topbar = fixture()
-    topbar.display.topbar = ['time', 'weather']
-    expectRejected(topbar, 'display.topbar[1]')
-    const block = fixture()
-    block.display.sidebar = [{ block: 'nope' }]
-    expectRejected(block, 'display.sidebar[0].block')
+  it('rejects a sidebar entry the engine has no renderer for', () => {
+    const format = fixture()
+    format.display.sidebar[0].format = 'weather'
+    expectRejected(format, 'display.sidebar[0].format')
+    const path = fixture()
+    path.display.sidebar[1].path = 'world.nowhere'
+    expectRejected(path, 'display.sidebar[1].path')
   })
 
-  it('rejects a duplicate sidebar block, an unknown block key, or a missing block path', () => {
+  it('rejects a duplicate branch, an unknown entry key, or a branch the card does not declare', () => {
     const repeat = fixture()
-    repeat.display.sidebar = [{ block: 'cast' }, { block: 'cast' }]
-    expectRejected(repeat, 'display.sidebar[1].block')
+    repeat.display.sidebar = [repeat.display.sidebar[0], { ...repeat.display.sidebar[0] }]
+    expectRejected(repeat, 'display.sidebar[1].path')
     const unknown = fixture()
-    unknown.display.sidebar = [{ block: 'cast', extra: 1 }]
+    unknown.display.sidebar[0].extra = 1
     expectRejected(unknown, 'display.sidebar[0].extra')
     const missing = fixture()
     delete missing.state.world.fields.map
-    missing.display.sidebar = [{ block: 'map' }]
-    expectRejected(missing, 'display.sidebar[0].block')
+    expectRejected(missing, 'display.sidebar[0].path')
+  })
+
+  it('rejects a topbar declaration (the top bar holds no game state any more)', () => {
+    const topbar = fixture()
+    topbar.display.topbar = ['time']
+    expectRejected(topbar, 'display.topbar')
   })
 
   it('accepts an empty sidebar and a display without layout / time / scroll', () => {
     const card = fixture()
-    card.display = { topbar: ['time'], sidebar: [] }
+    card.display = { sidebar: [] }
     expect(validateCard(card)).toBeDefined()
   })
 

@@ -1,111 +1,72 @@
 /**
- * display 测试 —— 卡声明的显示（顶栏条目 / 侧栏块）与界面要的面板数据。
+ * display 测试 —— 段 6 之后这一层只剩两件事：**节点显示名**，以及"引擎不再持有第二份块词表"。
  *
- * 两条纪律：
- *   · 词汇表只有一份（game/card.ts），这里只 re-export，不写第二份；
- *   · 面板数据读**状态树**，不读卡里的预设（面板画不出来不等于整页打不开）。
+ * 这一份原来是 11 条（`displayOf` 的旧形状 / `checkRenderable` 的专用词表 / `mapOf` ·
+ * `castOf` · `packOf` · `spotOf` 四个专用取数器）。段 6 把那些形状都换掉了：
+ *   · 侧栏改成卡声明（路径 + 标题 + 格式），那份声明**只此一处** ⇒ 旧的块名词表没了；
+ *   · 面板数据不再由引擎按块名取，改成按声明里的**路径**取 ⇒ 四个专用取数器没了。
+ * ⇒ 声明侧的新判据在 `display-format.test.ts`，渲染侧在 `display-render-dom.test.ts`。
+ *
+ * ⚠️ 旧表读的是 `import * as card`（不是具名 import）：那两张表这一段**就是被删掉的东西**，
+ *    具名 import 一个不存在的导出会在收集阶段炸掉整个文件（一条用例都跑不到）。
  */
 import { describe, expect, it } from 'vitest'
-import {
-  castOf,
-  checkRenderable,
-  displayOf,
-  KNOWN_BLOCKS,
-  KNOWN_TOPBAR,
-  mapOf,
-  nodeLabel,
-  packOf,
-  spotOf,
-} from '../src/game/display'
-import { SIDEBAR_BLOCKS, TOPBAR_ITEMS } from '../src/game/card'
-import { createInitialState } from '../src/game/save'
+import * as cardModule from '../src/game/card'
+import * as displayModule from '../src/game/display'
+import { nodeLabel } from '../src/game/display'
 import { currentCard } from '../src/game/current-card'
-import { loadCard, NIGHT_WATCH_CARD } from './support/card-fixtures'
-import type { StateTree } from '../src/game/card-state'
 
-/** 一张卡的初始状态树 */
-function treeOf(card = currentCard): StateTree {
-  return createInitialState(card).state
-}
+/**
+ * 引擎里那些"块名 → 路径 / 取数器"的老面孔（段 6 之后不该还在）。
+ *
+ * 两张表 + 转发它们的两个常量 + 四个按块名取数的函数：都是"引擎认识内容"的形态，
+ * R12/R13 之后一块都不留 —— 声明在卡里，取数走声明里的路径。
+ */
+const OLD_BLOCK_TABLES = [
+  'SIDEBAR_BLOCKS',
+  'BLOCK_STATE_PATHS',
+  'KNOWN_BLOCKS',
+  'KNOWN_TOPBAR',
+  'mapOf',
+  'castOf',
+  'packOf',
+  'spotOf',
+]
 
-describe('the vocabulary lives in card.ts', () => {
-  it('re-exports the engine word list instead of keeping a second copy', () => {
-    expect(KNOWN_TOPBAR).toBe(TOPBAR_ITEMS)
-    expect(KNOWN_BLOCKS).toBe(SIDEBAR_BLOCKS)
-  })
-})
-
-describe('displayOf', () => {
-  it('reads the declared order out of the card', () => {
-    const decl = displayOf(currentCard)
-    expect(decl.topbar).toEqual(currentCard.display.topbar)
-    expect(decl.sidebar).toEqual(currentCard.display.sidebar.map((block) => block.block))
-  })
-
-  it('works for a card that declares only one block', () => {
-    const card = loadCard(NIGHT_WATCH_CARD)
-    expect(displayOf(card).sidebar).toEqual(card.display.sidebar.map((block) => block.block))
-  })
-
-  it('returns copies (callers cannot mutate the card)', () => {
-    const decl = displayOf(currentCard)
-    decl.topbar.push('nonsense')
-    expect(currentCard.display.topbar).not.toContain('nonsense')
-  })
-})
-
-describe('checkRenderable', () => {
-  it('accepts the vocabulary this build can draw', () => {
-    expect(() => checkRenderable({ topbar: [...KNOWN_TOPBAR], sidebar: [...KNOWN_BLOCKS] })).not.toThrow()
+describe('the sidebar vocabulary lives in the card, not in the engine', () => {
+  it('24 the engine keeps no block-name table of its own any more', () => {
+    const still = OLD_BLOCK_TABLES.filter((name) =>
+      Object.hasOwn(cardModule as unknown as Record<string, unknown>, name),
+    ).concat(
+      OLD_BLOCK_TABLES.filter((name) =>
+        Object.hasOwn(displayModule as unknown as Record<string, unknown>, name),
+      ),
+    )
+    expect(still, 'the engine still carries a block-name table: ' + still.join(' / ')).toEqual([])
   })
 
-  it('rejects a block no component draws', () => {
-    expect(() => checkRenderable({ topbar: ['time'], sidebar: ['weather'] })).toThrow('weather')
-  })
-
-  it('rejects a topbar entry no component draws', () => {
-    expect(() => checkRenderable({ topbar: ['weather'], sidebar: [] })).toThrow('weather')
+  it('25 the sidebar declaration is read straight out of the card, in the declared order', () => {
+    const declared = (JSON.parse(JSON.stringify(currentCard.display)) as Record<string, any>)
+      .sidebar as Array<Record<string, unknown>>
+    expect(declared.length, 'the demo card declares an empty sidebar').toBeGreaterThan(0)
+    // 一个事实只有一处能改：声明里那三样就是画出来要用的三样，引擎不另存一份
+    for (const entry of declared) {
+      expect(Object.keys(entry).sort(), 'a sidebar entry carries keys no entry has').toEqual([
+        'format',
+        'path',
+        'title',
+      ])
+    }
   })
 })
 
 describe('nodeLabel', () => {
-  it('reads the display name the card gave the node', () => {
+  it('26 reads the display name the card gave the node', () => {
     const id = currentCard.graph.topology[0]
     expect(nodeLabel(currentCard, id)).toBe(currentCard.graph.nodes[id].name)
   })
 
-  it('throws for a node the card does not have (no silent fallback to the id)', () => {
+  it('27 throws for a node the card does not have (no silent fallback to the id)', () => {
     expect(() => nodeLabel(currentCard, 'no-such-node')).toThrow('no-such-node')
-  })
-})
-
-describe('panel data reads the state tree', () => {
-  it('map reads world.map and world.location', () => {
-    const state = treeOf()
-    const world = state.world as Record<string, unknown>
-    expect(mapOf(state)).toEqual({ areas: world.map, location: world.location })
-  })
-
-  it('cast reads roles and pack reads lead.pack', () => {
-    const state = treeOf()
-    expect(castOf(state)).toBe(state.roles)
-    expect(packOf(state)).toBe((state.lead as Record<string, unknown>).pack)
-  })
-
-  it('follows the state as tools write it (not a frozen card preset)', () => {
-    const state = treeOf()
-    const world = state.world as Record<string, unknown>
-    world.location = { area: 'somewhere', spot: 'a spot', scene: 'a scene' }
-    expect(spotOf(state)).toEqual({ area: 'somewhere', spot: 'a spot', scene: 'a scene' })
-    expect(mapOf(state).location).toEqual({ area: 'somewhere', spot: 'a spot', scene: 'a scene' })
-  })
-
-  it('a card without those branches gives empty values, not a crash', () => {
-    const state = treeOf(loadCard(NIGHT_WATCH_CARD))
-    expect(mapOf(state)).toEqual({ areas: undefined, location: undefined })
-    expect(castOf(state)).toBeUndefined()
-    expect(spotOf(state)).toEqual({ area: '', spot: '', scene: '' })
-    // 背包这一段这张卡有：面板照样画得出来
-    expect(packOf(state)).toBe((state.lead as Record<string, unknown>).pack)
   })
 })

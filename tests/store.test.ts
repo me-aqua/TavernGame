@@ -61,20 +61,52 @@ async function runOneTurn(draft = WAKE_REPLY) {
   return g
 }
 
-describe('derived state (what the topbar and the panels read)', () => {
+/** 卡里 `display` 那一段（当数据读；形状由 display-format.test.ts 守） */
+function sceneDecl(): { path: string; who: string } {
+  const display = JSON.parse(JSON.stringify(currentCard.display)) as Record<string, any>
+  return { path: String(display.scene?.path ?? ''), who: String(display.scene?.who ?? '') }
+}
+
+/** 按点号路径取状态树里的一格（读不到就是 undefined，不抛） */
+function at(tree: unknown, path: string): unknown {
+  return path.split('.').reduce<unknown>((scope, key) => (scope as Record<string, unknown>)?.[key], tree)
+}
+
+/** 主控在册子里的那一条（值），按 `display.scene` 的指路现取 —— 不抄一份卡的内容 */
+function leadWhereabouts(): string[] {
+  const { path, who } = sceneDecl()
+  const state = initialState().data.state
+  const row = at(state, path + '.' + String(at(state, who)))
+  return Object.values((row ?? {}) as Record<string, unknown>).filter(
+    (value): value is string => typeof value === 'string' && value !== '',
+  )
+}
+
+describe('derived state (what the sidebar and the panels read)', () => {
   it('starts at the card clock, turn 0, and the scene line reads the state tree', () => {
     const g = useGame()
     expect(g.timeLabel.value).toBe(format(currentCard.time.calendar, clockIn(initialState().data.state)))
     expect(g.turn.value).toBe(0)
-    // 场景读状态树的 world.location —— 这张卡没有声明那一段，于是三段都是空串
-    // （顶栏那个条目照样画，只是什么都不显示；卡声明了它就有内容）
-    const world = initialState().data.state.world as Record<string, unknown>
-    expect(world.location).toBeUndefined()
-    expect(g.scene.value).toEqual({ area: '', spot: '', scene: '' })
+    // 场景读的是**册子里主控那一条**（R20 之后「当前所在」只有这一处可查），
+    // 不是已经删掉的 world.location
+    expect(leadWhereabouts().length, 'the opening frame cannot say where the lead is').toBeGreaterThan(0)
+    expect(g.scene.value).toEqual(leadWhereabouts())
     // 状态树与卡都摆出来了（界面按它们渲染）
     expect(g.stateTree.value).toEqual(initialState().data.state)
     expect(g.card).toBe(currentCard)
     expect(g.timeline.value).toEqual([])
+  })
+
+  it('an empty whereabouts book gives an empty scene line, not a crash', () => {
+    const g = useGame()
+    const state = g.stateTree.value as Record<string, any>
+    const book = sceneDecl()
+      .path.split('.')
+      .reduce<Record<string, unknown>>((scope, key) => {
+        return (scope[key] ?? {}) as Record<string, unknown>
+      }, state)
+    for (const name of Object.keys(book)) delete book[name]
+    expect(g.scene.value).toEqual([])
   })
 
   it('after one turn: turn +1 and the story holds the action and the narration', async () => {
