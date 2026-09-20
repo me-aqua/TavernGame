@@ -20,8 +20,6 @@ import { i18n, t } from '../src/i18n'
 import {
   EXAMPLE,
   declaredSettings,
-  declaredUses,
-  generatorMarker,
   markerOf,
   savedCard,
   withEveryDeclaration,
@@ -46,9 +44,6 @@ const NO_STYLE = EXAMPLE.graph.topology.find(
  * 所以它**永远拿不到 `style` 那一块**，用它断言「五块全在」是自相矛盾（用例 19 原来就是这么错的）。
  */
 const NO_SETTINGS = EXAMPLE.graph.topology.find((id) => declaredSettings(EXAMPLE, id) === undefined) as string
-/** 写了两条 `uses` 的节点（取消一条 = 子集） */
-const TWO_USES = EXAMPLE.graph.topology.find((id) => (declaredUses(EXAMPLE, id) ?? []).length === 2) as string
-
 /** 每个用例自己装假 fetch，跑完一律还原（否则下一条用例跑到别人的假响应上） */
 const track = fakeTracker()
 afterEach(() => track.restoreAll())
@@ -176,29 +171,6 @@ describe('card resources: the request follows the checkboxes', () => {
     expect(declaredSettings(EXAMPLE, NO_SETTINGS), NO_SETTINGS + ' must declare nothing').toBeUndefined()
     const system = await systemOf(EXAMPLE, NO_SETTINGS)
     for (const key of SETTING_KEYS) expect(carries(system, markerOf(EXAMPLE, key)), key).toBe(true)
-  })
-
-  it('unchecking a generator takes it out of the request too', async () => {
-    const names = declaredUses(EXAMPLE, TWO_USES) as string[]
-    const kept: string[] = []
-    const dropped: string[] = []
-    for (const name of EXAMPLE.generators.map((generator) => generator.name)) {
-      ;(names.includes(name) ? kept : dropped).push(name)
-    }
-    expect(kept.length, 'this node must name two generators').toBe(2)
-    expect(dropped.length, 'the card must have a generator this node does not name').toBeGreaterThan(0)
-
-    const before = await systemOf(EXAMPLE, TWO_USES)
-    expect(carries(before, generatorMarker(EXAMPLE, kept[0]))).toBe(true)
-    expect(carries(before, generatorMarker(EXAMPLE, dropped[0]))).toBe(false)
-
-    const w = await marks(EXAMPLE, TWO_USES)
-    await w.find('[data-card-resource-mark="generator:' + kept[0] + '"]').setValue(false)
-
-    const after = await systemOf(savedCard(), TWO_USES)
-    expect(declaredUses(savedCard(), TWO_USES)).toEqual([kept[1]])
-    expect(carries(after, generatorMarker(EXAMPLE, kept[0]))).toBe(false)
-    expect(carries(after, generatorMarker(EXAMPLE, kept[1]))).toBe(true)
   })
 
   it('holds in English too', async () => {

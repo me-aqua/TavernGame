@@ -53,8 +53,6 @@ const nodes = card.graph.nodes
 const DECLARING = card.graph.topology.find((id) => nodes[id].settings !== undefined) as string
 /** 没声明的节点：五块设定全发 */
 const PLAIN = card.graph.topology.find((id) => nodes[id].settings === undefined) as string
-/** 点名了生成器的节点：system 消息里会多出「生成器」那一段 */
-const WITH_USES = card.graph.topology.find((id) => (nodes[id].uses ?? []).length > 0) as string
 
 const REDO_HINT = 'the judge found a problem and asked to run the outline again'
 const TOOL_SAID = 'calling the clock now'
@@ -72,7 +70,7 @@ function sectionText(groups: BlockGroup[], title: string): string {
 
 describe('requestBlocks - one group per message, one block per prompt section', () => {
   it('splits what went on the wire into the sections the assembler wrote', async () => {
-    const { sent } = await nodeRequest(track, card, WITH_USES)
+    const { sent } = await nodeRequest(track, card, PLAIN)
     const groups = prompts.requestBlocks(sent)
 
     expect(groups.map((group) => group.role)).toEqual(sent.map((message) => message.role))
@@ -81,17 +79,14 @@ describe('requestBlocks - one group per message, one block per prompt section', 
       label('prompts.setting'),
       label('prompts.script'),
       label('prompts.convention'),
-      label('prompts.generators'),
     ])
     expect(groups[1].blocks.map((block) => block.title)).toEqual([
       label('prompts.now'),
       label('prompts.player'),
       label('prompts.upstream'),
-      nodes[WITH_USES].name,
+      nodes[PLAIN].name,
     ])
-    expect(groups.flatMap((group) => group.blocks).map((block) => block.level)).toEqual([
-      2, 2, 2, 2, 2, 2, 2, 2,
-    ])
+    expect(groups.flatMap((group) => group.blocks).map((block) => block.level)).toEqual([2, 2, 2, 2, 2, 2, 2])
 
     // 抽查四处正文：设定里的子块、玩家原话、上游产出、本节点提示词
     expect(sectionText(groups, label('prompts.setting'))).toContain(
@@ -99,14 +94,14 @@ describe('requestBlocks - one group per message, one block per prompt section', 
     )
     expect(sectionText(groups, label('prompts.player')), 'the player words, verbatim').toBe(PLAYER_WORDS)
     expect(sectionText(groups, label('prompts.upstream'))).toContain(UPSTREAM_OUTPUT)
-    expect(sectionText(groups, nodes[WITH_USES].name)).toContain(nodes[WITH_USES].prompt[0])
+    expect(sectionText(groups, nodes[PLAIN].name)).toContain(nodes[PLAIN].prompt[0])
     for (const block of groups.flatMap((group) => group.blocks)) {
       expect(linesText(block).length, 'no empty block').toBeGreaterThan(0)
     }
   })
 
   it('hands out the line structure it wrote: `### ` lines become sub-headings', async () => {
-    const { sent } = await nodeRequest(track, card, WITH_USES)
+    const { sent } = await nodeRequest(track, card, PLAIN)
     const groups = prompts.requestBlocks(sent)
 
     // 设定块里的小标题 = 卡声明的那几块，顺序 = 卡里的顺序（决定 #52）
@@ -131,7 +126,7 @@ describe('requestBlocks - one group per message, one block per prompt section', 
   })
 
   it('hands the same block back as plain text (the panel sizes it with that)', async () => {
-    const { sent } = await nodeRequest(track, card, WITH_USES)
+    const { sent } = await nodeRequest(track, card, PLAIN)
     const [block] = prompts.requestBlocks(sent)[0].blocks
 
     // 证明只认测试自己的拼法（见共享夹具的 reassemble）；这里要求实现交出的那一份与它逐字一致 ——
@@ -168,7 +163,7 @@ describe('requestBlocks - one group per message, one block per prompt section', 
   })
 
   it('names the redo hint message and keeps its text verbatim', async () => {
-    const { sent } = await nodeRequest(track, card, WITH_USES, { hint: REDO_HINT })
+    const { sent } = await nodeRequest(track, card, PLAIN, { hint: REDO_HINT })
     expect(sent.map((message) => message.role)).toEqual(['system', 'system', 'user'])
     const groups = prompts.requestBlocks(sent)
 
@@ -223,7 +218,7 @@ describe('requestBlocks - one group per message, one block per prompt section', 
   })
 
   it('follows the interface language on both sides', async () => {
-    const { sent: zhSent } = await nodeRequest(track, card, WITH_USES)
+    const { sent: zhSent } = await nodeRequest(track, card, PLAIN)
     const zhGroups = prompts.requestBlocks(zhSent)
     const zhGroupTitle = label('debug.role.system')
     const zhBlockTitle = zhGroups[0].blocks[0].title
@@ -231,7 +226,7 @@ describe('requestBlocks - one group per message, one block per prompt section', 
 
     // 界面切到英文再装配一次：引擎写的那部分提示词也跟着换语言
     setLocale('en')
-    const { sent: enSent } = await nodeRequest(track, card, WITH_USES)
+    const { sent: enSent } = await nodeRequest(track, card, PLAIN)
     const enGroups = prompts.requestBlocks(enSent)
     expect(enGroups[0].title).toBe(label('debug.role.system'))
     expect(enGroups[0].title, 'the group label follows the interface language').not.toBe(zhGroupTitle)
@@ -248,7 +243,7 @@ describe('requestBlocks - one group per message, one block per prompt section', 
 
 describe('the boundaries are declared once - the blocks add up to the sent text', () => {
   it('reassembles byte-for-byte into every message that was sent', async () => {
-    const { sent } = await nodeRequest(track, card, WITH_USES)
+    const { sent } = await nodeRequest(track, card, PLAIN)
     const groups = prompts.requestBlocks(sent)
 
     expect(groups.length, 'one group per message').toBe(sent.length)
@@ -341,7 +336,7 @@ describe('a heading with no body under it - the shape family S3 found red', () =
   })
 
   it('keeps its promise on a real request whose player words end with a heading', async () => {
-    const { sent } = await nodeRequest(track, card, WITH_USES, {
+    const { sent } = await nodeRequest(track, card, PLAIN, {
       playerWords: PLAYER_WORDS + '\n\n## note',
     })
     // 没有这一句，夹具一改就会变成一条什么都没测到的空用例
@@ -354,7 +349,7 @@ describe('a heading with no body under it - the shape family S3 found red', () =
   })
 
   it('keeps its promise on a real request whose upstream output ends with a heading', async () => {
-    const { sent } = await nodeRequest(track, card, WITH_USES, {
+    const { sent } = await nodeRequest(track, card, PLAIN, {
       upstream: [{ node: 'OUTLINE', output: UPSTREAM_OUTPUT + '\n\n## tail' }],
     })
     expect(sent[1].content, 'the shape must really have travelled into the user message').toContain(

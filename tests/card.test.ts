@@ -20,6 +20,10 @@ import {
   minimalCard,
 } from './support/card-fixtures'
 
+/** 动作条目新增的两个键（格式词表，ASCII）—— 用例给它们写坏了之后要能看见 */
+const ACTION_WHEN = String.fromCharCode(0x77, 0x68, 0x65, 0x6e, 0x54, 0x6f, 0x55, 0x73, 0x65)
+const ACTION_PRINCIPLES = String.fromCharCode(0x70, 0x72, 0x69, 0x6e, 0x63, 0x69, 0x70, 0x6c, 0x65, 0x73)
+
 /** 跑一次校验，把抛出的错误读成文本（通过了就返回空串） */
 function errorOf(card: unknown): string {
   try {
@@ -220,10 +224,10 @@ describe('validateCard: graph', () => {
     expectRejected(card, nodePath(NODE_A) + '.reads[0]')
   })
 
-  it('rejects a uses list that names a generator the card does not declare', () => {
+  it('rejects a node that still carries the removed uses key', () => {
     const card = fixture()
-    nodesOf(card)[NODE_A].uses = ['nope']
-    expectRejected(card, nodePath(NODE_A) + '.uses[0]')
+    nodesOf(card)[NODE_A].uses = []
+    expectRejected(card, nodePath(NODE_A))
   })
 })
 
@@ -447,24 +451,19 @@ function customCalendar(): Record<string, unknown> {
   }
 }
 
-describe('validateCard: generators / opening / display / notes', () => {
-  it('rejects a generator that is missing a key or repeats a name', () => {
-    const missing = fixture()
-    delete missing.generators[0].applies
-    expectRejected(missing, 'generators[0]')
-    const repeat = fixture()
-    repeat.generators.push({ name: 'places', applies: 'again', principles: ['x'] })
-    expectRejected(repeat, 'generators[1].name')
-    const empty = fixture()
-    empty.generators[0].principles = []
-    expectRejected(empty, 'generators[0].principles')
+describe('validateCard: opening / display / notes', () => {
+  it('rejects an action that lost one of its three segments', () => {
+    for (const key of [ACTION_WHEN, ACTION_PRINCIPLES]) {
+      const card = fixture()
+      delete card.actions.set_place[key]
+      expectRejected(card, 'actions.set_place')
+    }
   })
 
-  it('accepts a card with no generators at all', () => {
+  it('rejects a card that still declares generators', () => {
     const card = fixture()
     card.generators = []
-    delete card.graph.nodes[NODE_A].uses
-    expect(validateCard(card)).toBeDefined()
+    expectRejected(card, '')
   })
 
   it('rejects an opening block that is missing a key or has the wrong type', () => {

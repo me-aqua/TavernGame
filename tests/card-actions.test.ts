@@ -117,8 +117,11 @@ describe('toolSchemas: the parameters are derived from the state schema', () => 
   it('hangs the schema notes on the tool description', () => {
     expect(descriptionOf(card(), 'set_place')).toContain('[world.location] where the lead is')
     expect(descriptionOf(card(), 'add_role')).toContain('[roles.*.tier] major gets four segments')
-    // 没有 path 的效果动作只有作者写的 what
-    expect(descriptionOf(card(), 'advance_time')).toBe('pass time')
+    // 没有 path 的效果动作：说明就是作者写的那三段，没有 schema note 的行
+    const action = card().actions.advance_time
+    expect(descriptionOf(card(), 'advance_time')).toBe(
+      [action.whenToUse, action.what, action.principles].join(String.fromCharCode(10)),
+    )
   })
 })
 

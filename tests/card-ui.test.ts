@@ -267,7 +267,7 @@ describe('CardGraph', () => {
 })
 
 describe('CardNodeForm', () => {
-  /** 常态 props：三个可改字段 + 四个只读声明 */
+  /** 常态 props：三个可改字段 + 三个只读声明 */
   function formProps(over: Record<string, unknown> = {}) {
     const id = topology[0]
     return {
@@ -278,7 +278,6 @@ describe('CardNodeForm', () => {
       role: nodes[id].role ?? null,
       tools: nodes[id].tools ?? null,
       reads: nodes[id].reads ?? null,
-      uses: nodes[id].uses ?? null,
       ...over,
     }
   }
@@ -298,31 +297,29 @@ describe('CardNodeForm', () => {
 
   it('spells the declarations, saying "all" / "none" where the card wrote nothing', () => {
     const w = render(CardNodeForm, {
-      props: formProps({ role: null, tools: null, reads: null, uses: null }),
+      props: formProps({ role: null, tools: null, reads: null }),
     })
     const text = w.find('[data-card-declarations]').text()
 
     expect(text).toContain(t('card.declAllTools'))
     expect(text).toContain(t('card.declAllReads'))
-    expect(text).toContain(t('card.declNoUses'))
     expect(text).toContain(t('card.declNone'))
   })
 
-  it('lists the tools / reads / uses the card declares', () => {
+  it('lists the tools and reads the card declares', () => {
     const w = render(CardNodeForm, {
-      props: formProps({ tools: ['set_profile'], reads: ['player', 'world'], uses: ['gen'], role: 'story' }),
+      props: formProps({ tools: ['set_profile'], reads: ['player', 'world'], role: 'story' }),
     })
     const text = w.find('[data-card-declarations]').text()
 
     expect(text).toContain('set_profile')
     expect(text).toContain('player world')
-    expect(text).toContain('gen')
     expect(text).toContain('story')
   })
 
   it('says "none" for a declaration that is an empty list (judge declares tools: [])', () => {
     const w = render(CardNodeForm, {
-      props: formProps({ role: 'story', tools: [], reads: [], uses: [] }),
+      props: formProps({ role: 'story', tools: [], reads: [] }),
     })
     const rows = w.findAll('[data-card-declarations] > div')
     /** 取某一行声明的值那一格（dt 是键、dd 是值） */
@@ -335,7 +332,6 @@ describe('CardNodeForm', () => {
     // 空表 = 一个都没有。画成空白会让读卡的人以为这块漏写了
     expect(valueOf('card.declTools')).toBe(t('card.declNone'))
     expect(valueOf('card.declReads')).toBe(t('card.declNone'))
-    expect(valueOf('card.declUses')).toBe(t('card.declNone'))
   })
 
   it('turns the multi-line prompt back into one entry per line on save', async () => {

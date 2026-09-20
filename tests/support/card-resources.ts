@@ -15,11 +15,11 @@ import { EXAMPLE_CARD } from './card-fixtures'
 /** 编辑器写回的那一份卡 —— 与 src/game/current-card.ts 的存储键一致 */
 export const CARD_KEY = 'tavernGame.card'
 
-/** 示例卡：九个节点，`settings` 逐节点声明（有的不带 style），生成器四条 */
+/** 示例卡：九个节点，`settings` 逐节点声明（有的不带 style） */
 export const EXAMPLE = parseCard(readFileSync(EXAMPLE_CARD, 'utf8'))
 
-/** 没写某条声明的节点（卡格式的语义：不写 = 全发 / 全部 / 不带） */
-export function declaresNothing(card: CardData, node: string, key: 'settings' | 'uses'): boolean {
+/** 没写某条声明的节点（卡格式的语义：不写 = 全发） */
+export function declaresNothing(card: CardData, node: string, key: string): boolean {
   return !Object.hasOwn(card.graph.nodes[node], key)
 }
 
@@ -32,11 +32,9 @@ export function declaresNothing(card: CardData, node: string, key: 'settings' | 
 export function withEveryDeclaration(card: CardData): CardData {
   const copy = JSON.parse(JSON.stringify(card)) as CardData
   const settings = Object.keys(copy.settings)
-  const generators = copy.generators.map((generator) => generator.name)
   for (const id of copy.graph.topology) {
-    const node = copy.graph.nodes[id] as { settings?: string[]; uses?: string[] }
+    const node = copy.graph.nodes[id] as { settings?: string[] }
     node.settings = [...settings]
-    node.uses = [...generators]
   }
   return copy
 }
@@ -49,11 +47,6 @@ export function withEveryDeclaration(card: CardData): CardData {
  */
 export function declaredSettings(card: CardData, node: string): string[] | undefined {
   return (card.graph.nodes[node] as { settings?: string[] }).settings
-}
-
-/** 节点的 `uses` 声明（生成器名） */
-export function declaredUses(card: CardData, node: string): string[] | undefined {
-  return (card.graph.nodes[node] as { uses?: string[] }).uses
 }
 
 /**
@@ -77,11 +70,4 @@ export function markerOf(card: CardData, key: string): string {
   const line = card.settings[key as keyof CardData['settings']].find((text) => text !== '')
   if (line === undefined) throw new Error('setting block ' + key + ' has no non-empty line')
   return line
-}
-
-/** 一个生成器的标志行：它的第一条原则（同理，卡内容不随语言变） */
-export function generatorMarker(card: CardData, name: string): string {
-  const found = card.generators.find((generator) => generator.name === name)
-  if (found === undefined) throw new Error('no generator named ' + name)
-  return found.principles[0]
 }

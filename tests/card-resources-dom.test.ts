@@ -24,7 +24,7 @@ import type { CardData } from '../src/game/card'
 const SETTING_KEYS = Object.keys(EXAMPLE.settings)
 
 /** 除了五块设定之外，资源库里另外那三类（各自一件） */
-const OTHER_RESOURCES = ['script', 'convention', 'generators']
+const OTHER_RESOURCES = ['script', 'convention']
 
 /** 卡里第一块设定的名字 —— 编辑用例改的就是它（从卡里现取，不写死中文字面量） */
 const FIRST_BLOCK = SETTING_KEYS[0]
@@ -63,7 +63,7 @@ describe('CardResources: the resource library', () => {
       .findAll('[data-card-resource]')
       .map((el) => el.attributes('data-card-resource'))
 
-    expect(ids).toEqual([...SETTING_KEYS, ...OTHER_RESOURCES, ...EXAMPLE.generators.map((g) => g.name)])
+    expect(ids).toEqual([...SETTING_KEYS, ...OTHER_RESOURCES])
   })
 
   it('names each resource the way the debug panel names it (locale, both languages)', () => {
@@ -77,11 +77,6 @@ describe('CardResources: the resource library', () => {
       }
       for (const key of OTHER_RESOURCES) {
         expect(w.find('[data-card-resource="' + key + '"]').text(), locale).toContain(label('prompts.' + key))
-      }
-      for (const generator of EXAMPLE.generators) {
-        expect(w.find('[data-card-resource="' + generator.name + '"]').text(), locale).toContain(
-          generator.name,
-        )
       }
     }
   })
@@ -115,7 +110,6 @@ describe('CardResources: the resource library', () => {
 
     expect(editorOf(w, 'script').value).toBe(JSON.stringify(EXAMPLE.script, null, 2))
     expect(editorOf(w, 'convention').value).toBe(EXAMPLE.convention.join('\n'))
-    expect(editorOf(w, 'generators').value).toBe(JSON.stringify(EXAMPLE.generators, null, 2))
   })
 
   it('saves an edited block through the card import path and leaves the rest untouched', async () => {
@@ -137,7 +131,6 @@ describe('CardResources: the resource library', () => {
     }
     expect(stored.script).toEqual(EXAMPLE.script)
     expect(stored.convention).toEqual(EXAMPLE.convention)
-    expect(stored.generators).toEqual(EXAMPLE.generators)
     expect(stored.card).toEqual(EXAMPLE.card)
     expect(w.emitted('saved')).toHaveLength(1)
   })

@@ -168,7 +168,9 @@ function craftedCard(file: string): { card: CardData; node: string; json: Record
     fields[CLOCK] = { type: 'object', initial: declaredClock(json), fields: CLOCK_FIELDS }
   }
   ;(json.actions as Record<string, unknown>)[PROBE_ACTION] = {
+    whenToUse: 'when the clock has to move',
     what: 'set the clock',
+    principles: 'merge the whole clock in one call',
     path: CLOCK_PATH,
     mode: 'merge',
   }

@@ -37,10 +37,6 @@ function userOf(node: string, data: GameData = createInitialState(card), source:
   return messagesFor(node, data, source).at(-1)?.content as string
 }
 
-function systemOf(node: string, source: CardData = card): string {
-  return messagesFor(node, createInitialState(source), source)[0].content
-}
-
 describe('reads - a node only sees the branches it declares', () => {
   it('the state text is exactly renderState(state, { reads })', () => {
     const data = createInitialState(card)
@@ -78,31 +74,6 @@ describe('reads - a node only sees the branches it declares', () => {
     for (const id of source.graph.topology) {
       expect(source.graph.nodes[id].reads).toBeUndefined()
       expect(userOf(id, data, source)).toContain(renderState(withoutClock(data.state)))
-    }
-  })
-})
-
-describe('uses - generators go only to the nodes that name them', () => {
-  it('a node sees exactly the generators it declares', () => {
-    for (const id of topology) {
-      const uses = card.graph.nodes[id].uses ?? []
-      const system = systemOf(id)
-      for (const generator of card.generators) {
-        if (uses.includes(generator.name)) {
-          expect(system, id + ' must carry ' + generator.name).toContain(generator.name)
-          expect(system).toContain(generator.principles[0])
-        } else {
-          expect(system, id + ' must not carry ' + generator.name).not.toContain(generator.name)
-        }
-      }
-    }
-  })
-
-  it('a card whose nodes name no generators never gets one', () => {
-    const source = loadCard(NIGHT_WATCH_CARD)
-    expect(source.generators.length).toBeGreaterThan(0)
-    for (const id of source.graph.topology) {
-      expect(systemOf(id, source)).not.toContain(source.generators[0].name)
     }
   })
 })

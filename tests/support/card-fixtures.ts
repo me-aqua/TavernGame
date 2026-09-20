@@ -63,7 +63,6 @@ export function minimalCard(): Record<string, unknown> {
           prompt: ['prompt line'],
           tools: ['set_place'],
           reads: ['world'],
-          uses: ['places'],
         },
         [NODE_B]: {
           name: 'second',
@@ -75,13 +74,53 @@ export function minimalCard(): Record<string, unknown> {
       },
     },
     actions: {
-      set_place: { what: 'move the lead', path: 'world.location' },
-      move_lead: { what: 'merge the lead now', path: 'lead.now', mode: 'merge' },
-      add_role: { what: 'write a role', path: 'roles', key: 'name', mode: 'merge' },
-      set_where: { what: 'record where someone is', path: 'world.whoIsWhere', key: 'who' },
-      grow: { what: 'append a line', path: 'lead.pack', mode: 'push' },
-      advance_time: { what: 'pass time', effect: 'time' },
-      redo: { what: 'redo a step', effect: 'redo' },
+      set_place: {
+        whenToUse: 'when the fixture is needed',
+        principles: 'keep it minimal',
+        what: 'move the lead',
+        path: 'world.location',
+      },
+      move_lead: {
+        whenToUse: 'when the fixture is needed',
+        principles: 'keep it minimal',
+        what: 'merge the lead now',
+        path: 'lead.now',
+        mode: 'merge',
+      },
+      add_role: {
+        whenToUse: 'when the fixture is needed',
+        principles: 'keep it minimal',
+        what: 'write a role',
+        path: 'roles',
+        key: 'name',
+        mode: 'merge',
+      },
+      set_where: {
+        whenToUse: 'when the fixture is needed',
+        principles: 'keep it minimal',
+        what: 'record where someone is',
+        path: 'world.whoIsWhere',
+        key: 'who',
+      },
+      grow: {
+        whenToUse: 'when the fixture is needed',
+        principles: 'keep it minimal',
+        what: 'append a line',
+        path: 'lead.pack',
+        mode: 'push',
+      },
+      advance_time: {
+        whenToUse: 'when the fixture is needed',
+        principles: 'keep it minimal',
+        what: 'pass time',
+        effect: 'time',
+      },
+      redo: {
+        whenToUse: 'when the fixture is needed',
+        principles: 'keep it minimal',
+        what: 'redo a step',
+        effect: 'redo',
+      },
     },
     state: {
       lead: {
@@ -142,7 +181,6 @@ export function minimalCard(): Record<string, unknown> {
       player: { type: 'object', fields: { profile: { type: 'string', initial: 'a tester' } } },
     },
     time: { calendar: 'real' },
-    generators: [{ name: 'places', applies: 'when a place is needed', principles: ['grow one at a time'] }],
     opening: { canName: true, defaultName: 'nobody', requirements: ['write the opening'] },
     display: {
       layout: 'full screen',

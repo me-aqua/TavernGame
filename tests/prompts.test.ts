@@ -17,7 +17,6 @@ import {
   cardSystemPrompt,
   connectionTestPrompt,
   conventionPrompt,
-  generatorsPrompt,
   nodePrompt,
   openingInstruction,
   renderPrompt,
@@ -41,10 +40,8 @@ const openingMarkdownEn = readPrompt('en', 'opening')
 
 const topology = currentCard.graph.topology
 const FIRST_NODE = topology[0]
-const NODE_WITH_USES = topology.find((id) => (currentCard.graph.nodes[id].uses ?? []).length > 0) as string
-const NODE_WITHOUT_USES = topology.find(
-  (id) => (currentCard.graph.nodes[id].uses ?? []).length === 0,
-) as string
+/** 没写 `settings` 的节点：五块设定全发（它的 system 消息里那三段最全） */
+const PLAIN_NODE = topology.find((id) => currentCard.graph.nodes[id].settings === undefined) as string
 
 /** 测试自己编的 fixture（玩家行动与上游产出） */
 const PLAYER_WORDS = "Player's action: I go to the docks"
@@ -133,7 +130,7 @@ describe('engine prompt files', () => {
 describe('the card-side sections', () => {
   it('renders the five setting blocks in the card order, each line verbatim', () => {
     // 设定块按节点声明筛（决定 #52）：这一个节点没写 settings，于是它读得到全部五块
-    const text = settingsPrompt(currentCard, NODE_WITH_USES)
+    const text = settingsPrompt(currentCard, PLAIN_NODE)
     expect(text).toContain('## ' + t('prompts.setting'))
     let cursor = 0
     for (const [key, lines] of Object.entries(currentCard.settings)) {
@@ -174,39 +171,49 @@ describe('the card-side sections', () => {
     for (const line of node.prompt) expect(text).toContain(line)
   })
 
-  it('gives generators only to the nodes that name them (uses)', () => {
-    const used = currentCard.graph.nodes[NODE_WITH_USES].uses as string[]
-    const text = generatorsPrompt(currentCard, NODE_WITH_USES)
-    expect(text).toContain('## ' + t('prompts.generators'))
-    for (const name of used) {
-      const generator = currentCard.generators.find((entry) => entry.name === name)
-      expect(generator).toBeDefined()
-      expect(text).toContain(name)
-      expect(text).toContain(generator?.principles[0] as string)
-      expect(text).toContain(t('prompts.generatorApplies', { text: generator?.applies as string }))
-    }
-    expect(generatorsPrompt(currentCard, NODE_WITHOUT_USES)).toBe('')
-  })
-
   it('has no unfilled placeholders anywhere in the request', () => {
     expect(JSON.stringify(messagesFor(FIRST_NODE))).not.toMatch(/\{\{[A-Z_]+\}\}/)
   })
 })
 
 describe('the system prompt carries no tool manual (the native protocol does)', () => {
-  it('never repeats what an action says it does', () => {
+  it('never repeats a word of an action declaration', () => {
     const system = systemOf(FIRST_NODE)
     for (const action of Object.values(currentCard.actions)) {
-      expect(system).not.toContain(action.what)
+      for (const segment of [action.whenToUse, action.what, action.principles]) {
+        expect(system).not.toContain(segment)
+      }
     }
   })
 
-  it('lays out settings, script, convention and generators in that order', () => {
-    const system = systemOf(NODE_WITH_USES)
-    const at = (needle: string) => system.indexOf(needle)
-    expect(at('## ' + t('prompts.setting'))).toBeLessThan(at('## ' + t('prompts.script')))
-    expect(at('## ' + t('prompts.script'))).toBeLessThan(at('## ' + t('prompts.convention')))
-    expect(at('## ' + t('prompts.convention'))).toBeLessThan(at('## ' + t('prompts.generators')))
+  it('lays out exactly the three system sections, and no fourth one', () => {
+    // ⚠️ **这一条同时管顺序与"没有第四段"**（S3 评审 F1）：
+    //    原来那一环是 `expect(at('## 规矩')).toBeLessThan(system.length)` —— **恒真**
+    //    （`indexOf` 的结果永远小于 `length`），而交付说明里点名它"就是守『生成器那一整段不存在』
+    //    的那条守卫" ⇒ **声明与事实对不上**（它守不住任何东西）。
+    //    ⇒ 改成**两半**：① `## ` 段头**逐字等于**那三段、顺序一致、一个不多（**数出来的，不是搜出来的**）；
+    //      ② 三段的位置都 **> -1** —— `indexOf` 找不到时是 `-1`，而 `-1 < 任何下标` 会让顺序断言**假绿**。
+    //    ⚠️ **段头取自 locale**（`t('prompts.setting')` 那一族）：它们是**引擎写的**标题，
+    //       而 `prompts.generators` 那个键**已经不存在了** —— 拿它做 `not.toContain` 是恒真的
+    //       （S3 实测它在 `src/**` 0 处）⇒ 那等于"用一句恒真换掉另一句恒真"。
+    //    ⚠️ **system 只有这三段**：节点主提示词（`## 精神分析`）在 **user** 消息里（`nodePrompt()`），
+    //       不在这一份里 —— 我第一版把它也算进来，在**当前实现**上当场红了（这条自己也验证了一遍）。
+    //    ⚠️ 与 `prompt-blocks.test.ts` 的块表**不是同一件事**：那条测**发出去的消息**被切回了几块，
+    //       这条测**装配器写的 system 正文**里有几个 `## ` 段头。
+    const system = systemOf(FIRST_NODE)
+    const heads = [...system.matchAll(/^## (.*)$/gm)].map((match) => match[1])
+    const wanted = [t('prompts.setting'), t('prompts.script'), t('prompts.convention')]
+    expect(
+      heads,
+      'the system prompt is exactly these three sections, in this order, and nothing else',
+    ).toEqual(wanted)
+    const at = (head: string) => system.indexOf('## ' + head)
+    for (const head of wanted) expect(at(head), head + ' must be there at all').toBeGreaterThan(-1)
+    for (let index = 1; index < wanted.length; index += 1) {
+      expect(at(wanted[index - 1]), wanted[index - 1] + ' comes before ' + wanted[index]).toBeLessThan(
+        at(wanted[index]),
+      )
+    }
   })
 })
 
@@ -262,9 +269,15 @@ describe('buildNodeMessages - one request per node', () => {
     expect(user).toContain(t('prompts.recentLine', { who: t('prompts.player'), text: 'I look around' }))
     expect(user).toContain(t('prompts.recentLine', { who: t('prompts.gm'), text: EARLIER }))
     // 顺序 = 发生顺序；「现在」之后才是「玩家」那一段
-    expect(user.indexOf(t('prompts.recent'))).toBeGreaterThan(-1)
-    expect(user.indexOf('I look around')).toBeLessThan(user.indexOf(EARLIER))
-    expect(user.indexOf(EARLIER)).toBeLessThan(user.indexOf('## ' + t('prompts.player')))
+    // ⚠️ **每条顺序断言都要先证明两个记号都在**（同族：S3 打回的 F1/F2 都是"缺了一样照样绿"的形态）——
+    //    `indexOf` 找不到时返回 `-1`，而 `-1 < 任何下标` 为真 ⇒ 光比大小**断不出"缺了一个"**。
+    const at = (needle: string): number => {
+      const index = user.indexOf(needle)
+      expect(index, JSON.stringify(needle) + ' must be in the message at all').toBeGreaterThan(-1)
+      return index
+    }
+    expect(at('I look around')).toBeLessThan(at(EARLIER))
+    expect(at(EARLIER)).toBeLessThan(at('## ' + t('prompts.player')))
   })
 
   it('renders every story event since the beginning (no tail window), and still no debug noise', () => {
@@ -359,12 +372,12 @@ describe('model language follows the UI language', () => {
   it('switches the engine-written headings but keeps the card content as written', () => {
     setLocale('zh-CN')
     // 这一个节点没写 settings ⇒ 五块全发：卡的内容两版都在（引擎写的标题随语言变）
-    const zh = systemOf(NODE_WITH_USES)
+    const zh = systemOf(PLAIN_NODE)
     const zhNow = t('prompts.now')
     const zhSetting = t('prompts.settingBlock.world')
 
     setLocale('en')
-    const en = systemOf(NODE_WITH_USES)
+    const en = systemOf(PLAIN_NODE)
     const enNow = t('prompts.now')
     const enSetting = t('prompts.settingBlock.world')
 

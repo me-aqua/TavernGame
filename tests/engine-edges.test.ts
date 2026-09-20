@@ -32,17 +32,9 @@ describe('card.ts - the shapes that must be rejected', () => {
     expect(broken((card) => (card.graph.nodes.first = 'nope'))).toThrow(/graph\.nodes\.first/)
   })
 
-  it('a generator that is not an object', () => {
-    expect(broken((card) => card.generators.push('nope'))).toThrow(/generators\[1\]/)
-  })
-
   it('a sidebar block that is not an object', () => {
     // 下标 = 夹具里声明的条数（它现在是四条：区域表 / 当前所在 / 角色 / 背包）
     expect(broken((card) => card.display.sidebar.push('nope'))).toThrow(/display\.sidebar\[4\]/)
-  })
-
-  it('a generators block that is not an array', () => {
-    expect(broken((card) => (card.generators = {}))).toThrow(/generators/)
   })
 })
 
@@ -70,7 +62,8 @@ describe('card-state.ts - the value shapes the schema rejects', () => {
 
 describe('card-read.ts - requireArray on a non-array', () => {
   it('reports the field path instead of returning a non-array', () => {
-    expect(() => requireArray({ generators: 7 }, 'generators', 'card')).toThrow(/card\.generators/)
+    // 拿真在跑的那一处当样本（display.ts 的侧栏声明）；键名换成卡格式里已经没有的，这条就没在测东西
+    expect(() => requireArray({ sidebar: 7 }, 'sidebar', 'display')).toThrow(/display\.sidebar/)
   })
 })
 
@@ -106,22 +99,51 @@ describe('card-actions.ts - every parameter shape is derived from the state sche
     card.state.lead.fields.rank = { type: 'integer', initial: 1, range: [1, 5] }
     card.state.lead.fields.level = { type: 'integer', initial: 1 }
     card.state.lead.fields.tags = { type: 'map', initial: {}, of: 'string' }
-    card.actions.patch_lead = { what: 'patch the lead', path: 'lead', mode: 'merge' }
+    card.actions.patch_lead = {
+      whenToUse: 'when the engine edge is needed',
+      principles: 'keep it minimal',
+      what: 'patch the lead',
+      path: 'lead',
+      mode: 'merge',
+    }
     // map 的元素自己声明了键字段
     card.state.people = {
       type: 'map',
       initial: {},
       of: { type: 'object', fields: { name: 'string', note: 'string' } },
     }
-    card.actions.upsert_person = { what: 'upsert a person', path: 'people', key: 'name', mode: 'merge' }
+    card.actions.upsert_person = {
+      whenToUse: 'when the engine edge is needed',
+      principles: 'keep it minimal',
+      what: 'upsert a person',
+      path: 'people',
+      key: 'name',
+      mode: 'merge',
+    }
     // 中间缺一段的路径（父对象按需建出来）
     card.state.deep = { type: 'object', fields: { inner: { type: 'object', fields: { value: 'string' } } } }
-    card.actions.set_deep = { what: 'set deep', path: 'deep.inner' }
+    card.actions.set_deep = {
+      whenToUse: 'when the engine edge is needed',
+      principles: 'keep it minimal',
+      what: 'set deep',
+      path: 'deep.inner',
+    }
     // push 到一个还没有初值的列表
     card.state.log = { type: 'list', of: { type: 'object', fields: { what: 'string' } } }
-    card.actions.write_log = { what: 'append', path: 'log', mode: 'push' }
+    card.actions.write_log = {
+      whenToUse: 'when the engine edge is needed',
+      principles: 'keep it minimal',
+      what: 'append',
+      path: 'log',
+      mode: 'push',
+    }
     // 标量目标：参数只有一个 value
-    card.actions.set_profile = { what: 'set the profile', path: 'player.profile' }
+    card.actions.set_profile = {
+      whenToUse: 'when the engine edge is needed',
+      principles: 'keep it minimal',
+      what: 'set the profile',
+      path: 'player.profile',
+    }
     return validateCard(card)
   }
 

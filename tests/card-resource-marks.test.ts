@@ -24,7 +24,6 @@ import {
   CARD_KEY,
   EXAMPLE,
   declaredSettings,
-  declaredUses,
   savedCard,
   withEveryDeclaration,
 } from './support/card-resources'
@@ -45,12 +44,6 @@ const NO_STYLE = EXAMPLE.graph.topology.find(
 
 /** 没写 `settings` 的节点（界面上五块全勾；取消勾之后要能回落到「不写这个键」那一档） */
 const NO_SETTINGS = EXAMPLE.graph.topology.find((id) => declaredSettings(EXAMPLE, id) === undefined) as string
-
-/** 没写 `uses` 的节点（勾第一条第生成器 = 从不写这个键改成写了） */
-const NO_USES = EXAMPLE.graph.topology.find((id) => declaredUses(EXAMPLE, id) === undefined) as string
-
-/** 写了两条 `uses` 的节点（取消一条 = 子集） */
-const TWO_USES = EXAMPLE.graph.topology.find((id) => (declaredUses(EXAMPLE, id) ?? []).length === 2) as string
 
 /** vue-flow 的替身：每个节点一个按钮（点 = 选中那个节点）——与 card-ui.test.ts 同一套做法 */
 const VueFlowStub = defineComponent({
@@ -132,9 +125,6 @@ describe('CardEditor: the resource checkboxes on a node', () => {
   it('lists the five setting blocks under the names the resource panel uses', async () => {
     const w = await editor(EXAMPLE, NO_STYLE)
     expect(marks(w, 'setting')).toEqual(SETTING_KEYS)
-    // 生成器那一列同样要有**名单**断言：按名字找元素只会红成「空 wrapper」，
-    // 而「多一条卡里没有的生成器」那种错，只有名单能发现。
-    expect(marks(w, 'generator')).toEqual(EXAMPLE.generators.map((generator) => generator.name))
 
     const labelText = label('prompts.settingBlock.' + SETTING_KEYS[0])
     for (const locale of ['zh-CN', 'en'] as const) {
@@ -158,7 +148,6 @@ describe('CardEditor: the resource checkboxes on a node', () => {
     // ⚠️ 期望值从**这个节点的声明**现取：它只声明四块（没有 style），取消 world 之后应当剩三块
     expect(originalSettings(EXAMPLE, NO_STYLE)).toHaveLength(4)
     expect(declaredSettings(stored, NO_STYLE)).toEqual(settingsWithout(EXAMPLE, NO_STYLE, 'world'))
-    expect(declaredUses(stored, NO_STYLE)).toEqual(declaredUses(EXAMPLE, NO_STYLE))
     const before = EXAMPLE.graph.nodes[NO_STYLE]
     const after = stored.graph.nodes[NO_STYLE]
     expect(after.tools).toEqual(before.tools)
@@ -193,25 +182,5 @@ describe('CardEditor: the resource checkboxes on a node', () => {
     await last.trigger('click')
     expect(checked(w, 'setting')).toEqual([SETTING_KEYS[0]])
     expect(declaredSettings(savedCard(), NO_SETTINGS)).toEqual([SETTING_KEYS[0]])
-  })
-
-  it('unchecking a generator takes it out of uses, and leaving none takes the key out', async () => {
-    const w = await editor(EXAMPLE, TWO_USES)
-    const [first, second] = declaredUses(EXAMPLE, TWO_USES) as string[]
-
-    await uncheck(w, 'generator', first)
-    expect(declaredUses(savedCard(), TWO_USES)).toEqual([second])
-
-    await uncheck(w, 'generator', second)
-    expect(declaredUses(savedCard(), TWO_USES)).toBeUndefined()
-  })
-
-  it('checking the first generator on a node that has none writes the key', async () => {
-    const w = await editor(EXAMPLE, NO_USES)
-    const name = EXAMPLE.generators[0].name
-    expect(declaredUses(EXAMPLE, NO_USES)).toBeUndefined()
-
-    await check(w, 'generator', name)
-    expect(declaredUses(savedCard(), NO_USES)).toEqual([name])
   })
 })
