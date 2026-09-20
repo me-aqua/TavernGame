@@ -7,10 +7,10 @@
  *
  * ⚠️ 只认 card/4。格式不认识就直接拒 —— 不做字段改名、不做版本迁移。
  *
- * 顶层 12 键（读者三分，字段级成立）：
+ * 顶层 11 键（读者三分，字段级成立）：
  *   · 引擎读：card · state · time · actions · graph（id / 拓扑 / role / tools）· display
- *   · 模型读：settings · script · convention · generators · graph.nodes[*].prompt ·
- *             opening.requirements · 每个动作的 what
+ *   · 模型读：settings · script · convention · graph.nodes[*].prompt ·
+ *             opening.requirements · 每个动作的那三段（whenToUse / what / principles）
  *   · 人读：notes · 各处的 note
  *
  * 显示声明（`display`）的形状与校验都在 `game/display.ts` —— 那里说「一条 = 一枝 + 标题 + 一种格式」，
@@ -27,7 +27,6 @@ import {
   fail,
   isRecord,
   readTextList,
-  requireArray,
   requireRecord,
   requireText,
   requireTextList,
@@ -60,7 +59,7 @@ export interface Settings {
   lead: string[]
 }
 
-/** 图里的一个节点：一处的形状 + 提示词；顺序由 topology 定，节点里没有序号 */
+/** 图里的一个节点：一处的形状 + 一条主提示词；顺序由 topology 定，节点里没有序号 */
 export interface GraphNode {
   name: string
   duty: string
@@ -71,8 +70,6 @@ export interface GraphNode {
   tools?: string[]
   /** 这个节点看得见哪几个顶层状态分支（不写 = 全部） */
   reads?: string[]
-  /** 这个节点要读哪几条生成器（不写 = 不带生成器） */
-  uses?: string[]
   /** 这个节点要读哪几块设定（不写 = 五块全发）—— 取值是卡里 settings 的键 */
   settings?: string[]
 }
@@ -83,20 +80,21 @@ export interface Graph {
   nodes: Record<string, GraphNode>
 }
 
-/** 一个动作：写到哪（path + mode + key），或引擎内置效果（effect） */
+/**
+ * 一个动作：它什么时候用、它做什么、它的使用原则，加上写到哪（path + mode + key）
+ * 或引擎内置效果（effect）。
+ *
+ * ⚠️ 三段都是**给模型的工具说明**（R58 / R49）：引擎把它们拼成 `tools[].function.description`
+ *    （`card-actions.ts` 的 `descriptionOf`）—— 声明了却不发出去，就是第二个 `duty`。
+ */
 export interface Action {
+  whenToUse: string
   what: string
+  principles: string
   path?: string
   effect?: 'time' | 'redo'
   mode?: 'set' | 'merge' | 'push'
   key?: string
-}
-
-/** 一条按需生长的原则 */
-export interface Generator {
-  name: string
-  applies: string
-  principles: string[]
 }
 
 /** 开局事实：能不能起名、默认名、第一轮的要求 */
@@ -131,7 +129,6 @@ export interface CardData {
   state: StateSchema
   /** 这张卡的历法 —— 时刻本身声明在 `state.world.time`（R39） */
   time: { calendar: Calendar }
-  generators: Generator[]
   opening: Opening
   display: Display
   notes: Record<string, Note>
@@ -142,7 +139,7 @@ export interface CardData {
 /** 卡格式版本 —— 别的格式直接拒（这个字段就是干这个的） */
 export const CARD_FORMAT = 'card/4'
 
-/** 顶层 12 键，一个不少、一个不多 */
+/** 顶层 11 键，一个不少、一个不多 */
 const TOP_LEVEL_KEYS = [
   'card',
   'settings',
@@ -152,7 +149,6 @@ const TOP_LEVEL_KEYS = [
   'actions',
   'state',
   'time',
-  'generators',
   'opening',
   'display',
   'notes',
@@ -160,9 +156,8 @@ const TOP_LEVEL_KEYS = [
 
 const META_KEYS = ['id', 'name', 'version', 'compat', 'author', 'format', 'language', 'summary']
 const SETTING_KEYS = ['world', 'core', 'common', 'style', 'lead']
-const NODE_KEYS = ['name', 'duty', 'prompt', 'role', 'tools', 'reads', 'uses', 'settings']
-const ACTION_KEYS = ['what', 'path', 'effect', 'mode', 'key']
-const GENERATOR_KEYS = ['name', 'applies', 'principles']
+const NODE_KEYS = ['name', 'duty', 'prompt', 'role', 'tools', 'reads', 'settings']
+const ACTION_KEYS = ['whenToUse', 'what', 'principles', 'path', 'effect', 'mode', 'key']
 const OPENING_KEYS = ['canName', 'defaultName', 'requirements']
 const DISPLAY_KEYS = ['layout', 'sidebar', 'time', 'scroll', 'scene']
 
@@ -184,7 +179,7 @@ const ACTION_NAME = /^[a-zA-Z0-9_-]{1,64}$/
 
 // ---------- 顶层 ----------
 
-/** 顶层 12 键一个不少、一个不多（没人读的块多半是写错了名字） */
+/** 顶层 11 键一个不少、一个不多（没人读的块多半是写错了名字） */
 function checkTopLevel(card: Record<string, unknown>): void {
   for (const key of TOP_LEVEL_KEYS) {
     if (!Object.hasOwn(card, key)) fail('', 'missing top-level key "' + key + '"')
@@ -235,7 +230,7 @@ function checkState(card: Record<string, unknown>): void {
   for (const [branch, schema] of Object.entries(state)) checkSchema(schema, at('state', branch))
 }
 
-/** 动作：名字是协议名、形状是两种之一、引用完整性（path 存在、mode / key 合法） */
+/** 动作：名字是协议名、三段齐备、形状是两种之一、引用完整性（path 存在、mode / key 合法） */
 function checkActions(card: Record<string, unknown>): void {
   const actions = requireRecord(card, 'actions', '')
   const state = requireRecord(card, 'state', '') as StateSchema
@@ -245,8 +240,8 @@ function checkActions(card: Record<string, unknown>): void {
       fail(where, 'must be a tool name (letters, digits, dashes, underscores; up to 64)')
     }
     if (!isRecord(value)) fail(where, 'must be an object')
-    checkOptionalKeys(value, ACTION_KEYS, ['what'], where)
-    requireText(value, 'what', where)
+    checkOptionalKeys(value, ACTION_KEYS, ['whenToUse', 'what', 'principles'], where)
+    for (const key of ['whenToUse', 'what', 'principles']) requireText(value, key, where)
 
     const hasPath = Object.hasOwn(value, 'path')
     const hasEffect = Object.hasOwn(value, 'effect')
@@ -320,8 +315,6 @@ function checkGraph(card: Record<string, unknown>): void {
   const settings = requireRecord(card, 'settings', '')
   const actions = requireRecord(card, 'actions', '')
   const state = requireRecord(card, 'state', '')
-  const generators = requireArray(card, 'generators', '')
-  const knownGenerators = generators.filter(isRecord).map((item) => item.name)
 
   const stories: string[] = []
   const names: string[] = []
@@ -345,7 +338,6 @@ function checkGraph(card: Record<string, unknown>): void {
     }
     checkTools(node, where, actions)
     checkReads(node, where, state)
-    checkUses(node, where, knownGenerators)
     checkNodeSettings(node, where, settings)
   }
   if (stories.length !== 1) {
@@ -378,17 +370,6 @@ function checkReads(node: Record<string, unknown>, where: string, state: Record<
   })
 }
 
-/** 节点的 uses 只能引用卡里声明的生成器 */
-function checkUses(node: Record<string, unknown>, where: string, names: unknown[]): void {
-  const uses = readTextList(node, 'uses', where)
-  if (uses === undefined) return
-  uses.forEach((name, index) => {
-    if (!names.includes(name)) {
-      fail(at(where, 'uses') + '[' + index + ']', 'is not a generator declared in this card')
-    }
-  })
-}
-
 /** 节点的 settings：不写 = 五块全发；写了必须非空、不重复、且每一块都是卡里声明的设定块 */
 function checkNodeSettings(
   node: Record<string, unknown>,
@@ -409,22 +390,6 @@ function checkNodeSettings(
     if (seen.includes(name)) fail(path, 'duplicate setting block "' + name + '"')
     seen.push(name)
   }
-}
-
-/** 生成器：名字唯一（uses 按名字引用它）、适用与原则都不能空 */
-function checkGenerators(card: Record<string, unknown>): void {
-  const generators = requireArray(card, 'generators', '')
-  const names: string[] = []
-  generators.forEach((value, index) => {
-    const where = 'generators[' + index + ']'
-    if (!isRecord(value)) fail(where, 'must be an object')
-    checkKeys(value, GENERATOR_KEYS, where)
-    const name = requireText(value, 'name', where)
-    if (names.includes(name)) fail(at(where, 'name'), 'duplicate generator name "' + name + '"')
-    names.push(name)
-    requireText(value, 'applies', where)
-    requireTextList(value, 'principles', where)
-  })
 }
 
 /** 开局：能不能起名 / 默认名（允许空串 = 由调用方按语言兜底）/ 第一轮的要求 */
@@ -472,7 +437,6 @@ export function validateCard(data: unknown): CardData {
   checkTimeBlock(data)
   checkActions(data)
   checkGraph(data)
-  checkGenerators(data)
   checkOpening(data)
   checkDisplay(data)
   checkNotes(data)

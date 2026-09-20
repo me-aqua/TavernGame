@@ -1,16 +1,17 @@
 /**
  * src/game/card-actions.ts —— 把卡的 actions 推导成原生工具，并执行它们。
  *
- * 作者只写两件事：这个动作叫什么、它写到哪（path / mode / key）或它是哪个内置效果
- * （effect）。**参数契约由引擎从 state schema 推导**，作者不写参数：
+ * 作者只写两件事：这个动作叫什么、它什么时候用 / 做什么 / 有什么原则，以及它写到哪
+ * （path / mode / key）或它是哪个内置效果（effect）。**参数契约由引擎从 state schema 推导**，
+ * 作者不写参数：
  *   · `path` 指向 object → 摊平它的字段（set 全部必给，merge 一个都不必给）；
  *   · `path` 指向 list（push）或 map（必须给 key）→ 摊平**元素** schema，再看看 key 是不是
  *     元素自己的字段；元素不是 object 时参数只有一个 `value`；
  *   · `effect: "time"` → 引擎给的 { minutes, reason }（minutes 是唯一的推进量）；
  *   · `effect: "redo"` → { from, why }，from 的 enum 是**调用者自己与它前面的节点**。
  *
- * schema 上的 note（给模型的规则）拼进对应动作的 tool description —— 规则与形状不分家，
- * 也不用每次调用都发一遍。
+ * 作者写的那三段（什么时候用 / 它做什么 / 使用原则）与 schema 上的 note（给模型的规则）
+ * 一起拼进对应动作的 tool description —— 规则与形状不分家，也不用每次调用都发一遍。
  *
  * 执行：**先按节点的 tools 白名单挡一次**（不在名单里的动作直接回结构化错误）→ 校验参数
  * → 按 mode 写进**工作副本** → 返回 { result, change }（change 给调试面板与
@@ -245,9 +246,9 @@ function notesFor(card: CardData, action: Action): string[] {
   return lines
 }
 
-/** 动作的 tool description：作者写的 what + 写到那几段 schema 上的 note */
+/** 动作的 tool description：作者写的三段（什么时候用 / 它做什么 / 使用原则）+ 写到那几段 schema 上的 note */
 function descriptionOf(card: CardData, action: Action): string {
-  const lines = [action.what]
+  const lines = [action.whenToUse, action.what, action.principles]
   if (action.path !== undefined) {
     for (const note of notesFor(card, action)) lines.push('- ' + note)
   }

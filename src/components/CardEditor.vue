@@ -8,7 +8,7 @@
  * 读卡，见 game/current-card.ts）。
  *
  * 可改的只有节点的**名 / 职责 / 提示词**（graph.nodes[id] 里的那三处）与**这个节点读哪几块
- * 资源**（settings / uses 两个勾选列）；role / tools / reads 是机制（卡给了谁什么权力），
+ * 资源**（settings 勾选列）；role / tools / reads 是机制（卡给了谁什么权力），
  * 表单只读展示，保存时整份复制、一个字节不动。
  *
  * 资源库面板（CardResources）是本浮层里的第二块：它管卡里那几块原始提示词的读与改，
@@ -44,9 +44,8 @@ const error = ref('')
 /** 资源库面板开着没有（表头那颗按钮开合它） */
 const resourcesOpen = ref(false)
 
-/** 卡里的五块设定与全部生成器名 —— 勾选区的两列就是它们 */
+/** 卡里的五块设定 —— 勾选区那一列就是它们 */
 const settingKeys = computed(() => Object.keys(props.card.settings))
-const generatorNames = computed(() => props.card.generators.map((generator) => generator.name))
 
 const meta = computed(() => cardMeta(props.card))
 const sourceLabel = computed(() =>
@@ -65,7 +64,6 @@ const editing = computed(() => {
     role: node.role ?? null,
     tools: node.tools ?? null,
     reads: node.reads ?? null,
-    uses: node.uses ?? null,
     settings: node.settings ?? null,
   }
 })
@@ -99,23 +97,20 @@ function save(value: { name: string; duty: string; prompt: string[] }) {
 }
 
 /**
- * 勾选变了：把这个节点要读的设定块 / 生成器写回卡，再跑与导入同一套校验。
+ * 勾选变了：把这个节点要读的设定块写回卡，再跑与导入同一套校验。
  *
- * ⚠️ 一个都没勾就**把这个键删掉**，不是写空表：卡格式里「不写 settings」＝ 五块全发、
- *    「不写 uses」＝ 不带生成器，而空表会被校验器拒（`must not be empty`）—— 那是另一件事。
+ * ⚠️ 一个都没勾就**把这个键删掉**，不是写空表：卡格式里「不写 settings」＝ 五块全发，
+ *    而空表会被校验器拒（`must not be empty`）—— 那是另一件事。
  *
- * 两份名单都按**卡自己的键序**过滤一遍：界面上的先后不该进卡（卡的声明顺序是唯一的顺序），
+ * 名单按**卡自己的键序**过滤一遍：界面上的先后不该进卡（卡的声明顺序是唯一的顺序），
  * 而界面上可能还留着卡里已经没有的块名（它由勾选列自己维护）。
  */
-function markResources(value: { settings: string[]; uses: string[] }) {
+function markResources(value: { settings: string[] }) {
   const next = JSON.parse(JSON.stringify(props.card)) as CardData
-  const node = next.graph.nodes[selected.value] as { settings?: string[]; uses?: string[] }
+  const node = next.graph.nodes[selected.value] as { settings?: string[] }
   const keptSettings = settingKeys.value.filter((key) => value.settings.includes(key))
-  const keptUses = generatorNames.value.filter((name) => value.uses.includes(name))
   if (keptSettings.length) node.settings = keptSettings
   else delete node.settings
-  if (keptUses.length) node.uses = keptUses
-  else delete node.uses
   error.value = ''
   try {
     importCard(JSON.stringify(next))
@@ -188,10 +183,8 @@ function markResources(value: { settings: string[]; uses: string[] }) {
           :role="editing.role"
           :tools="editing.tools"
           :reads="editing.reads"
-          :uses="editing.uses"
           :settings="editing.settings"
           :setting-keys="settingKeys"
-          :generator-names="generatorNames"
           :error="error"
           @save="save"
           @marks="markResources"

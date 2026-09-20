@@ -1,13 +1,12 @@
 <script setup lang="ts">
 /**
- * 资源库面板：把卡里那几块原始提示词（五块设定 / 剧本 / 节点约定 / 生成器）摆出来看与改。
+ * 资源库面板：把卡里那几块原始提示词（五块设定 / 剧本 / 节点约定）摆出来看与改。
  *
  * 资源不是卡里的新键，是**既有内容的一种视图** —— 五块设定按卡的声明顺序，然后是剧本、
- * 节点约定、生成器（生成器一条一件，名字取它自己的 `name`，那是作者写的、不翻译）。
- * 名字走 `prompts.*` 那套键 —— 与调试痕迹里显示的是同一串，用户要的就是两边对得上号。
+ * 节点约定。名字走 `prompts.*` 那套键 —— 与调试痕迹里显示的是同一串，用户要的就是两边对得上号。
  *
- * 每项点开才交出正文（`style` 那 233 行不许默认铺开）：行数组按 `\n` 拼，`script` /
- * `generators` 是 JSON 文本。存回走 `importCard` —— 与导入卡同一条路（卡格式 + 显示词汇表
+ * 每项点开才交出正文（`style` 那 233 行不许默认铺开）：行数组按 `\n` 拼，`script` 是 JSON 文本。
+ * 存回走 `importCard` —— 与导入卡同一条路（卡格式 + 显示词汇表
  * 两道校验），通过才落盘；失败原样显示原因，**内存里那张卡一个字节都不动**，
  * 成功也只 emit saved（reload 是外层的事）。
  */
@@ -48,16 +47,6 @@ function resourceList(card: CardData): Resource[] {
     ...settings,
     { id: 'script', label: t('prompts.script'), text: JSON.stringify(card.script, null, 2) },
     { id: 'convention', label: t('prompts.convention'), text: card.convention.join('\n') },
-    {
-      id: 'generators',
-      label: t('prompts.generators'),
-      text: JSON.stringify(card.generators, null, 2),
-    },
-    ...card.generators.map((generator) => ({
-      id: generator.name,
-      label: generator.name,
-      text: JSON.stringify(generator, null, 2),
-    })),
   ]
 }
 
@@ -101,13 +90,8 @@ function save(id: string): void {
     next.settings[id as keyof CardData['settings']] = text.split('\n')
   } else if (id === 'script') {
     next.script = JSON.parse(text) as Record<string, unknown>
-  } else if (id === 'convention') {
-    next.convention = text.split('\n')
   } else {
-    // 一条生成器：卡里按名字索引，改的是那一条
-    const found = next.generators.find((generator) => generator.name === id)
-    if (found === undefined) return
-    Object.assign(found, JSON.parse(text))
+    next.convention = text.split('\n')
   }
   failed.value = ''
   try {

@@ -2,12 +2,12 @@
  * src/agent/prompts.ts —— 提示词装配器
  *
  * ⚠️ **这里不放任何提示词内容**：
- *   · 卡里的提示词（五块设定 / 剧本 / 节点约定 / 生成器 / 逐节点）从卡取 —— 那才是作者改的地方；
+ *   · 卡里的提示词（五块设定 / 剧本 / 节点约定 / 逐节点）从卡取 —— 那才是作者改的地方；
  *   · 引擎自带的说明在 `prompts/<lang>/*.md`（构建期编码成虚拟模块）。
  * 本文件的职责只有五件：
  *   1. 把构建期编码的提示词解码成字符串
  *   2. **按当前界面语言选那一套**（模型语言跟随界面语言，见 doc/DESIGN.md 决定 #19）
- *   3. 按卡的声明拼出一次节点请求：system（设定 + 剧本 + 规矩 + 该节点点名的生成器）
+ *   3. 按卡的声明拼出一次节点请求：system（设定 + 剧本 + 规矩）
  *      + user（现在 / 玩家 / 上游 / 该节点提示词）；「现在」里的「故事到目前为止」就是模型的记忆
  *   4. 填占位符并**确认没有漏填**
  *   5. **把拼出去的消息按段交出来**（requestBlocks / blockText）—— 段的边界与行结构
@@ -37,7 +37,7 @@ import { format as formatCalendar } from '../game/card-calendar'
 import { clockIn, withoutClock } from '../game/card-time'
 import { renderState, type StateTree } from '../game/card-state'
 import { isRecord, isStoryKind } from '../game/save'
-import type { CardData, Generator } from '../game/card'
+import type { CardData } from '../game/card'
 import type { ChatMessage, GameEvent } from '../types/state'
 
 /**
@@ -149,32 +149,6 @@ export function conventionPrompt(card: CardData): string {
   return section(t('prompts.convention'), card.convention.join('\n'))
 }
 
-/**
- * 该节点 uses 点名的生成器（不写 = 不带生成器）。
- *
- * 生成器是**给模型的指令**（「没长出来的东西怎么长」），不是状态 —— 所以它不进状态快照，
- * 只给点名的节点。
- */
-export function generatorsPrompt(card: CardData, node: string): string {
-  const names = card.graph.nodes[node].uses
-  if (names === undefined || names.length === 0) return ''
-  const byName = new Map(card.generators.map((generator) => [generator.name, generator]))
-  const parts = names.map((name) => {
-    // uses 的名字在卡校验期已经确认存在（card.ts 的 checkUses），这里直接读
-    const generator = byName.get(name) as Generator
-    const principles = generator.principles.map((line) => '- ' + line).join('\n')
-    return (
-      '### ' +
-      generator.name +
-      '\n' +
-      t('prompts.generatorApplies', { text: generator.applies }) +
-      '\n' +
-      principles
-    )
-  })
-  return section(t('prompts.generators'), parts.join('\n\n'))
-}
-
 /** 该节点自己的提示词：标题用卡给它起的显示名 */
 export function nodePrompt(card: CardData, id: string): string {
   const node = card.graph.nodes[id]
@@ -182,20 +156,16 @@ export function nodePrompt(card: CardData, id: string): string {
 }
 
 /**
- * 公共部分的 system 消息：该节点读得到的设定块 + 剧本 + 节点约定 + 该节点点名的生成器。
+ * 公共部分的 system 消息：该节点读得到的设定块 + 剧本 + 节点约定。
  *
  * ⚠️ **所有节点各自一份**（决定 #26）：上游与逐节点提示词都不在这里；
- *    工具的名字与说明也不在这里 —— 它们只走原生 tools 协议。
+ *    工具的名字与说明也不在这里 —— 它们只走原生 tools 协议，
+ *    动作那三段（什么时候用 / 它做什么 / 使用原则）由 `card-actions.ts` 拼进工具说明。
  * ⚠️ 设定块按节点自己的声明筛（决定 #52）：引擎不认识任何节点名，
  *    「谁读哪几块」只由卡说了算。
  */
 export function cardSystemPrompt(card: CardData, node: string): string {
-  return joinSections([
-    settingsPrompt(card, node),
-    scriptPrompt(card),
-    conventionPrompt(card),
-    generatorsPrompt(card, node),
-  ])
+  return joinSections([settingsPrompt(card, node), scriptPrompt(card), conventionPrompt(card)])
 }
 
 /** 上游节点**本轮**的产出：节点显示名 + 它的产出原文 */
@@ -271,7 +241,7 @@ export interface NodeRequestInput {
 }
 
 /**
- * 拼出一次节点请求的消息列表：system（设定 / 剧本 / 规矩 / 生成器）
+ * 拼出一次节点请求的消息列表：system（设定 / 剧本 / 规矩）
  * → （重跑时的系统提示）→ user（现在 / 玩家 / 上游 / 该节点提示词）。
  *
  * 「现在」= 时刻（按卡的历法念）+ 状态树（按节点的 reads 裁）+ 「故事到目前为止」（这一轮之前）。

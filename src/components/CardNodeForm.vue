@@ -6,7 +6,7 @@
  * 不用转义、不用管引号（卡的存储格式为引擎优化，作者看不到 JSON）。
  *
  * 只读那几行说的正是「机制只看卡」的部分：这个节点能不能写叙事（role）、能用哪些动作
- * （tools）、看得见哪几块状态（reads）、要读哪几条生成器（uses）—— 它们不是文案，
+ * （tools）、看得见哪几块状态（reads）—— 它们不是文案，
  * 表单一个字节都不改（改它们等于改这张卡给谁什么权力）。
  *
  * 表单不碰卡：它把改过的三个字段抛出去，写回整份卡与校验是外层的事。
@@ -30,26 +30,22 @@ const props = withDefaults(
     tools: string[] | null
     /** 这个节点看得见哪几块状态（null = 全部） */
     reads: string[] | null
-    /** 这个节点要读哪几条生成器（null = 不带生成器） */
-    uses: string[] | null
     /** 这个节点要读哪几块设定（null = 卡里五块全读）—— 勾选区读它决定默认勾上哪几枚 */
     settings?: string[] | null
     /** 卡里的五块设定（勾选区的设定列恰好是这几个，顺序就是卡的声明顺序） */
     settingKeys?: string[]
-    /** 卡里的生成器名（勾选区的生成器列恰好是这几条） */
-    generatorNames?: string[]
     /** 保存失败的原因（外层校验回来的）；没有就是空串 */
     error?: string
   }>(),
   // ⚠️ 缺省写进默认值而不是靠调用方喂：这两个都是「没有」的表达（null = 卡里全读 / 空串 = 没报错），
   //    写成必填会让每个调用点重复一遍「什么都没有」，缺一个就多一条 Vue 警告
-  { settings: null, settingKeys: () => [], generatorNames: () => [], error: '' },
+  { settings: null, settingKeys: () => [], error: '' },
 )
 
 const emit = defineEmits<{
   save: [value: { name: string; duty: string; prompt: string[] }]
-  /** 勾选变了：这个节点要读的设定块与生成器各是哪几个（写回整份卡是外层的事） */
-  marks: [value: { settings: string[]; uses: string[] }]
+  /** 勾选变了：这个节点要读的设定块是哪几个（写回整份卡是外层的事） */
+  marks: [value: { settings: string[] }]
 }>()
 
 const nameText = ref(props.name)
@@ -57,7 +53,7 @@ const dutyText = ref(props.duty)
 const promptText = ref(props.prompt.join('\n'))
 
 /**
- * 一条声明怎么念：没写这个键 = 卡里的全部（uses 是「不带生成器」），
+ * 一条声明怎么念：没写这个键 = 卡里的全部，
  * 写了个空表 = 一个都没有 —— 两件事长得一样就糟了，空表不能画成空白。
  */
 function declaration(value: string[] | null, whenAbsent: string): string {
@@ -65,22 +61,17 @@ function declaration(value: string[] | null, whenAbsent: string): string {
   return value.length === 0 ? t('card.declNone') : value.join(' ')
 }
 
-/** 只读声明的四行：值缺了就说清「是什么都没有」还是「卡里全部」 */
+/** 只读声明的三行：值缺了就说清「是什么都没有」还是「卡里全部」 */
 const declarations = computed(() => [
   { key: 'card.declRole', value: props.role ?? t('card.declNone') },
   { key: 'card.declTools', value: declaration(props.tools, t('card.declAllTools')) },
   { key: 'card.declReads', value: declaration(props.reads, t('card.declAllReads')) },
-  { key: 'card.declUses', value: declaration(props.uses, t('card.declNoUses')) },
 ])
 
-/** 勾选区的两个列头：设定那一列的名字与调试痕迹、资源库面板同一套键 */
-const marksLabel = computed(() => ({
-  settings: t('prompts.setting'),
-  generators: t('prompts.generators'),
-}))
+/** 勾选区那一列的头：设定那一列的名字与调试痕迹、资源库面板同一套键 */
+const marksLabel = computed(() => ({ settings: t('prompts.setting') }))
 
 const checkedSettings = ref<string[]>([...defaultSettings()])
-const checkedUses = ref<string[]>([...(props.uses ?? [])])
 
 /**
  * 只剩一块勾着了吗 —— 那枚锁住，并挂上「为什么」。
@@ -106,13 +97,7 @@ function setSetting(key: string, on: boolean): void {
   checkedSettings.value = on
     ? [...checkedSettings.value, key]
     : checkedSettings.value.filter((name) => name !== key)
-  emit('marks', { settings: checkedSettings.value, uses: checkedUses.value })
-}
-
-/** 勾上 / 取消勾一条生成器 */
-function setGenerator(name: string, on: boolean): void {
-  checkedUses.value = on ? [...checkedUses.value, name] : checkedUses.value.filter((entry) => entry !== name)
-  emit('marks', { settings: checkedSettings.value, uses: checkedUses.value })
+  emit('marks', { settings: checkedSettings.value })
 }
 
 /** 提交：多行文本按行切回数组（空行合法 —— 提示词里本来就有空行） */
@@ -152,11 +137,8 @@ const declBox =
       </div>
     </dl>
 
-    <!-- 勾选区：这个节点读哪几块设定、带哪几条生成器 —— 勾一下直接写回卡（外层写整份卡） -->
-    <div
-      data-card-resource-marks
-      class="mt-3 grid gap-3 rounded-lg border border-line bg-page px-3 py-2 sm:grid-cols-2"
-    >
+    <!-- 勾选区：这个节点读哪几块设定 —— 勾一下直接写回卡（外层写整份卡） -->
+    <div data-card-resource-marks class="mt-3 grid gap-3 rounded-lg border border-line bg-page px-3 py-2">
       <fieldset class="min-w-0">
         <legend class="text-[11.5px] text-muted">{{ marksLabel.settings }}</legend>
         <ul class="mt-1 space-y-0.5">
@@ -176,25 +158,6 @@ const declBox =
         </ul>
         <p v-if="lastSetting" class="mt-1 text-[11px] leading-relaxed text-faint">
           {{ t('card.resourceAtLeastOne') }}
-        </p>
-      </fieldset>
-
-      <fieldset class="min-w-0">
-        <legend class="text-[11.5px] text-muted">{{ marksLabel.generators }}</legend>
-        <ul class="mt-1 space-y-0.5">
-          <li v-for="generator in generatorNames" :key="generator" class="flex items-center gap-2">
-            <input
-              type="checkbox"
-              class="size-6 shrink-0 accent-accent"
-              :data-card-resource-mark="'generator:' + generator"
-              :checked="checkedUses.includes(generator)"
-              @change="setGenerator(generator, ($event.target as HTMLInputElement).checked)"
-            />
-            <span class="min-w-0 truncate text-[11.5px] text-text">{{ generator }}</span>
-          </li>
-        </ul>
-        <p v-if="!generatorNames.length" class="mt-1 text-[11px] leading-relaxed text-faint">
-          {{ t('card.declNoUses') }}
         </p>
       </fieldset>
     </div>

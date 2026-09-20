@@ -39,7 +39,15 @@
         "duty": "把这一轮写成正文",
         "role": "story",
         "tools": [],
-        "prompt": ["第二人称，150–400 字。", "写声音、光、温度；不要写数值。"]
+        "prompt": [
+          "第二人称，150–400 字。",
+          "写声音、光、温度；不要写数值。",
+          "",
+          "### 海上的东西这一类的原则",
+          "- 海上的东西",
+          "- 永远不给解释。",
+          "- 先给声音，再给影子，最后才给形状。"
+        ]
       }
     }
   },
@@ -56,8 +64,19 @@
   },
 
   "actions": {
-    "advance_time": { "what": "推进时间（你只说过过了多少分钟）", "effect": "time" },
-    "write_log": { "what": "往航海日志里加一条", "path": "log", "mode": "push" }
+    "advance_time": {
+      "whenToUse": "当船上的事要花时间的时候",
+      "what": "推进时间（你只说过过了多少分钟）",
+      "principles": "时刻由引擎按历法算",
+      "effect": "time"
+    },
+    "write_log": {
+      "whenToUse": "当这一轮有一件值得记下来的事的时候",
+      "what": "往航海日志里加一条",
+      "principles": "一条一行，只写事实，不写推测",
+      "path": "log",
+      "mode": "push"
+    }
   },
 
   "state": {
@@ -91,14 +110,6 @@
       "of": { "type": "object", "fields": { "事件": "string", "时刻": "string" } }
     }
   },
-
-  "generators": [
-    {
-      "name": "海上的东西",
-      "applies": "需要一件从海上来的怪事时",
-      "principles": ["永远不给解释。", "先给声音，再给影子，最后才给形状。"]
-    }
-  ],
 
   "opening": {
     "canName": true,
