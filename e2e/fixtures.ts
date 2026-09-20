@@ -87,6 +87,18 @@ export const LEAD_PLACE = {
   [SCENE_FIELD]: '大堂',
 }
 
+/**
+ * **开局那一帧**主控在哪 —— 册子初值里主控那一条（没种存档时，页面画的就是它）。
+ *
+ * ⚠️ 它与 `LEAD_PLACE` 是**两件事**，别混：那个是 `saveWith()` **写进存档**的位置
+ *    （主控站在酒馆），只在种了存档的用例里成立；第一屏那条用例跑的是**卡的开局状态**，
+ *    拿存档里的位置去比会永远红 —— 开局那一帧他在卡里写的那个地方。
+ */
+const WHERE_BOOK = (
+  CARD.state as { world: { fields: Record<string, { initial?: Record<string, unknown> }> } }
+).world.fields[WHERE_KEY]
+export const OPENING_PLACE = (WHERE_BOOK.initial ?? {})[LEAD_NAME] as Record<string, string>
+
 /** 地图节点这一轮把主控记到哪儿（假模型让地图节点调 `set_whereabouts` 写的那一条） */
 export const MOVED_PLACE = {
   [AREA_FIELD]: '晨风镇',
@@ -241,7 +253,7 @@ export function saveWith(over: Record<string, unknown> = {}): string {
   const data = initialState()
   const state = data.state as Record<string, any>
   // 主控站在镇上的酒馆里 —— R20：位置记在那本「谁在哪」册子的**主控那一条**上
-  // （面板的「当前所在」与顶栏那条「场景」都该读它；今天它们还读着已删的 world.location）
+  // （面板的「当前所在」与那条「场景」都读它，指路来自卡的 声明.显示.场景）
   state.world[WHERE_KEY] = { ...state.world[WHERE_KEY], [LEAD_NAME]: { ...LEAD_PLACE } }
   // 时刻也住在状态树里（R39）：这一局的时刻改成「9 月 15 日上午」
   state.world[TIME_KEY] = { year: 2026, month: 9, day: 15, hour: 9, minute: 0 }

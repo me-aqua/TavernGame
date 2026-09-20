@@ -17,6 +17,7 @@ import {
   LEAD_PLACE,
   MOVED_PLACE,
   NARRATION,
+  OPENING_PLACE,
   PLACE_FIELDS,
   TIME_NODE,
   WHERE_PATH,
@@ -78,9 +79,11 @@ test.describe('第一屏', () => {
 
     // 状态浮层：时间、场景、回合都收在一小块里
     const pill = page.locator('aside')
-    // ⚠️ 目标形态（R20）：那条「场景」显示**主控在谁在哪里的那一条**。
-    //    R32 说顶栏先不做、显示搬进侧栏 ⇒ 这一条 **归段 6**，**今天红着**（交付说明 §八.1）。
-    await expect(pill.locator('.scene-name')).toContainText(LEAD.place[PLACE_FIELDS.spot])
+    // 那条「场景」显示**主控在谁在哪里的那一条**（R20）：值来自册子，
+    // 指路（册子在哪、主控名字在哪一格）由卡的 声明.显示.场景 说一次。
+    // ⚠️ 这一条没有种存档 ⇒ 页面画的是**卡的开局那帧**，期望值要取卡里册子的初值
+    //    （`OPENING_PLACE`），不是存档夹具写的那个位置（`LEAD_PLACE` 是 `saveWith` 种的）。
+    await expect(pill.locator('.scene-name')).toContainText(OPENING_PLACE[PLACE_FIELDS.spot])
     await expect(pill.locator('[data-turn]')).toHaveText('0')
     // 侧栏在手机与桌面上是两种排布，:visible 只取当前那一份
     await expect(page.locator('.time-display:visible')).toHaveText(TIME_PATTERN)
@@ -130,29 +133,30 @@ test.describe('世界面板', () => {
     await expect(panel).toBeVisible()
 
     // 块与顺序来自卡的 声明.显示.侧栏（期望值从卡里现读，不抄一份内容）
-    const declared = (CARD.display.sidebar as Array<Record<string, string>>).map((block) => block.block)
+    const declared = (CARD.display.sidebar as Array<Record<string, string>>).map((block) => block.path)
     await expect(panel.locator('[data-block]')).toHaveCount(declared.length)
     const rendered = await panel
       .locator('[data-block]')
       .evaluateAll((els) => els.map((el) => el.getAttribute('data-block')))
     expect(rendered).toEqual(declared)
 
-    // 内容读的是**状态树**：区域一个不少、背包一件不少、角色字典里的人都在
+    // 内容读的是**状态树**：区域一个不少、背包一件不少、角色字典里的人都在。
+    // ⚠️ 钩子是通用的（`data-entry` / `data-value`，不含任何内容名）⇒ 数哪一块得先按
+    //    `data-block`（那一条声明的路径）圈出来，面板整体的条目数分不出是哪一块的。
     const saved = JSON.parse(saveWith()) as { state: Record<string, any> }
     const areas = Object.keys(saved.state.world.map)
     const pack = saved.state.lead.pack as unknown[]
     const cast = Object.keys(saved.state.roles)
-    await expect(panel.locator('[data-area]')).toHaveCount(areas.length)
-    await expect(panel.locator('[data-item]')).toHaveCount(pack.length)
+    await expect(panel.locator('[data-block="world.map"] [data-entry]')).toHaveCount(areas.length)
+    await expect(panel.locator('[data-block="lead.pack"] [data-entry]')).toHaveCount(pack.length)
     for (const name of cast) await expect(panel).toContainText(name)
 
     // ⚠️ 当前地点（R20）：主控在谁在哪里的那一条 ⇒ 世界面板该把它标出来。
-    //    目标形态：面板读 `whoIsWhere[主控]`（今天它还读已删的 `world.location`）⇒ **归段 6**，
-    //    **今天红着**（交付说明 §八.1）。
-    const here = panel.locator('[data-place][data-current]')
+    //    标的是那一组与**那一个值自己**（`data-value` 落在每个值上），判据是值相等。
+    const here = panel.locator('[data-block="world.map"] [data-value][data-current]')
     await expect(here).toHaveCount(1)
     await expect(here).toHaveText(LEAD.place[PLACE_FIELDS.spot])
-    await expect(panel.locator('[data-area][data-current]')).toHaveCount(1)
+    await expect(panel.locator('[data-block="world.map"] [data-entry][data-current]')).toHaveCount(1)
 
     await page.locator('button[data-world-close]').click()
     await expect(panel).toHaveCount(0)
