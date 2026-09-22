@@ -55,6 +55,74 @@ const STORY_NODE = (CARD.graph.topology as string[]).find(
   (id: string) => CARD.graph.nodes[id].role === 'story',
 ) as string
 
+/**
+ * 枝树那一屏的期望值：卡里"能编"的容器节点（自己有一张非空字段表的那种）。
+ *
+ * e2e 不 import 应用模块（见文件头），所以这一小段按卡的 JSON 再算一遍 —— 与组件层
+ * `tests/support/branch-tree.ts` 的 `TREE_PATHS` 同一套走法：`object` 往 `fields` 下钻、
+ * `map` / `list` 往 `of.fields` 下钻（元素形状那一段写成 `x.*`）。
+ */
+const TREE_ROWS: Array<{ path: string; fields: string[] }> = []
+{
+  /** 一段点号路径 → schema：`a.b` 走 `state.a.fields.b`，`a.*` 走元素形状（`of`） */
+  const at = (path: string): Record<string, any> | undefined => {
+    let current: any = CARD.state
+    let scope: Record<string, any> | undefined = CARD.state
+    for (const segment of path.split('.')) {
+      if (segment === '*') {
+        current = current?.of
+        scope = current?.fields
+        continue
+      }
+      if (scope === undefined || !Object.hasOwn(scope, segment)) return undefined
+      current = scope[segment]
+      scope = current?.fields
+    }
+    return current
+  }
+  /** 一格在中栏那张表里应有的行名：`object` 读自己的 `fields`，`map` / `list` 读元素形状的 */
+  const fieldsOf = (path: string): string[] => {
+    const node = at(path)
+    if (node === undefined) return []
+    if (node.fields !== undefined) return Object.keys(node.fields)
+    return node.of?.fields === undefined ? [] : Object.keys(node.of.fields)
+  }
+  const seen = new Set<string>(Object.keys(CARD.state))
+  const queue: string[] = [...seen]
+  /** 放一个路径进队（空串丢弃、已经在队里过的不再进） */
+  const push = (path: string): void => {
+    if (path === '' || seen.has(path)) return
+    seen.add(path)
+    queue.push(path)
+  }
+  while (queue.length > 0) {
+    const path = queue.shift() as string
+    const node = at(path)
+    if (node === undefined) continue
+    const kind = typeof node === 'string' ? node : node.type
+    const fields = fieldsOf(path)
+    if (['object', 'map', 'list'].includes(kind) && fields.length > 0) TREE_ROWS.push({ path, fields })
+    for (const key of Object.keys(node.fields ?? {})) push(path + '.' + key)
+    // `*` 是元素形状那一段的标记，不是一格：它底下只再走字段，不许再套一层 `*`
+    if (path.endsWith('.*')) continue
+    if (node.of !== undefined) push(path + '.*')
+  }
+}
+
+/**
+ * 树上每一行的路径（顺序 = 卡的声明顺序、**逐层向下**）。
+ *
+ * ⚠️ 与实现一致（`CardEditor.vue:18` / `StateTreeNav.vue:20`）：S3 用两个独立通道证明过
+ *    —— 含整页巡检那张 `editor-open--laptop.png` 的左栏 22 行逐行相同。
+ *    ⚠️ 设计图的行序是前序，那一条差异已记 follow-up（归 8b-②）。
+ */
+const TREE_PATHS = TREE_ROWS.map((row) => row.path)
+
+/** 某一格在中栏那张表里应有的行名 */
+function treeFields(path: string): string[] {
+  return TREE_ROWS.find((row) => row.path === path)?.fields ?? []
+}
+
 const watched = new WeakMap<Page, { runtimeErrors: string[]; badResponses: string[] }>()
 
 test.beforeEach(async ({ page }) => {
@@ -277,7 +345,12 @@ test.describe('设置面板', () => {
 })
 
 test.describe('卡', () => {
-  test('卡图浮层：节点数 = 卡里拓扑，点节点出表单，声明只读', async ({ page }) => {
+  // ⚠️ 票 69（段 8b-①）：这一条原来是「节点数 = 卡里拓扑，点节点出表单，声明只读」——
+  //    8b-① 把卡图与「编一步」表单都移出了编辑器 ⇒ 那一段（`.vue-flow__node` 计数 +
+  //    点节点出表单）**整段挪到 8c**（契约 `.team/test/2026-09-22/contract-69.md` §5 第 5 项）。
+  //    卡图本身没死：调试面板那一条还在数 `.vue-flow__node`（`DebugPanel` 仍用着 `CardGraph`）。
+  //    本票的现场在下一条（「左栏是枝的导航树」）。
+  test('卡图浮层：打得开、说清用的是哪张卡、结构判据干净、关得上', async ({ page }) => {
     await openApp(page)
     await page.locator('button[data-settings]').click()
 
@@ -289,26 +362,51 @@ test.describe('卡', () => {
     const editor = page.locator('[data-card-editor]')
     await expect(editor).toBeVisible()
 
-    // 节点数与节点名都从卡 JSON 现读：不在这里抄一份「九个节点」
-    const topology = CARD.graph.topology as string[]
-    const nodes = CARD.graph.nodes as Record<string, Record<string, string>>
-    await expect(editor.locator('.vue-flow__node')).toHaveCount(topology.length)
-
     // 结构判据与组件故事同一套（e2e/probe.ts）
     expectClean((await page.evaluate(PROBE)) as Probe)
 
-    // 点一个节点：表单出的是卡里那个节点的名 / 职责 / 提示词，声明只读展示
-    const first = topology[0]
-    await editor.locator('.vue-flow__node').first().click()
-    const form = editor.locator('[data-card-form]')
-    await expect(form).toBeVisible()
-    await expect(form.locator('[data-card-name]')).toHaveValue(nodes[first].name)
-    await expect(form.locator('[data-card-duty]')).toHaveValue(nodes[first].duty)
-    await expect(form.locator('[data-card-prompt]')).toHaveValue(nodes[first].prompt.join('\n'))
-    await expect(form.locator('[data-card-declarations]')).toContainText((nodes[first].tools ?? []).join(' '))
-
     await editor.locator('button[data-card-close]').click()
     await expect(editor).toHaveCount(0)
+  })
+
+  test('左栏是枝的导航树：行 = 卡里能编的容器，中栏是只读字段表', async ({ page }) => {
+    await openApp(page)
+    await page.locator('button[data-settings]').click()
+    await page.locator('[data-card-section] button[data-card-view]').click()
+    const editor = page.locator('[data-card-editor]')
+    await expect(editor).toBeVisible()
+
+    // ⚠️ 反面控制：这一条**必须**先证明树真的长出来了 —— 下面"There is one row per card
+    //    node"与"点一行出的是那一格的表"两句只要树是空的就都恒真（"读不到东西"型假绿）。
+    //    它也是"整条能力不在"时跑到的那一句（红得对，而且是红在钩子上）。
+    await expect(editor.locator('[data-branch-nav]')).toBeVisible()
+
+    // 旧接缝退场：卡图与「编一步」表单都不该再挂在编辑器里（口径 A7）
+    await expect(editor.locator('[data-card-form]')).toHaveCount(0)
+
+    // 每一行一个卡里的状态节点，顺序照卡的声明顺序（期望值从卡现算，不抄第二份）
+    const nav = editor.locator('[data-branch-node]')
+    await expect(nav).toHaveCount(TREE_PATHS.length)
+    expect(await nav.evaluateAll((nodes) => nodes.map((el) => (el.textContent ?? '').trim()))).toEqual(
+      TREE_PATHS,
+    )
+
+    // 点一行：中栏字幕、亮着的那一行、表里的行名三处说的是同一格
+    const pick = TREE_PATHS[1]
+    await editor.locator('[data-branch-node="' + pick + '"]').click()
+    await expect(editor.locator('[data-branch-title]')).toContainText(pick)
+    await expect(editor.locator('[data-branch-on]')).toHaveCount(1)
+    expect(
+      await editor
+        .locator('[data-field-key]')
+        .evaluateAll((els) => els.map((el) => el.getAttribute('data-field-key'))),
+    ).toEqual(treeFields(pick))
+    // 本票只读：没有输入框、没有垃圾桶、没有加字段
+    const readOnly = '[data-branch-form] input, [data-field-del], [data-field-add]'
+    await expect(editor.locator(readOnly)).toHaveCount(0)
+
+    // 结构判据与组件故事同一套（e2e/probe.ts）—— 树的点按区也一起过 24×24
+    expectClean((await page.evaluate(PROBE)) as Probe)
   })
 
   test('存着的卡读不出来：退回内置示例，状态行与卡一节都说明原因', async ({ page }) => {

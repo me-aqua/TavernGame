@@ -8,7 +8,7 @@
  *
  * 用法：npm run visual（不进 pre-commit：慢，而且要浏览器）
  */
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import {
   APP_PATH,
@@ -36,6 +36,10 @@ const VIEWPORTS = [
   // 横屏手机：票 67（口径 8）新加的工位 —— 四栏最少要 750px（设计 §四.1 的算术），
   // 800px 下只剩 40px 给中栏 ⇒ 这一档量的不是"四栏"，是"一栏 + 抽屉"
   { name: 'phone-landscape', width: 800, height: 400, dsf: 2, mobile: true },
+  // 票 69（S3 的条件 3）：窄笔记本 —— 落在设计点名的 **821–1279 死带**里。
+  // 原来那套视口 {360, 430, 768, 800, 1280, 1920} **一档都不在这条带里** ⇒
+  // "中栏被压成 35–193px"那条 follow-up 永远无法被证伪。这一档还跑 `expectClean`（横向溢出会红）。
+  { name: 'laptop-sm', width: 1100, height: 800, dsf: 1, mobile: false },
   { name: 'laptop', width: 1280, height: 800, dsf: 1, mobile: false },
   { name: 'desktop', width: 1920, height: 1080, dsf: 1, mobile: false },
 ]
@@ -189,7 +193,10 @@ const STATES: State[] = [
     waitAfterMs: 400,
   },
   {
-    // 四栏外壳那一屏：设置面板的「卡」一节打开编辑器浮层 —— 那正是外壳的家
+    // 四栏外壳那一屏：设置面板的「卡」一节打开编辑器浮层 —— 那正是外壳的家。
+    // ⚠️ 票 69：**只把浮层打开**，**选中一格那一步挪进了 test body**（在 `expectWideShell` 之前）。
+    //    理由（S3 采纳的补法）：两态口径要在**真浏览器**这一层都有人守 ——
+    //    "点节点态 3 个＋"只能在**点那一格之前**断到；把点击留在 state 里，那一态就没人守了。
     name: EDITOR_STATE,
     seed: { config: CONFIG, save: saveWith({ events: STORY }) },
     interact: `(async () => {
@@ -282,6 +289,8 @@ interface ShellReading {
   ruler: { display: string; template: string; text: string; segs: Array<{ w: number; cx: number }> } | null
   mid: { overflowY: string; w: number; h: number } | null
   adds: Array<{ what: string; w: number; h: number }>
+  /** 编枝态：左栏树上**有一行亮着**（票 69 裁决 12 —— 那一态下「编辑」栏的 ＋ 收起来） */
+  branchMode: boolean
   drawers: Array<{
     name: string
     present: boolean
@@ -335,6 +344,9 @@ const SHELL_PROBE = `(() => {
       : null,
     mid: mid ? { overflowY: getComputedStyle(mid).overflowY, ...box(mid) } : null,
     adds: [...document.querySelectorAll('[data-add]')].map((el) => ({ what: el.getAttribute('data-add'), ...box(el) })),
+    // 编枝态判据：树上亮着一行（[data-branch-on]）＝ 正在编一枝 ⇒ 裁决 12 要收起「编辑」栏那个 ＋
+    // ⚠️ 这一段在**模板字符串**里：注释里别写反引号 + 美元花括号，那会被当成插值求值（踩过一次）
+    branchMode: document.querySelector('[data-branch-on]') !== null,
     drawers: ['content', 'prompts'].map((name) => {
       const el = document.querySelector('[data-drawer="' + name + '"]')
       const toggle = document.querySelector('[data-drawer-toggle="' + name + '"]')
@@ -399,8 +411,30 @@ function expectTapTargets(adds: ShellReading['adds']): void {
   }
 }
 
-/** ≥821px：四栏 + 标尺逐个对齐 + 中栏长滚动 + 三档字号（口径 1/2/3/5/6/7） */
+/**
+ * ≥821px：四栏 + 标尺逐个对齐 + 中栏长滚动 + 两态的「＋」+ 三档字号（口径 1/2/3/5/6/7）。
+ *
+ * ⚠️ 票 69：这一条**自己会把左栏树上的一格点中**（在断完"点节点态三个＋"之后）——
+ *    于是调用方紧接着拍的那张照片里，**中栏是那张字段表**，不是空态（S3 的条件 4）。
+ *    两态都断到具体是哪一个＋（见下面那段注释）。
+ */
 async function expectWideShell(page: Page): Promise<void> {
+  // ① 点节点态（还没选中任何一枝）：三路「＋」都在
+  const before = await readShell(page)
+  expect(before.branchMode, 'nothing is picked yet, so the editor is not in branch mode').toBe(false)
+  expect(
+    before.adds.map((a) => a.what).sort(),
+    'picking a node: exactly the branch, action and step plus buttons',
+  ).toEqual(['action', 'branch', 'step'])
+  expectTapTargets(before.adds)
+
+  // ② 点中左栏第一格（＝ 进编枝态）：这一态**要挡住"某一枝真的编不了"那种回归**
+  const first = page.locator('[data-branch-node]').first()
+  await expect(first, 'the left tree must show up before the mid table can have anything in it').toBeVisible({
+    timeout: 15_000,
+  })
+  await first.click()
+
   const r = await readShell(page)
   const cols = r.cols.filter((c) => c.visible)
   expect(
@@ -451,8 +485,19 @@ async function expectWideShell(page: Page): Promise<void> {
     (scroll?.clientWidth ?? 0) + 1,
   )
 
-  // 口径 5 / 裁决 4：三个「＋」都在屏幕上，可点区域 ≥ 24×24
-  expect(r.adds.length, 'the three plus buttons must exist').toBe(3)
+  // 口径 5 / 裁决 4：各路的「＋」都在屏幕上，可点区域 ≥ 24×24。
+  //
+  // ⚠️ 票 69 让这里**分两态**（S0 裁决 12：「编枝时那个 `add-action` 的 ＋ **隐藏**」）——
+  //    原来那句 `toBe(3)` 是 8a 的口径（点节点编一步那一态），选中一枝之后屏上真的只剩 2 个。
+  //    **没有放宽**：两态都断**点名到具体哪一个**（`toEqual` 逐项相等），
+  //    所以"某一路的入口悄悄没了"照样红 —— 那正是 8a 这条判据的用意。
+  //    "点节点态 3 个"在**上面点那一格之前**已经断过了（那才是它唯一能断到的时机）。
+  expect(r.branchMode, 'the row was just clicked, so the editor must be in branch mode now').toBe(true)
+  expect(
+    r.adds.map((a) => a.what).sort(),
+    'editing a branch: exactly the branch plus and the strip plus, and the action plus must be gone',
+  ).toEqual(['branch', 'step'])
+  expect(r.adds.length, 'a plus that is hidden must really leave the screen').toBe(2)
   expectTapTargets(r.adds)
 
   // 口径 6/7：外壳自己的文字只有三档（14 / 12.5 / 11），一档都不许少、更不许有第四档
@@ -491,13 +536,21 @@ async function expectLandscapeShell(page: Page): Promise<void> {
     const shut = await toggleDrawer(page, name)
     expect(shut.display, 'the ' + name + ' drawer must go back to display:none').toBe('none')
   }
-  // 留在屏幕上那些「＋」照样要 ≥24×24
-  expectTapTargets((await readShell(page)).adds.filter((a) => a.w > 0.5 && a.h > 0.5))
+  // ⚠️ 这里**不放**"可见的＋ ≥24×24"那一句 —— 它在横屏是**空断言**：
+  //    横屏只剩中栏，左右两栏 `display:none`、细条也收成横带，而「编辑」栏那个 ＋ 又被
+  //    裁决 12 在编枝时收起 ⇒ **屏幕上真一个「＋」都没有** ⇒ 传进去的是空数组、
+  //    `for` 一次都不跑、**空着通过**。留着一句永远空跑的断言就是"静默失效的检查"。
+  //    点按区那一条只在 **≥821px** 那档断（见 `expectWideShell`）；
+  //    另外 `expectClean(probe)` 的 `smallTargets` 对**所有可见按钮**都查 ≥24×24，
+  //    横屏这一屏不会漏 —— 所以删掉它**不减覆盖面**。
 }
 
-rmSync(OUT, { recursive: true, force: true })
-mkdirSync(OUT, { recursive: true })
-
+/**
+ * ⚠️ **截图目录的清理不在这里** —— 它在 `e2e/visual-setup.ts`（`globalSetup`，且只在这一趟是整页巡检时清）。
+ *    写在模块顶层的话：**一条用例失败 ⇒ worker 重启 ⇒ 模块重新加载 ⇒ 顶层清理再跑一次**
+ *    ⇒ 目录里只剩"最后一次重启之后"写的那一段（票 69 实测：85 条只剩 20 张、分属 4 个状态）。
+ *    **不是"worker 互相删"** —— 配置本来就是 `workers: 1`。见那个文件的头注释。
+ */
 test.describe('状态 × 屏幕', () => {
   for (const state of STATES) {
     for (const vp of VIEWPORTS) {
@@ -517,6 +570,14 @@ test.describe('状态 × 屏幕', () => {
         const page = await context.newPage()
         await openState(page, state)
 
+        // 票 67/69：开着外壳的那一屏要先过它自己那几条（口径 1/2/3/5/6/7/8）——
+        // ⚠️ **必须在截图之前**：宽屏那一条会在**先断完"点节点态三个＋"之后**点中左栏一枝，
+        //    于是下面那张照片拍到的才是**有字段表的中栏**（票 69 S3 的条件 4）。
+        if (state.name === EDITOR_STATE && SHELL_VIEWPORTS.has(vp.name)) {
+          if (vp.width >= 821) await expectWideShell(page)
+          else await expectLandscapeShell(page)
+        }
+
         const probe = (await page.evaluate(PROBE)) as Probe
         const name = `${state.name}--${vp.name}`
         await page.screenshot({ path: `${OUT}/${name}.png`, animations: 'disabled' })
@@ -535,12 +596,6 @@ test.describe('状态 × 屏幕', () => {
           traces: probe.traces,
           notice: probe.notice,
         })
-
-        // 票 67：开着外壳的那一屏还要过它自己那几条（口径 1/2/3/5/6/7/8）
-        if (state.name === EDITOR_STATE && SHELL_VIEWPORTS.has(vp.name)) {
-          if (vp.width >= 821) await expectWideShell(page)
-          else await expectLandscapeShell(page)
-        }
 
         expectClean(probe)
 

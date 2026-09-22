@@ -15,6 +15,12 @@ const BASE_URL = `http://localhost:${PORT}`
 export default defineConfig({
   testDir: 'e2e',
   outputDir: 'test-results',
+  // 截图目录的清理放在这里：**所有 worker 起之前只跑一次**。
+  // ⚠️ 别挪回 spec 的模块顶层 —— 真机理是**一条用例失败 ⇒ worker 重启 ⇒ 模块重新加载 ⇒ 顶层清理再跑一次**，
+  //    于是只剩"最后一次重启之后"写的那一段（票 69 实测：85 条只剩 20 张、分属 4 个状态；
+  //    失败编号 #60…#65 ⇒ 最后一段从 #66 起 = 20 张，逐项对上）。**"workers: 1 就没事"是错的。**
+  //    它也只在"这一趟跑的是整页巡检"时清（见 `e2e/visual-setup.ts` —— 跑 e2e / stories 不该清掉给人看的资产）。
+  globalSetup: './e2e/visual-setup.ts',
   // 共用一份构建产物与一个 preview 服务：串行更好读日志
   fullyParallel: false,
   workers: 1,
