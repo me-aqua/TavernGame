@@ -1,6 +1,10 @@
 /**
  * The anchor table for segment 7a: which step now keeps which old principle.
  *
+ * Segment 7b adds a second table to the same module: the six `applies` lines of those same old
+ * tables (`TABLE_APPLIES`), which 7a dropped and 7b puts into the main prompt of the step that
+ * keeps the table. Same subject, same place - see `generator-applies.txt`.
+ *
  * Why this file exists: the principles used to live in the card-level `generators` table plus a
  * `uses` reference on each node. Both are gone after 7a, so "who keeps which line" needs one
  * place a machine can check - otherwise the next ticket cannot answer it.
@@ -58,6 +62,45 @@ export const MOVED_LINES: PrincipleLine[] = LINES
 export const PRINCIPLE_MOVES: Array<Required<PrincipleLine>> = LINES.filter(
   (line): line is Required<PrincipleLine> => Boolean(line.card && line.node && line.why),
 )
+
+/**
+ * One `applies` line of the old generator tables - "when does this whole table apply".
+ *
+ * Segment 7b puts them into the main prompt of the step that keeps the table (owner ruling of
+ * 2026-09-20, S0 section 7), NOT into an action's `whenToUse`. They were dropped in 7a and
+ * nothing counted them, which is why they now have their own table here.
+ */
+export interface AppliesLine {
+  /** The sentence as the old table wrote it */
+  text: string
+  /** The old table's name - it becomes a sub-heading in the prompt */
+  table: string
+  /** Which card file it belongs to (`cards/<card>.json`) */
+  card: string
+  /** The node whose main prompt must carry this line */
+  node: string
+  /** Every node whose prompt carries that table's rows (the dungeon table spans two) */
+  spreads: string[]
+  /** Why it landed there */
+  why?: string
+}
+
+const APPLIES: AppliesLine[] = readFileSync('tests/support/generator-applies.txt', 'utf8')
+  .split('\n')
+  .map((line) => line.trim())
+  .filter(
+    (line) => line.length > 0 && !line.startsWith('#') && !line.startsWith('*') && !line.startsWith('/'),
+  )
+  .map((line) => {
+    const [text, table, card, node, spreads, why] = line.split('|').map((cell) => cell.trim())
+    if (!text || !table || !card || !node || !spreads) {
+      throw new Error('bad row in the applies table: ' + line)
+    }
+    return { text, table, card, node, spreads: spreads.split(' ').filter(Boolean), why }
+  })
+
+/** The six `applies` lines of the old tables - the catalogue the contract counts */
+export const TABLE_APPLIES: AppliesLine[] = APPLIES
 
 /** The three cards this segment covers */
 export const CARDS = ['morningwind', 'long-night', 'night-watch']
