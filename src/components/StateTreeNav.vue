@@ -8,6 +8,8 @@
  * ⚠️ 行的文字**必须正好是卡里的点号路径**：组件层的判据逐行比它，真浏览器里也逐行比它的
  *    `textContent` ⇒ 层级只能用缩进表达，行里一个字都不许多（三角 / 类型 / 计数都不行）。
  * ⚠️ 每个点按区 ≥ 24×24（`e2e/probe.ts` 数 `button` 的矩形，矮一截就进 `smallTargets`）。
+ * ⚠️ 每一行还报 `data-branch-depth`（＝路径的段数）：缩进本来就是按它算的 ——
+ *    行的先后不承诺（裁决 4），"谁归谁"由它读得出来。
  * ⚠️ 字号只用 `--fs1/2/3` 三档（整页巡检会数 `[data-card-editor]` 里用了几档）。
  * ⚠️ 引擎接管那一行**不禁用**：看一眼是允许的，改不了是这一票的常态 —— 它的长相按项目里
  *    「只读 ＝ 左竖条 + 灰字」那一套（`data-branch-takeover` 是给判据与真浏览器读的）。
@@ -41,6 +43,7 @@ function indent(path: string): string {
       :style="{ paddingLeft: indent(row.path) }"
       :data-branch-node="row.path"
       :data-branch-type="row.kind"
+      :data-branch-depth="row.path.split('.').length"
       :data-branch-on="row.path === picked ? '' : null"
       :data-branch-takeover="row.taken ? '' : null"
       @click="emit('pick', row.path)"
