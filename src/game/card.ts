@@ -2,7 +2,8 @@
  * src/game/card.ts —— card/4：一张卡的形状、结构校验与引擎词表。
  *
  * 卡是**外部数据**（作者手写、从别人那儿导入），按纪律只有系统边界才做校验，所以卡的校验
- * 集中在这里。**只做结构校验**：键集 / 类型 / 枚举 / 引用完整性 —— 不解析任何一句散文
+ * 集中在这里。**只做结构校验**：键集 / 类型 / 枚举 / 引用完整性 / 跨块的结构约束
+ * （「一枝一个维护器」——动作写到哪 ↔ 状态有哪几枝）—— 不解析任何一句散文
  * （「说明里有五个地点」这种判断和「引擎解析模型输出」是同一个错误，决定 #46）。
  *
  * ⚠️ 只认 card/4。格式不认识就直接拒 —— 不做字段改名、不做版本迁移。
@@ -32,7 +33,7 @@ import {
   requireTextList,
 } from './card-read'
 import { type Calendar } from './card-calendar'
-import { checkTimeBlock } from './card-time'
+import { CLOCK_STATE_PATH, checkTimeBlock } from './card-time'
 import { checkSchema, schemaAt, schemaElement, schemaType, type StateSchema, type Schema } from './card-state'
 import { checkDisplayBlock, type DisplayDecl } from './display'
 
@@ -392,6 +393,44 @@ function checkNodeSettings(
   }
 }
 
+/**
+ * 引擎效果写进状态的那一枝：今天只有 `time`（它写 `state.world.time`）。
+ *
+ * ⚠️ 位置的事实来源是 `card-time.ts` 的 `CLOCK_STATE_PATH` —— 这里从它派生，不抄第二份。
+ * ⚠️ `redo` **什么都不写**（回合循环回滚重跑，不落状态）⇒ 它不在这张表里，也就不算维护器。
+ */
+const EFFECT_BRANCHES: Record<string, string | undefined> = { time: CLOCK_STATE_PATH.split('.')[0] }
+
+/** 一枝一个维护器：两条动作声明同一个 path 就拒（粒度为 path 精确相等，不是顶层键） */
+function checkOneKeeper(card: Record<string, unknown>): void {
+  const actions = requireRecord(card, 'actions', '') as Record<string, Action>
+  const owners = new Map<string, string>()
+  for (const [name, action] of Object.entries(actions)) {
+    const path = action.path
+    if (path === undefined) continue
+    const owner = owners.get(path)
+    if (owner !== undefined) {
+      fail(at('actions', name) + '.path', '"' + path + '" is already maintained by "' + owner + '"')
+    }
+    owners.set(path, name)
+  }
+}
+
+/** 没有孤儿枝：每个顶层枝都要有维护器 —— 动作写到它下面，或者引擎效果写它 */
+function checkBranchKeepers(card: Record<string, unknown>): void {
+  const actions = requireRecord(card, 'actions', '') as Record<string, Action>
+  const kept = new Set<string>()
+  for (const action of Object.values(actions)) {
+    const path = action.path
+    if (path !== undefined) kept.add(path.split('.')[0])
+    const branch = action.effect === undefined ? undefined : EFFECT_BRANCHES[action.effect]
+    if (branch !== undefined) kept.add(branch)
+  }
+  for (const branch of Object.keys(requireRecord(card, 'state', ''))) {
+    if (!kept.has(branch)) fail(at('state', branch), 'no action maintains this branch')
+  }
+}
+
 /** 开局：能不能起名 / 默认名（允许空串 = 由调用方按语言兜底）/ 第一轮的要求 */
 function checkOpening(card: Record<string, unknown>): void {
   const opening = requireRecord(card, 'opening', '')
@@ -437,6 +476,8 @@ export function validateCard(data: unknown): CardData {
   checkTimeBlock(data)
   checkActions(data)
   checkGraph(data)
+  checkOneKeeper(data)
+  checkBranchKeepers(data)
   checkOpening(data)
   checkDisplay(data)
   checkNotes(data)
