@@ -102,3 +102,78 @@ export function expectClean(probe: Probe): void {
   expect(probe.smallTargets, '点按目标不能小于 24px').toEqual([])
   expect(probe.overlaps, '正文不能被悬浮控件压住').toEqual([])
 }
+
+/**
+ * 字号三档（口径 7 · `src/styles/main.css` 的 `--fs1/2/3` = 14 / 12.5 / 11）。
+ *
+ * ⚠️ **阈值只写这一份**：整页矩阵（`visual.spec.ts` 的外壳文字）与组件故事（`stories.spec.ts`
+ *    的中栏那张表）两处都拿它比 —— 两份阈值必然走偏。
+ */
+export const FONT_TIERS = ['11px', '12.5px', '14px']
+
+/** 字号普查读出来的几样（`fontCensus` 的返回值） */
+export interface FontCensus {
+  /** "有文字、没有子节点"的元素用了几档字号（去重、排序） */
+  sizes: string[]
+  /** 其中 `<option>` 用的那几档（**单独报一份** —— 它就是那个"照不到就静默失效"的地方） */
+  optionSizes: string[]
+  /** 数到了几个"有文字、没有子节点"的元素（0 ⇒ 这一趟什么也没验） */
+  leaves: number
+  /** 这一片里有几个 `<select>` */
+  selects: number
+  /** 这一屏有几处 `[data-branch-form]`（＝中栏那张表在不在；不在就不是这条判据的地盘） */
+  forms: number
+}
+
+/**
+ * 字号普查（在页面里跑）—— **组件故事那一层的量具**。
+ *
+ * ⚠️ 与整页矩阵那次普查（`visual.spec.ts` 的 `SHELL_PROBE`）**同一套口径**：只数"有文字、
+ *    没有子节点"的元素 ⇒ `<input>` / `<select>` 本身不进（它们没有文字），但 **`<option>` 进**。
+ * ⚠️ 作用域收到中栏那张表里面（`#storybook-root [data-branch-form]`）：口径 7 管的是**编辑器那一屏
+ *    的文字**，别的组件的故事各有各的尺度，不归它管。
+ * 🔴 为什么这一层非要有它：整页矩阵那次普查**只在 `editor-open` 那一屏跑**，而那一屏**从不按「＋」**
+ *    ⇒ 屏上 `select = 0 / option = 0` ⇒ 那条判据对 `<option>` **零信息量**（不是红也不是绿）。
+ *    组件故事里 `Editing` / `Refused` 两个故事带着新行 ⇒ `<option>` 真在屏上。
+ */
+export function fontCensus(): FontCensus {
+  const scope = document.querySelector('#storybook-root [data-branch-form]')
+  const sizes: string[] = []
+  const optionSizes: string[] = []
+  let leaves = 0
+  if (scope !== null) {
+    for (const el of scope.querySelectorAll('*')) {
+      if (el.children.length > 0 || (el.textContent ?? '').trim() === '') continue
+      const size = getComputedStyle(el).fontSize
+      leaves += 1
+      sizes.push(size)
+      if (el.tagName === 'OPTION') optionSizes.push(size)
+    }
+  }
+  return {
+    sizes: [...new Set(sizes)].sort(),
+    optionSizes: [...new Set(optionSizes)].sort(),
+    leaves,
+    selects: scope === null ? 0 : scope.querySelectorAll('select').length,
+    forms: document.querySelectorAll('#storybook-root [data-branch-form]').length,
+  }
+}
+
+/**
+ * 中栏那张表的文字只用三档字号（口径 7 + 裁决 13 —— 含 `<option>`）。
+ *
+ * ⚠️ 表不在屏上（`forms === 0`）时**这一条不适用**：别的组件的故事字号不归它管。
+ * ⚠️ 反面控制写死了两条：**照到了文字**（`leaves > 0`）、**有下拉就必须照到它的 `<option>`**
+ *    —— "照不到"既不是红也不是绿，整页那次就是这么漏掉 `<option>` 的。
+ */
+export function expectTierFonts(font: FontCensus, where: string): void {
+  if (font.forms === 0) return
+  expect(font.leaves, where + '：这一条要真的照到文字才作数').toBeGreaterThan(0)
+  expect(
+    font.sizes.filter((size) => !FONT_TIERS.includes(size)),
+    where + '：中栏那张表的文字只许用三档字号（--fs1/2/3）',
+  ).toEqual([])
+  if (font.selects > 0) {
+    expect(font.optionSizes, where + '：屏上有下拉，就必须照到它的 <option>（照不到 ≠ 通过）').not.toEqual([])
+  }
+}

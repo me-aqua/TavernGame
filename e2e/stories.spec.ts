@@ -9,11 +9,15 @@
  * ⚠️ 组件故事这一层**不建像素基线**：组件改动频繁，基线会变成天天刷新的噪音。
  *    真正的像素回归放在整页矩阵里（8 张稳定画面，见 e2e/visual.spec.ts）。
  *
+ * 🔴 票 70（S3 的条件 2）：这一层**还管一条字号判据** —— 中栏那张表（含 `<option>`）的文字
+ *    只许用三档。整页矩阵那次普查**只在 `editor-open` 那一屏跑**，而那一屏**从不按「＋」**
+ *    ⇒ 它照不到 `<option>`；这一层的故事里真有（`Editing` / `Refused` 带着新行）。
+ *
  * 用法：npm run stories（会先 storybook build）
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
-import { PROBE, expectClean, type Probe } from './probe'
+import { PROBE, expectClean, expectTierFonts, fontCensus, type Probe } from './probe'
 import { startStaticServer } from './static-server'
 
 const PORT = 4175
@@ -124,6 +128,12 @@ test.describe('组件故事', () => {
           shots.push({ story: story.id, title: story.title, name: story.name, theme, locale, file })
 
           expectClean(probe)
+          // 票 70：中栏那张表的文字只用三档字号 —— **`<option>` 也在这条里**。
+          // 🔴 这条判据的现场只能在这一层：整页巡检的字号普查只在 `editor-open` 那一屏跑，
+          //    而那一屏从不按「＋」⇒ 屏上 `select = 0 / option = 0` ⇒ "visual 85/85 绿"对它零信息量。
+          //    这一层真有 `<option>`（`Editing` / `Refused` 两个故事带着新行）。
+          // ⚠️ 作用域与反面控制都写在 `probe.ts` 的 `expectTierFonts` 里（表不在屏上就不适用）。
+          expectTierFonts(await page.evaluate(fontCensus), story.id)
           await context.close()
         })
       }

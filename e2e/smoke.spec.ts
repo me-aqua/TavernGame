@@ -350,6 +350,8 @@ test.describe('卡', () => {
   //    点节点出表单）**整段挪到 8c**（契约 `.team/test/2026-09-22/contract-69.md` §5 第 5 项）。
   //    卡图本身没死：调试面板那一条还在数 `.vue-flow__node`（`DebugPanel` 仍用着 `CardGraph`）。
   //    本票的现场在下一条（「左栏是枝的导航树」）。
+  // ⚠️ 票 70（段 8b-②）：下一条里"中栏一个可编辑控件都没有"那三行**整条反过来了** ——
+  //    说明格 / 垃圾桶 / 加字段是本票的活。契约 `.team/test/2026-09-22/contract-70.md` §5。
   test('卡图浮层：打得开、说清用的是哪张卡、结构判据干净、关得上', async ({ page }) => {
     await openApp(page)
     await page.locator('button[data-settings]').click()
@@ -369,7 +371,7 @@ test.describe('卡', () => {
     await expect(editor).toHaveCount(0)
   })
 
-  test('左栏是枝的导航树：行 = 卡里能编的容器，中栏是只读字段表', async ({ page }) => {
+  test('左栏是枝的导航树：行 = 卡里能编的容器，中栏是可写的字段表', async ({ page }) => {
     await openApp(page)
     await page.locator('button[data-settings]').click()
     await page.locator('[data-card-section] button[data-card-view]').click()
@@ -401,9 +403,28 @@ test.describe('卡', () => {
         .locator('[data-field-key]')
         .evaluateAll((els) => els.map((el) => el.getAttribute('data-field-key'))),
     ).toEqual(treeFields(pick))
-    // 本票只读：没有输入框、没有垃圾桶、没有加字段
-    const readOnly = '[data-branch-form] input, [data-field-del], [data-field-add]'
-    await expect(editor.locator(readOnly)).toHaveCount(0)
+    // 🔴 票 70（段 8b-②）：这一格从**只读**变成了**可写** —— 上一票那句"没有输入框、没有垃圾桶、
+    //    没有加字段"整条反过来了。现在断的是白名单：表里**只许**出现契约点名的那四个可编辑控件，
+    //    而且**四个都要真的出现过**（少了后半句，"一个控件都没有"的实现照样绿 —— 那正是旧形状）。
+    await expect(editor.locator('[data-card-save]')).toBeVisible()
+    await expect(editor.locator('[data-field-note]')).toHaveCount(treeFields(pick).length)
+    await editor.locator('[data-field-add]').click()
+    await expect(editor.locator('[data-row-new]')).toHaveCount(1)
+    for (const one of ['[data-field-key-new]', '[data-field-kind-new]', '[data-field-initial-new]']) {
+      await expect(editor.locator(one)).toHaveCount(1)
+    }
+    expect(
+      await editor.evaluate((root) => {
+        const allowed =
+          '[data-field-note], [data-field-key-new], [data-field-kind-new], [data-field-initial-new]'
+        const inside = '[data-branch-form] input, [data-branch-form] select, [data-branch-form] textarea'
+        return [...root.querySelectorAll(inside)].filter((el) => !el.matches(allowed)).length
+      }),
+      'the table may only hold the four editable controls of the contract',
+    ).toBe(0)
+    // 🔴 新那颗「＋」不许叫 `data-add`：编枝态那两颗是 8a 的保留集合（`visual.spec.ts` 逐项断过）
+    await expect(editor.locator('[data-add]')).toHaveCount(2)
+    await expect(editor.locator('[data-add="field"]')).toHaveCount(0)
 
     // 结构判据与组件故事同一套（e2e/probe.ts）—— 树的点按区也一起过 24×24
     expectClean((await page.evaluate(PROBE)) as Probe)

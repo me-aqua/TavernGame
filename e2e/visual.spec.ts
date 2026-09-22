@@ -24,7 +24,7 @@ import {
   writeEvent,
   type FakeMode,
 } from './fixtures'
-import { PROBE, expectClean, type Probe } from './probe'
+import { FONT_TIERS, PROBE, expectClean, type Probe } from './probe'
 
 const OUT = 'artifacts/screenshots'
 
@@ -412,6 +412,36 @@ function expectTapTargets(adds: ShellReading['adds']): void {
 }
 
 /**
+ * 点中左栏第一格（＝ 让中栏从空态变成那张字段表）。
+ *
+ * ⚠️ **抽出来是因为有两条路都要它**：
+ *   ① `expectWideShell` 在断完"点节点态三个＋"之后点（顺序不能反 —— 那一态只在点之前断得到）；
+ *   ② 跑不了那套断言的 **≥821px** 工位（今天只有 `laptop-sm`）也得点：不然它的照片里中栏永远是
+ *      空态，而加这一档的理由正是"**中栏那张表要有照片**"（票 69 S3 的条件 4）。
+ */
+async function pickFirstBranch(page: Page): Promise<void> {
+  const first = page.locator('[data-branch-node]').first()
+  await expect(first, 'the left tree must show up before the mid table can have anything in it').toBeVisible({
+    timeout: 15_000,
+  })
+  await first.click()
+}
+
+/**
+ * 编辑器那一屏：除了跑外壳断言的那几档，**还有哪些工位要在截图前补"点中一格"**。
+ *
+ * 今天是 `laptop-sm`（1100×800）—— 它落在设计点名的 **821–1279 死带**里，但不跑 `expectWideShell`
+ * （那会把整套宽屏断言顺带跑一遍，超出本票范围）。⇒ 它只借"点一格"这一步，
+ * 让那张照片拍到**挤在窄档里的字段表**，而不是空态。
+ *
+ * ⚠️ **<821px 那一族不点**：那里左栏是**收起来的抽屉**（口径 8），树根本不在屏幕上 ——
+ *    点了也拍不到表；横屏那一档"没选中"的观感是票 69 已经定下的（`expectLandscapeShell` 不改）。
+ */
+function shootsPickedViewport(vp: { name: string; width: number }): boolean {
+  return vp.width >= 821 && !SHELL_VIEWPORTS.has(vp.name)
+}
+
+/**
  * ≥821px：四栏 + 标尺逐个对齐 + 中栏长滚动 + 两态的「＋」+ 三档字号（口径 1/2/3/5/6/7）。
  *
  * ⚠️ 票 69：这一条**自己会把左栏树上的一格点中**（在断完"点节点态三个＋"之后）——
@@ -429,11 +459,7 @@ async function expectWideShell(page: Page): Promise<void> {
   expectTapTargets(before.adds)
 
   // ② 点中左栏第一格（＝ 进编枝态）：这一态**要挡住"某一枝真的编不了"那种回归**
-  const first = page.locator('[data-branch-node]').first()
-  await expect(first, 'the left tree must show up before the mid table can have anything in it').toBeVisible({
-    timeout: 15_000,
-  })
-  await first.click()
+  await pickFirstBranch(page)
 
   const r = await readShell(page)
   const cols = r.cols.filter((c) => c.visible)
@@ -500,8 +526,10 @@ async function expectWideShell(page: Page): Promise<void> {
   expect(r.adds.length, 'a plus that is hidden must really leave the screen').toBe(2)
   expectTapTargets(r.adds)
 
-  // 口径 6/7：外壳自己的文字只有三档（14 / 12.5 / 11），一档都不许少、更不许有第四档
-  expect(r.fonts, 'the shell text must use the three scale tiers').toEqual(['11px', '12.5px', '14px'])
+  // 口径 6/7：外壳自己的文字只有三档（14 / 12.5 / 11），一档都不许少、更不许有第四档。
+  // ⚠️ 三档那一串住 `probe.ts` 的 `FONT_TIERS`（阈值只写一份）；这一屏**照不到 `<option>`**
+  //    （它从不按「＋」）—— 那一条由组件故事那一层守，见 `probe.ts` 的 `expectTierFonts`。
+  expect(r.fonts, 'the shell text must use the three scale tiers').toEqual(FONT_TIERS)
 }
 
 /** ≤820px 横屏：只剩中栏 + 两个抽屉默认关着（口径 8 / 裁决 5） */
@@ -573,9 +601,21 @@ test.describe('状态 × 屏幕', () => {
         // 票 67/69：开着外壳的那一屏要先过它自己那几条（口径 1/2/3/5/6/7/8）——
         // ⚠️ **必须在截图之前**：宽屏那一条会在**先断完"点节点态三个＋"之后**点中左栏一枝，
         //    于是下面那张照片拍到的才是**有字段表的中栏**（票 69 S3 的条件 4）。
-        if (state.name === EDITOR_STATE && SHELL_VIEWPORTS.has(vp.name)) {
-          if (vp.width >= 821) await expectWideShell(page)
-          else await expectLandscapeShell(page)
+        if (state.name === EDITOR_STATE) {
+          if (SHELL_VIEWPORTS.has(vp.name)) {
+            if (vp.width >= 821) await expectWideShell(page)
+            else await expectLandscapeShell(page)
+          } else if (shootsPickedViewport(vp)) {
+            // 票 70：不跑外壳断言、但树在屏幕上的那一档（`laptop-sm`＝821–1279 死带）——
+            // 不补这一步，它的照片永远是空态，而加这一档的理由正是"中栏那张表要有照片"。
+            await pickFirstBranch(page)
+            // …而且**顺手把它断下来**：这一步的全部目的就是"照片里中栏是表"，
+            // 少了这一句，表整条不在时也只有人眼看得出来（这一处正是这么被发现的）。
+            await expect(
+              page.locator('[data-branch-form] [data-field-row]').first(),
+              'the mid column must show the field table, not the empty state',
+            ).toBeVisible()
+          }
         }
 
         const probe = (await page.evaluate(PROBE)) as Probe
