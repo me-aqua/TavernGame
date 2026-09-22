@@ -109,6 +109,15 @@ export function minimalCard(): Record<string, unknown> {
         path: 'lead.pack',
         mode: 'push',
       },
+      // 结构校验（票 66）要求**每一枝都有维护器**，`player` 那一枝原本一条动作都没有。
+      // ⚠️ 它刻意**不进任何节点的 tools**：`card-actions.test.ts` 与 `card-layout.test.ts`
+      //    都拿「夹具的节点只声明了 set_place」当"白名单会裁剪"的现场。
+      set_profile: {
+        whenToUse: 'when the fixture is needed',
+        principles: 'keep it minimal',
+        what: 'write the player profile',
+        path: 'player.profile',
+      },
       advance_time: {
         whenToUse: 'when the fixture is needed',
         principles: 'keep it minimal',

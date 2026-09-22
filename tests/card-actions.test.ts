@@ -111,7 +111,9 @@ describe('toolSchemas: the parameters are derived from the state schema', () => 
     expect(availableActions(card(), 'first')).toEqual(['set_place'])
     expect(availableActions(card(), 'second')).toEqual([])
     expect(toolSchemas(card(), 'second')).toEqual([])
-    expect(availableActions(card())).toHaveLength(7)
+    // ⚠️ 8 不是 7：票 66 的结构校验要求**每一枝都有维护器**，夹具的 `player` 那一枝
+    //    原本一条动作都没有 ⇒ `set_profile` 是补上的那一条（见 `card-fixtures.ts` 的注释）
+    expect(availableActions(card())).toHaveLength(8)
   })
 
   it('hangs the schema notes on the tool description', () => {
