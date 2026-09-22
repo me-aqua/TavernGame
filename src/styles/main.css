@@ -79,6 +79,32 @@
   --font-sans: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
+/* ---------- 尺度层（票 67 · 段 8a）----------
+ * 编辑器外壳吃的那一套尺寸：字号 / 间距 / 圆角 / 控件高。名字与值取自
+ * `.team/design/2026-09-18/v16/01-*.html` 的 `:root`，**只此一处**（别处不许再声明一遍）。
+ * ⚠️ 字号是 R59-③ 放大后的那一组：13/11.5/10 → 14/12.5/11（每档 +1，相邻两档的间隔仍是 1.5）。
+ * ⚠️ **只作用于编辑器外壳**（src/components/EditorShell.vue）—— 玩家界面那几个组件仍用各自的
+ *    字面量，9 张像素基线靠这一点一张都不动。
+ * ---------- */
+:root {
+  --fs1: 14px;
+  --fs2: 12.5px;
+  --fs3: 11px;
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 20px;
+  --gut: 10px;
+  --r1: 4px;
+  --r2: 6px;
+  --r3: 10px;
+  --h-btn: 18px;
+  --h-ctl: 22px;
+  --h-cb: 12px;
+  --h-ta: 320px;
+}
+
 /* ---------- 全局基线 ---------- */
 html,
 body,
@@ -119,6 +145,19 @@ input,
 *::-webkit-scrollbar-thumb {
   background: var(--color-line);
   border-radius: 4px;
+}
+
+/* 键盘焦点环：只有键盘走到控件上才出现（鼠标点不闪一下）。
+ * 选择器写成显式清单而不是 `:where(...)`：`:where()` 特异性是 0，打不过组件上的
+ * `outline-none`，焦点了却看不见 —— 那正是这条规则要防的事。 */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 /* ---------- 沉浸感：动效 ---------- */
