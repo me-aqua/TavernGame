@@ -1,8 +1,11 @@
 <script setup lang="ts">
 /**
- * 卡界面：浮层里的卡图 + 节点编辑表单（设置面板「查看 / 编辑卡图」打开它）。
+ * 卡界面：四栏外壳里的卡图 + 节点编辑表单（设置面板「查看 / 编辑卡图」打开它）。
  *
  * 形态按决定 #24：绝对定位的浮层盖在故事上，不挤占正文 —— 关了它下面还是原来那一屏。
+ * 四栏骨架（顶栏 / 内容 / 工作流 / 编辑 / 公共提示词 / 宽度标尺）是 EditorShell 的事，
+ * 这里只管三件事：往里塞哪三块内容、选中了谁、保存走哪条路。
+ *
  * 保存走**与导入同一套校验**（importCard：卡格式 + 显示词汇表），通过才落盘；失败原样
  * 显示在表单里。落盘成功只 emit saved，reload 由外层做（引擎与显示映射都在模块加载期
  * 读卡，见 game/current-card.ts）。
@@ -11,14 +14,18 @@
  * 资源**（settings 勾选列）；role / tools / reads 是机制（卡给了谁什么权力），
  * 表单只读展示，保存时整份复制、一个字节不动。
  *
- * 资源库面板（CardResources）是本浮层里的第二块：它管卡里那几块原始提示词的读与改，
+ * 资源库面板（CardResources）住右栏（公共提示词那一格）：它管卡里那几块原始提示词的读与改，
  * 保存走的也是同一个 importCard。
+ *
+ * 三个「＋」（加一枝 / 加一个动作 / 加一步）本票只把事件抛出去，**不动卡** ——
+ * 8b–8e 才轮到"按下去真的长出东西"。
  */
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import CardGraph from './CardGraph.vue'
 import CardNodeForm from './CardNodeForm.vue'
 import CardResources from './CardResources.vue'
+import EditorShell from './EditorShell.vue'
 import { cardMeta, importCard, type CardSource } from '../game/current-card'
 import type { CardData } from '../game/card'
 
@@ -35,13 +42,17 @@ const emit = defineEmits<{
   close: []
   /** 改完也存下了 —— 外层负责 reload */
   saved: []
+  /** 三栏各自的「＋」：本票只抛事件，改卡是 8b–8e 的事 */
+  'add-branch': []
+  'add-action': []
+  'add-step': []
 }>()
 
 /** 选中的节点 id；空串 = 还没选 */
 const selected = ref('')
 /** 保存失败的原因（原样显示，不吞） */
 const error = ref('')
-/** 资源库面板开着没有（表头那颗按钮开合它） */
+/** 资源库面板开着没有（顶栏那颗按钮开合它） */
 const resourcesOpen = ref(false)
 
 /** 卡里的五块设定 —— 勾选区那一列就是它们 */
@@ -50,6 +61,10 @@ const settingKeys = computed(() => Object.keys(props.card.settings))
 const meta = computed(() => cardMeta(props.card))
 const sourceLabel = computed(() =>
   props.source === 'imported' ? t('card.sourceImported') : t('card.sourceBuiltin'),
+)
+/** 顶栏那一行身份（外壳只负责画） */
+const metaLine = computed(() =>
+  t('card.meta', { name: meta.value.name, version: meta.value.version, source: sourceLabel.value }),
 )
 
 /** 正在编辑的那个节点；没选中就是 null */
@@ -132,64 +147,48 @@ function markResources(value: { settings: string[] }) {
     <div
       class="flex max-h-[92vh] w-full max-w-[980px] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl xl:max-w-[1240px] 2xl:max-w-[1400px]"
     >
-      <header class="flex shrink-0 items-start justify-between gap-2 border-b border-line px-4 py-3">
-        <div class="min-w-0">
-          <h2 class="text-[15px] font-semibold text-text">{{ t('card.graphTitle') }}</h2>
-          <p class="mt-0.5 text-[11.5px] text-muted">
-            {{ t('card.meta', { name: meta.name, version: meta.version, source: sourceLabel }) }}
-          </p>
-        </div>
-        <button
-          data-card-resources-open
-          :aria-label="t('card.resourcesTitle')"
-          :title="t('card.resourcesTitle')"
-          :aria-expanded="resourcesOpen"
-          class="shrink-0 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors"
-          :class="
-            resourcesOpen
-              ? 'border-accent-line bg-accent-soft text-accent'
-              : 'border-line text-muted hover:bg-surface-2 hover:text-text'
-          "
-          @click="resourcesOpen = !resourcesOpen"
-        >
-          {{ t('card.resourcesTitle') }}
-        </button>
-        <button
-          data-card-close
-          :aria-label="t('card.close')"
-          :title="t('card.close')"
-          class="flex size-7 shrink-0 items-center justify-center rounded-full text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-text"
-          @click="emit('close')"
-        >
-          {{ t('card.closeIcon') }}
-        </button>
-      </header>
+      <EditorShell
+        :card="card"
+        :selected="selected"
+        :meta="metaLine"
+        :prompts-open="resourcesOpen"
+        @close="emit('close')"
+        @toggle-resources="resourcesOpen = !resourcesOpen"
+        @select="select"
+        @add-branch="emit('add-branch')"
+        @add-action="emit('add-action')"
+        @add-step="emit('add-step')"
+      >
+        <!-- 左栏：卡图（本票暂留在那儿，8b 换成一枝一棵的导航树） -->
+        <template #content>
+          <CardGraph :card="card" :selected="selected" @select="select" />
+        </template>
 
-      <div class="min-h-0 flex-1 overflow-y-auto p-3">
-        <p class="mb-2 text-[11.5px] text-muted">{{ t('card.graphLegend') }}</p>
-        <CardGraph :card="card" :selected="selected" @select="select" />
+        <!-- 中栏：那个唯一的长滚动体里放「编一步」表单（8c 才换成新表单） -->
+        <template #mid>
+          <CardNodeForm
+            v-if="editing"
+            :key="editing.id"
+            :id="editing.id"
+            :name="editing.name"
+            :duty="editing.duty"
+            :prompt="editing.prompt"
+            :role="editing.role"
+            :tools="editing.tools"
+            :reads="editing.reads"
+            :settings="editing.settings"
+            :setting-keys="settingKeys"
+            :error="error"
+            @save="save"
+            @marks="markResources"
+          />
+        </template>
 
-        <!-- 资源库面板：卡里那几块原始提示词的读与改（保存走它自己的 importCard） -->
-        <CardResources v-if="resourcesOpen" class="mt-2" :card="card" error="" @saved="emit('saved')" />
-
-        <p v-if="!editing" class="mt-2 text-[12px] text-faint">{{ t('card.graphHint') }}</p>
-        <CardNodeForm
-          v-else
-          :key="editing.id"
-          :id="editing.id"
-          :name="editing.name"
-          :duty="editing.duty"
-          :prompt="editing.prompt"
-          :role="editing.role"
-          :tools="editing.tools"
-          :reads="editing.reads"
-          :settings="editing.settings"
-          :setting-keys="settingKeys"
-          :error="error"
-          @save="save"
-          @marks="markResources"
-        />
-      </div>
+        <!-- 右栏：公共提示词的读与改（8d 才换成新表单） -->
+        <template #prompts>
+          <CardResources v-if="resourcesOpen" :card="card" error="" @saved="emit('saved')" />
+        </template>
+      </EditorShell>
     </div>
   </div>
 </template>

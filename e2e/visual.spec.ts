@@ -33,9 +33,23 @@ const VIEWPORTS = [
   { name: 'phone', width: 360, height: 640, dsf: 2, mobile: true },
   { name: 'phone-lg', width: 430, height: 932, dsf: 2, mobile: true },
   { name: 'tablet', width: 768, height: 1024, dsf: 2, mobile: true },
+  // 横屏手机：票 67（口径 8）新加的工位 —— 四栏最少要 750px（设计 §四.1 的算术），
+  // 800px 下只剩 40px 给中栏 ⇒ 这一档量的不是"四栏"，是"一栏 + 抽屉"
+  { name: 'phone-landscape', width: 800, height: 400, dsf: 2, mobile: true },
   { name: 'laptop', width: 1280, height: 800, dsf: 1, mobile: false },
   { name: 'desktop', width: 1920, height: 1080, dsf: 1, mobile: false },
 ]
+
+/**
+ * 开着四栏外壳的那一屏（口径 8 与裁决 6 要的「编辑器状态」）。
+ *
+ * ⚠️ 它是**改名来的**：原来的 `card-open` 点的就是设置面板里那颗 `[data-card-view]`，
+ *    而它打开的 `CardEditor` 正是编辑器浮层（`App.vue:385-389` 的 `v-if="cardOpen"`）
+ *    ⇒ 再添一个"编辑器状态"只会是同一屏的第二份（裁决 6 明说不加第二个）。
+ */
+const EDITOR_STATE = 'editor-open'
+/** 外壳只在口径说得清的那几个视口上量：≥821px 量四栏（口径 1–7），800×400 量降级（口径 8） */
+const SHELL_VIEWPORTS = new Set(['laptop', 'desktop', 'phone-landscape'])
 
 /** 建像素基线的画面：稳定（数据固定）且值得盯住 */
 const BASELINE = new Set([
@@ -175,9 +189,8 @@ const STATES: State[] = [
     waitAfterMs: 400,
   },
   {
-    // 卡图的浮层：设置面板里的「卡」一节打开它。两次点击要等 Vue 渲染完第一次的结果，
-    // 所以 interact 是一段 async IIFE（page.evaluate 会等它 resolve）。
-    name: 'card-open',
+    // 四栏外壳那一屏：设置面板的「卡」一节打开编辑器浮层 —— 那正是外壳的家
+    name: EDITOR_STATE,
     seed: { config: CONFIG, save: saveWith({ events: STORY }) },
     interact: `(async () => {
       document.querySelector('button[data-settings]')?.click()
@@ -262,12 +275,235 @@ async function openState(page: Page, state: State): Promise<void> {
   }
 }
 
+/** 四栏外壳在浏览器里的读数（口径 1/2/3/5/6/7 —— 只读，不改页面） */
+interface ShellReading {
+  cols: Array<{ col: string; w: number; h: number; cx: number; visible: boolean; flex: string }>
+  grid: { template: string; gap: string } | null
+  ruler: { display: string; template: string; text: string; segs: Array<{ w: number; cx: number }> } | null
+  mid: { overflowY: string; w: number; h: number } | null
+  adds: Array<{ what: string; w: number; h: number }>
+  drawers: Array<{
+    name: string
+    present: boolean
+    display: string | null
+    visible: boolean
+    w: number
+    expanded: string | null
+  }>
+  fonts: string[]
+}
+
+/**
+ * 外壳那几条判据的读数脚本。
+ *
+ * 四样都在这里量：栅格的四段（口径 1）· 标尺四段（口径 2）· 中栏那个滚动体（口径 3）·
+ * 三个「＋」的可点区域（口径 5 的 24×24）· 外壳自己用到的字号（口径 7 的三档）。
+ */
+const SHELL_PROBE = `(() => {
+  const vis = (r) => r.width > 0.5 && r.height > 0.5 && r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight
+  const box = (el) => {
+    const r = el.getBoundingClientRect()
+    return { w: r.width, h: r.height, cx: r.left + r.width / 2 }
+  }
+  const shell = document.querySelector('[data-shell]')
+  const cols = [...document.querySelectorAll('[data-col]')].map((el) => ({
+    col: el.getAttribute('data-col'),
+    ...box(el),
+    visible: vis(el.getBoundingClientRect()),
+    flex: getComputedStyle(el).flexDirection,
+  }))
+  const ruler = document.querySelector('[data-ruler]')
+  const mid = document.querySelector('[data-mid]')
+  // 外壳自己的文字只用三档字号：插进来的既有组件（卡图 / 表单 / 资源库）不算
+  const legacy = '[data-card-form], [data-card-resources], .card-graph'
+  const fonts = new Set()
+  for (const el of document.querySelectorAll('[data-card-editor] *')) {
+    if (el.closest(legacy)) continue
+    if (el.children.length || !(el.textContent || '').trim()) continue
+    fonts.add(getComputedStyle(el).fontSize)
+  }
+  return {
+    cols,
+    grid: shell ? { template: getComputedStyle(shell).gridTemplateColumns, gap: getComputedStyle(shell).columnGap } : null,
+    ruler: ruler
+      ? {
+          display: getComputedStyle(ruler).display,
+          template: getComputedStyle(ruler).gridTemplateColumns,
+          text: (ruler.textContent || '').trim(),
+          segs: [...ruler.querySelectorAll('[data-ruler-seg]')].map((el) => box(el)),
+        }
+      : null,
+    mid: mid ? { overflowY: getComputedStyle(mid).overflowY, ...box(mid) } : null,
+    adds: [...document.querySelectorAll('[data-add]')].map((el) => ({ what: el.getAttribute('data-add'), ...box(el) })),
+    drawers: ['content', 'prompts'].map((name) => {
+      const el = document.querySelector('[data-drawer="' + name + '"]')
+      const toggle = document.querySelector('[data-drawer-toggle="' + name + '"]')
+      return {
+        name,
+        present: !!el,
+        display: el ? getComputedStyle(el).display : null,
+        visible: el ? vis(el.getBoundingClientRect()) : false,
+        w: el ? el.getBoundingClientRect().width : 0,
+        expanded: toggle ? toggle.getAttribute('aria-expanded') : null,
+      }
+    }),
+    fonts: [...fonts].sort(),
+  }
+})()`
+
+/**
+ * 中栏是不是真的能长滚动（口径 3）：塞一块高的进去再量，量完就撤。
+ *
+ * jsdom 没有布局，这一条只有在真浏览器里才量得到：`scrollHeight > clientHeight`（滚得动）
+ * 且 `scrollWidth <= clientWidth`（不横向溢出）。
+ */
+const MID_SCROLL_PROBE = `(() => {
+  const mid = document.querySelector('[data-mid]')
+  if (!mid) return null
+  const probe = document.createElement('div')
+  probe.style.height = '3000px'
+  probe.style.flex = 'none'
+  mid.appendChild(probe)
+  mid.scrollTop = 99999
+  const out = {
+    scrollHeight: mid.scrollHeight,
+    clientHeight: mid.clientHeight,
+    scrollTop: mid.scrollTop,
+    scrollWidth: mid.scrollWidth,
+    clientWidth: mid.clientWidth,
+    overflowY: getComputedStyle(mid).overflowY,
+  }
+  probe.remove()
+  mid.scrollTop = 0
+  return out
+})()`
+
+/** 读一屏外壳 */
+async function readShell(page: Page): Promise<ShellReading> {
+  return (await page.evaluate(SHELL_PROBE)) as ShellReading
+}
+
+/** 点一下开合按钮（用 DOM 点击：遮罩盖住顶栏时也照样点得到），再把那个抽屉读回来 */
+async function toggleDrawer(page: Page, name: string) {
+  await page.evaluate(`document.querySelector('[data-drawer-toggle="${name}"]')?.click()`)
+  await page.waitForTimeout(200)
+  const after = await readShell(page)
+  return after.drawers.find((d) => d.name === name) as ShellReading['drawers'][number]
+}
+
+/** 三个「＋」的可点区域 ≥ 24×24（口径 5 / 裁决 4：视觉上可以仍是小方块，点得到的范围不许小） */
+function expectTapTargets(adds: ShellReading['adds']): void {
+  for (const add of adds) {
+    expect(add.w, 'the "' + add.what + '" plus is narrower than 24px').toBeGreaterThanOrEqual(24)
+    expect(add.h, 'the "' + add.what + '" plus is shorter than 24px').toBeGreaterThanOrEqual(24)
+  }
+}
+
+/** ≥821px：四栏 + 标尺逐个对齐 + 中栏长滚动 + 三档字号（口径 1/2/3/5/6/7） */
+async function expectWideShell(page: Page): Promise<void> {
+  const r = await readShell(page)
+  const cols = r.cols.filter((c) => c.visible)
+  expect(
+    cols.map((c) => c.col),
+    'four columns must be on screen at this width',
+  ).toEqual(['content', 'flow', 'edit', 'prompts'])
+  expect(cols[2].flex, 'the mid column must be a single column').toBe('column')
+
+  // 口径 1：四段逐段相等（自适应那一段只断言"是弹性的"），栏间距 10px
+  const tracks = (r.grid?.template ?? '').split(' ').filter(Boolean)
+  expect(tracks.length, 'the shell must be a four-track grid').toBe(4)
+  expect(tracks[0], 'the content column width').toBe('300px')
+  expect(tracks[1], 'the workflow strip width').toBe('120px')
+  expect(tracks[3], 'the prompts column width').toBe('290px')
+  expect(Number.parseFloat(tracks[2]), 'the edit column must take the rest').toBeGreaterThan(0)
+  expect(r.grid?.gap, 'the gap between columns').toBe('10px')
+
+  // 口径 2：标尺四段与上面四栏逐个对齐（宽度与中心都对齐）
+  expect(r.ruler?.segs.length, 'the ruler must have four segments').toBe(4)
+  cols.forEach((col, i) => {
+    const seg = (r.ruler?.segs ?? [])[i]
+    expect(
+      Math.abs((seg?.w ?? 0) - col.w),
+      'ruler segment ' + i + ' is not as wide as its column',
+    ).toBeLessThanOrEqual(1)
+    expect(
+      Math.abs((seg?.cx ?? 0) - col.cx),
+      'ruler segment ' + i + ' does not line up with its column',
+    ).toBeLessThanOrEqual(1)
+  })
+
+  // 口径 3：中栏塞得下长内容 —— 滚得动、且不横向溢出
+  expect(r.mid, 'the mid column has no scroll body').not.toBeNull()
+  expect(['auto', 'scroll'], 'the mid body must scroll').toContain(r.mid?.overflowY)
+  const scroll = (await page.evaluate(MID_SCROLL_PROBE)) as {
+    scrollHeight: number
+    clientHeight: number
+    scrollTop: number
+    scrollWidth: number
+    clientWidth: number
+  } | null
+  expect(scroll, 'the mid body could not be measured').not.toBeNull()
+  expect(scroll?.scrollHeight ?? 0, 'the mid body must grow taller than its box').toBeGreaterThan(
+    (scroll?.clientHeight ?? 0) + 1,
+  )
+  expect(scroll?.scrollTop ?? 0, 'the mid body must really scroll').toBeGreaterThan(0)
+  expect(scroll?.scrollWidth ?? 0, 'the mid body must not scroll sideways').toBeLessThanOrEqual(
+    (scroll?.clientWidth ?? 0) + 1,
+  )
+
+  // 口径 5 / 裁决 4：三个「＋」都在屏幕上，可点区域 ≥ 24×24
+  expect(r.adds.length, 'the three plus buttons must exist').toBe(3)
+  expectTapTargets(r.adds)
+
+  // 口径 6/7：外壳自己的文字只有三档（14 / 12.5 / 11），一档都不许少、更不许有第四档
+  expect(r.fonts, 'the shell text must use the three scale tiers').toEqual(['11px', '12.5px', '14px'])
+}
+
+/** ≤820px 横屏：只剩中栏 + 两个抽屉默认关着（口径 8 / 裁决 5） */
+async function expectLandscapeShell(page: Page): Promise<void> {
+  const r = await readShell(page)
+  expect(
+    r.cols.filter((c) => c.visible).map((c) => c.col),
+    'exactly one column may stay on screen in landscape',
+  ).toEqual(['edit'])
+
+  // 标尺压成一行文字也要在位（四段对齐那条判据只属于 ≥821px）
+  expect(r.ruler !== null && r.ruler.display !== 'none', 'the ruler must stay in place').toBe(true)
+  expect((r.ruler?.text ?? '').length, 'the ruler must still say what the widths are').toBeGreaterThan(0)
+
+  // 两个抽屉默认关着，而且"关着"必须是 display:none —— 靠 transform 挪出屏会被探针记成伸出去的元素
+  for (const d of r.drawers) {
+    expect(d.present, 'the ' + d.name + ' drawer must exist').toBe(true)
+    expect(d.visible, 'the ' + d.name + ' drawer must start closed').toBe(false)
+    expect(d.display, 'a closed drawer must be display:none, not parked off screen').toBe('none')
+    expect(d.expanded, 'the ' + d.name + ' toggle must say it is collapsed').toBe('false')
+  }
+  // 开 → 可见、宽 = 它本来的那一栏宽；再点 → 回到不可见
+  const widths: Record<string, number> = { content: 300, prompts: 290 }
+  for (const name of ['content', 'prompts']) {
+    const open = await toggleDrawer(page, name)
+    expect(open.visible, 'the ' + name + ' drawer must open').toBe(true)
+    expect(open.display, 'an open drawer must be laid out').not.toBe('none')
+    expect(
+      Math.abs(open.w - widths[name]),
+      'the ' + name + ' drawer keeps its column width',
+    ).toBeLessThanOrEqual(1)
+    const shut = await toggleDrawer(page, name)
+    expect(shut.display, 'the ' + name + ' drawer must go back to display:none').toBe('none')
+  }
+  // 留在屏幕上那些「＋」照样要 ≥24×24
+  expectTapTargets((await readShell(page)).adds.filter((a) => a.w > 0.5 && a.h > 0.5))
+}
+
 rmSync(OUT, { recursive: true, force: true })
 mkdirSync(OUT, { recursive: true })
 
 test.describe('状态 × 屏幕', () => {
   for (const state of STATES) {
     for (const vp of VIEWPORTS) {
+      // 横屏那一个新工位只跑编辑器那一屏：口径 8 要证的是一栏 + 抽屉能开关，
+      // 别的状态在 800×400 下不归这一票验（裁决 6：不加第二个状态、也不铺满矩阵）
+      if (vp.name === 'phone-landscape' && state.name !== EDITOR_STATE) continue
       test(`${state.name} @ ${vp.name}`, async ({ browser }) => {
         const context = await browser.newContext({
           viewport: { width: vp.width, height: vp.height },
@@ -299,6 +535,12 @@ test.describe('状态 × 屏幕', () => {
           traces: probe.traces,
           notice: probe.notice,
         })
+
+        // 票 67：开着外壳的那一屏还要过它自己那几条（口径 1/2/3/5/6/7/8）
+        if (state.name === EDITOR_STATE && SHELL_VIEWPORTS.has(vp.name)) {
+          if (vp.width >= 821) await expectWideShell(page)
+          else await expectLandscapeShell(page)
+        }
 
         expectClean(probe)
 
