@@ -353,67 +353,17 @@ describe('CardNodeForm', () => {
   })
 })
 
+/**
+ * 卡图浮层本身。票 69（段 8b-①）之后它里面是**枝树 + 只读字段表** ——
+ * 「点节点 → 改提示词 → 保存」那条链路的入口（卡图与节点表单）随本票离开了编辑器：
+ * 契约 `.team/test/2026-09-22/contract-69.md` §5 第 2 项，那一组 5 条里 4 条靠点 `[data-node]`
+ * 进流程。`CardNodeForm` 自己那一组（上面）照样量表单本身；写回整份卡等 8c 接回来时重写。
+ */
 describe('CardEditor', () => {
-  /** 打开着的卡图浮层：vue-flow 换成替身 */
+  /** 打开着的卡浮层 */
   function editor() {
-    return render(CardEditor, {
-      props: { card, source: 'builtin' },
-      global: { stubs: { VueFlow: VueFlowStub } },
-    })
+    return render(CardEditor, { props: { card, source: 'builtin' } })
   }
-
-  it('draws one node per node in the card topology', () => {
-    const w = editor()
-    expect(w.findAll('[data-node]').map((node) => node.attributes('data-node'))).toEqual(topology)
-  })
-
-  it('shows the form for the node that was clicked, and stores the edited prompt', async () => {
-    const w = editor()
-    const target = topology[1]
-    expect(w.find('[data-card-form]').exists()).toBe(false)
-
-    await w.find('[data-node="' + target + '"]').trigger('click')
-    expect(w.find('[data-card-form]').exists()).toBe(true)
-    // 表单对着的是点中的那个节点，字段是卡里的值
-    expect((w.find('[data-card-prompt]').element as HTMLTextAreaElement).value).toBe(
-      nodes[target].prompt.join('\n'),
-    )
-
-    await w.find('[data-card-prompt]').setValue('edited one\n\nedited three')
-    await w.find('[data-card-save]').trigger('click')
-
-    // 落盘的是整张卡：改的那一条提示词在，**同一节点的其它键**与别处原样
-    const stored = JSON.parse(localStorage.getItem(CARD_KEY) as string) as typeof card
-    expect(stored.graph.nodes[target].prompt).toEqual(['edited one', '', 'edited three'])
-    expect(stored.graph.nodes[target].tools).toEqual(nodes[target].tools)
-    expect(stored.graph.nodes[target].reads).toEqual(nodes[target].reads)
-    expect(stored.card).toEqual(card.card)
-    expect(w.emitted('saved')).toHaveLength(1)
-  })
-
-  it('refuses an edit that breaks the card and stores nothing, showing why', async () => {
-    const w = editor()
-    await w.find('[data-node="' + topology[0] + '"]').trigger('click')
-    // 与第二个节点重名：卡校验器会拒
-    await w.find('[data-card-name]').setValue(nodes[topology[1]].name)
-    await w.find('[data-card-save]').trigger('click')
-
-    expect(w.find('[data-card-error]').text()).toContain(t('card.saveFailed', { message: '' }).trim())
-    expect(localStorage.getItem(CARD_KEY)).toBeNull()
-    expect(w.emitted('saved')).toBeUndefined()
-  })
-
-  it('picks the error back up when another node is selected', async () => {
-    const w = editor()
-    await w.find('[data-node="' + topology[0] + '"]').trigger('click')
-    await w.find('[data-card-name]').setValue(nodes[topology[1]].name)
-    await w.find('[data-card-save]').trigger('click')
-    expect(w.find('[data-card-error]').exists()).toBe(true)
-
-    await w.find('[data-node="' + topology[1] + '"]').trigger('click')
-    expect(w.find('[data-card-error]').exists()).toBe(false)
-    expect((w.find('[data-card-name]').element as HTMLInputElement).value).toBe(nodes[topology[1]].name)
-  })
 
   it('closes itself by emitting close', async () => {
     const w = editor()

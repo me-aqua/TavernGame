@@ -14,6 +14,13 @@
  *   ① 取消勾 = **不写这个键**（不是写空表 —— 空表会被校验器拒，而且语义正好相反）；
  *   ② 一列里**至少留一个**勾上：空表在卡格式里表达不出来，而「不写这个键」= 五块全发；
  *   ③ 勾选只动它自己那一列，别的字段一个字节不动。
+ *
+ * 🔴 **票 69（段 8b-①）把这一组整条挂起了**（契约 `.team/test/2026-09-22/contract-69.md`
+ *    §5 第 3 项）。入口是「点卡图上一个节点」（`[data-node]`），而 8b-① 把卡图与节点表单一起
+ *    移出了编辑器 ⇒ 点不到节点，勾选区也就没有挂的地方。契约给的处置是**这一件整体等 8c/8d**：
+ *    入口换成「选中一枝」不可行（勾选区是**节点**的属性，不是枝的），而为了让它绿去给
+ *    `CardEditor` 加一条接缝是本票明令禁止的。⇒ 整组 `describe.skip`，**不是**"删掉了"：
+ *    8c 把节点表单接回来时连同入口一起改写（那时选节点的入口大概率是细条，不再是卡图）。
  */
 import { describe, expect, it } from 'vitest'
 import { defineComponent, h } from 'vue'
@@ -121,7 +128,7 @@ async function check(w: VueWrapper, kind: 'setting' | 'generator', name: string)
   await box(w, kind, name).setValue(true)
 }
 
-describe('CardEditor: the resource checkboxes on a node', () => {
+describe.skip('CardEditor: the resource checkboxes on a node', () => {
   it('lists the five setting blocks under the names the resource panel uses', async () => {
     const w = await editor(EXAMPLE, NO_STYLE)
     expect(marks(w, 'setting')).toEqual(SETTING_KEYS)

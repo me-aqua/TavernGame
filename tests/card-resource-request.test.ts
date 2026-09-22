@@ -10,6 +10,12 @@
  * ⚠️ 请求一侧的「在不在」用**卡正文里的标志行**（设置块的第一条非空行 / 生成器的第一条原则）：
  *    卡的内容不随界面语言变，于是同一份断言在 zh-CN 与 en 下都成立；段标题只在语言那一组里
  *    跟着 `t()` 比（标题随语言变，用标志行去判标题会两边都判不出来）。
+ *
+ * 🔴 **票 69（段 8b-①）挂起了三条**（契约 `.team/test/2026-09-22/contract-69.md` §5 第 4 项）：
+ *    那三条的入口是 `marks()`（点卡图上一个节点 → 动勾选框），而 8b-① 把卡图与节点表单一起
+ *    移出了编辑器 ⇒ 点不到节点。处置与 `card-resource-marks.test.ts` 同一句：**整体等 8c/8d**
+ *    （`it.skip`，不是删掉）。留在这里的两条不经过那个入口：一条走资源面板
+ *    （`CardResources`），一条直接装配请求（「没写这个键 = 五块全发」那半的守卫）。
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { defineComponent, h } from 'vue'
@@ -124,7 +130,7 @@ describe('card resources: the request follows the checkboxes', () => {
     expect(carries(after, markerOf(EXAMPLE, SETTING_KEYS[1]))).toBe(true)
   })
 
-  it('unchecking a block takes it out of that node request, and leaves the others alone', async () => {
+  it.skip('unchecking a block takes it out of that node request, and leaves the others alone', async () => {
     const w = await marks(EXAMPLE, NO_STYLE)
     await w.find('[data-card-resource-mark="setting:' + FIRST_BLOCK + '"]').setValue(false)
 
@@ -151,7 +157,7 @@ describe('card resources: the request follows the checkboxes', () => {
     }
   })
 
-  it('checking a block back on puts it back into the request', async () => {
+  it.skip('checking a block back on puts it back into the request', async () => {
     const w = await marks(withEveryDeclaration(EXAMPLE), NO_STYLE)
     const box = '[data-card-resource-mark="setting:' + FIRST_BLOCK + '"]'
     await w.find(box).setValue(false)
@@ -173,7 +179,7 @@ describe('card resources: the request follows the checkboxes', () => {
     for (const key of SETTING_KEYS) expect(carries(system, markerOf(EXAMPLE, key)), key).toBe(true)
   })
 
-  it('holds in English too', async () => {
+  it.skip('holds in English too', async () => {
     setLocale('en')
     const w = await marks(EXAMPLE, NO_STYLE)
     await w.find('[data-card-resource-mark="setting:' + FIRST_BLOCK + '"]').setValue(false)

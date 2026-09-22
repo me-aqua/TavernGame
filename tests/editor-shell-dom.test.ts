@@ -5,9 +5,17 @@
  * 契约 `.team/test/2026-09-22/contract-67.md`；S0 `.team/leader/2026-09-22/段8a-S0.md` 的 9 条口径
  * 与 §九 的 8 条裁决。这一件只管**结构与交互**（口径 1–5 的那一半）：
  *   · 四栏 / 顶栏 / 细条 / 标尺的钩子与顺序；
- *   · 中栏是那个长滚动体的家，且「编一步」表单挂在它里面；
+ *   · 中栏是那个长滚动体的家（里面挂什么由那一票自己定）；
  *   · 细条高亮 = 当前选中的那一步；
  *   · 三个「＋」各自在哪一栏、能不能聚焦、按下去抛不抛事件。
+ *
+ * ⚠️ **票 69（段 8b-①）改了两处**（契约 `.team/test/2026-09-22/contract-69.md` §5 第 1 项）：
+ *    ① **S4 整条作废** —— 它断言「选中一步之后 `[data-card-form]` 挂在中栏里」，而 8b-① 把
+ *       卡图与「编一步」表单都移出了编辑器 ⇒ 那条断言的前提没有了。「中栏那个长滚动体还在」
+ *       是 S3 的事（它没动）；「里面挂的是字段表」是那一票自己的
+ *       `tests/branch-tree-dom.test.ts` 的事（A2a/A2b）。8c 把节点表单接回来时，这条要重写。
+ *    ② **选节点那一轴改由细条承担**（`pick()` 点 `[data-step]`，不再点卡图的 `[data-node]`）——
+ *       卡图不再挂在编辑器里，而细条点一下就是选那一步，S6 量的还是同一件事。
  *
  * ⚠️ **几何不在这里量**：jsdom 没有布局、也没有媒体查询 ⇒ 栏宽 / 标尺对齐 / 长滚动 /
  *    横屏降级（口径 1/2/3 的数值面与口径 8）都在 `e2e/visual.spec.ts` 里对着真浏览器量。
@@ -88,8 +96,6 @@ interface Shell {
   on: string[]
   /** 三个「＋」：在哪一栏、是不是真按钮、可不可聚焦 */
   adds: Array<{ what: string; col: string | null; tag: string; disabled: boolean; tabindex: number }>
-  form: boolean
-  formInMid: boolean
   /** 细条每一项自己的文字（判「显示哪一步」用） */
   stepText: Record<string, string>
 }
@@ -100,7 +106,6 @@ function shellOf(w: AnyWrapper): Shell {
   const ruler = w.find('[data-ruler]')
   const lastCol = cols.length ? cols[cols.length - 1] : null
   const mid = w.find('[data-mid]')
-  const form = w.find('[data-card-form]')
   const steps = w.findAll('[data-step]')
   const colOf = (el: Element): string | null => el.closest('[data-col]')?.getAttribute('data-col') ?? null
 
@@ -133,17 +138,15 @@ function shellOf(w: AnyWrapper): Shell {
       disabled: el.attributes('disabled') !== undefined,
       tabindex: Number(el.attributes('tabindex') ?? '0'),
     })),
-    form: form.exists(),
-    formInMid: form.exists() && form.element.closest('[data-mid]') !== null,
     stepText: Object.fromEntries(steps.map((el) => [el.attributes('data-step') ?? '', el.text()])),
   }
 }
 
-/** 点一个节点（走卡图的替身），并把树更新完 */
+/** 选一个节点：点细条上那一步（卡图不再挂在编辑器里，选节点那一轴现在由细条承担） */
 async function pick(w: AnyWrapper, id: string): Promise<void> {
-  const node = w.find('[data-node="' + id + '"]')
-  expect(node.exists(), 'no clickable node in the graph: ' + id).toBe(true)
-  await node.trigger('click')
+  const step = w.find('[data-step="' + id + '"]')
+  expect(step.exists(), 'no step for this node in the strip: ' + id).toBe(true)
+  await step.trigger('click')
 }
 
 /** S1 · 口径 1 的骨架面：四栏恰好四个、按契约的顺序、长在 `[data-shell]` 里 */
@@ -175,15 +178,15 @@ function checkS3(w: AnyWrapper): void {
   expect(w.findAll('[data-mid]').length, 'the scroll body must be a single one').toBe(1)
 }
 
-/** S4 · 口径 3 的挂载点：选中一步之后，「编一步」表单挂在中栏那个滚动体里 */
-async function checkS4(w: AnyWrapper): Promise<void> {
-  await pick(w, topology[0])
-  const s = shellOf(w)
-  expect(s.form, 'no step form [data-card-form] after picking a node').toBe(true)
-  expect(s.formInMid, 'the step form must be mounted inside [data-mid]').toBe(true)
-}
-
-/** S5 · 口径 4 的静态面：顶栏与细条在位；细条列的是卡里的节点、按拓扑顺序、各自写着名字 */
+/**
+ * S4（口径 3 的挂载点）**票 69 作废** —— 见文件头那两条。
+ *
+ * 它原来断言「选中一步之后 `[data-card-form]` 挂在中栏那个滚动体里」，而 8b-① 把卡图与
+ * 「编一步」表单都移出了编辑器 ⇒ 那条断言的前提没有了。8c 把节点表单接回来时按那一票的
+ * 契约重写；「中栏那个长滚动体还在」由 S3 守着。
+ *
+ * 下面是 S5 · 口径 4 的静态面：顶栏与细条在位；细条列的是卡里的节点、按拓扑顺序、各自写着名字。
+ */
 function checkS5(w: AnyWrapper): void {
   const s = shellOf(w)
   expect(s.top, 'the top bar [data-top] is missing').toBe(true)
@@ -264,7 +267,6 @@ const CHECKS: Check[] = [
   { id: 'S1', what: 'the shell is four columns, in the order the contract names', run: checkS1 },
   { id: 'S2', what: 'the width ruler sits under the columns, one segment each', run: checkS2 },
   { id: 'S3', what: 'the mid column owns the single long-scroll body', run: checkS3 },
-  { id: 'S4', what: 'the step form is mounted inside that body', run: checkS4 },
   { id: 'S5', what: 'the top bar and the strip list the card nodes in order', run: checkS5 },
   { id: 'S6', what: 'the highlighted step is the selected node', run: checkS6 },
   { id: 'S7', what: 'the three plus buttons exist, each in its own column', run: checkS7 },
@@ -300,16 +302,16 @@ const ShellStub = defineComponent({
     fault: { type: String, default: '' },
   },
   emits: ['add-branch', 'add-action', 'add-step'],
-  /** 铺那棵树，并把 [data-node] / [data-add] 的点击转成选中与事件 */
+  /** 铺那棵树，并把 [data-step] / [data-add] 的点击转成选中与事件 */
   setup(props, { emit }) {
     const selected = ref('')
-    /** 点到了哪个钩子：选节点走 select，按「＋」走各自的事件 */
+    /** 点到了哪个钩子：选节点走 select（细条那一步），按「＋」走各自的事件 */
     const onClick = (event: MouseEvent) => {
-      const target = (event.target as Element).closest('[data-node], [data-add]')
+      const target = (event.target as Element).closest('[data-step], [data-add]')
       if (!target) return
-      const node = target.getAttribute('data-node')
+      const step = target.getAttribute('data-step')
       const add = target.getAttribute('data-add')
-      if (node !== null) selected.value = node
+      if (step !== null) selected.value = step
       else if (add !== null) emit(('add-' + add) as `add-${AddName}`)
     }
     return () =>
@@ -334,9 +336,8 @@ function shellHtml(fault: string, selected: string): string {
           })
           .join('')
   const plus = (what: string) => (fault === 'adds' ? '' : `<button data-add="${what}">+</button>`)
-  const form = selected === '' ? '' : '<form data-card-form></form>'
-  // 'mid' = 中栏不再是那个长滚动体（动作区与表单还在中栏里，只是没有 [data-mid]）
-  const body = fault === 'mid' ? `${plus('action')}${form}` : `<div data-mid>${plus('action')}${form}</div>`
+  // 'mid' = 中栏不再是那个长滚动体（编辑面还在中栏里，只是没有 [data-mid]）
+  const body = fault === 'mid' ? plus('action') : `<div data-mid>${plus('action')}</div>`
   const cols =
     `<div data-col="content">${plus('branch')}${nodes.join('')}</div>` +
     `<div data-col="flow" data-flow>${plus('step')}${steps}</div>` +
@@ -360,7 +361,7 @@ function stub(fault: string): AnyWrapper {
   }) as AnyWrapper
 }
 
-/** 在替身上跑完 9 条判据，返回红了的那些编号（**每条各挂一版**：判据之间不许互相带状态） */
+/** 在替身上跑完 8 条判据，返回红了的那些编号（**每条各挂一版**：判据之间不许互相带状态） */
 async function redsOn(fault: string): Promise<string[]> {
   const red: string[] = []
   for (const check of CHECKS) {
@@ -390,8 +391,8 @@ describe('self-check: these criteria can go red, and by how much', () => {
     expect(await redsOn('ruler')).toEqual(['S2'])
   })
 
-  it('T4 a mid column without its scroll body turns exactly S3/S4 red', async () => {
-    expect(await redsOn('mid')).toEqual(['S3', 'S4'])
+  it('T4 a mid column without its scroll body turns exactly S3 red', async () => {
+    expect(await redsOn('mid')).toEqual(['S3'])
   })
 
   it('T5 a strip with no step at all turns exactly S5/S6 red', async () => {
