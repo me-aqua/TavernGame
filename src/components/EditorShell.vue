@@ -34,12 +34,16 @@ const props = defineProps<{
   meta: string
   /** 右栏那块面板开着没有 —— 开合状态在外层，这里只画 */
   promptsOpen: boolean
+  /** 有没保存的改动没有（顶栏那颗「保存」干净时按不动） */
+  dirty: boolean
 }>()
 
 const emit = defineEmits<{
   close: []
   /** 顶栏那颗按钮：外层把右栏面板开合一下 */
   toggleResources: []
+  /** 顶栏那颗「保存」：外层把草稿提交上去 */
+  save: []
   select: [id: string]
   'add-branch': []
   'add-action': []
@@ -104,6 +108,10 @@ function pick(id: string) {
         @click="toggleDrawer(one.name)"
       >
         {{ one.label }}
+      </button>
+      <!-- 保存：一次把说明 / 加字段 / 删字段一起提交；干净时按不动（改回原值也算干净） -->
+      <button type="button" data-card-save class="top-btn" :disabled="!dirty" @click="emit('save')">
+        {{ t('card.save') }}
       </button>
       <button
         type="button"
@@ -272,6 +280,11 @@ function pick(id: string) {
   width: 28px;
   height: 28px;
   padding: 0;
+}
+/* 干净时那颗「保存」按不动：灰掉，但**一直在位**（要看见"还没存"这件事） */
+.top-btn:disabled {
+  color: var(--color-faint);
+  cursor: default;
 }
 /* 抽屉的开合按钮只有降级形态用得上 */
 [data-drawer-toggle] {

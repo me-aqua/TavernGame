@@ -1,21 +1,26 @@
 <script setup lang="ts">
 /**
- * 卡界面：四栏外壳里的**枝树 + 只读字段表**（设置面板「查看 / 编辑卡图」打开它）。
+ * 卡界面：四栏外壳里的**枝树 + 可写字段表**（设置面板「查看 / 编辑卡图」打开它）。
  *
  * 形态按决定 #24：绝对定位的浮层盖在故事上，不挤占正文 —— 关了它下面还是原来那一屏。
  * 四栏骨架（顶栏 / 内容 / 工作流 / 编辑 / 公共提示词 / 宽度标尺）是 EditorShell 的事。
  *
- * 本票（8b-①）只做**读**：左栏列出卡里「能编」的容器节点（一棵枝树），点一格 ⇒ 中栏是
- * 那一格的**只读字段表**。「说明可编辑 / 垃圾桶 / 加一个字段 / 保存」是 8b-②，
- * 「编一步」（节点表单）是 8c —— 所以卡图与旧的节点表单都不再挂在这里（`CardGraph` 仍在
- * `DebugPanel` 里用着，`CardNodeForm` 留给 8c）。
+ * 本票（8b-②）把**写**接回来：「说明」可编 · 每行一颗垃圾桶 · 表尾「＋ 加一个字段」·
+ * 顶栏一颗「保存」。保存照 `CardResources` 那一套：**深拷整份卡 → 只改这几处 →
+ * `importCard`（先校验后落盘）→ 失败只报不改**；成功只 emit `saved`，reload 是外层的事。
  *
  * ⚠️ **卡的知识只走这一条路**：树与表都在这里从 `card.state` 现算，两个子组件只画收到的行
  *    —— 于是「组件层绿、真浏览器红」那种两份走法漂移没有了。
+ * ⚠️ **读与写共用同一个 `fieldsOf`**：`object` 读自己的 `fields`，`map` / `list` 读**元素形状**的
+ *    `of.fields`。分成两份就会出「表里显示 `of.fields`、写回 `fields`」这种**静默成立**的错。
+ * ⚠️ **界面自己挡三件事，校验器一件都不管**（实测 `""` / `" "` / `"a.b"` 全都过 `checkSchema`）：
+ *    键名 trim 后非空 · 不含 `.`（带点号那一段永远选不中）· 不与同格已有的键重名
+ *    （JSON 里同名键只能活一个 ⇒ 那是一次**静默丢编辑**）。
+ * ⚠️ **草稿按「哪一格 + 哪个键」索引**：换一格再切回来还在（一次保存提交多处改动）；
+ *    **干净 ⇔ 草稿与卡里的值逐字相同**（顶栏那颗按钮的 `disabled` 就是它）。
  * ⚠️ **什么进树**：这一格自己有一张**非空字段表**才进树（`object` 自己的 `fields`，
  *    `map` / `list` 的元素形状 `of.fields`）；元素是标量的 `list`（`地点` 那种）点进去是
- *    一张空表，不是一格。
- * ⚠️ 树是**逐层向下**（宽度优先）展开的：行的顺序 = 卡的声明顺序，一层走完再走下一层。
+ *    一张空表，不是一格。树是**逐层向下**（宽度优先）展开的，行的先后不承诺（裁决 4）。
  */
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -25,8 +30,8 @@ import EditorShell from './EditorShell.vue'
 import StateTreeNav from './StateTreeNav.vue'
 import { CLOCK_STATE_PATH } from '../game/card-time'
 import { isRecord } from '../game/card-read'
-import { schemaElement, schemaFields, schemaType, type Schema } from '../game/card-state'
-import { cardMeta, type CardSource } from '../game/current-card'
+import { schemaElement, schemaFields, schemaType, type Schema, type SchemaNode } from '../game/card-state'
+import { cardMeta, importCard, type CardSource } from '../game/current-card'
 import type { CardData } from '../game/card'
 
 const { t } = useI18n()
@@ -48,12 +53,31 @@ const emit = defineEmits<{
   'add-step': []
 }>()
 
+/** 新行四格的草稿（那一行还没落过盘，只活在内存里） */
+interface FreshRow {
+  key: string
+  kind: 'string' | 'integer'
+  note: string
+  initial: string
+}
+
 /** 选中的**那一格**（卡里的点号路径）；空串 = 还没选 */
 const picked = ref('')
 /** 细条里选中的节点 id；空串 = 还没选（中栏编的是枝，节点那一轴 8c 才接上） */
 const selected = ref('')
 /** 资源库面板开着没有（顶栏那颗按钮开合它） */
 const resourcesOpen = ref(false)
+
+/** 说明的草稿，按「哪一格 + 哪个键」索引（没有这一条 = 没改过，显示卡里的值） */
+const notes = ref<Record<string, string>>({})
+/** 待删的行（**保存时才真删**；键同上） */
+const gone = ref<Record<string, boolean>>({})
+/** 刚开出来、还没保存的那一行（同时只开一行） */
+const fresh = ref<FreshRow | null>(null)
+/** 上一次保存被拒了 ⇒ 打在这一格牵动过的那几行上 */
+const failed = ref(false)
+/** 上一次保存被拒的原因（空串 = 没有；卡自己给的那句话原样带上） */
+const failure = ref('')
 
 const meta = computed(() => cardMeta(props.card))
 const sourceLabel = computed(() =>
@@ -73,9 +97,9 @@ const CONTAINERS = ['object', 'map', 'list']
  * 比 `card-state` 的 `schemaAt` 多认 `*` 那一段 —— 树里 `roles.*` 这种行代表的是**元素形状**，
  * 它自己不是一格，但它的字段是。
  */
-function schemaOf(path: string): Schema | undefined {
+function schemaOf(root: Record<string, Schema>, path: string): Schema | undefined {
   let current: Schema | undefined
-  let scope: Record<string, Schema> | undefined = props.card.state
+  let scope: Record<string, Schema> | undefined = root
   for (const segment of path.split('.')) {
     if (segment === '*') {
       current = current === undefined ? undefined : schemaElement(current)
@@ -89,9 +113,14 @@ function schemaOf(path: string): Schema | undefined {
   return current
 }
 
-/** 一格的字段表：`object` 读自己的 `fields`，`map` / `list` 读**元素形状**的 `of.fields` */
-function fieldsOf(path: string): Record<string, Schema> {
-  const node = schemaOf(path)
+/**
+ * 一格的字段表：`object` 读自己的 `fields`，`map` / `list` 读**元素形状**的 `of.fields`。
+ *
+ * ⚠️ **读与写共用这一个函数**：读它铺表、写它改卡 —— 拿两份走法就会出「表里显示 `of.fields`、
+ *    写回 `fields`」这种错，而那种错**静默成立**（卡根本不看被写错的那一处）。
+ */
+function fieldsOf(root: Record<string, Schema>, path: string): Record<string, Schema> {
+  const node = schemaOf(root, path)
   if (node === undefined) return {}
   const own = schemaFields(node)
   if (own !== undefined) return own
@@ -103,6 +132,12 @@ function fieldsOf(path: string): Record<string, Schema> {
 /** 这一行写没写 `initial` —— 「开局在不在」的唯一开关（缩写形式 `"string"` 没有可写的键） */
 function declaresInitial(node: Schema): boolean {
   return isRecord(node) && Object.hasOwn(node, 'initial')
+}
+
+/** 卡里那一行声明的说明；没有那个键就是空串（界面上「空框 + 空标记」那一态） */
+function declaredNote(parent: string, key: string): string {
+  const field = fieldsOf(props.card.state, parent)[key]
+  return isRecord(field) && typeof field.note === 'string' ? field.note : ''
 }
 
 /**
@@ -128,9 +163,9 @@ const navRows = computed(() => {
   }
   while (queue.length > 0) {
     const path = queue.shift() as string
-    const node = schemaOf(path)
+    const node = schemaOf(props.card.state, path)
     if (node === undefined) continue
-    if (CONTAINERS.includes(schemaType(node)) && Object.keys(fieldsOf(path)).length > 0) {
+    if (CONTAINERS.includes(schemaType(node)) && Object.keys(fieldsOf(props.card.state, path)).length > 0) {
       rows.push({ path, kind: schemaType(node), taken: underEngine(path) })
     }
     for (const key of Object.keys(schemaFields(node) ?? {})) push(path + '.' + key)
@@ -142,19 +177,175 @@ const navRows = computed(() => {
   return rows
 })
 
-/** 中栏那张表：选中那一格的字段，卡的声明顺序 */
+/** 一个草稿的 id：哪一格 + 哪个键（两格有同名键时不会撞车） */
+function idOf(parent: string, key: string): string {
+  return parent + '|' + key
+}
+
+/** 把 id 拆回「哪一格」与「哪个键」 */
+function splitId(id: string): { parent: string; key: string } {
+  const cut = id.indexOf('|')
+  return { parent: id.slice(0, cut), key: id.slice(cut + 1) }
+}
+
+/** 中栏那张表：选中那一格的字段，卡的声明顺序；说明那一格显示草稿（没改过就是卡里的） */
 const fieldRows = computed(() =>
-  Object.entries(fieldsOf(picked.value)).map(([key, node]) => ({
+  Object.entries(fieldsOf(props.card.state, picked.value)).map(([key, node]) => ({
     key,
     kind: schemaType(node),
     hasInitial: declaresInitial(node),
     taken: underEngine(picked.value + '.' + key),
+    note: notes.value[idOf(picked.value, key)] ?? declaredNote(picked.value, key),
   })),
 )
 
-/** 点树上的一行：中栏换成那一格的字段表（顺手清掉上一格留下的选中态） */
+/** 这一行的说明真的改了吗（**改回原值 = 没改**，顶栏那颗按钮要跟着变回按不动） */
+function noteChanged(id: string): boolean {
+  const { parent, key } = splitId(id)
+  return notes.value[id] !== declaredNote(parent, key)
+}
+
+/** 这一次保存牵动的行：待删的 + 说明被改过的（保存被拒时指的就是它们） */
+const touched = computed(() => {
+  const ids = Object.keys(gone.value).filter((id) => gone.value[id])
+  for (const id of Object.keys(notes.value)) if (noteChanged(id)) ids.push(id)
+  return ids
+})
+
+/** 干净 ⇔ 一处改动都没有（顶栏那颗「保存」的 `disabled` 就是它） */
+const dirty = computed(() => fresh.value !== null || touched.value.length > 0)
+
+/** 这一格**待删**的那几行（别的格也有待删时，不该把同名的那一行画成待删） */
+const goneKeys = computed(() =>
+  Object.keys(gone.value)
+    .filter((id) => gone.value[id] && splitId(id).parent === picked.value)
+    .map((id) => splitId(id).key),
+)
+
+/** 被拒时打在**这一格**牵动的那几行上（别去猜卡报错里那个路径） */
+const badKeys = computed(() =>
+  failed.value
+    ? touched.value.filter((id) => splitId(id).parent === picked.value).map((id) => splitId(id).key)
+    : [],
+)
+
+/** 点树上的一行：中栏换成那一格的字段表 */
 function pick(path: string): void {
   picked.value = path
+}
+
+/** 说明格的草稿（跨格留着：一次保存把好几处改动一起提交） */
+function setNote(key: string, text: string): void {
+  notes.value[idOf(picked.value, key)] = text
+}
+
+/** 行尾那颗垃圾桶：待删 ⇄ 撤销（**保存才真删** —— 卡此刻一个字节没动） */
+function toggleDel(key: string): void {
+  const id = idOf(picked.value, key)
+  gone.value[id] = gone.value[id] !== true
+}
+
+/** 表尾那颗「＋ 加一个字段」：开一行空的新行（同时只开一行） */
+function addRow(): void {
+  fresh.value = { key: '', kind: 'string', note: '', initial: '' }
+}
+
+/** 新行那颗垃圾桶 = **取消**：那一行还没落过盘，直接收掉，不进待删 */
+function cancelRow(): void {
+  fresh.value = null
+}
+
+/** 新行四格的草稿（类型只有下拉给的那两种） */
+function setFresh(cell: 'key' | 'kind' | 'note' | 'initial', text: string): void {
+  const row = fresh.value
+  if (row === null) return
+  if (cell === 'kind') row.kind = text === 'integer' ? 'integer' : 'string'
+  else row[cell] = text
+}
+
+/** 界面自己挡下来的那一类：只报不改（存储与内存一个字节都不动） */
+function refuse(reason: string): void {
+  failed.value = true
+  failure.value = t('card.saveFailed', { message: reason })
+}
+
+/**
+ * 这一格是不是"缩写成裸字符串"的那两种（`"string"` / `"integer"`）。
+ *
+ * ⚠️ 形状判据走边界层的 `isRecord`，组件层不自己写 `typeof`：卡有两种形状是**格式层的知识**，
+ *    而 pre-commit 的「边界之外的防御性校验」只放行读外部数据的那几层（`src/game/**` 等）。
+ */
+function isShorthandSchema(schema: Schema): schema is string {
+  return !isRecord(schema)
+}
+
+/** 把一条说明落到那一格：改了写进去、**清空 = 删掉这个键**（空串过不了卡自己的校验） */
+function writeNote(table: Record<string, Schema>, key: string, text: string): void {
+  const trimmed = text.trim()
+  const field = table[key]
+  if (isShorthandSchema(field)) {
+    // 缩写成裸字符串的那两种（`"string"` / `"integer"`）：要加说明就得先展开成对象
+    if (trimmed !== '') table[key] = { type: schemaType(field), note: trimmed }
+    return
+  }
+  if (trimmed === '') delete field.note
+  else field.note = trimmed
+}
+
+/**
+ * 保存：深拷整份卡 → 只改这几处 → 走 `importCard`（先校验后落盘）→ 失败只报不改。
+ *
+ * 说明在前、删除在后：待删那一行可能同时有说明草稿，倒过来会在已删掉的位置上写。
+ */
+function save(): void {
+  const next = JSON.parse(JSON.stringify(props.card)) as CardData
+  for (const id of Object.keys(notes.value)) {
+    if (!noteChanged(id)) continue
+    const { parent, key } = splitId(id)
+    writeNote(fieldsOf(next.state, parent), key, notes.value[id])
+  }
+  for (const id of Object.keys(gone.value)) {
+    if (!gone.value[id]) continue
+    const { parent, key } = splitId(id)
+    delete fieldsOf(next.state, parent)[key]
+  }
+  if (fresh.value !== null) {
+    const name = fresh.value.key.trim()
+    // 校验器一件都不管这四件事（实测 `""` / `" "` / `"a.b"` 全都过 `checkSchema`；`__proto__` 更连键都落不下）——
+    // 界面自己挡：前三件是"卡里会多出一个用不了的键"，第四件是"界面报成功、卡里根本没有那个键"
+    if (name === '') return refuse(t('card.fieldNameEmpty'))
+    if (name.includes('.')) return refuse(t('card.fieldNameDot'))
+    if (name === '__proto__') return refuse(t('card.fieldNameProto'))
+    const table = fieldsOf(next.state, picked.value)
+    if (Object.hasOwn(table, name)) return refuse(t('card.fieldNameTaken'))
+    const field: SchemaNode = { type: fresh.value.kind }
+    const typed = fresh.value.initial
+    if (typed.trim() !== '') {
+      // 数字格：**只有写成规范十进制整数**（`8` / `-3` / `+8`）才落成数字 —— `8.0` / `1e3` / `0x10` / `007`
+      // 交给 `Number()` 都会被**静默改成另一个样子**（既不报错、又不是作者写的那个值，最坏的一类），
+      // 所以那几种一律**原样**交给卡去拒（卡回一句 `must be an integer (got string)`）；其余类型原样。
+      const literal = /^[+-]?(0|[1-9]\d*)$/
+      field.initial =
+        fresh.value.kind === 'integer' && literal.test(typed.trim()) ? Number(typed.trim()) : typed
+    }
+    if (fresh.value.note.trim() !== '') field.note = fresh.value.note.trim()
+    // 新键只可能落在**末尾**：JS 对象的键序 = 插入序，而表的行序 = 卡里的键序（A3）
+    table[name] = field
+  }
+  try {
+    importCard(JSON.stringify(next))
+  } catch (err) {
+    // 边界：改动是人填的 —— 卡拒了只报不改（存储与内存里那张卡一个字节都没动）
+    failed.value = true
+    failure.value = t('card.saveFailed', { message: (err as Error).message })
+    return
+  }
+  failed.value = false
+  failure.value = ''
+  notes.value = {}
+  gone.value = {}
+  fresh.value = null
+  emit('saved')
 }
 </script>
 
@@ -173,8 +364,10 @@ function pick(path: string): void {
         :branch="picked"
         :meta="metaLine"
         :prompts-open="resourcesOpen"
+        :dirty="dirty"
         @close="emit('close')"
         @toggle-resources="resourcesOpen = !resourcesOpen"
+        @save="save"
         @select="selected = $event"
         @add-branch="emit('add-branch')"
         @add-action="emit('add-action')"
@@ -185,9 +378,24 @@ function pick(path: string): void {
           <StateTreeNav :rows="navRows" :picked="picked" @pick="pick" />
         </template>
 
-        <!-- 中栏：选中那一格的只读字段表；还没选就是一格显式的空态 -->
+        <!-- 中栏：选中那一格的可写字段表；还没选就是一格显式的空态 -->
         <template #mid>
-          <BranchForm v-if="picked" :path="picked" :rows="fieldRows" />
+          <!-- 整次保存的那个原因（哪一行出事由行上的 `data-row-bad` 指） -->
+          <p v-if="failure" data-card-error class="failure" v-text="failure" />
+          <BranchForm
+            v-if="picked"
+            :path="picked"
+            :rows="fieldRows"
+            :gone="goneKeys"
+            :bad-keys="badKeys"
+            :failed="failed"
+            :fresh="fresh"
+            @note="setNote"
+            @del="toggleDel"
+            @add="addRow"
+            @cancel="cancelRow"
+            @fresh="setFresh"
+          />
           <p v-else data-branch-none class="none">{{ t('card.branchNone') }}</p>
         </template>
 
@@ -206,5 +414,16 @@ function pick(path: string): void {
   margin: 0;
   font-size: var(--fs2);
   color: var(--color-faint);
+}
+/* 保存被拒的原因：与资源库那一块同一个形状（复用现成的危险色） */
+.failure {
+  margin: 0;
+  padding: var(--s2);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--r2);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  font-size: var(--fs2);
+  line-height: 1.5;
 }
 </style>
