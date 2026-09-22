@@ -1,32 +1,32 @@
 <script setup lang="ts">
 /**
- * 卡界面：四栏外壳里的卡图 + 节点编辑表单（设置面板「查看 / 编辑卡图」打开它）。
+ * 卡界面：四栏外壳里的**枝树 + 只读字段表**（设置面板「查看 / 编辑卡图」打开它）。
  *
  * 形态按决定 #24：绝对定位的浮层盖在故事上，不挤占正文 —— 关了它下面还是原来那一屏。
- * 四栏骨架（顶栏 / 内容 / 工作流 / 编辑 / 公共提示词 / 宽度标尺）是 EditorShell 的事，
- * 这里只管三件事：往里塞哪三块内容、选中了谁、保存走哪条路。
+ * 四栏骨架（顶栏 / 内容 / 工作流 / 编辑 / 公共提示词 / 宽度标尺）是 EditorShell 的事。
  *
- * 保存走**与导入同一套校验**（importCard：卡格式 + 显示词汇表），通过才落盘；失败原样
- * 显示在表单里。落盘成功只 emit saved，reload 由外层做（引擎与显示映射都在模块加载期
- * 读卡，见 game/current-card.ts）。
+ * 本票（8b-①）只做**读**：左栏列出卡里「能编」的容器节点（一棵枝树），点一格 ⇒ 中栏是
+ * 那一格的**只读字段表**。「说明可编辑 / 垃圾桶 / 加一个字段 / 保存」是 8b-②，
+ * 「编一步」（节点表单）是 8c —— 所以卡图与旧的节点表单都不再挂在这里（`CardGraph` 仍在
+ * `DebugPanel` 里用着，`CardNodeForm` 留给 8c）。
  *
- * 可改的只有节点的**名 / 职责 / 提示词**（graph.nodes[id] 里的那三处）与**这个节点读哪几块
- * 资源**（settings 勾选列）；role / tools / reads 是机制（卡给了谁什么权力），
- * 表单只读展示，保存时整份复制、一个字节不动。
- *
- * 资源库面板（CardResources）住右栏（公共提示词那一格）：它管卡里那几块原始提示词的读与改，
- * 保存走的也是同一个 importCard。
- *
- * 三个「＋」（加一枝 / 加一个动作 / 加一步）本票只把事件抛出去，**不动卡** ——
- * 8b–8e 才轮到"按下去真的长出东西"。
+ * ⚠️ **卡的知识只走这一条路**：树与表都在这里从 `card.state` 现算，两个子组件只画收到的行
+ *    —— 于是「组件层绿、真浏览器红」那种两份走法漂移没有了。
+ * ⚠️ **什么进树**：这一格自己有一张**非空字段表**才进树（`object` 自己的 `fields`，
+ *    `map` / `list` 的元素形状 `of.fields`）；元素是标量的 `list`（`地点` 那种）点进去是
+ *    一张空表，不是一格。
+ * ⚠️ 树是**逐层向下**（宽度优先）展开的：行的顺序 = 卡的声明顺序，一层走完再走下一层。
  */
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import CardGraph from './CardGraph.vue'
-import CardNodeForm from './CardNodeForm.vue'
+import BranchForm from './BranchForm.vue'
 import CardResources from './CardResources.vue'
 import EditorShell from './EditorShell.vue'
-import { cardMeta, importCard, type CardSource } from '../game/current-card'
+import StateTreeNav from './StateTreeNav.vue'
+import { CLOCK_STATE_PATH } from '../game/card-time'
+import { isRecord } from '../game/card-read'
+import { schemaElement, schemaFields, schemaType, type Schema } from '../game/card-state'
+import { cardMeta, type CardSource } from '../game/current-card'
 import type { CardData } from '../game/card'
 
 const { t } = useI18n()
@@ -42,21 +42,18 @@ const emit = defineEmits<{
   close: []
   /** 改完也存下了 —— 外层负责 reload */
   saved: []
-  /** 三栏各自的「＋」：本票只抛事件，改卡是 8b–8e 的事 */
+  /** 三栏各自的「＋」：本票只抛事件，改卡是 8b-②–8e 的事 */
   'add-branch': []
   'add-action': []
   'add-step': []
 }>()
 
-/** 选中的节点 id；空串 = 还没选 */
+/** 选中的**那一格**（卡里的点号路径）；空串 = 还没选 */
+const picked = ref('')
+/** 细条里选中的节点 id；空串 = 还没选（中栏编的是枝，节点那一轴 8c 才接上） */
 const selected = ref('')
-/** 保存失败的原因（原样显示，不吞） */
-const error = ref('')
 /** 资源库面板开着没有（顶栏那颗按钮开合它） */
 const resourcesOpen = ref(false)
-
-/** 卡里的五块设定 —— 勾选区那一列就是它们 */
-const settingKeys = computed(() => Object.keys(props.card.settings))
 
 const meta = computed(() => cardMeta(props.card))
 const sourceLabel = computed(() =>
@@ -67,74 +64,97 @@ const metaLine = computed(() =>
   t('card.meta', { name: meta.value.name, version: meta.value.version, source: sourceLabel.value }),
 )
 
-/** 正在编辑的那个节点；没选中就是 null */
-const editing = computed(() => {
-  if (!selected.value) return null
-  const node = props.card.graph.nodes[selected.value]
-  return {
-    id: selected.value,
-    name: node.name,
-    duty: node.duty,
-    prompt: node.prompt,
-    role: node.role ?? null,
-    tools: node.tools ?? null,
-    reads: node.reads ?? null,
-    settings: node.settings ?? null,
+/** 能进树的类型：只有容器（标量字段留在中栏那张表里） */
+const CONTAINERS = ['object', 'map', 'list']
+
+/**
+ * 一段路径在卡里的 schema：`a.b` 走 `fields`，`a.*` 走元素形状（`of`）。
+ *
+ * 比 `card-state` 的 `schemaAt` 多认 `*` 那一段 —— 树里 `roles.*` 这种行代表的是**元素形状**，
+ * 它自己不是一格，但它的字段是。
+ */
+function schemaOf(path: string): Schema | undefined {
+  let current: Schema | undefined
+  let scope: Record<string, Schema> | undefined = props.card.state
+  for (const segment of path.split('.')) {
+    if (segment === '*') {
+      current = current === undefined ? undefined : schemaElement(current)
+      scope = current === undefined ? undefined : schemaFields(current)
+      continue
+    }
+    if (scope === undefined || !Object.hasOwn(scope, segment)) return undefined
+    current = scope[segment]
+    scope = schemaFields(current)
   }
+  return current
+}
+
+/** 一格的字段表：`object` 读自己的 `fields`，`map` / `list` 读**元素形状**的 `of.fields` */
+function fieldsOf(path: string): Record<string, Schema> {
+  const node = schemaOf(path)
+  if (node === undefined) return {}
+  const own = schemaFields(node)
+  if (own !== undefined) return own
+  const element = schemaElement(node)
+  const inElement = element === undefined ? undefined : schemaFields(element)
+  return inElement ?? {}
+}
+
+/** 这一行写没写 `initial` —— 「开局在不在」的唯一开关（缩写形式 `"string"` 没有可写的键） */
+function declaresInitial(node: Schema): boolean {
+  return isRecord(node) && Object.hasOwn(node, 'initial')
+}
+
+/**
+ * 这一格在不在**引擎点名的那棵子树**里（连底下每一格）。
+ *
+ * 今天只有时钟那一格，而它的名字由引擎自己定（`card-time.ts` 的 `CLOCK_STATE_PATH`）——
+ * 卡里那五个整数也是引擎词表，所以它整棵只读。
+ */
+function underEngine(path: string): boolean {
+  return path === CLOCK_STATE_PATH || path.startsWith(CLOCK_STATE_PATH + '.')
+}
+
+/** 左栏那棵树：卡里「能编」的容器节点，卡的声明顺序、逐层向下 */
+const navRows = computed(() => {
+  const rows: Array<{ path: string; kind: string; taken: boolean }> = []
+  const seen = new Set<string>(Object.keys(props.card.state))
+  const queue: string[] = [...seen]
+  /** 放一个路径进队（空串丢弃、已经在队里过的不再进） */
+  const push = (path: string): void => {
+    if (path === '' || seen.has(path)) return
+    seen.add(path)
+    queue.push(path)
+  }
+  while (queue.length > 0) {
+    const path = queue.shift() as string
+    const node = schemaOf(path)
+    if (node === undefined) continue
+    if (CONTAINERS.includes(schemaType(node)) && Object.keys(fieldsOf(path)).length > 0) {
+      rows.push({ path, kind: schemaType(node), taken: underEngine(path) })
+    }
+    for (const key of Object.keys(schemaFields(node) ?? {})) push(path + '.' + key)
+    // `*` 是元素形状那一段的标记、不是一格：它底下只再走字段，不再套第二层
+    if (path.endsWith('.*')) continue
+    const element = schemaElement(node)
+    if (element !== undefined) push(path + '.*')
+  }
+  return rows
 })
 
-/** 选一个节点（顺手清掉上一个节点留下的报错） */
-function select(id: string) {
-  selected.value = id
-  error.value = ''
-}
+/** 中栏那张表：选中那一格的字段，卡的声明顺序 */
+const fieldRows = computed(() =>
+  Object.entries(fieldsOf(picked.value)).map(([key, node]) => ({
+    key,
+    kind: schemaType(node),
+    hasInitial: declaresInitial(node),
+    taken: underEngine(picked.value + '.' + key),
+  })),
+)
 
-/**
- * 保存：把改过的三个字段写回节点，再跑与导入同一套校验。
- *
- * 先在副本上改（卡本来就来自 JSON，整份复制最省事）：校验失败时内存里那张必须原样 ——
- * 它还在被引擎与界面用着。
- */
-function save(value: { name: string; duty: string; prompt: string[] }) {
-  const next = JSON.parse(JSON.stringify(props.card)) as CardData
-  const node = next.graph.nodes[selected.value]
-  node.name = value.name
-  node.duty = value.duty
-  node.prompt = value.prompt
-  error.value = ''
-  try {
-    importCard(JSON.stringify(next))
-    emit('saved')
-  } catch (err) {
-    // 边界：表单是人填的（重名 / 空提示词都可能）—— 失败要显示出来，存储原样不动
-    error.value = t('card.saveFailed', { message: (err as Error).message })
-  }
-}
-
-/**
- * 勾选变了：把这个节点要读的设定块写回卡，再跑与导入同一套校验。
- *
- * ⚠️ 一个都没勾就**把这个键删掉**，不是写空表：卡格式里「不写 settings」＝ 五块全发，
- *    而空表会被校验器拒（`must not be empty`）—— 那是另一件事。
- *
- * 名单按**卡自己的键序**过滤一遍：界面上的先后不该进卡（卡的声明顺序是唯一的顺序），
- * 而界面上可能还留着卡里已经没有的块名（它由勾选列自己维护）。
- */
-function markResources(value: { settings: string[] }) {
-  const next = JSON.parse(JSON.stringify(props.card)) as CardData
-  const node = next.graph.nodes[selected.value] as { settings?: string[] }
-  const keptSettings = settingKeys.value.filter((key) => value.settings.includes(key))
-  if (keptSettings.length) node.settings = keptSettings
-  else delete node.settings
-  error.value = ''
-  try {
-    importCard(JSON.stringify(next))
-    emit('saved')
-  } catch (err) {
-    // 这里不往上抛：失败原因已经交给 error 显示在表单里了（不吞），而 importCard 是先校验后落盘
-    // —— 校验没过时存储与内存里那张卡一个字节都没动，勾选这一步也没有需要回滚的东西
-    error.value = t('card.saveFailed', { message: (err as Error).message })
-  }
+/** 点树上的一行：中栏换成那一格的字段表（顺手清掉上一格留下的选中态） */
+function pick(path: string): void {
+  picked.value = path
 }
 </script>
 
@@ -150,38 +170,25 @@ function markResources(value: { settings: string[] }) {
       <EditorShell
         :card="card"
         :selected="selected"
+        :branch="picked"
         :meta="metaLine"
         :prompts-open="resourcesOpen"
         @close="emit('close')"
         @toggle-resources="resourcesOpen = !resourcesOpen"
-        @select="select"
+        @select="selected = $event"
         @add-branch="emit('add-branch')"
         @add-action="emit('add-action')"
         @add-step="emit('add-step')"
       >
-        <!-- 左栏：卡图（本票暂留在那儿，8b 换成一枝一棵的导航树） -->
+        <!-- 左栏：卡声明的那棵状态树（选一格就在中栏编它） -->
         <template #content>
-          <CardGraph :card="card" :selected="selected" @select="select" />
+          <StateTreeNav :rows="navRows" :picked="picked" @pick="pick" />
         </template>
 
-        <!-- 中栏：那个唯一的长滚动体里放「编一步」表单（8c 才换成新表单） -->
+        <!-- 中栏：选中那一格的只读字段表；还没选就是一格显式的空态 -->
         <template #mid>
-          <CardNodeForm
-            v-if="editing"
-            :key="editing.id"
-            :id="editing.id"
-            :name="editing.name"
-            :duty="editing.duty"
-            :prompt="editing.prompt"
-            :role="editing.role"
-            :tools="editing.tools"
-            :reads="editing.reads"
-            :settings="editing.settings"
-            :setting-keys="settingKeys"
-            :error="error"
-            @save="save"
-            @marks="markResources"
-          />
+          <BranchForm v-if="picked" :path="picked" :rows="fieldRows" />
+          <p v-else data-branch-none class="none">{{ t('card.branchNone') }}</p>
         </template>
 
         <!-- 右栏：公共提示词的读与改（8d 才换成新表单） -->
@@ -192,3 +199,12 @@ function markResources(value: { settings: string[] }) {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 还没编任何一格时的显式空态（字号只用三档里的一档） */
+.none {
+  margin: 0;
+  font-size: var(--fs2);
+  color: var(--color-faint);
+}
+</style>

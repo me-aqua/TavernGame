@@ -4,7 +4,11 @@
  *
  * 四栏 = 内容 300 · 细条 120 · 编辑 自适应 · 公共提示词 290，栏间距 10px；底部那条标尺与
  * 栅格**共用同一份 `--cols`**，所以四段逐个对齐。中栏里只有一个长滚动体 `[data-mid]`，
- * 「编一步」表单从它的插槽进去。
+ * 正在编的那一块从它的插槽进去。
+ *
+ * ⚠️ 中栏那一格的字幕是**在编什么**（`branch` 给的那一格路径）。细条选的还是**节点**
+ *    （工作流那一轴），它只驱动细条自己的高亮与横带 —— 中栏不许顶着上一个选中的节点名。
+ * ⚠️ 「编辑」列那个 ＋ 是**节点导向**的（加一个动作），编枝时收起来。
  *
  * ⚠️ 尺寸一律走 `src/styles/main.css` 的尺度层：整页探针会数外壳自己的文字用了几档字号，
  *    多一档就红（插进来的卡图 / 表单 / 资源库有各自的长相，不算）。
@@ -24,6 +28,8 @@ const props = defineProps<{
   card: CardData
   /** 当前选中的节点 id；空串 = 还没选 */
   selected: string
+  /** 中栏正在编的那一格（状态树里的点号路径）；空串 = 还没选 */
+  branch: string
   /** 顶栏那一行身份（卡名 / 版本 / 来源），外层算好 */
   meta: string
   /** 右栏那块面板开着没有 —— 开合状态在外层，这里只画 */
@@ -42,10 +48,12 @@ const emit = defineEmits<{
 
 /** 细条里的步骤 = 卡里的拓扑，顺序原样（不自己编号，也不增删） */
 const steps = computed(() => props.card.graph.topology)
-/** 当前那一步的名字：细条高亮、中栏表头、横带三处都用它 */
+/** 细条与横带里那一步的名字：那一轴选的还是**节点** */
 const current = computed(() =>
   props.selected ? props.card.graph.nodes[props.selected].name : t('card.stepNone'),
 )
+/** 中栏那一格的字幕 = 正在编的那一格；还没选就是那句「还没选」 */
+const subtitle = computed(() => props.branch || t('card.stepNone'))
 /** 底部标尺那四个数就是四栏宽度（第三段是弹性的，写不出具体数） */
 const ruler = computed(() => ['300px', '120px', t('card.rulerFit'), '290px'])
 /** 顶栏那两颗抽屉按钮：横屏才看得见，宽屏下由 CSS 收起来 */
@@ -169,8 +177,10 @@ function pick(id: string) {
       <section data-col="edit">
         <div class="col-head">
           <h2 class="col-name">{{ t('card.shellEdit') }}</h2>
-          <span class="col-sub">{{ current }}</span>
+          <span class="col-sub" data-branch-title>{{ subtitle }}</span>
+          <!-- 这一颗是**节点导向**的（加一个动作）：编枝时中栏编的是状态树，它就不该在 -->
           <button
+            v-if="!branch"
             type="button"
             data-add="action"
             class="plus"
@@ -182,7 +192,6 @@ function pick(id: string) {
         </div>
         <div data-mid>
           <slot name="mid" />
-          <p v-if="!selected" class="hint">{{ t('card.graphHint') }}</p>
         </div>
       </section>
 
