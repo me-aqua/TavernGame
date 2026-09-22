@@ -12,6 +12,7 @@
  * 字符串字面量保留，因为代码里的中文字面量正是要抓的东西。
  */
 import { readFileSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
 
 /**
  * 非 ASCII 检测器。
@@ -50,9 +51,22 @@ const TEST_TOOL = /^e2e\/|\.stories\.ts$/
  */
 const DEV_TOOL = /^(\.githooks\/|tools\/|\.storybook\/)/
 
-const files = process.argv
-  .slice(2)
-  .filter(
+/**
+ * 扫一份源码：去掉注释之后逐行找非 ASCII，报出**行号与那些字符**。
+ *
+ * ⚠️ 纯函数（只吃字符串、不碰磁盘）：判据在 `tests/ascii-check.test.ts` 里直接调它 ——
+ *    于是 import 本模块**不许有任何副作用**，干活的入口在文件末尾那道 guard 里。
+ */
+export function hitsOf(source) {
+  return stripComments(source)
+    .split('\n')
+    .map((line, i) => ({ line: i + 1, chars: [...line].filter((c) => NON_ASCII.test(c)).join('') }))
+    .filter((hit) => hit.chars !== '')
+}
+
+/** 这一次该查哪些文件：locale / 静态页 / 测试工具 / 开发工具都不查 */
+function targetsOf(paths) {
+  return paths.filter(
     (f) =>
       FILE_EXT.test(f) &&
       !SKIP.test(f) &&
@@ -61,38 +75,79 @@ const files = process.argv
       !TEST_TOOL.test(f) &&
       !DEV_TOOL.test(f),
   )
-const hits = []
+}
 
-for (const file of files) {
-  let source
-  try {
-    source = readFileSync(file, 'utf8')
-  } catch {
-    continue
+/** 命令行入口：实参是**暂存区的文件清单**，由 pre-commit 递过来 */
+function main() {
+  const files = targetsOf(process.argv.slice(2))
+  const hits = []
+
+  for (const file of files) {
+    let source
+    try {
+      source = readFileSync(file, 'utf8')
+    } catch {
+      continue
+    }
+    for (const hit of hitsOf(source)) {
+      hits.push(`${file}:${hit.line} —— 代码里出现非 ASCII 字符「${hit.chars}」`)
+    }
   }
 
-  const skeleton = stripComments(source)
-  const lines = skeleton.split('\n')
-  lines.forEach((line, i) => {
-    if (!NON_ASCII.test(line)) return
-    const chars = [...line].filter((c) => NON_ASCII.test(c)).join('')
-    hits.push(`${file}:${i + 1} —— 代码里出现非 ASCII 字符「${chars}」`)
-  })
+  if (hits.length) {
+    console.error('\n✖ 代码里出现了非 ASCII 字符，已阻止提交：\n')
+    for (const h of hits) console.error('  ' + h)
+    console.error('\n  中文只允许出现在：src/locales/*.json、prompts/*.md、注释、doc/。')
+    console.error("  文案一律走 t('some.key')，然后加进 locale 文件。\n")
+    process.exit(1)
+  }
+  console.log(`✓ 代码均为 ASCII（${files.length} 个文件）`)
 }
-
-if (hits.length) {
-  console.error('\n✖ 代码里出现了非 ASCII 字符，已阻止提交：\n')
-  for (const h of hits) console.error('  ' + h)
-  console.error('\n  中文只允许出现在：src/locales/*.json、prompts/*.md、注释、doc/。')
-  console.error("  文案一律走 t('some.key')，然后加进 locale 文件。\n")
-  process.exit(1)
-}
-console.log(`✓ 代码均为 ASCII（${files.length} 个文件）`)
 
 /**
- * 只去掉注释 —— 字符串字面量保留，因为代码里的中文字面量正是这条检查要抓的。
+ * 表达式位置上的 `/` 才是正则字面量的开头。
+ *
+ * 判据是**上一个有意义的字符**：跟在值后面（标识符、数字、`)`、`]`、引号）的是除号，
+ * 跟在 `(` / `,` / `=` / `:` / 关键字这些后面的是正则。
+ * ⚠️ `<` 刻意不在这一列里：Vue 模板里的 `</div>` 会被当成正则的开头，白白吞掉半行。
+ */
+const REGEX_AFTER =
+  /(?:^|[([{,;:!&|?}+\-*%=~^>]|\b(?:return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await))$/
+
+/** 从已经写出的骨架往回看：这个位置能不能开一个正则字面量 */
+function regexCanStart(out) {
+  return REGEX_AFTER.test(out.replace(/[ \t\r\n]+$/, ''))
+}
+
+/**
+ * 正则字面量的收尾 `/` 在哪儿；**本行找不到就返回 -1**。
+ *
+ * ⚠️ 正则字面量不能跨行 ⇒ 找不到收尾就当它是除号。吞下去的话后面几行会被
+ *    当成字符串，注释里的中文又会被当成代码报出来（实测栽过一次）。
+ */
+function regexEnd(src, start) {
+  let i = start + 1
+  let inClass = false
+  while (i < src.length && src[i] !== '\n') {
+    const c = src[i]
+    if (c === '\\') {
+      i += 2
+      continue
+    }
+    if (c === '[') inClass = true
+    else if (c === ']') inClass = false
+    else if (c === '/' && !inClass) return i
+    i += 1
+  }
+  return -1
+}
+
+/**
+ * 只去掉注释 —— 字符串与正则字面量都保留，因为代码里的中文字面量正是这条检查要抓的。
  *
  * 行注释替换成一个空格（不是删掉），这样行结构与报错行号保持正确。
+ * ⚠️ 三种引号都要认：单引号、双引号、**模板串**。模板串自己会跨行，
+ *    里面出现的引号不是字符串的开头 —— 漏了它，`//` 之后的中文会永远抓不到。
  */
 function stripComments(src) {
   let out = ''
@@ -128,8 +183,20 @@ function stripComments(src) {
       i += 2
       continue
     }
+    // 正则字面量里的引号**不是**字符串的开头（`/['"]/g` 这种写法到处都是）。
+    // 认错一次就一路错位，把后面几行的注释当成代码报出来
+    if (c === '/' && regexCanStart(out)) {
+      const end = regexEnd(src, i)
+      if (end !== -1) {
+        while (i <= end) {
+          out += src[i]
+          i += 1
+        }
+        continue
+      }
+    }
     // 含 '//' 的字符串不能被当成注释，而且字面量本身要留在输出里等着被检查
-    if (c === '"' || c === "'" || c === "'") {
+    if (c === '"' || c === "'" || c === '`') {
       const quote = c
       out += c
       i += 1
@@ -144,7 +211,7 @@ function stripComments(src) {
           i += 1
           break
         }
-        // 模板字面量没闭合：继续扫，真正的错误由语法检查报
+        // 字符串没闭合：继续扫，真正的错误由语法检查报
         i += 1
       }
       continue
@@ -154,3 +221,8 @@ function stripComments(src) {
   }
   return out
 }
+
+// ---------- CLI 薄壳：只有直接跑本文件时才干活（import 它只是为了拿 hitsOf） ----------
+// ⚠️ 这一句必须留在**文件最末**：模块求值走到这里时，前面所有 const 都已初始化。
+//    放在中段会踩 TDZ —— 直接跑崩掉，而 import 它的判据照样全绿（实测栽过）。
+if (import.meta.url === pathToFileURL(process.argv[1]).href) main()

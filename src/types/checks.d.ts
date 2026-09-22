@@ -1,5 +1,5 @@
 /**
- * 提交期检查脚本 `changelog.mjs` 的形状声明。
+ * 提交期检查脚本的形状声明（`changelog.mjs` / `ascii.mjs`）。
  *
  * 为什么在这里而不在 `src/env.d.ts`：`.githooks/pre-commit` 的「新增源码必须配测试」
  * 只豁免 `src/types/`（类型模块没有可测的行为）—— 放在 `env.d.ts` 会算出一个
@@ -17,4 +17,9 @@ declare module '*/checks/changelog.mjs' {
     branchCommits?: string[]
     branchChangelogDiff?: string
   }): { blocked: boolean; reasons: string[]; reminder: string | null }
+}
+
+/** ASCII 检查：去掉注释之后，一份源码里还剩哪些非 ASCII（行号 + 那些字符） */
+declare module '*/checks/ascii.mjs' {
+  export function hitsOf(source: string): { line: number; chars: string }[]
 }
