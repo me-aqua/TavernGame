@@ -61,17 +61,33 @@ const GAP = 1.5
 /**
  * 玩家界面的字面量普查（裁决 1/2 的边界）。
  *
- * 只挑**这一票碰不到**的玩家界面文件：编辑器自己的 `CardEditor` / `CardNodeForm` /
- * `CardResources` 不在里面（它们正要换成 token），`App.vue` 也不在（接线可能要动它）。
+ * ⚠️ 票 71 补的两个：`src/App.vue`（**4 处**）与 `src/components/CardSection.vue`（**5 处**）。
+ *    它们是玩家界面，既不在名单里、也不在任何哈希里 ⇒ 那 9 处没人守。
+ * ⚠️ 路径别照抄前缀：`App.vue` 在 **`src/App.vue`**，不在 `src/components/`。
  */
 const PLAYER_CENSUS: Record<string, { count: number; sizes: string[] }> = {
+  'src/App.vue': { count: 4, sizes: ['11', '12.5'] },
   'src/components/AppSidebar.vue': { count: 2, sizes: ['11.5', '12.5'] },
   'src/components/Blocks.vue': { count: 3, sizes: ['11', '12'] },
+  'src/components/CardSection.vue': { count: 5, sizes: ['11.5', '12.5', '13'] },
   'src/components/DebugPanel.vue': { count: 22, sizes: ['11', '11.5', '12', '13'] },
   'src/components/GameComposer.vue': { count: 3, sizes: ['11', '14'] },
   'src/components/SettingsDrawer.vue': { count: 16, sizes: ['11.5', '12.5', '13', '13.5', '17'] },
   'src/components/StoryPanel.vue': { count: 16, sizes: ['12', '12.5', '13', '15'] },
   'src/components/WorldPanel.vue': { count: 8, sizes: ['11', '12'] },
+}
+
+/**
+ * 编辑器自己那一族 —— **唯一允许"带字面量但不在普查里"**的名单（票 71 的 ①）。
+ *
+ * 它们的字号正要换成 token（8a 的外壳 / 8c 的节点表单 / 8d 的资源库），所以不归"玩家界面一处不动"管。
+ * `CardGraph.vue` 另有 **B2 的逐字哈希**钉着 ⇒ 也不进来（进来就是两处管同一件事）。
+ * ⚠️ 每加一个都要**写得出理由**：这不是"懒得登记"的筐。
+ */
+const EDITOR_OWNED: Record<string, string> = {
+  'src/components/CardGraph.vue': 'pinned byte for byte by B2 (GRAPH_HASH)',
+  'src/components/CardNodeForm.vue': 'the node form is 8c / ticket 73 territory',
+  'src/components/CardResources.vue': 'the resource panel is 8d territory',
 }
 
 /** 三张卡：本票不动卡格式、不动卡内容（§四 不做清单） */
@@ -133,6 +149,12 @@ interface Material {
   hashes: Record<string, string>
   /** 玩家界面 `text-[Npx]` 的普查 */
   census: Record<string, { count: number; sizes: string[] }>
+  /** 磁盘上 `src/game/` 真的有哪几个文件（**从目录现取**，不是名单自己数自己） */
+  gameFiles: string[]
+  /** 磁盘上那批像素基线真的有哪几个（同上） */
+  baselineFiles: string[]
+  /** 磁盘上**带字号字面量**的每一个 `.vue`（同上 —— 名单漏了一个文件，这条就红） */
+  fontLiterals: string[]
 }
 
 /** 递归列一个目录下的文件（相对路径、正斜杠、排序好，跟 git 的写法一致） */
@@ -180,6 +202,13 @@ function readMaterial(): Material {
       .map((f) => ({ file: f, text: readFileSync(f, 'utf8') })),
     hashes,
     census,
+    // 这两份**从目录现取**：名单自己数自己就成了恒真式（往 `src/game/` 加文件永远看不见）
+    gameFiles: walk('src/game'),
+    baselineFiles: walk('e2e/visual.spec.ts-snapshots').filter((f) => f.endsWith('-darwin.png')),
+    // 同上：带字面量的界面文件从目录现取，名单漏登记一个当场就红
+    fontLiterals: files.filter(
+      (f) => f.endsWith('.vue') && /text-\[\d+(?:\.\d+)?px\]/.test(readFileSync(f, 'utf8')),
+    ),
   }
 }
 
@@ -264,16 +293,37 @@ function checkK7(m: Material): void {
   expect(line === undefined || line === '1.6', 'this ticket must not change the line height').toBe(true)
 }
 
-/** K9 · 借来的那一条：样式表里要有键盘焦点环，而且指得上按钮 */
+/**
+ * K9 · 借来的那一条：样式表里要有键盘焦点环，而且**真的看得见**。
+ *
+ * ⚠️ 票 71 补的牙：原来只断"有那么一条 `:focus-visible` 规则"，写 `outline: none`
+ *    （规则在、环看不见）照样绿 —— 那是"有形状、没行为"。现在那条规则的**规则体**也要看：
+ *    声明了 `outline` / `box-shadow` 的，值不许是 `none` / `0` / `transparent`。
+ * ⚠️ 只查**第一条**命中 `:focus-visible` 的规则（与原来同一个射程）；后面再有规则把它盖掉
+ *    这件事这条判据看不见 —— 那是"级联顺序"，不属于本票。
+ */
 function checkK9(m: Material): void {
-  const rule = m.css.match(/([^{}]*:focus-visible[^{}]*)\{/)
+  const rule = m.css.match(/([^{}]*:focus-visible[^{}]*)\{([^}]*)\}/)
   expect(rule, 'no :focus-visible ring in the stylesheets').not.toBeNull()
   const selector = (rule as RegExpMatchArray)[1].trim()
+  const body = (rule as RegExpMatchArray)[2]
   // 名字里带上 button、或者用通配/裸伪类把它罩住，都算"指得上按钮"
   expect(
     /button|\*/.test(selector) || selector === ':focus-visible',
     'the focus ring must cover buttons',
   ).toBe(true)
+  const declared = [...body.matchAll(/(?:outline|box-shadow)\s*:\s*([^;}]+)/g)].map((hit) => hit[1].trim())
+  expect(declared.length, 'the focus ring must declare an outline or a box-shadow').toBeGreaterThan(0)
+  const invisible = declared.filter(
+    // ⚠️ 三个窄缝（票 71 S3 的 N-2）：`0px` / 大写 `NONE` / 值不在行首的 `0` 都要咬到；
+    //    透明也不能只认字面量 `transparent`（`rgba(0,0,0,0)` 一样看不见）⇒ 前缀匹配 + 忽略大小写。
+    //    代价写清：`outline: 0.5px solid …` 这种"名义上在、实际看不见"会被判红 —— **那正是本意**。
+    (value) => /^(none|0)/i.test(value) || /transparent/i.test(value) || /rgba\([^)]*,\s*0\s*\)/.test(value),
+  )
+  expect(
+    invisible,
+    'the focus ring must really be visible: outline:none / 0 / transparent is not a ring',
+  ).toEqual([])
 }
 
 /** B1 · 边界：三张卡一个字节不动 */
@@ -292,10 +342,10 @@ function checkB2(m: Material): void {
 
 /** B3 · 边界：引擎与显示那一层（`src/game/**`）不增不减、逐字不动 */
 function checkB3(m: Material): void {
-  const game = Object.keys(m.hashes)
-    .filter((f) => f.startsWith('src/game/'))
-    .sort()
-  expect(game, 'src/game must not grow or shrink in this ticket').toEqual(Object.keys(GAME_HASHES).sort())
+  // 目录现取：拿名单自己数自己，往 `src/game/` 加一个文件这条永远是绿的
+  expect(m.gameFiles, 'src/game must not grow or shrink in this ticket').toEqual(
+    Object.keys(GAME_HASHES).sort(),
+  )
   for (const [file, hash] of Object.entries(GAME_HASHES)) {
     expect(m.hashes[file], file + ' must not change in this ticket').toBe(hash)
   }
@@ -303,6 +353,11 @@ function checkB3(m: Material): void {
 
 /** B4 · 边界：玩家界面那几十处 `text-[Npx]` 一处不动（裁决 1/2） */
 function checkB4(m: Material): void {
+  // ① 名单必须**盖全**：凡是盘上带字面量的 `.vue` 都要么在普查里、要么在编辑器那一族里写明理由。
+  //    少了这一半，名单就是"自己数自己"——漏登记一个文件永远看不见（票 71 的 ①）。
+  const unlisted = m.fontLiterals.filter((f) => !(f in PLAYER_CENSUS) && !(f in EDITOR_OWNED))
+  expect(unlisted, 'these screens carry font-size literals but no criterion watches them').toEqual([])
+  // ② 逐文件断处数与尺寸集合
   for (const [file, want] of Object.entries(PLAYER_CENSUS)) {
     const got = m.census[file]
     expect(got, file + ' has no font literal census at all').toBeDefined()
@@ -313,7 +368,10 @@ function checkB4(m: Material): void {
 
 /** B5 · 边界：九张玩家屏基线一张都不重录（裁决 2） */
 function checkB5(m: Material): void {
-  expect(Object.keys(BASELINE_HASHES)).toHaveLength(9)
+  // 断的要是**目录张数**：原来那句 `Object.keys(BASELINE_HASHES)).toHaveLength(9)` 数的是名单自己
+  expect(m.baselineFiles, 'the player-screen baselines must be exactly these nine files').toEqual(
+    Object.keys(BASELINE_HASHES).sort(),
+  )
   for (const [file, hash] of Object.entries(BASELINE_HASHES)) {
     expect(m.hashes[file], file + ' must not be re-recorded in this ticket').toBe(hash)
   }
@@ -366,7 +424,15 @@ const SAMPLE_CSS =
 /** 拿真材料当底、按 `fault` 换掉一样东西 —— 一次只换一样 */
 function sample(fault: string): Material {
   const base = readMaterial()
-  const m: Material = { ...base, css: SAMPLE_CSS, elsewhere: [], census: { ...base.census } }
+  const m: Material = {
+    ...base,
+    css: SAMPLE_CSS,
+    elsewhere: [],
+    census: { ...base.census },
+    gameFiles: Object.keys(GAME_HASHES).sort(),
+    baselineFiles: Object.keys(BASELINE_HASHES).sort(),
+    fontLiterals: Object.keys(PLAYER_CENSUS).concat(Object.keys(EDITOR_OWNED)).sort(),
+  }
   if (fault === 'nothing') return m
   if (fault === 'scaled') {
     // 乘 1.15 那一组（裁决 2 点名不许）：14.95 / 13.225 / 11.5
@@ -378,6 +444,10 @@ function sample(fault: string): Material {
   if (fault === 's5-24') return { ...m, css: SAMPLE_CSS.replace('--s5:20px', '--s5:24px') }
   if (fault === 'line-height') return { ...m, css: SAMPLE_CSS + ':root{ --ln:1.5 }\n' }
   if (fault === 'focus-ring') return { ...m, css: SAMPLE_CSS.split('\n').slice(0, -2).join('\n') }
+  // 规则还在、环**看不见**（票 71 的 K9 要咬的就是这一口 —— 改之前它照样绿）
+  if (fault === 'focus-blank') {
+    return { ...m, css: SAMPLE_CSS.replace('outline: 2px solid currentColor', 'outline: none') }
+  }
   if (fault === 'elsewhere') {
     return { ...m, elsewhere: [{ file: 'src/components/Fake.vue', text: '--fs1: 13px;' }] }
   }
@@ -396,6 +466,17 @@ function sample(fault: string): Material {
     delete hashes['src/game/card.ts']
     return { ...m, hashes }
   }
+  // 往 `src/game/` 多放一个文件（目录张数变了、哈希表没变）—— 这一条就是"加文件进不了哈希"那个洞
+  if (fault === 'game-extra-file') {
+    return { ...m, gameFiles: [...m.gameFiles, 'src/game/extra.ts'].sort() }
+  }
+  // 多录一张基线（目录里多一张 png、名单还是九条）
+  if (fault === 'baseline-extra-file') {
+    return {
+      ...m,
+      baselineFiles: [...m.baselineFiles, 'e2e/visual.spec.ts-snapshots/extra--laptop-darwin.png'].sort(),
+    }
+  }
   if (fault === 'census') {
     return {
       ...m,
@@ -404,6 +485,10 @@ function sample(fault: string): Material {
         'src/components/StoryPanel.vue': { count: 15, sizes: ['12', '12.5', '13', '15'] },
       },
     }
+  }
+  // 盘上多了一个带字号字面量的界面文件，而名单里没有它（票 71 的 ① 要咬的就是这一口）
+  if (fault === 'census-unlisted') {
+    return { ...m, fontLiterals: [...m.fontLiterals, 'src/components/NewScreen.vue'].sort() }
   }
   if (fault === 'baseline') {
     return {
@@ -462,5 +547,21 @@ describe('self-check: these criteria can go red, and by how much', () => {
     expect(redsOn(sample('game-file'))).toEqual(['B3'])
     expect(redsOn(sample('census'))).toEqual(['B4'])
     expect(redsOn(sample('baseline'))).toEqual(['B5'])
+  })
+
+  it('T9 a new file in src/game or a tenth baseline turns exactly its own check red', () => {
+    // 这两条是"名单自己数自己"那个洞的牙：只改**目录**、一个字都不动哈希表
+    expect(redsOn(sample('game-extra-file'))).toEqual(['B3'])
+    expect(redsOn(sample('baseline-extra-file'))).toEqual(['B5'])
+  })
+
+  it('T10 a screen with font literals that nobody registered turns exactly B4 red', () => {
+    expect(redsOn(sample('census-unlisted'))).toEqual(['B4'])
+  })
+
+  it('T11 a focus ring that is there but invisible turns exactly K9 red', () => {
+    // ⚠️ 这一条与 T5 **不是**同一件事：T5 证明"规则整条不在"会红（旧 K9 也有这颗牙），
+    //    这一条证明"**规则在、环看不见**"会红 —— 那才是票 71 补的那颗牙（改之前 0 红）。
+    expect(redsOn(sample('focus-blank'))).toEqual(['K9'])
   })
 })

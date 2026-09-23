@@ -95,7 +95,9 @@ function declaredInitial(parent: string, key: string): string {
 function noteCellHtml(fault: string, taken: boolean, note: string): string {
   if (fault === 'nonote' || taken) return `<span data-field-note-locked>${esc(note)}</span>`
   const empty = note === '' ? ' data-field-note-empty' : ''
-  return `<input data-field-note value="${esc(note)}"${empty}>`
+  // `deadctrls`：控件都在、形状也对，就是**一个都点不动**（票 71 的 A4c 要咬的就是它）
+  const dead = fault === 'deadctrls' ? ' disabled' : ''
+  return `<input data-field-note value="${esc(note)}"${empty}${dead}>`
 }
 
 /** 行尾那一格：可删的一颗垃圾桶、接管行写"为什么没有"（老板拍的：界面不做硬锁） */
@@ -140,12 +142,15 @@ function freshHtml(fault: string, s: StubState, parent: string): string {
     `data-field-initial="${f.initial.trim() === '' ? 'no' : 'yes'}"`,
   ]
   if (s.bad) attrs.push('data-row-bad')
+  const dead = fault === 'deadctrls' ? ' disabled' : ''
   return (
     `<div ${attrs.join(' ')}>` +
-    `<input data-field-key-new value="${esc(f.key)}">` +
-    '<select data-field-kind-new><option value="string">text</option><option value="integer">number</option></select>' +
+    `<input data-field-key-new value="${esc(f.key)}"${dead}>` +
+    '<select data-field-kind-new' +
+    dead +
+    '><option value="string">text</option><option value="integer">number</option></select>' +
     noteCellHtml(fault, false, f.note) +
-    `<input data-field-initial-new value="${esc(f.initial)}">` +
+    `<input data-field-initial-new value="${esc(f.initial)}"${dead}>` +
     tailHtml(fault, false) +
     '</div>'
   )
@@ -379,6 +384,7 @@ const FAULTS: Array<{ fault: string; reds: string[] }> = [
       'A3b',
       'A4a',
       'A4b',
+      'A4c',
       'A5a',
       'A5b',
       'A6a',
@@ -408,6 +414,7 @@ const FAULTS: Array<{ fault: string; reds: string[] }> = [
       'A3b',
       'A4a',
       'A4b',
+      'A4c',
       'A5a',
       'A5b',
       'B1a',
@@ -427,14 +434,16 @@ const FAULTS: Array<{ fault: string; reds: string[] }> = [
   { fault: 'readonly', reds: ['A4a'] },
   { fault: 'readonlyall', reds: ['A4a', 'A5b'] },
   { fault: 'ctrls', reds: ['A4b'] },
+  // 票 71 的 A4c：四个控件都在、形状也对，就是全 `disabled` —— 只有"能不能用"那一条咬得到
+  { fault: 'deadctrls', reds: ['A4c', 'B2a', 'B2b', 'B3a', 'B3b', 'B3c', 'B4a', 'B4b'] },
   { fault: 'legacy', reds: ['A4b'] },
   { fault: 'nodeclare', reds: ['A2d'] },
   // 票 69 那条洞（只标第一行）：A4a 改成"逐行 ⇔"之后**多红一条** A4a —— 标记落在作者的行上，
   // 而 A4a 现在两边都管。A5b 同时红是因为那张表里"接管行"少了、`readonly` 就露出来了。**三条都是对的。**
   { fault: 'treemark-parent-only', reds: ['A4a', 'A5a', 'A5b'] },
-  { fault: 'nonote', reds: ['A4b', 'B1a', 'B2a', 'B2b', 'B4a'] },
+  { fault: 'nonote', reds: ['A4b', 'A4c', 'B1a', 'B2a', 'B2b', 'B4a'] },
   { fault: 'nodel', reds: ['B3a', 'B3d', 'B4c'] },
-  { fault: 'nosave', reds: ['B2a', 'B2b', 'B3b', 'B3c', 'B3d', 'B4a', 'B4b', 'B4c'] },
+  { fault: 'nosave', reds: ['A4c', 'B2a', 'B2b', 'B3b', 'B3c', 'B3d', 'B4a', 'B4b', 'B4c'] },
 ]
 
 describe('self-check: these criteria can go red, and by how much', () => {

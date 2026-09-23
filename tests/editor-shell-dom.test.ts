@@ -255,6 +255,39 @@ async function checkS9(w: AnyWrapper): Promise<void> {
   }
 }
 
+/**
+ * S10 · 票 71 补的那一条（口径 8 的另一半）· **横带**：细条收成它之后，
+ * 它要显示**当前那一步**，而且「换一步」真的换得动。
+ *
+ * ⚠️ 这一块**没有 `data-*` 钩子**（`EditorShell.vue:128-137` 只有一个 `.band` 类），
+ *    而票 71 的边界是"`src/` 一个字节不动" ⇒ 只能按类选、按结构认（头一颗是开合器、后面几颗是步骤）。
+ * ⚠️ "它**只在 ≤820px 出现**"这一半 jsdom 量不到（没有媒体查询）—— 那一半在
+ *    `e2e/visual.spec.ts` 的 `expectLandscapeShell`（`.band` 在屏上、细条那一栏不在）。
+ */
+async function checkS10(w: AnyWrapper): Promise<void> {
+  expect(w.find('.band').exists(), 'the landscape band is missing: the strip has no fallback shape').toBe(
+    true,
+  )
+  const buttons = () => w.find('.band').findAll('button')
+  await pick(w, topology[0])
+  expect(buttons()[0].text(), 'the band must name the step that is currently picked').toContain(
+    card.graph.nodes[topology[0]].name,
+  )
+  // 换一步：点开 → 卡里每一步都在 → 点其中一条就换成它，菜单顺手收掉
+  expect(buttons().length, 'closed, the band must hand out its toggle and nothing else').toBe(1)
+  await buttons()[0].trigger('click')
+  expect(buttons().length, 'opening the band must list every step of the card').toBe(1 + topology.length)
+  expect(
+    buttons()
+      .slice(1)
+      .map((el) => el.text()),
+    'the band must list the card steps in topology order',
+  ).toEqual(topology.map((id) => card.graph.nodes[id].name))
+  await buttons()[2].trigger('click')
+  expect(shellOf(w).on, 'picking a step from the band must move the selection').toEqual([topology[1]])
+  expect(buttons().length, 'picking a step must close the menu again').toBe(1)
+}
+
 /** 一条判据：编号 + 一句话（用例名）+ 断言（吃一棵挂好的树） */
 interface Check {
   id: string
@@ -272,6 +305,7 @@ const CHECKS: Check[] = [
   { id: 'S7', what: 'the three plus buttons exist, each in its own column', run: checkS7 },
   { id: 'S8', what: 'every plus is a button that can take focus', run: checkS8 },
   { id: 'S9', what: 'pressing a plus emits its own event', run: checkS9 },
+  { id: 'S10', what: 'the landscape band names the current step and can swap it', run: checkS10 },
 ]
 
 describe('the four-column editor shell (criteria 1-5)', () => {
@@ -302,12 +336,34 @@ const ShellStub = defineComponent({
     fault: { type: String, default: '' },
   },
   emits: ['add-branch', 'add-action', 'add-step'],
-  /** 铺那棵树，并把 [data-step] / [data-add] 的点击转成选中与事件 */
+  /** 铺那棵树，并把 [data-step] / [data-add] / 横带的点击转成选中与事件 */
   setup(props, { emit }) {
     const selected = ref('')
-    /** 点到了哪个钩子：选节点走 select（细条那一步），按「＋」走各自的事件 */
+    /** 横带那个「换一步」开着没有（真件里是 `EditorShell.vue:69` 的 `picking`） */
+    const picking = ref(false)
+    /**
+     * 点到了哪个钩子：选节点走 select（细条那一步），按「＋」走各自的事件。
+     *
+     * ⚠️ 横带那几颗**没有钩子**（真件也没给），所以只能按 `.band` 与结构认：
+     *    头一颗是开合器，后面几颗按**文字**回认卡里的节点名（真件走的是 `pick(id)`）。
+     */
     const onClick = (event: MouseEvent) => {
-      const target = (event.target as Element).closest('[data-step], [data-add]')
+      const el = event.target as Element
+      const bandBtn = el.closest('.band button')
+      if (bandBtn) {
+        if ((bandBtn.closest('.band') as Element).querySelector('button') === bandBtn) {
+          picking.value = !picking.value
+        } else {
+          const name = (bandBtn.textContent ?? '').trim()
+          const hit = topology.find((id) => card.graph.nodes[id].name === name)
+          if (hit !== undefined) {
+            picking.value = false
+            selected.value = hit
+          }
+        }
+        return
+      }
+      const target = el.closest('[data-step], [data-add]')
       if (!target) return
       const step = target.getAttribute('data-step')
       const add = target.getAttribute('data-add')
@@ -317,14 +373,14 @@ const ShellStub = defineComponent({
     return () =>
       h('div', {
         'data-card-editor': '',
-        innerHTML: shellHtml(props.fault, selected.value),
+        innerHTML: shellHtml(props.fault, selected.value, picking.value),
         onClick,
       })
   },
 })
 
 /** 造替身那棵树：`fault` 指名这一次把哪一样整条关掉（空串 = 照契约长全） */
-function shellHtml(fault: string, selected: string): string {
+function shellHtml(fault: string, selected: string, picking: boolean): string {
   const nodes = topology.map((id) => `<button data-node="${id}">${card.graph.nodes[id].name}</button>`)
   const steps =
     fault === 'steps'
@@ -349,7 +405,14 @@ function shellHtml(fault: string, selected: string): string {
     fault === 'ruler'
       ? ''
       : '<div data-ruler>' + '<span data-ruler-seg></span>'.repeat(COLS.length) + '</div>'
-  return `<header data-top></header>${shell}${ruler}`
+  // 横带（票 71 的 S10）：照真件的结构长 —— `.band` 里第一颗是开合器、后面几颗是步骤，**都没有钩子**
+  const bandToggle = `<button type="button">${selected ? card.graph.nodes[selected].name : ''}</button>`
+  const bandMenu = picking
+    ? topology.map((id) => `<button type="button">${card.graph.nodes[id].name}</button>`).join('')
+    : ''
+  const band =
+    fault === 'band' ? '' : `<div class="band"><span class="band-k"></span>${bandToggle}${bandMenu}</div>`
+  return `<header data-top></header>${band}${shell}${ruler}`
 }
 
 /** 挂一版替身：同一批判据在它身上跑，`fault` 决定关掉哪一样 */
@@ -395,15 +458,22 @@ describe('self-check: these criteria can go red, and by how much', () => {
     expect(await redsOn('mid')).toEqual(['S3'])
   })
 
-  it('T5 a strip with no step at all turns exactly S5/S6 red', async () => {
-    expect(await redsOn('steps')).toEqual(['S5', 'S6'])
+  it('T5 a strip with no step at all turns exactly S5/S6/S10 red', async () => {
+    // ⚠️ 票 71 补的 S10 也在这一条轴上：横带显示的是**选中的那一步**，而选中那一轴由细条承担
+    //    （横屏下细条不在屏上，唯一入口就是横带自己）⇒ 细条整条没了，S10 一起红，这是真的依赖
+    expect(await redsOn('steps')).toEqual(['S5', 'S6', 'S10'])
   })
 
-  it('T6 a highlight frozen on the first step turns exactly S6 red', async () => {
-    expect(await redsOn('highlight')).toEqual(['S6'])
+  it('T6 a highlight frozen on the first step turns exactly S6/S10 red', async () => {
+    // 同上：高亮冻住 ⇒ 横带说的那一步与细条对不上，S10 的交叉核对就没有对象了
+    expect(await redsOn('highlight')).toEqual(['S6', 'S10'])
   })
 
   it('T7 without the plus buttons exactly S7/S8/S9 go red', async () => {
     expect(await redsOn('adds')).toEqual(['S7', 'S8', 'S9'])
+  })
+
+  it('T8 without the landscape band exactly S10 goes red', async () => {
+    expect(await redsOn('band')).toEqual(['S10'])
   })
 })

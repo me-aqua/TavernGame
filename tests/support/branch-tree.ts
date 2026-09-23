@@ -625,6 +625,43 @@ async function checkA4b(w: AnyWrapper): Promise<void> {
 }
 
 /**
+ * A4c · 票 71 补的那一条（⑦）：那四个控件不只要**存在**，还要**能用**。
+ *
+ * ⚠️ A4b 断的是"表里允许出现的可编辑控件只有那四个、而且四个都出现过"——
+ *    一个**整表 `:disabled`（或 `readonly`）**的实现照样全绿：控件在、形状对、一条都点不动。
+ *    那是"有形状、没行为"。这一条把行为补上：四个控件一个都不许禁用 / 只读，
+ *    而且**真的用一次** —— 填进去的类型与初值要落到卡里（B3b / B3c 只用了默认值：
+ *    `string` + 空初值，A4c 走的是另外两格）。
+ */
+async function checkA4c(w: AnyWrapper): Promise<void> {
+  await pickRow(w, PICK_A)
+  const row = declaredOrder(PICK_A).find((key) => declaredNote(PICK_A, key) !== undefined) as string
+  /** 一格控件必须既没禁用、也没只读 —— 少了这一半，"整表点不动"照样全绿 */
+  const guard = (el: RowWrapper, what: string): void => {
+    expect(el.attributes('disabled'), what + ' is disabled: the table is not really writable').toBeUndefined()
+    expect(
+      el.attributes('readonly'),
+      what + ' is read-only: the table is not really writable',
+    ).toBeUndefined()
+  }
+  guard(noteBox(w, PICK_A, row), 'the note cell of an existing row')
+  await openNewRow(w, NEW_KEY)
+  for (const one of ['[data-field-key-new]', '[data-field-kind-new]', '[data-field-initial-new]']) {
+    const el = w.find('[data-row-new] ' + one)
+    expect(el.exists(), 'the new row is missing a cell: ' + one).toBe(true)
+    guard(el, one)
+  }
+  // 用一次：类型选数字、初值填 7 ⇒ 保存之后卡里那一格就是**填进去的**那个（不是默认那个）
+  await w.find('[data-row-new] [data-field-kind-new]').setValue('integer')
+  await w.find('[data-row-new] [data-field-initial-new]').setValue('7')
+  await save(w)
+  expect(
+    tableIn(storedRaw(), PICK_A)[NEW_KEY],
+    'what was typed into the new row must reach the card',
+  ).toEqual({ type: 'integer', initial: 7 })
+}
+
+/**
  * A5a · 引擎接管的那棵子树：**树上那一行** + 表里那几行都带接管标记，**别处一行都不带**。
  *
  * ⚠️ 树上那一半是 S3（票 69 的独立评审）点出来的洞：`NavRow.taken` 原来**读了从不断言**
@@ -1017,6 +1054,7 @@ export const CHECKS: Check[] = [
     what: 'the table holds the four editable controls of the contract, and only those',
     run: checkA4b,
   },
+  { id: 'A4c', what: 'the four editable controls really take input and reach the card', run: checkA4c },
   { id: 'A5a', what: 'the engine-owned subtree is marked, and nothing else is', run: checkA5a },
   { id: 'A5b', what: 'engine-owned and author-owned are two different marks', run: checkA5b },
   { id: 'A6a', what: 'the mid subtitle names the node the tree has lit', run: checkA6a },
