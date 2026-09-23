@@ -18,7 +18,6 @@
  *    （`CardResources`），一条直接装配请求（**「没写这个键 = 一块都不发」**那半，票 76 的语义）。
  */
 import { afterEach, describe, expect, it } from 'vitest'
-import { defineComponent, h } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import CardEditor from '../src/components/CardEditor.vue'
 import CardResources from '../src/components/CardResources.vue'
@@ -32,6 +31,7 @@ import {
   withoutSettings,
 } from './support/card-resources'
 import { fakeTracker, label, nodeRequest, setLocale } from './support/trace-blocks'
+import { save } from './support/branch-tree'
 import type { CardData } from '../src/game/card'
 
 /** 卡里五块设定的键（顺序就是卡的声明顺序） */
@@ -67,24 +67,6 @@ const NO_STYLE = EXAMPLE.graph.topology.find(
 const track = fakeTracker()
 afterEach(() => track.restoreAll())
 
-/** vue-flow 的替身：每个节点一个按钮（点 = 选中那个节点）——与 card-ui.test.ts 同一套做法 */
-const VueFlowStub = defineComponent({
-  name: 'VueFlow',
-  props: { nodes: { type: Array, required: true }, edges: { type: Array, required: true } },
-  emits: ['nodeClick'],
-  /** 画一层按钮，点谁就把 nodeClick 抛上来 */
-  setup:
-    (props, { emit }) =>
-    () =>
-      h(
-        'div',
-        { class: 'flow-stub' },
-        (props.nodes as Array<{ id: string; data: { label: string } }>).map((node) =>
-          h('button', { 'data-node': node.id, onClick: () => emit('nodeClick', { node }) }, node.data.label),
-        ),
-      ),
-})
-
 /** 挂载资源库面板（卡从 props 进，改完的卡写回存储） */
 function panel(card: CardData = EXAMPLE) {
   return mount(CardResources, {
@@ -93,13 +75,15 @@ function panel(card: CardData = EXAMPLE) {
   })
 }
 
-/** 打开卡编辑器并选中节点：勾选框走的是**用户真走的那条路**（外层写回整份卡） */
+/** 打开卡编辑器并在**细条上选中一步**：那一屏与勾选框走的是**用户真走的那条路**（保存写回整份卡） */
 async function marks(card: CardData, node: string): Promise<VueWrapper> {
   const w = mount(CardEditor, {
     props: { card, source: 'builtin' },
-    global: { plugins: [i18n], stubs: { VueFlow: VueFlowStub } },
+    global: { plugins: [i18n] },
   })
-  await w.find('[data-node="' + node + '"]').trigger('click')
+  const step = w.find('[data-step="' + node + '"]')
+  expect(step.exists(), 'no step for this node in the strip: ' + node).toBe(true)
+  await step.trigger('click')
   return w
 }
 
@@ -143,9 +127,11 @@ describe('card resources: the request follows the checkboxes', () => {
     expect(carries(after, markerOf(EXAMPLE, SETTING_KEYS[1]))).toBe(true)
   })
 
-  it.skip('unchecking a block takes it out of that node request, and leaves the others alone', async () => {
+  it('unchecking a block takes it out of that node request, and leaves the others alone', async () => {
     const w = await marks(EXAMPLE, NO_STYLE)
     await w.find('[data-card-resource-mark="setting:' + FIRST_BLOCK + '"]').setValue(false)
+    // 🔴 票 73 · 8c-②：写路径只有一条 —— 勾完是**草稿**，点顶栏那颗保存才落卡
+    await save(w)
 
     const after = await systemOf(savedCard(), NO_STYLE)
     // ⚠️ 名单要钉死（评审 F2）：只断「长度 > 1」是同义反复 —— 循环的迭代集合得是**已知的那几块**。
@@ -170,13 +156,15 @@ describe('card resources: the request follows the checkboxes', () => {
     }
   })
 
-  it.skip('checking a block back on puts it back into the request', async () => {
+  it('checking a block back on puts it back into the request', async () => {
     const w = await marks(withEveryDeclaration(EXAMPLE), NO_STYLE)
     const box = '[data-card-resource-mark="setting:' + FIRST_BLOCK + '"]'
     await w.find(box).setValue(false)
+    await save(w)
     expect(carries(await systemOf(savedCard(), NO_STYLE), markerOf(EXAMPLE, FIRST_BLOCK))).toBe(false)
 
     await w.find(box).setValue(true)
+    await save(w)
     const after = await systemOf(savedCard(), NO_STYLE)
     expect(carries(after, markerOf(EXAMPLE, FIRST_BLOCK))).toBe(true)
     expect(carries(after, '### ' + label('prompts.settingBlock.' + FIRST_BLOCK))).toBe(true)
@@ -218,10 +206,11 @@ describe('card resources: the request follows the checkboxes', () => {
       expect(carries(kept, markerOf(EXAMPLE, key)), other + ' keeps ' + key).toBe(true)
   })
 
-  it.skip('holds in English too', async () => {
+  it('holds in English too', async () => {
     setLocale('en')
     const w = await marks(EXAMPLE, NO_STYLE)
     await w.find('[data-card-resource-mark="setting:' + FIRST_BLOCK + '"]').setValue(false)
+    await save(w)
 
     const after = await systemOf(savedCard(), NO_STYLE)
     expect(carries(after, markerOf(EXAMPLE, FIRST_BLOCK))).toBe(false)

@@ -40,6 +40,7 @@ import {
   withoutSettings,
 } from './support/card-resources'
 import { label, setLocale } from './support/trace-blocks'
+import { save } from './support/branch-tree'
 
 /** 卡里五块设定的键（顺序就是卡的声明顺序） */
 const SETTING_KEYS = Object.keys(EXAMPLE.settings)
@@ -112,11 +113,11 @@ function marks(w: VueWrapper, kind: 'setting' | 'generator'): string[] {
   return w.findAll('[data-card-resource-mark^="' + kind + ':"]').map((entry) => markName(entry, kind))
 }
 
-/** 一列里**读到了**的名字（顺序 = 界面顺序）—— 只读那一屏靠行上的标记报这件事 */
+/** 一列里**读到了**的名字（顺序 = 界面顺序）—— 勾选框自己的状态就是证据（8c-② 起它又能编了） */
 function checked(w: VueWrapper, kind: 'setting' | 'generator'): string[] {
   return w
     .findAll('[data-card-resource-mark^="' + kind + ':"]')
-    .filter((entry) => entry.attributes('data-card-resource-mark-on') !== undefined)
+    .filter((entry) => (entry.element as HTMLInputElement).checked)
     .map((entry) => markName(entry, kind))
 }
 
@@ -155,34 +156,40 @@ describe('CardEditor: the resource checkboxes on a node', () => {
     expect(checked(w, 'setting')).toEqual([])
   })
 
-  it.skip('unchecking one block writes the remaining ones, and only that field changes', async () => {
+  it('unchecking one block writes the remaining ones, and only that field changes', async () => {
     const w = await editor(EXAMPLE, NO_STYLE)
+    const before = localStorage.getItem(CARD_KEY)
     await uncheck(w, 'setting', 'world')
+    // 🔴 票 73 · 8c-②：写路径只有一条 —— 勾完是**草稿**，点顶栏那颗保存才落卡
+    expect(localStorage.getItem(CARD_KEY), 'nothing may reach the card before the save').toBe(before)
+    await save(w)
 
     const stored = savedCard()
     // ⚠️ 期望值从**这个节点的声明**现取：它只声明四块（没有 style），取消 world 之后应当剩三块
     expect(originalSettings(EXAMPLE, NO_STYLE)).toHaveLength(4)
     expect(declaredSettings(stored, NO_STYLE)).toEqual(settingsWithout(EXAMPLE, NO_STYLE, 'world'))
-    const before = EXAMPLE.graph.nodes[NO_STYLE]
+    const old = EXAMPLE.graph.nodes[NO_STYLE]
     const after = stored.graph.nodes[NO_STYLE]
-    expect(after.tools).toEqual(before.tools)
-    expect(after.reads).toEqual(before.reads)
-    expect(after.prompt).toEqual(before.prompt)
-    expect(after.name).toBe(before.name)
-    expect(after.duty).toBe(before.duty)
+    expect(after.tools).toEqual(old.tools)
+    expect(after.reads).toEqual(old.reads)
+    expect(after.prompt).toEqual(old.prompt)
+    expect(after.name).toBe(old.name)
+    expect(after.duty).toBe(old.duty)
   })
 
-  it.skip('checking a block back on writes the full list, key and all', async () => {
+  it('checking a block back on writes the full list, key and all', async () => {
     const w = await editor(FULL, NO_SETTINGS)
     await uncheck(w, 'setting', 'style')
+    await save(w)
     expect(declaredSettings(savedCard(), NO_SETTINGS)).toEqual(settingsWithout(FULL, NO_SETTINGS, 'style'))
 
     await check(w, 'setting', 'style')
+    await save(w)
     expect(declaredSettings(savedCard(), NO_SETTINGS)).toEqual(originalSettings(FULL, NO_SETTINGS))
     expect(localStorage.getItem(CARD_KEY)).not.toBeNull()
   })
 
-  it.skip('never lets the last checked block go: it is disabled, says why, and a click does nothing', async () => {
+  it('never lets the last checked block go: it is disabled, says why, and a click does nothing', async () => {
     const w = await editor(EXAMPLE, NO_SETTINGS)
     for (const key of originalSettings(EXAMPLE, NO_SETTINGS).slice(1)) await uncheck(w, 'setting', key)
 
@@ -196,6 +203,7 @@ describe('CardEditor: the resource checkboxes on a node', () => {
     //    换成 `setValue(false)` 会把它点掉，于是这条守卫变成假绿（评审实测过这一对行为）。
     await last.trigger('click')
     expect(checked(w, 'setting')).toEqual([SETTING_KEYS[0]])
+    await save(w)
     expect(declaredSettings(savedCard(), NO_SETTINGS)).toEqual([SETTING_KEYS[0]])
   })
 })
