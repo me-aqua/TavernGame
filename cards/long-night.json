@@ -110,6 +110,13 @@
           "update_pack",
           "set_profile"
         ],
+        "settings": [
+          "world",
+          "core",
+          "common",
+          "style",
+          "lead"
+        ],
         "prompt": [
           "**职责**：判定这一轮过了多久，并调用 advance_time 工具推进它（引擎执行，结果回传给你）。你不写「现在几点」—— 具体时刻与时段由引擎算。",
           "",
@@ -131,6 +138,13 @@
         "duty": "把计时的结论与这一轮发生的事写成正文",
         "role": "story",
         "tools": [],
+        "settings": [
+          "world",
+          "core",
+          "common",
+          "style",
+          "lead"
+        ],
         "prompt": [
           "**职责**：把上面所有的结论写成正文。",
           "",

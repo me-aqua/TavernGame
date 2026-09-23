@@ -126,13 +126,13 @@ function renderCardValue(value: unknown, level = 0): string {
  * 卡的五块设定里，**这个节点**读得到的那几块：每块一节，顺序 = 卡里声明的顺序
  * （世界 / 核心 / 常见 / 风格 / 主控）。
  *
- * 节点的 `settings` 声明要哪几块（不写 = 五块全发）—— 这里是**筛**，不重排：
+ * 节点的 `settings` 声明要哪几块（不写 = 一块都不发）—— 这里是**筛**，不重排：
  * 用户写的顺序不影响块的先后（见 doc/DESIGN.md 决定 #52）。
  *
  * 块的标题走 locale —— 卡里的键是 ASCII，给模型看的名字不该是一串机器标识符。
  */
 export function settingsPrompt(card: CardData, node: string): string {
-  const keys = card.graph.nodes[node].settings ?? Object.keys(card.settings)
+  const keys = card.graph.nodes[node].settings ?? []
   const blocks = Object.entries(card.settings)
     .filter(([key]) => keys.includes(key))
     .map(([key, lines]) => '### ' + t('prompts.settingBlock.' + key) + '\n' + lines.join('\n'))

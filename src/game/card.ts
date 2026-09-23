@@ -71,7 +71,7 @@ export interface GraphNode {
   tools?: string[]
   /** 这个节点看得见哪几个顶层状态分支（不写 = 全部） */
   reads?: string[]
-  /** 这个节点要读哪几块设定（不写 = 五块全发）—— 取值是卡里 settings 的键 */
+  /** 这个节点要读哪几块设定（不写 = 一块都不发）—— 取值是卡里 settings 的键 */
   settings?: string[]
 }
 
@@ -371,7 +371,7 @@ function checkReads(node: Record<string, unknown>, where: string, state: Record<
   })
 }
 
-/** 节点的 settings：不写 = 五块全发；写了必须非空、不重复、且每一块都是卡里声明的设定块 */
+/** 节点的 settings：不写 = 一块都不发；写了必须非空、不重复、且每一块都是卡里声明的设定块 */
 function checkNodeSettings(
   node: Record<string, unknown>,
   where: string,
@@ -381,7 +381,7 @@ function checkNodeSettings(
   if (names === undefined) return
   const path = at(where, 'settings')
   // 空表是写错了，不是「什么也不给」—— 后者由「不写这个键」表达
-  if (names.length === 0) fail(path, 'must not be empty (leave the key out to send every block)')
+  if (names.length === 0) fail(path, 'must not be empty (leave the key out to send no block at all)')
   const seen: string[] = []
   for (const name of names) {
     // 坏名字要点出来：只报位置的话，「style2」与任何别的错名长得一模一样

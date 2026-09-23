@@ -644,6 +644,13 @@
           "world",
           "roles",
           "lead"
+        ],
+        "settings": [
+          "world",
+          "core",
+          "common",
+          "style",
+          "lead"
         ]
       },
       "time": {
@@ -804,6 +811,13 @@
         "reads": [
           "world",
           "roles",
+          "lead"
+        ],
+        "settings": [
+          "world",
+          "core",
+          "common",
+          "style",
           "lead"
         ]
       },

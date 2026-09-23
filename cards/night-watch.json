@@ -32,6 +32,7 @@
         "name": "时间",
         "duty": "判定这一轮过了多久。主控的心情与行囊、以及航海日志也归这一步。",
         "tools": ["advance_time", "update_lead", "update_pack", "write_log"],
+        "settings": ["world", "core", "common", "style", "lead"],
         "prompt": [
           "只判断流逝的跨度，不要写场景。",
           "值得记的理由写进 reason（一句话）。",
@@ -45,6 +46,7 @@
         "duty": "把这一轮写成正文",
         "role": "story",
         "tools": [],
+        "settings": ["world", "core", "common", "style", "lead"],
         "prompt": [
           "第二人称，150–400 字。",
           "写声音、光、温度；不要写数值。",
