@@ -180,55 +180,78 @@ function syntaxErrors(file: string): string[] {
   })
 }
 
+/**
+ * ⚠️ **30–32 三条要真起钩子**（`spawnSync` → `npx commitlint` → `changelog.mjs`，串起三次进程启动）
+ * ⇒ 默认的 5 秒超时不是给这种用例定的：2026-09-23 实测它在**五道门禁连着跑**的负载下到过 **5104ms**，
+ *    偶发地把 `npm run test:coverage` 判红（读数与处置见 `.team/leader/2026-09-23/验收记录-票73-②.md` §二）。
+ *    余量按实测给：常态 ~1.6s、最坏见过 5.1s ⇒ **20 秒**。
+ *    ⚠️ **这是给进程启动留时间，不是把断言放宽** —— 断言一个字没动。
+ */
+const HOOK_TIMEOUT = 20000
+
 describe('commit-msg: the hook is really started (the wiring, not the source text)', () => {
   afterAll(() => {
     for (const dir of repos) rmSync(dir, { recursive: true, force: true })
   })
 
-  it('30 lets a chore commit through (the program runs and does not block it)', () => {
-    const repo = makeRepo()
-    stage(repo, 'src/probe.ts')
-    const msg = messageFile(repo, 'msg-chore.txt', 'chore(card): a probe chore commit\n')
+  it(
+    '30 lets a chore commit through (the program runs and does not block it)',
+    () => {
+      const repo = makeRepo()
+      stage(repo, 'src/probe.ts')
+      const msg = messageFile(repo, 'msg-chore.txt', 'chore(card): a probe chore commit\n')
 
-    const run = runHook(repo, msg)
-    expect(run.status, 'a chore commit must not be blocked: ' + run.output).toBe(0)
-  })
+      const run = runHook(repo, msg)
+      expect(run.status, 'a chore commit must not be blocked: ' + run.output).toBe(0)
+    },
+    HOOK_TIMEOUT,
+  )
 
-  it('31 blocks a feat that changed src/ without touching the changelog', () => {
-    const repo = makeRepo()
-    stage(repo, 'src/probe.ts')
-    const msg = messageFile(repo, 'msg-feat.txt', 'feat(card): a probe feat commit\n')
+  it(
+    '31 blocks a feat that changed src/ without touching the changelog',
+    () => {
+      const repo = makeRepo()
+      stage(repo, 'src/probe.ts')
+      const msg = messageFile(repo, 'msg-feat.txt', 'feat(card): a probe feat commit\n')
 
-    const run = runHook(repo, msg)
-    expect(run.status, 'this commit must be blocked: ' + run.output).toBe(1)
-    // ⚠️ 只断退出码不够：**语法错误也退 1**。要断在**这条检查自己那句拦下的话**上 ——
-    //    它只在判定真的跑到「改了东西却没记」时才打得出来（契约 §9）。
-    expect(run.output, 'the hook must fail for the changelog reason, not for a crash').toContain('CHANGELOG')
-    expect(run.output, 'and it must name the file it is about').toContain('doc/CHANGELOG.md')
-    // ⚠️ 上面那两条**分开「崩了」与「判拦下」**：夹具一崩，这里退的也是 1，而崩的那句话同样带着
-    //    那两个串（`doc/CHANGELOG.md has no "## [...]" section` / `ENOENT … doc/CHANGELOG.md`）——
-    //    本机没假绿只是因为 Windows 的 ENOENT 报告里带 `\`，而 CI 是 ubuntu（契约 §2.4 第 2 条）。
-    //    中文那句「检查自己出错了」进不了这个文件（ascii 检查连字符串字面量一起拦），所以用两条
-    //    **ASCII 指纹**分开：崩的那两条路会打 `ENOENT` / `has no "## [`，而**只有判定那条路**才会
-    //    打出逃生口那一行（`reminder` 的三行里就有它）。
-    expect(run.output, 'a crash on the fixture is not a verdict (missing file)').not.toContain('ENOENT')
-    expect(run.output, 'a crash on the fixture is not a verdict (no unreleased section)').not.toContain(
-      'has no "## [',
-    )
-    expect(run.output, 'only the verdict path prints the escape hatch line').toContain(ESCAPE_WORD)
-  })
+      const run = runHook(repo, msg)
+      expect(run.status, 'this commit must be blocked: ' + run.output).toBe(1)
+      // ⚠️ 只断退出码不够：**语法错误也退 1**。要断在**这条检查自己那句拦下的话**上 ——
+      //    它只在判定真的跑到「改了东西却没记」时才打得出来（契约 §9）。
+      expect(run.output, 'the hook must fail for the changelog reason, not for a crash').toContain(
+        'CHANGELOG',
+      )
+      expect(run.output, 'and it must name the file it is about').toContain('doc/CHANGELOG.md')
+      // ⚠️ 上面那两条**分开「崩了」与「判拦下」**：夹具一崩，这里退的也是 1，而崩的那句话同样带着
+      //    那两个串（`doc/CHANGELOG.md has no "## [...]" section` / `ENOENT … doc/CHANGELOG.md`）——
+      //    本机没假绿只是因为 Windows 的 ENOENT 报告里带 `\`，而 CI 是 ubuntu（契约 §2.4 第 2 条）。
+      //    中文那句「检查自己出错了」进不了这个文件（ascii 检查连字符串字面量一起拦），所以用两条
+      //    **ASCII 指纹**分开：崩的那两条路会打 `ENOENT` / `has no "## [`，而**只有判定那条路**才会
+      //    打出逃生口那一行（`reminder` 的三行里就有它）。
+      expect(run.output, 'a crash on the fixture is not a verdict (missing file)').not.toContain('ENOENT')
+      expect(run.output, 'a crash on the fixture is not a verdict (no unreleased section)').not.toContain(
+        'has no "## [',
+      )
+      expect(run.output, 'only the verdict path prints the escape hatch line').toContain(ESCAPE_WORD)
+    },
+    HOOK_TIMEOUT,
+  )
 
-  it('32 still reminds on a chore commit (an unconditionally passed switch would silence this)', () => {
-    const repo = makeRepo()
-    stage(repo, 'src/probe.ts')
-    const msg = messageFile(repo, 'msg-chore-remind.txt', 'chore(card): a probe chore commit\n')
+  it(
+    '32 still reminds on a chore commit (an unconditionally passed switch would silence this)',
+    () => {
+      const repo = makeRepo()
+      stage(repo, 'src/probe.ts')
+      const msg = messageFile(repo, 'msg-chore-remind.txt', 'chore(card): a probe chore commit\n')
 
-    const run = runHook(repo, msg)
-    expect(run.status, 'chore is not blocked: ' + run.output).toBe(0)
-    // 判定被 `--merge-head` 关掉时，这条路**什么都不会打**（放行且不提醒）⇒ 这条会红。
-    // ⚠️ 提醒走 stderr ⇒ 这条用例是 `spawnSync` 的理由（见 `runHook` 的注释）。
-    expect(run.output, 'an unrecorded change must still be reminded').toContain('doc/CHANGELOG.md')
-  })
+      const run = runHook(repo, msg)
+      expect(run.status, 'chore is not blocked: ' + run.output).toBe(0)
+      // 判定被 `--merge-head` 关掉时，这条路**什么都不会打**（放行且不提醒）⇒ 这条会红。
+      // ⚠️ 提醒走 stderr ⇒ 这条用例是 `spawnSync` 的理由（见 `runHook` 的注释）。
+      expect(run.output, 'an unrecorded change must still be reminded').toContain('doc/CHANGELOG.md')
+    },
+    HOOK_TIMEOUT,
+  )
 
   it('33 the hook file is Node code: no BOM, shebang first, and it parses', () => {
     const source = readFileSync(path.join(ROOT, HOOK), 'utf8')
