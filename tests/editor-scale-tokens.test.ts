@@ -86,7 +86,6 @@ const PLAYER_CENSUS: Record<string, { count: number; sizes: string[] }> = {
  */
 const EDITOR_OWNED: Record<string, string> = {
   'src/components/CardGraph.vue': 'pinned byte for byte by B2 (GRAPH_HASH)',
-  'src/components/CardNodeForm.vue': 'the node form is 8c / ticket 73 territory',
   'src/components/CardResources.vue': 'the resource panel is 8d territory',
 }
 

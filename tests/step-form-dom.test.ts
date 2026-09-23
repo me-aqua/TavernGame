@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 /**
- * 票 73 · 段 8c-①：**「编一步 · 读」**的判据（组件层）。
+ * 票 73 · 段 8c-①+②：**「编一步」**（先只读、再变可编）的判据（组件层）。
  *
- * 契约 `.team/test/2026-09-23/contract-73.md`；口径源 `.team/leader/2026-09-23/段8c-S0.md`
- * §十二 的 **R1–R10**、§十一 的六条硬裁决。这一件只管**读**那一半（R1–R6）：
+ * 契约 `.team/test/2026-09-23/contract-73.md`（①读）与 `contract-73-②.md`（②写）；
+ * 口径源 `.team/leader/2026-09-23/段8c-S0.md` §十二 的 **R1–R10** + `段8c2-S0.md` 的 **R1–R15**。这一件两半都管：
  *   · 细条点一步 ⇒ 中栏换成那一步的编屏，那一屏说的是卡里这一步真实声明的东西；
  *   · 两条轴（树 `picked` / 细条 `selected`）**任一时刻最多一个非空**，开屏两个都空；
- *   · 那一屏里**一个可编控件都没有**（本刀只读）。
+ *   · 那一屏**可编，而且只留一条写路径**：改一步只动草稿，点顶栏那颗保存才落卡；`role` 那一块永远没有控件。
  *
  * ⚠️ **判据挂在 `CardEditor.vue` 这个现成的接缝上**（`editor-shell-dom.test.ts:22` 已经这么挂）：
  *    新组件是它内部 import 的子组件（**`src/components/StepForm.vue`**），但必须能被 `CardEditor`
@@ -30,7 +30,17 @@ import CardEditor from '../src/components/CardEditor.vue'
 import { parseCard, type CardData } from '../src/game/card'
 import { i18n } from '../src/i18n'
 import { EXAMPLE_CARD } from './support/card-fixtures'
-import { PICK_A, PICK_B, TREE_PATHS, textOf, type AnyWrapper } from './support/branch-tree'
+import {
+  PICK_A,
+  PICK_B,
+  TREE_PATHS,
+  storedRaw,
+  textOf,
+  type AnyWrapper,
+  type CardJson,
+  type RowWrapper,
+} from './support/branch-tree'
+import { CARD_KEY } from './support/card-resources'
 
 /** 示例卡（判据要的节点名、键集、行数、动作、枝名全部从它现算，不抄第二份） */
 const card = parseCard(readFileSync(EXAMPLE_CARD, 'utf8'))
@@ -115,6 +125,17 @@ async function pickBranch(w: AnyWrapper, path: string): Promise<void> {
   await row.trigger('click')
 }
 
+/** 顶栏那颗保存（干净时它是禁用的 —— `dirty` 就是它） */
+function saveButton(w: AnyWrapper): RowWrapper {
+  const button = w.find('[data-top] [data-card-save]')
+  expect(button.exists(), 'the top bar hands out no save button').toBe(true)
+  return button
+}
+
+/** 判据自己填进去的那两段文字（测试里的字符串字面量一律 ASCII） */
+const NEW_NAME = 'renamed by the write ticket'
+const NEW_DUTY = 'what this step is for, rewritten by the write ticket'
+
 /** 两条选择轴那一瞬的读数 —— R2 的全部证据都在它上面 */
 interface Axes {
   /** 树上亮着的那几行（`data-branch-on` 的值 = 路径） */
@@ -156,11 +177,13 @@ interface Screen {
   node: string
   /** 屏上出现的块（`data-step-block` 的值），按显示顺序 */
   blocks: string[]
-  /** 主提示词一行一个（`data-step-prompt-line` 的文字） */
+  /** 主提示词**控件里**的值按行切（一行一条：空行也是卡里的一行） */
   prompt: string[]
-  tools: string[]
-  reads: string[]
-  /** 勾选区：哪几块、on 没 on */
+  /** `tools` 两栏：候选（卡里有哪些动作可挑）与被挑中的（这一步给了哪几个） */
+  tools: Picks
+  /** `reads` 两栏：候选（卡里的顶层枝）与被挑中的（这一步看得见哪几枝） */
+  reads: Picks
+  /** 勾选那一栏：哪几块、读没读到 */
   marks: Array<{ key: string; on: boolean }>
   /** `role` 那一块在不在 */
   role: boolean
@@ -169,22 +192,49 @@ interface Screen {
   kills: number
 }
 
+/** 一栏「候选 + 被挑中的」读出来的样子（三栏勾选型共用一套读法） */
+interface Picks {
+  /** 列出来的候选（属性值，按界面顺序） */
+  all: string[]
+  /** 其中**挑中**的那几样（顺序同上） */
+  picked: string[]
+}
+
+/** 一段范围里那个**文本控件**现在的值（没有控件就是空串 —— 空串会让"值对不对"当场红） */
+function textIn(w: AnyWrapper, block: string): string {
+  const scope = '[data-step-block="' + block + '"] '
+  const el = w.find(scope + 'input, ' + scope + 'textarea')
+  if (!el.exists()) return ''
+  return (el.element as HTMLInputElement | HTMLTextAreaElement).value ?? ''
+}
+
+/** 一栏勾选型候选：候选是谁、其中哪几个挑中了（`attr` = 那一栏自己的钩子，如 `data-step-tool`） */
+function picksIn(w: AnyWrapper, block: string, attr: string): Picks {
+  const rows = w.findAll('[data-step-block="' + block + '"] [' + attr + ']')
+  const nameOf = (el: RowWrapper): string => el.attributes(attr) ?? ''
+  return {
+    all: rows.map(nameOf),
+    picked: rows.filter((el) => (el.element as HTMLInputElement).checked === true).map(nameOf),
+  }
+}
+
 /** 读那一屏（不在时就报"不在"，各条判据自己决定这算不算"什么也没验"） */
 function screenOf(w: AnyWrapper): Screen {
   const root = w.find('[data-step-form]')
   /** 只在那一屏里面找（不在时一律空数组，省得每处都判一次） */
   const inside = (selector: string) => (root.exists() ? root.findAll(selector) : [])
+  const promptBox = w.find('[data-step-block="prompt"] textarea')
   return {
     present: root.exists(),
     inMid: w.find('[data-mid] [data-step-form]').exists(),
     node: root.exists() ? (root.attributes('data-step-node') ?? '') : '',
     blocks: inside('[data-step-block]').map((el) => el.attributes('data-step-block') ?? ''),
-    prompt: inside('[data-step-prompt-line]').map((el) => el.text()),
-    tools: inside('[data-step-tool]').map((el) => el.attributes('data-step-tool') ?? ''),
-    reads: inside('[data-step-read]').map((el) => el.attributes('data-step-read') ?? ''),
+    prompt: promptBox.exists() ? ((promptBox.element as HTMLTextAreaElement).value ?? '').split('\n') : [],
+    tools: picksIn(w, 'tools', 'data-step-tool'),
+    reads: picksIn(w, 'reads', 'data-step-read'),
     marks: inside('[data-card-resource-mark]').map((el) => ({
       key: (el.attributes('data-card-resource-mark') ?? '').replace(/^setting:/, ''),
-      on: el.attributes('data-card-resource-mark-on') !== undefined,
+      on: (el.element as HTMLInputElement).checked === true,
     })),
     role: inside('[data-step-block="role"]').length > 0,
     roleControls: controlsIn(w, '[data-step-block="role"]'),
@@ -193,10 +243,29 @@ function screenOf(w: AnyWrapper): Screen {
   }
 }
 
+/**
+ * 编枝态那张表里有多少颗垃圾桶 —— **`kills === 0` 那句的反面控制**（S3 的 **F-1**）。
+ *
+ * 为什么需要它：`kills` 数的是 `data-field-del` / `data-add`，而这一件里**没有任何一档故障**
+ * 会往那一屏塞垃圾桶 ⇒ "它能红"原本没被证明（**不是空断言，是牙口没量**）。
+ * 这一句证明的是**同一句查询在别处真的数得出东西**（`BranchForm.vue:128/:183` 那两颗）。
+ */
+async function branchTrashCount(w: AnyWrapper): Promise<number> {
+  await pickBranch(w, PICK_A)
+  const table = w.find('[data-branch-form]')
+  expect(table.exists(), 'the field table is not there, so the control below says nothing').toBe(true)
+  return table.findAll('[data-field-del]').length
+}
+
 // ---------- C1–C6：判据（11 条；另两条 C1d / C6b 单独挂，见下面两个 it）----------
 
 /** C1a · R1：细条点一步 ⇒ 中栏换成那一步的编屏（今天点一下中栏纹丝不动） */
 async function checkC1a(w: AnyWrapper): Promise<void> {
+  // `kills === 0` 的反面控制（S3 的 F-1）：同一句查询在编枝态那张表里**数得出**垃圾桶
+  expect(
+    await branchTrashCount(w),
+    'the same query finds no trash in the field table either: then "no trash on that screen" says nothing',
+  ).toBeGreaterThan(0)
   await pickStep(w, FIRST)
   const s = screenOf(w)
   expect(s.present, 'picking a step must bring up the screen of that step').toBe(true)
@@ -216,9 +285,7 @@ async function checkC1b(w: AnyWrapper): Promise<void> {
   const after = screenOf(w)
   expect(before.node, 'the first pick must show the first step').toBe(FIRST)
   expect(after.node, 'the screen must follow the second pick').toBe(SECOND)
-  expect(textOf(w, '[data-step-block="name"]'), 'the screen must name the step it is about').toContain(
-    nodes[SECOND].name,
-  )
+  expect(textIn(w, 'name'), 'the screen must name the step it is about').toBe(nodes[SECOND].name)
 }
 
 /** C1c · R1 的字幕面：中栏字幕 = 那一步的名字，而且细条亮着的就是它（两处不许各说各的） */
@@ -290,7 +357,7 @@ async function checkC3a(w: AnyWrapper): Promise<void> {
   }
 }
 
-/** C3b · R3 的内容面：身份（name + 只读 id）· `duty` 逐字 · 主提示词**一行一条、一行不少** */
+/** C3b · R3 的内容面：身份（name + 只读 id）· `duty` · 主提示词**一行一条、一行不少** */
 async function checkC3b(w: AnyWrapper): Promise<void> {
   expect(LONGEST_PROMPT, 'the longest prompt of this card must have more than one line').not.toBe('')
   const lines = nodes[LONGEST_PROMPT].prompt
@@ -302,50 +369,56 @@ async function checkC3b(w: AnyWrapper): Promise<void> {
   expect(lines.filter((line) => line.trim() === '').length, 'no empty line to keep').toBeGreaterThan(0)
   await pickStep(w, LONGEST_PROMPT)
   const s = screenOf(w)
-  expect(textOf(w, '[data-step-block="name"]'), 'the screen must spell the node name').toContain(
+  expect(textIn(w, 'name'), 'the name control must hold the name of the card').toBe(
     nodes[LONGEST_PROMPT].name,
+  )
+  expect(textIn(w, 'duty'), 'the duty control must hold the duty of the card, word for word').toBe(
+    nodes[LONGEST_PROMPT].duty,
   )
   expect(textOf(w, '[data-step-block="id"]'), 'the read-only node id must be on screen').toContain(
     LONGEST_PROMPT,
   )
-  expect(textOf(w, '[data-step-block="duty"]'), 'the duty must be shown word for word').toContain(
-    nodes[LONGEST_PROMPT].duty,
-  )
-  expect(s.prompt.length, 'the prompt must be one element per line of the card').toBe(lines.length)
+  expect(s.prompt.length, 'the prompt box must hold one line per line of the card').toBe(lines.length)
   lines.forEach((line, index) => {
     if (line.trim() === '') {
       expect(s.prompt[index].trim(), 'an empty line of the card must stay an empty line: ' + index).toBe('')
       return
     }
-    expect(s.prompt[index], 'line ' + index + ' must be the line the card declares').toContain(line.trim())
+    expect(s.prompt[index], 'line ' + index + ' must be the line the card declares').toBe(line)
   })
 }
 
 /** 卡里 `tools` 是空表的那一步（"一个动作都不给"要看得出来，不是画成空白） */
 const PICK_EMPTY_TOOLS = topology.find((id) => (nodes[id].tools ?? []).length === 0) as string
 
-/** C3c · R3 的声明面：`tools` / `reads` 两栏逐项 = 卡里那一步声明的，`reads` 还得是卡自己的枝名 */
+/** C3c · R3 的声明面：两栏的**候选 = 卡里可挑的**（顺序照卡），**挑中的 = 卡里那一步声明的** */
 async function checkC3c(w: AnyWrapper): Promise<void> {
+  const roster = Object.keys(card.actions)
+  const branches = Object.keys(card.state)
+  expect(roster.length, 'this card declares no action at all').toBeGreaterThan(0)
   const withTools = topology.find((id) => (nodes[id].tools ?? []).length > 1) as string
   expect(withTools, 'no step of this card holds more than one tool').not.toBe(undefined)
   expect(PICK_EMPTY_TOOLS, 'no step of this card writes an empty tool list').not.toBe(undefined)
   for (const id of [withTools, PICK_EMPTY_TOOLS]) {
     await pickStep(w, id)
     const s = screenOf(w)
-    expect(s.tools, 'the tool rows must be the tools the card gives that step: ' + id).toEqual(
-      nodes[id].tools ?? [],
-    )
-    expect([...s.reads].sort(), 'the read rows must be the branches the card gives that step: ' + id).toEqual(
-      [...(nodes[id].reads ?? [])].sort(),
+    expect(s.tools.all, 'the tool column must offer every action of the card, in card order: ' + id).toEqual(
+      roster,
     )
     expect(
-      s.reads.filter((name) => !Object.hasOwn(card.state, name)),
-      'a row must name a top-level branch of the card itself: ' + id,
-    ).toEqual([])
+      [...s.tools.picked].sort(),
+      'the ticked tools must be the tools the card gives that step: ' + id,
+    ).toEqual([...(nodes[id].tools ?? [])].sort())
+    expect(s.reads.all, 'the read column must offer every top-level branch of the card: ' + id).toEqual(
+      branches,
+    )
+    expect([...s.reads.picked].sort(), 'the ticked branches must be the ones that step reads: ' + id).toEqual(
+      [...(nodes[id].reads ?? [])].sort(),
+    )
   }
 }
 
-/** C3d · R3 的边界：写了空表 = **一个都没有**，那一档要看得见一句话，不能是一块空白 */
+/** C3d · R3 的边界：写了空表 = **一个都不给**（一个都不勾），而候选**一个不少** */
 async function checkC3d(w: AnyWrapper): Promise<void> {
   const empty = topology.filter((id) => (nodes[id].tools ?? []).length === 0)
   const full = topology.filter((id) => (nodes[id].tools ?? []).length > 0)
@@ -353,21 +426,30 @@ async function checkC3d(w: AnyWrapper): Promise<void> {
   expect(full.length, 'every step writes an empty tool list: then this check says nothing').toBeGreaterThan(0)
   for (const id of empty) {
     await pickStep(w, id)
-    expect(screenOf(w).tools, 'an empty list means no tool at all, for: ' + id).toEqual([])
+    const s = screenOf(w)
+    expect(s.tools.picked, 'an empty list means no tool at all, for: ' + id).toEqual([])
     expect(
-      textOf(w, '[data-step-block="tools"]').length,
-      'an empty list must still say so instead of drawing nothing: ' + id,
-    ).toBeGreaterThan(0)
+      s.tools.all.length,
+      'an empty list must still offer the whole roster, otherwise the author cannot pick one back: ' + id,
+    ).toBe(Object.keys(card.actions).length)
   }
+  await pickStep(w, full[0])
+  expect(
+    screenOf(w).tools.picked.length,
+    'a step that does hand out tools must show them ticked',
+  ).toBeGreaterThan(0)
 }
 
 /**
- * C4 · 🔴 R4：那一屏里**一个可编控件都没有**（本刀只读）。
+ * C4 · 🔴 R2 / R4：那一屏的控件**白名单** —— 六个键各自有控件、`role` 一个都没有、
+ * 垃圾桶与 ＋ 一个都不许进来。
  *
- * ⚠️ **这条最容易写成空断言**（票 71 的 ⑧②：注入物尺寸是 `auto` 的断言等于没写）⇒ 三段一起断：
- *    ① 前提：那一屏**在**（不在的话"没有控件"是空话）；
- *    ② 反面控制：**同一句查询**在编枝态那张表里数得出控件（量具真的照得到东西）；
- *    ③ 正题：那一屏里 `input` / `select` / `textarea` / `contenteditable` 一个都没有，垃圾桶与 ＋ 也没有。
+ * ⚠️ **这一条是把 8c-① 那条整条翻过来的**：上一刀断的是"一个可编控件都没有"（那一屏只读），
+ *    这一刀那一屏可编 ⇒ 换成**正面的白名单**，并且**每一族都要真的出现过**
+ *    （与 8b-② 的 `A4b` 同一套做法：少了后半句，"一个控件都没有"的实现照样绿 —— 那正是上一刀的合法形状）。
+ * ⚠️ **两处反面控制**（票 71 的 ⑧② 与 S3 的 F-1）：
+ *    ① 同一句查询在**编枝态那张表**里数得出控件；
+ *    ② 同一句"垃圾桶"查询在编枝态那张表里数得出垃圾桶（`kills === 0` 那句的牙）。
  */
 async function checkC4(w: AnyWrapper): Promise<void> {
   await pickBranch(w, PICK_A)
@@ -377,11 +459,14 @@ async function checkC4(w: AnyWrapper): Promise<void> {
   ).toBeGreaterThan(0)
   await pickStep(w, FIRST)
   const s = screenOf(w)
-  expect(s.present, 'the step screen is not there, so "no control in it" says nothing').toBe(true)
-  expect(
-    s.controls,
-    'this ticket shows the step read-only: no editable control may be on that screen',
-  ).toEqual([])
+  expect(s.present, 'the step screen is not there, so "which control is in it" says nothing').toBe(true)
+  const kinds = new Set(s.controls)
+  for (const kind of ['INPUT', 'TEXTAREA']) {
+    expect(kinds.has(kind), 'this family of control never showed up on that screen: ' + kind).toBe(true)
+  }
+  expect(s.tools.all.length, 'the tool column offers no candidate at all').toBeGreaterThan(0)
+  expect(s.marks.length, 'the settings column holds no row at all').toBeGreaterThan(0)
+  expect(s.roleControls, 'role is a pointer of the whole card: it may hold no control at all').toEqual([])
   expect(s.kills, 'no trash and no plus may be on that screen').toBe(0)
 }
 
@@ -453,7 +538,7 @@ const CHECKS: Check[] = [
   { id: 'C6a', what: 'the marks column reads the settings the card declares', run: checkC6a },
 ]
 
-describe('the step screen in the mid column (ticket 73, read-only half)', () => {
+describe('the step screen in the mid column (ticket 73: read it, then edit it)', () => {
   for (const check of CHECKS) {
     it(`${check.id} ${check.what}`, async () => {
       const w = mountEditor()
@@ -531,6 +616,153 @@ describe('the step screen in the mid column (ticket 73, read-only half)', () => 
       w.unmount()
     }
   })
+
+  /**
+   * D1–D4 · 段 8c-②「编一步 · 写」：那一屏从只读变可编，而且**只留一条写路径**。
+   *
+   * ⚠️ **这四条不在故障矩阵里**（它们要一张真卡 + 真存储）：替身要长得像它们，就得把
+   *    「草稿 + 保存 + 校验被拒」这一整条写路径**再实现一遍**（8b-② 那次的替身就是为此长大到 300 行）。
+   *    ⇒ 反面控制写在**各条自己身上**（每条都有一句"这一句不是空话"的证据），见契约 §6。
+   *
+   * D1 · R1：改一步**只动草稿**，点顶栏那颗保存才落卡 —— 找不到第二条会落盘的路径。
+   */
+  it('D1 the only path to the card is the top-bar save', async () => {
+    const w = mountEditor()
+    try {
+      const before = localStorage.getItem(CARD_KEY)
+      await pickStep(w, FIRST)
+      const box = w.find('[data-step-block="name"] input, [data-step-block="name"] textarea')
+      expect(box.exists(), 'the name block hands out no control at all').toBe(true)
+      await box.setValue(NEW_NAME)
+      expect(
+        saveButton(w).attributes('disabled'),
+        'a pending change must make the save usable',
+      ).toBeUndefined()
+      expect(localStorage.getItem(CARD_KEY), 'editing a step must not reach the card before the save').toBe(
+        before,
+      )
+      // 三条"看着像保存"的路：失焦 / 回车 / 换一步再换回来 —— 一条都不许落盘
+      await box.trigger('blur')
+      await box.trigger('keydown', { key: 'Enter' })
+      await pickStep(w, SECOND)
+      await pickStep(w, FIRST)
+      expect(
+        localStorage.getItem(CARD_KEY),
+        'only the top-bar save may write the card (blur / Enter / switching step may not)',
+      ).toBe(before)
+      // 点保存 ⇒ 落卡，而且**只改了那一处**（整份卡逐字比 —— 一次保存没有顺手改别处）
+      await saveButton(w).trigger('click')
+      expect(localStorage.getItem(CARD_KEY), 'the save must really reach the card').not.toBe(before)
+      const want = JSON.parse(JSON.stringify(card)) as CardJson
+      want.graph.nodes[FIRST].name = NEW_NAME
+      expect(storedRaw(), 'the saved card must be the card with exactly that one change').toEqual(want)
+    } finally {
+      w.unmount()
+    }
+  })
+
+  /** D2 · R2：六个键**各自有控件**，而且六个都真的改得动（改一处 + 挑一处，一次保存全落卡） */
+  it('D2 all six editable keys take input and land in one save', async () => {
+    // 挑一步：**给得出动作、又读不全四枝**的那一步（这样三栏才各有"改得动"的对象）
+    const target = topology.find(
+      (id) =>
+        (nodes[id].tools ?? []).length > 0 && (nodes[id].reads ?? []).length < Object.keys(card.state).length,
+    ) as string
+    expect(target, 'no step of this card both hands out a tool and reads less than every branch').not.toBe(
+      undefined,
+    )
+    const node = nodes[target] as Record<string, any>
+    const dropTool = (node.tools ?? [])[0] as string
+    const addRead = Object.keys(card.state).find((key) => !(node.reads ?? []).includes(key)) as string
+    const dropSetting = (node.settings ?? [])[0] as string
+    expect(dropTool, 'this step hands out no tool to drop').not.toBe(undefined)
+    expect(dropSetting, 'this step reads no setting block to drop').not.toBe(undefined)
+    const w = mountEditor()
+    try {
+      await pickStep(w, target)
+      // ① 六个键每一个都要**真的有控件**（`role` 不在其中：R3 说它永远只读）
+      for (const key of ['name', 'duty', 'prompt', 'tools', 'reads', 'settings']) {
+        expect(
+          controlsIn(w, '[data-step-block="' + key + '"]').length,
+          'this key hands out no control at all: ' + key,
+        ).toBeGreaterThan(0)
+      }
+      expect(controlsIn(w, '[data-step-block="role"]').length, 'role must stay read-only').toBe(0)
+      // ② 六个键各改一处（文本三个走控件、三栏走勾选）
+      await w.find('[data-step-block="name"] input, [data-step-block="name"] textarea').setValue(NEW_NAME)
+      await w.find('[data-step-block="duty"] input, [data-step-block="duty"] textarea').setValue(NEW_DUTY)
+      await w.find('[data-step-block="prompt"] textarea').setValue('first\n\nthird')
+      await w.find('[data-step-tool="' + dropTool + '"]').setValue(false)
+      await w.find('[data-step-read="' + addRead + '"]').setValue(true)
+      await w.find('[data-card-resource-mark="setting:' + dropSetting + '"]').setValue(false)
+      // ③ 一次保存 ⇒ 整份卡**恰好**是那六处改动（多一处少一处都红）
+      await saveButton(w).trigger('click')
+      const want = JSON.parse(JSON.stringify(card)) as CardJson
+      const edited = want.graph.nodes[target] as Record<string, any>
+      edited.name = NEW_NAME
+      edited.duty = NEW_DUTY
+      edited.prompt = ['first', '', 'third']
+      edited.tools = (node.tools ?? []).filter((name: string) => name !== dropTool)
+      edited.reads = [...(node.reads ?? []), addRead]
+      edited.settings = (node.settings ?? []).filter((name: string) => name !== dropSetting)
+      expect(storedRaw(), 'six edits in one save must land exactly as they were typed').toEqual(want)
+    } finally {
+      w.unmount()
+    }
+  })
+
+  /** D3 · R6：`tools` 那一栏**只能从卡里挑** —— 一个自由文本控件都没有 */
+  it('D3 the tool column can only be picked from, never typed into', async () => {
+    const w = mountEditor()
+    try {
+      await pickStep(w, FIRST)
+      const block = w.find('[data-step-block="tools"]')
+      expect(block.exists(), 'the tools block is not there').toBe(true)
+      // ① 选择型：这一块里**没有**自由文本控件（写不出卡里没有的动作名）
+      const free = block
+        .findAll('input, textarea, select')
+        .filter((el) => {
+          if (el.element.tagName === 'TEXTAREA') return true
+          if (el.element.tagName !== 'INPUT') return false
+          return !['checkbox', 'radio'].includes(el.attributes('type') ?? '')
+        })
+        .map((el) => el.element.tagName)
+      expect(
+        free,
+        'this column must be pick-only: a free text box could name an action the card has not',
+      ).toEqual([])
+      // ② 候选就是卡里那张动作表（一个不多一个不少）—— 少了这一句，"一个候选都没有"也满足上面那句
+      expect(screenOf(w).tools.all, 'the candidates must be the actions of the card itself').toEqual(
+        Object.keys(card.actions),
+      )
+    } finally {
+      w.unmount()
+    }
+  })
+
+  /** D4 · R7：`name` 改成另一步已有的名字 ⇒ **当场拒保存**，卡一个字节不动、原因看得见 */
+  it('D4 a duplicate step name is refused, and the card is left alone', async () => {
+    const other = topology.find((id) => id !== FIRST) as string
+    const taken = nodes[other].name
+    const w = mountEditor()
+    try {
+      await pickStep(w, FIRST)
+      const box = w.find('[data-step-block="name"] input, [data-step-block="name"] textarea')
+      await box.setValue(taken)
+      const seeded = localStorage.getItem(CARD_KEY)
+      await saveButton(w).trigger('click')
+      expect(localStorage.getItem(CARD_KEY), 'a refused save must not touch storage').toBe(seeded)
+      const shown = w.find('[data-card-error]')
+      expect(shown.exists(), 'the card refused the change and nobody said why').toBe(true)
+      expect(shown.text().trim().length, 'the reason must say something').toBeGreaterThan(0)
+      // 反面控制：换一个**不重名**的再保存 ⇒ 真的落盘（少了这一句，"一律拒绝"也满足上面两句）
+      await box.setValue(NEW_NAME)
+      await saveButton(w).trigger('click')
+      expect(localStorage.getItem(CARD_KEY), 'a name nobody else uses must go through').not.toBe(seeded)
+    } finally {
+      w.unmount()
+    }
+  })
 })
 
 // ---------- 自检：替身 + 故障注入（"0 红 = 没牙"的落地）----------
@@ -540,9 +772,20 @@ function esc(value: unknown): string {
   return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
 }
 
-/** 一行元素（动作 / 枝名那种"值挂在属性上"的行） */
-function rowHtml(attr: string, value: string): string {
-  return `<li ${attr}="${esc(value)}">${esc(value)}</li>`
+/** 一个文本控件（`readonly` 档画成一段纯文字 —— 那正是 8c-① 的形状） */
+function textCell(fault: string, tag: 'input' | 'textarea', value: string): string {
+  if (fault === 'readonly') return `<p>${esc(value)}</p>`
+  return tag === 'textarea' ? `<textarea>${esc(value)}</textarea>` : `<input value="${esc(value)}">`
+}
+
+/** 一栏勾选候选（`attr` = 那一栏自己的钩子；`readonly` 档画成不带控件的行） */
+function pickCells(fault: string, attr: string, all: string[], on: string[]): string {
+  return all
+    .map((name) => {
+      if (fault === 'readonly') return `<span ${attr}="${esc(name)}">${esc(name)}</span>`
+      return `<input type="checkbox" ${attr}="${esc(name)}"${on.includes(name) ? ' checked' : ''}>`
+    })
+    .join('')
 }
 
 /** 那一屏的 HTML：`fault` 指名这一次把哪一样整条关掉 */
@@ -554,42 +797,38 @@ function screenHtml(fault: string, id: string): string {
   const parts: string[] = []
   for (const key of want) {
     if (key === 'id') parts.push(`<p data-step-block="id">${esc(id)}</p>`)
-    else if (key === 'name') parts.push(`<p data-step-block="name">${esc(node.name)}</p>`)
-    else if (key === 'duty') parts.push(`<p data-step-block="duty">${esc(node.duty)}</p>`)
+    else if (key === 'name')
+      parts.push(`<div data-step-block="name">${textCell(fault, 'input', node.name)}</div>`)
+    else if (key === 'duty')
+      parts.push(`<div data-step-block="duty">${textCell(fault, 'textarea', node.duty)}</div>`)
     else if (key === 'prompt') {
-      // `prompt`：只画第一行（少画 = C3b 红）
+      // `prompt`：控件里只装第一行（少画 = C3b 红）
       const lines: string[] = fault === 'prompt' ? node.prompt.slice(0, 1) : node.prompt
-      parts.push(
-        `<div data-step-block="prompt">${lines
-          .map((line) => `<p data-step-prompt-line>${esc(line)}</p>`)
-          .join('')}</div>`,
-      )
+      parts.push(`<div data-step-block="prompt">${textCell(fault, 'textarea', lines.join('\n'))}</div>`)
     } else if (key === 'role') {
-      // `rolectrl`：这一块里混进一个下拉（只该 C5 红 —— C4 挑的那一步没有 role）
+      // `rolectrl`：这一块里混进一个控件（只该 C4 与 C5 红 —— C4 挑的那一步没有 role）
       const extra = fault === 'rolectrl' ? '<select></select>' : ''
       parts.push(`<div data-step-block="role">${esc(node.role)}${extra}</div>`)
     } else if (key === 'tools') {
       const list: string[] = node.tools ?? []
       parts.push(
-        `<div data-step-block="tools">${list.length === 0 ? 'none' : list.map((name) => rowHtml('data-step-tool', name)).join('')}</div>`,
+        `<div data-step-block="tools">${pickCells(fault, 'data-step-tool', Object.keys(card.actions), list)}</div>`,
       )
     } else if (key === 'reads') {
-      const list: string[] = node.reads
+      const list: string[] = node.reads ?? []
       parts.push(
-        `<div data-step-block="reads">${list.map((name) => rowHtml('data-step-read', name)).join('')}</div>`,
+        `<div data-step-block="reads">${pickCells(fault, 'data-step-read', Object.keys(card.state), list)}</div>`,
       )
     } else if (key === 'settings') {
       // `marks`：一律全勾（不看卡 = C6a 红）
       const on: string[] = fault === 'marks' ? SETTING_KEYS : (node.settings ?? [])
       parts.push(
-        `<div data-step-block="settings"><ul data-card-resource-marks>${SETTING_KEYS.map(
-          (block) =>
-            `<li data-card-resource-mark="setting:${block}"${on.includes(block) ? ' data-card-resource-mark-on' : ''}>${block}</li>`,
-        ).join('')}</ul></div>`,
+        `<div data-step-block="settings">${pickCells(fault, 'data-card-resource-mark', SETTING_KEYS, on)}</div>`,
       )
     }
   }
-  const extra = fault === 'ctrl' ? '<input data-x>' : ''
+  // `kill`：往那一屏里混进一颗垃圾桶（"那一屏里没有垃圾桶"那句的牙）
+  const extra = fault === 'kill' ? '<button data-field-del>-</button>' : ''
   return `<div data-step-form data-step-node="${esc(id)}">${parts.join('')}${extra}</div>`
 }
 
@@ -613,7 +852,7 @@ function stubHtml(fault: string, step: string, branch: string, frozen: string): 
     target !== ''
       ? screenHtml(fault, target)
       : branch !== ''
-        ? '<div data-branch-form><input data-x></div>'
+        ? '<div data-branch-form><input data-x><button data-field-del>-</button></div>'
         : '<p data-branch-none></p>'
   const head = step !== '' ? nodes[step].name : branch
   return (
@@ -699,17 +938,20 @@ async function redsOn(fault: string): Promise<string[]> {
  */
 const FAULTS: Array<{ fault: string; reds: string[] }> = [
   { fault: '', reds: [] },
-  // `both`：两条轴互不清场 —— 今天真界面就是这个行为，C2 要咬的正是它
+  // `both`：两条轴互不清场 —— 「旧行为被替换」之前那个真行为，C2 要咬的正是它
   { fault: 'both', reds: ['C2'] },
-  // `nostep`：选了一步也不出那一屏 —— 今天真界面就是这个行为
+  // `nostep`：选了一步也不出那一屏
   { fault: 'nostep', reds: ['C1a', 'C1b', 'C2', 'C3a', 'C3b', 'C3c', 'C3d', 'C4', 'C5', 'C6a'] },
-  { fault: 'ctrl', reds: ['C4'] },
+  // `readonly`：那一屏画成 8c-① 的只读形状（＝这一刀开工前的样子）⇒ "可编"那一族全红
+  { fault: 'readonly', reds: ['C1b', 'C3b', 'C3c', 'C3d', 'C4', 'C6a'] },
+  // `kill`：那一屏里混进一颗垃圾桶（S3 的 F-1 要的那一档：`kills === 0` 从此有牙）
+  { fault: 'kill', reds: ['C1a', 'C4'] },
   { fault: 'rolectrl', reds: ['C5'] },
   { fault: 'blocks', reds: ['C3a', 'C5'] },
   { fault: 'prompt', reds: ['C3b'] },
   { fault: 'marks', reds: ['C6a'] },
   // `frozen`：那一屏冻在第一次选中的那一步上（C2 也红：轴空了屏还挂着，那是"轴与中栏一一对应"那一句）
-  { fault: 'frozen', reds: ['C1b', 'C2', 'C3a', 'C3c', 'C5', 'C6a'] },
+  { fault: 'frozen', reds: ['C1b', 'C2', 'C3a', 'C3c', 'C3d', 'C5', 'C6a'] },
 ]
 
 describe('self-check: these criteria can go red, and by how much', () => {
