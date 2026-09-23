@@ -33,7 +33,7 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-/** 常态：故事节点（role: story、不给工具、没写 settings ⇒ 五块全勾） */
+/** 常态：故事节点（role: story、不给工具、没写 settings ⇒ 一块都不勾 —— 票 76 的语义） */
 export const Default: Story = {}
 
 /** 能做事的节点：tools / reads 都有值时那几行长什么样 */

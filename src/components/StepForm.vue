@@ -1,17 +1,23 @@
 <script setup lang="ts">
 /**
- * 中栏：选中那一步的**只读编屏**（票 73 · 段 8c-①）。
+ * 中栏：选中那一步的**编屏**（票 73 · 段 8c-① 只读；段 8c-② 起可编）。
  *
  * 一屏一块：卡的 `NODE_KEYS` 里**这一步声明了的**每一个键各一块 —— `name` / `duty` / `prompt`
  * 是必写的，`role` / `tools` / `reads` / `settings` 可省；外加两样**常驻**的：`id`（它是
- * `graph.nodes` 的键、不是一步的声明）与 `settings`（「这一步读哪几块」任何时候都有答案：
- * 不写 = 一块都不读 ⇒ 这一栏不随卡增删，随卡变的是**哪几块 on**）。
+ * `graph.nodes` 的键、不是一步的声明）与 `settings`（「这一步吃哪几块」任何时候都有答案 ——
+ * 不写这个键 = 一块都不发 ⇒ 这一栏不随卡增删，随卡变的是**哪几块勾着**）。
  *
- * ⚠️ 本刀**只读**：这一屏里一个 `input` / `select` / `textarea` / 垃圾桶 / ＋ 都没有
- *    （改写归 8c-②）⇒ 勾选那一栏画的是**只读标记**，不是勾选框。
- * ⚠️ 卡的知识只读 `card` 这一份：屏上每一个字都从 `graph.nodes[id]` 现取，不抄第二份。
- * ⚠️ `role` 只在**写了它的那一步**画一块（全卡恰好一步）：没写的那几步**不画那一块**，
- *    不是画成空框 —— 画空框读起来像"这 7 步都能改成叙事步"。
+ * ⚠️ **只画不算**：值与草稿都由 `CardEditor` 现算传进来（卡的知识只住一处），这一层只铺屏
+ *    与把人的动作抛上去。**这一层没有第二条写路径** —— 落卡只有顶栏那一颗保存。
+ * ⚠️ **`role` 永远只读**：它是全卡的指针（取值只有 `story`、全卡恰好一个），不是这一步的开关。
+ * ⚠️ **三栏一律「候选 + 挑中」**：候选集就是卡里那张表 ⇒ 结构上写不出卡里没有的名字
+ *    （动作名写错会让请求工具表与执行闸门失配，而卡会拒保存）。
+ * ⚠️ **三栏的缺省语义各不相同，别合并**（三条都从引擎那边读出来）：
+ *    `tools` 不写 = 卡里全部动作（`card-actions.ts:104`）· `reads` 不写 = 全部顶层枝
+ *    （`card-state.ts:345`）⇒ 这两栏的"不写"画成**全勾**；
+ *    `settings` 不写 = **一块都不发**（票 76）⇒ 这一栏画成**全不勾**。
+ * ⚠️ **`settings` 锁最后一块**：一块都不勾要写成空表，而空表过不了卡的校验
+ *    （「一块都不发」在卡里由**不写这个键**表达，这一屏删不了键）⇒ 最后一枚点不动。
  * ⚠️ 字号只用 `--fs1/2/3` 三档（整页巡检会数中栏里出现过几档字）。
  */
 import { computed } from 'vue'
@@ -21,26 +27,55 @@ import type { CardData } from '../game/card'
 const { t } = useI18n()
 
 const props = defineProps<{
-  /** 要编的那张卡（当前卡） */
+  /** 要编的那张卡（当前卡）—— 这一步的 id 与 `role` 那两样只读的从它现取 */
   card: CardData
   /** 正在编的那一步：`graph.nodes` 的键，也是细条上 `[data-step-on]` 那个值 */
   id: string
+  /**
+   * 三栏的候选表（顺序照卡）—— 由 `CardEditor` 现算传进来（卡的知识只住一处），
+   * 这一层只管画：候选集就是卡里那张表 ⇒ 结构上写不出卡里没有的名字。
+   */
+  roster: { tools: string[]; reads: string[]; settings: string[] }
+  /** 名字（卡里的，或草稿里的） */
+  name: string
+  /** 职责 */
+  duty: string
+  /** 主提示词：一步一条，多行文本（一行一条、空行也是卡里的一行） */
+  prompt: string
+  /** 这一步能用哪几个动作（值 = 卡里 `actions` 的键） */
+  tools: string[]
+  /** 这一步看得见哪几枝顶层状态 */
+  reads: string[]
+  /** 这一步吃哪几块设定 */
+  settings: string[]
 }>()
 
-/** 卡里这一步本身（屏上每一块都从它现取） */
-const node = computed(() => props.card.graph.nodes[props.id])
-/** 这一步能用哪几个动作（没写这个键 = 一个都不给，与 `reads` 同一套读法） */
-const tools = computed(() => node.value.tools ?? [])
-/** 这一步看得见哪几枝顶层状态 */
-const reads = computed(() => node.value.reads ?? [])
-/** 五块设定的键 —— 顺序就是卡里 `settings` 的声明顺序 */
-const settingKeys = computed(() => Object.keys(props.card.settings))
-/** 这一步**读到**的那几块（不写 = 一块都不读） */
-const marks = computed(() => node.value.settings ?? [])
+const emit = defineEmits<{
+  /** 文本控件的草稿：`prompt` 原样给（多行文本，切行是保存那一步的事） */
+  text: [key: 'name' | 'duty' | 'prompt', value: string]
+  /** 一栏勾选的草稿 */
+  pick: [key: 'tools' | 'reads' | 'settings', name: string, on: boolean]
+}>()
 
-/** 卡里这一步写没写这个键：没写的那几块不画（`role` 尤其） */
+/** 卡里这一步（只读那两样从它现取：`role` 是全卡的指针、`declares()` 决定画不画那一块） */
+const node = computed(() => props.card.graph.nodes[props.id])
+
+/** 卡里这一步写没写这个键：没写的那几块不画（`role` 尤其 —— 画空框读起来像"能改成叙事步"） */
 function declares(key: string): boolean {
   return Object.hasOwn(node.value, key)
+}
+
+/** 只剩一块勾着了吗 —— 那枚锁住，并在下面挂一句为什么 */
+const lastSetting = computed(() => props.settings.length === 1)
+
+/** 一段控件里的字（文本格） */
+function textOf(event: Event): string {
+  return (event.target as HTMLInputElement | HTMLTextAreaElement).value
+}
+
+/** 一枚勾选框现在勾着没有 */
+function checkedOf(event: Event): boolean {
+  return (event.target as HTMLInputElement).checked
 }
 </script>
 
@@ -50,27 +85,35 @@ function declares(key: string): boolean {
     <p class="id" data-step-block="id" v-text="t('card.nodeId', { id })" />
 
     <section class="block" data-step-block="name">
-      <h3 class="title" v-text="t('card.nameLabel')" />
-      <p class="value" v-text="node.name" />
+      <label class="title" :for="'step-name-' + id" v-text="t('card.nameLabel')" />
+      <input
+        :id="'step-name-' + id"
+        class="text"
+        type="text"
+        :value="name"
+        @input="emit('text', 'name', textOf($event))"
+      />
     </section>
 
     <section class="block" data-step-block="duty">
-      <h3 class="title" v-text="t('card.dutyLabel')" />
-      <p class="value" v-text="node.duty" />
+      <label class="title" :for="'step-duty-' + id" v-text="t('card.dutyLabel')" />
+      <textarea
+        :id="'step-duty-' + id"
+        class="text short"
+        :value="duty"
+        @input="emit('text', 'duty', textOf($event))"
+      />
     </section>
 
-    <!-- 主提示词：一步只有这一条，一行一条、空行也是卡里的一行 -->
+    <!-- 主提示词：一步只有这一条；一行一条，空行也得留得住 ⇒ 多行框按 `\n` 来回切 -->
     <section class="block" data-step-block="prompt">
-      <h3 class="title" v-text="t('card.promptLabel')" />
-      <div class="lines">
-        <p
-          v-for="(line, index) in node.prompt"
-          :key="index"
-          class="prompt-line"
-          data-step-prompt-line
-          v-text="line"
-        />
-      </div>
+      <label class="title" :for="'step-prompt-' + id" v-text="t('card.promptLabel')" />
+      <textarea
+        :id="'step-prompt-' + id"
+        class="text area"
+        :value="prompt"
+        @input="emit('text', 'prompt', textOf($event))"
+      />
     </section>
 
     <section v-if="declares('role')" class="block" data-step-block="role">
@@ -78,38 +121,58 @@ function declares(key: string): boolean {
       <p class="value" v-text="node.role" />
     </section>
 
+    <!-- 能用哪些动作：卡里全部动作一个候选一条（勾上的就是这一步给了它的） -->
     <section v-if="declares('tools')" class="block" data-step-block="tools">
       <h3 class="title" v-text="t('card.declTools')" />
-      <ul v-if="tools.length > 0" class="rows">
-        <li v-for="name in tools" :key="name" class="row" :data-step-tool="name" v-text="name" />
+      <ul class="picks">
+        <li v-for="one in roster.tools" :key="one" class="pick">
+          <input
+            type="checkbox"
+            class="cab"
+            :data-step-tool="one"
+            :checked="tools.includes(one)"
+            @change="emit('pick', 'tools', one, checkedOf($event))"
+          />
+          <span class="pick-name" v-text="one" />
+        </li>
       </ul>
-      <!-- 写了空表就是一个都不给：这一档要看得出来，不能是一块空白 -->
-      <p v-else class="none" v-text="t('card.declNone')" />
     </section>
 
     <section v-if="declares('reads')" class="block" data-step-block="reads">
       <h3 class="title" v-text="t('card.declReads')" />
-      <ul v-if="reads.length > 0" class="rows">
-        <li v-for="name in reads" :key="name" class="row" :data-step-read="name" v-text="name" />
-      </ul>
-      <p v-else class="none" v-text="t('card.declNone')" />
-    </section>
-
-    <!-- 这一步吃哪几块设定：五块照卡列全，读到的那几块带只读标记（本刀没有勾选框） -->
-    <section class="block" data-step-block="settings">
-      <h3 class="title" v-text="t('prompts.setting')" />
-      <ul class="rows" data-card-resource-marks>
-        <li
-          v-for="key in settingKeys"
-          :key="key"
-          class="mark"
-          :data-card-resource-mark="'setting:' + key"
-          :data-card-resource-mark-on="marks.includes(key) ? '' : null"
-        >
-          <span class="box" />
-          <span v-text="t('prompts.settingBlock.' + key)" />
+      <ul class="picks">
+        <li v-for="one in roster.reads" :key="one" class="pick">
+          <input
+            type="checkbox"
+            class="cab"
+            :data-step-read="one"
+            :checked="reads.includes(one)"
+            @change="emit('pick', 'reads', one, checkedOf($event))"
+          />
+          <span class="pick-name" v-text="one" />
         </li>
       </ul>
+    </section>
+
+    <!-- 吃哪几块设定：五块照卡列全，勾上的就是这一步要的那几块 -->
+    <section class="block" data-step-block="settings">
+      <h3 class="title" v-text="t('prompts.setting')" />
+      <div class="marks" data-card-resource-marks>
+        <ul class="picks">
+          <li v-for="key in roster.settings" :key="key" class="pick">
+            <input
+              type="checkbox"
+              class="cab"
+              :data-card-resource-mark="'setting:' + key"
+              :checked="settings.includes(key)"
+              :disabled="lastSetting && settings.includes(key)"
+              @change="emit('pick', 'settings', key, checkedOf($event))"
+            />
+            <span class="pick-name" v-text="t('prompts.settingBlock.' + key)" />
+          </li>
+        </ul>
+        <p v-if="lastSetting" class="hint" v-text="t('card.resourceAtLeastOne')" />
+      </div>
     </section>
   </div>
 </template>
@@ -148,23 +211,37 @@ function declares(key: string): boolean {
      但元素的矩形仍会伸出去 —— e2e 探针把它记成「伸出视口的元素」） */
   overflow-wrap: anywhere;
 }
-.lines {
-  display: flex;
-  flex-direction: column;
+/* 可编的格子：白底 + 框（可编与只读不靠颜色，靠有没有框） */
+.text {
+  width: 100%;
   min-width: 0;
-}
-/* 提示词逐行原样：空行也要占一行（它就是卡里的一行）
-   ⚠️ 类名**不叫 `.line`**：那是故事行的约定（`e2e/probe.ts` 全页数它、查它的遮挡，
-   `e2e/selection.spec.ts` 也按它找故事行）—— 同名会把这一屏的行混进那些读数里 */
-.prompt-line {
-  margin: 0;
+  height: var(--h-ctl);
+  padding: 0 var(--s2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--r2);
+  background: var(--color-surface);
   color: var(--color-text);
+  font-family: inherit;
   font-size: var(--fs2);
-  line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
-.rows {
+.text:focus {
+  border-color: var(--color-accent-line);
+}
+/* `duty` 是"这一步干什么"的完整句子（最长 63 字，且不发给模型）⇒ 单行框装不下，给两行 */
+.short {
+  height: calc(var(--h-ctl) * 2);
+  padding: var(--s1) var(--s2);
+  line-height: 1.6;
+  resize: vertical;
+}
+/* 主提示词：卡里最长 31 行 —— 长文本框的最小高度就是给它的（`--h-ta`） */
+.area {
+  height: var(--h-ta);
+  padding: var(--s1) var(--s2);
+  line-height: 1.6;
+  resize: vertical;
+}
+.picks {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -173,39 +250,44 @@ function declares(key: string): boolean {
   gap: var(--s1);
   min-width: 0;
 }
-.row {
-  color: var(--color-text);
-  font-size: var(--fs2);
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-.none {
-  margin: 0;
-  color: var(--color-faint);
-  font-size: var(--fs2);
-}
-/* 勾选那一栏：只读标记 —— 一个方框（读到 = 实心，没读到 = 空框），不是勾选框 */
-.mark {
+/* 一个候选一行：勾选框 + 名字（名字长了折行，不把中栏顶宽） */
+.pick {
   display: flex;
   align-items: center;
   gap: var(--s2);
-  color: var(--color-muted);
+  min-width: 0;
+  color: var(--color-text);
   font-size: var(--fs2);
+  line-height: 1.6;
 }
-.box {
+.cab {
   flex: none;
   width: var(--h-cb);
   height: var(--h-cb);
-  border: 1px solid var(--color-line);
-  border-radius: var(--r1);
-  background: var(--color-surface);
+  margin: 0;
+  accent-color: var(--color-accent);
 }
-.mark[data-card-resource-mark-on] {
-  color: var(--color-text);
+.cab:disabled {
+  cursor: default;
 }
-.mark[data-card-resource-mark-on] .box {
-  border-color: var(--color-accent-line);
-  background: var(--color-accent);
-  box-shadow: inset 0 0 0 2px var(--color-surface);
+.pick:has(.cab:disabled) {
+  color: var(--color-faint);
+}
+.pick-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.marks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 0;
+}
+.hint {
+  margin: 0;
+  color: var(--color-faint);
+  font-size: var(--fs3);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 </style>

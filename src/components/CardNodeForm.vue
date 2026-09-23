@@ -30,14 +30,14 @@ const props = withDefaults(
     tools: string[] | null
     /** 这个节点看得见哪几块状态（null = 全部） */
     reads: string[] | null
-    /** 这个节点要读哪几块设定（null = 卡里五块全读）—— 勾选区读它决定默认勾上哪几枚 */
+    /** 这个节点要读哪几块设定（null = 卡里不写这个键 = **一块都不读**，票 76）—— 勾选区读它决定默认勾上哪几枚 */
     settings?: string[] | null
     /** 卡里的五块设定（勾选区的设定列恰好是这几个，顺序就是卡的声明顺序） */
     settingKeys?: string[]
     /** 保存失败的原因（外层校验回来的）；没有就是空串 */
     error?: string
   }>(),
-  // ⚠️ 缺省写进默认值而不是靠调用方喂：这两个都是「没有」的表达（null = 卡里全读 / 空串 = 没报错），
+  // ⚠️ 缺省写进默认值而不是靠调用方喂：这两个都是「没有」的表达（null = 卡里没写这个键 / 空串 = 没报错），
   //    写成必填会让每个调用点重复一遍「什么都没有」，缺一个就多一条 Vue 警告
   { settings: null, settingKeys: () => [], error: '' },
 )
@@ -85,12 +85,12 @@ const lastSetting = computed(() => checkedSettings.value.length === 1)
 /**
  * 设定列默认勾哪几块。
  *
- * ⚠️ 卡里**没写** `settings` 这个键的节点，这里回落到「全勾」—— 那是这一屏的读法，
- *    别拿它当卡的语义：卡格式里「不写这个键」= **一块都不发**（决定 #52）。
- *    取消勾之后写回的是剩下那几块；一个都不勾就落成空表，而空表过不了校验器。
+ * ⚠️ 卡里**没写** `settings` 这个键的节点一枚都不勾 —— 卡格式里「不写这个键」= **一块都不发**
+ *    （票 76 定的语义，与 `prompts.ts:135` 一致）。取消勾之后写回的是剩下那几块；
+ *    一个都不勾就落成空表，而空表过不了校验器 ⇒ 最后一块锁住（见 `lastSetting`）。
  */
 function defaultSettings(): string[] {
-  return props.settings ?? [...props.settingKeys]
+  return props.settings ?? []
 }
 
 /** 勾上 / 取消勾一块设定：勾选框自己那份状态就是卡里要写的子集 */
@@ -107,18 +107,22 @@ function submit() {
 }
 
 const field =
-  'mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-text outline-none transition-colors focus:border-accent-line'
-const label = 'mt-3 block text-[11.5px] text-muted'
+  'mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-text outline-none transition-colors focus:border-accent-line'
+const label = 'mt-3 block text-muted small'
 /** 只读声明的框：一行一条，值长了自己滚 */
 const declBox =
-  'mt-1 space-y-0.5 rounded-lg border border-line bg-page px-3 py-2 text-[11.5px] leading-relaxed text-muted'
+  'mt-1 space-y-0.5 rounded-lg border border-line bg-page px-3 py-2 leading-relaxed text-muted small'
 </script>
 
 <template>
-  <form data-card-form class="mt-3 rounded-xl border border-line bg-surface-2 p-3" @submit.prevent="submit">
+  <form
+    data-card-form
+    class="form mt-3 rounded-xl border border-line bg-surface-2 p-3"
+    @submit.prevent="submit"
+  >
     <div class="flex items-baseline justify-between gap-2">
-      <h3 class="text-[12.5px] font-semibold text-accent">{{ t('card.editTitle') }}</h3>
-      <p class="text-[11px] text-faint">{{ t('card.nodeId', { id }) }}</p>
+      <h3 class="font-semibold text-accent">{{ t('card.editTitle') }}</h3>
+      <p class="small text-faint">{{ t('card.nodeId', { id }) }}</p>
     </div>
 
     <label :class="label" for="card-node-name">{{ t('card.nameLabel') }}</label>
@@ -138,10 +142,10 @@ const declBox =
       </div>
     </dl>
 
-    <!-- 勾选区：这个节点读哪几块设定 —— 勾一下直接写回卡（外层写整份卡） -->
+    <!-- 勾选区：这个节点读哪几块设定 —— 勾一下落成草稿，写回卡是外层那颗保存的事 -->
     <div data-card-resource-marks class="mt-3 grid gap-3 rounded-lg border border-line bg-page px-3 py-2">
       <fieldset class="min-w-0">
-        <legend class="text-[11.5px] text-muted">{{ marksLabel.settings }}</legend>
+        <legend class="text-muted small">{{ marksLabel.settings }}</legend>
         <ul class="mt-1 space-y-0.5">
           <li v-for="key in settingKeys" :key="key" class="flex items-center gap-2">
             <input
@@ -152,12 +156,12 @@ const declBox =
               :disabled="lastSetting && checkedSettings.includes(key)"
               @change="setSetting(key, ($event.target as HTMLInputElement).checked)"
             />
-            <span class="min-w-0 truncate text-[11.5px] text-text">
+            <span class="min-w-0 truncate text-text small">
               {{ t('prompts.settingBlock.' + key) }}
             </span>
           </li>
         </ul>
-        <p v-if="lastSetting" class="mt-1 text-[11px] leading-relaxed text-faint">
+        <p v-if="lastSetting" class="mt-1 leading-relaxed text-faint small">
           {{ t('card.resourceAtLeastOne') }}
         </p>
       </fieldset>
@@ -166,7 +170,7 @@ const declBox =
     <p
       v-if="error"
       data-card-error
-      class="mt-3 rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-[12px] leading-relaxed text-danger"
+      class="mt-3 rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 leading-relaxed text-danger small"
     >
       {{ error }}
     </p>
@@ -174,10 +178,26 @@ const declBox =
     <button
       type="button"
       data-card-save
-      class="mt-3 rounded-lg bg-accent px-4 py-2 text-[13px] font-semibold text-page transition-opacity hover:opacity-90"
+      class="mt-3 rounded-lg bg-accent px-4 py-2 font-semibold text-page transition-opacity hover:opacity-90"
       @click="submit"
     >
       {{ t('card.save') }}
     </button>
   </form>
 </template>
+
+<style scoped>
+/* 这一屏只许用尺度层那三档字号：正文那一档由表单根定，附注那一档是 `.small`
+   （表单控件不继承字体 ⇒ 显式接上，否则 `<input>` 会退回浏览器默认字号） */
+.form {
+  font-size: var(--fs2);
+}
+.form input,
+.form textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+.small {
+  font-size: var(--fs3);
+}
+</style>
