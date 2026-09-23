@@ -12,6 +12,9 @@
  * 六个键**都只动草稿**，点顶栏那颗「保存」才落卡 —— **深拷整份卡 → 只改这几处 → `importCard`
  * （先校验后落盘）→ 失败只报不改**；成功只 emit `saved`，reload 是外层的事。
  *
+ * ⚠️ **草稿不许被无声丢掉**：资源库面板那条 `saved` 撞上脏草稿时先在底栏问一句（`[data-editor-confirm]`，
+ *    两条出路见 `keepDraft` / `discardDraft`）；关窗 / 刷新也只在**有草稿**时挂那条 `beforeunload`。
+ *
  * ⚠️ **卡的知识只走这一条路**：树与表都在这里从 `card.state` 现算，子组件只画收到的行 ——
  *    于是「组件层绿、真浏览器红」那种两份走法漂移没有了。
  * ⚠️ **读与写共用同一个 `fieldsOf`**：`object` 读自己的 `fields`，`map` / `list` 读**元素形状**的
@@ -20,7 +23,7 @@
  * ⚠️ **草稿**按「哪一格 + 哪个键」索引：换一处再切回来还在；**干净 ⇔ 草稿与卡里的值逐字相同**（顶栏那颗按钮的 `disabled` 就是它）。
  * ⚠️ **什么进树**：这一格自己有一张**非空字段表**才进树（元素是标量的 `list` 点进去是一张空表，不是一格）；树是**逐层向下**（宽度优先）展开的，行的先后不承诺（裁决 4）。
  */
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BranchForm from './BranchForm.vue'
 import CardResources from './CardResources.vue'
@@ -222,6 +225,54 @@ const touched = computed(() => {
 /** 干净 ⇔ 一处改动都没有（顶栏那颗「保存」的 `disabled` 就是它；第三项是「编一步」那一族的脏） */
 const dirty = computed(() => fresh.value !== null || touched.value.length > 0 || steps.dirty.value)
 
+/** 面板那颗「存回卡」撞上了脏草稿：那句问话挂在底栏上没有 */
+const discardAsk = ref(false)
+
+/** 关窗 / 刷新那条守卫：拦下导航（`returnValue` 是给老浏览器的那一半） */
+function warnUnload(event: BeforeUnloadEvent): void {
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+/** 那条守卫此刻挂着没有（挂 / 摘成对：同一条只挂一次、也只摘一次） */
+const guardUp = ref(false)
+
+/** 挂 / 摘那条守卫：干净的手上一个监听都不留，脏了才挂一个 */
+function setGuard(on: boolean): void {
+  if (on === guardUp.value) return
+  guardUp.value = on
+  if (on) window.addEventListener('beforeunload', warnUnload)
+  else window.removeEventListener('beforeunload', warnUnload)
+}
+
+/** 草稿一脏就挂、变回干净就摘（卸载时也要摘）—— 挂它的只有这一处 */
+watch(dirty, (isDirty) => setGuard(isDirty), { immediate: true })
+onBeforeUnmount(() => setGuard(false))
+
+/** 资源库面板那条 `saved`：有草稿就先问一句，干净就直接放行（顶栏那颗「保存」也发同名事件，但不走这条路） */
+function onResourceSaved(): void {
+  if (!dirty.value) {
+    emit('saved')
+    return
+  }
+  discardAsk.value = true
+}
+
+/** 那句问话的「取消」：草稿逐字不动，只是把问话收掉（面板那一次写照样在盘上） */
+function keepDraft(): void {
+  discardAsk.value = false
+}
+
+/**
+ * 那句问话的「继续」：守卫的理由已经用掉了 —— ⚠️ 这一刻 `dirty` 还是真的 ⇒ `watch` 收不到变化，
+ * 所以要**显式**摘，否则重载时浏览器会拿它再问一遍（用户刚说过"丢掉吧"）。
+ */
+function discardDraft(): void {
+  discardAsk.value = false
+  setGuard(false)
+  emit('saved')
+}
+
 /** 这一格**待删**的那几行（别的格也有待删时，不该把同名的那一行画成待删） */
 const goneKeys = computed(() =>
   Object.keys(gone.value)
@@ -420,9 +471,20 @@ function save(): void {
 
         <!-- 右栏：公共提示词的读与改（8d 才换成新表单） -->
         <template #prompts>
-          <CardResources v-if="resourcesOpen" :card="card" error="" @saved="emit('saved')" />
+          <CardResources v-if="resourcesOpen" :card="card" error="" @saved="onResourceSaved" />
         </template>
       </EditorShell>
+
+      <!-- 面板那颗「存回卡」撞上没保存的草稿：问一句再决定丢不丢（它不占四栏的栅格） -->
+      <div v-if="discardAsk" data-editor-confirm class="confirm">
+        <p class="m-0 min-w-0 flex-1">{{ t('card.discardDraft') }}</p>
+        <button type="button" data-editor-confirm-cancel class="confirm-btn" @click="keepDraft">
+          {{ t('card.discardCancel') }}
+        </button>
+        <button type="button" data-editor-confirm-continue class="confirm-btn go" @click="discardDraft">
+          {{ t('card.discardContinue') }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -433,6 +495,34 @@ function save(): void {
   margin: 0;
   font-size: var(--fs2);
   color: var(--color-faint);
+}
+/* 确认条：编辑器浮层的底栏（不占四栏的栅格；字号与间距走尺度 token，布局那几样走 tailwind） */
+.confirm {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-top: 1px solid var(--color-line);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-size: var(--fs2);
+}
+.confirm-btn {
+  flex: none;
+  min-height: 24px;
+  padding: 0 var(--s2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--r2);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font: inherit;
+  cursor: pointer;
+}
+/* 「继续」会丢掉草稿：用危险色，别与「取消」长成一个样 */
+.confirm-btn.go {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 /* 保存被拒的原因：与资源库那一块同一个形状（复用现成的危险色） */
 .failure {
