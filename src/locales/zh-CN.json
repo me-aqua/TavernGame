@@ -194,6 +194,9 @@
     "resourceSave": "存回卡",
     "resourceAtLeastOne": "至少留一块：空表过不了卡的校验，而「一块都不发」要靠不写这个键（这一屏删不了键）",
     "resourceEmpty": "这一项不能留空：卡里会留下一段空正文",
+    "discardDraft": "还有没保存的改动，继续会丢掉它们",
+    "discardCancel": "取消",
+    "discardContinue": "继续",
     "saveFailed": "保存失败：{message}",
     "fallback": "存着的卡读不出来，已退回内置示例：\n{message}",
     "fallbackShort": "存着的卡读不出来，已退回内置示例：{message}"

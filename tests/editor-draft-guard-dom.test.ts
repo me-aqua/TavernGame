@@ -333,3 +333,77 @@ describe('R6 closing the tab is only held back while a draft is open', () => {
     expect(live(), 'the draft was just given up: the tab guard must step down with it').toBe(0)
   })
 })
+
+describe('R8 the sentence and the two buttons live in the locale files', () => {
+  /** 那条确认 + 两颗按钮的键（判据只认键名，字从 locale 现取） */
+  const KEYS = ['card.discardDraft', 'card.discardCancel', 'card.discardContinue']
+
+  /** 两份 locale 文件的原文（直接读文件：光看渲染分不出"两份都有"与"只有 en 那份"） */
+  const LOCALES: Record<string, string> = {
+    'src/locales/zh-CN.json': readFileSync('src/locales/zh-CN.json', 'utf8'),
+    'src/locales/en.json': readFileSync('src/locales/en.json', 'utf8'),
+  }
+
+  it('D10 renders all three strings from the locale, in both languages', async () => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      setLocale(locale)
+      const w = mountEditor()
+      await stashDraftThenSaveResource(w, 'step')
+
+      const root = w.find('[data-editor-confirm]')
+      expect(root.exists(), locale + ': the bar never showed up, so this check would say nothing').toBe(true)
+      expect(root.text(), locale).toContain(label(KEYS[0]))
+      const cancel = root.find('[data-editor-confirm-cancel]')
+      const go = root.find('[data-editor-confirm-continue]')
+      expect(cancel.exists(), locale + ': the bar hands out no cancel button').toBe(true)
+      expect(go.exists(), locale + ': the bar hands out no continue button').toBe(true)
+      expect(cancel.text(), locale).toBe(label(KEYS[1]))
+      expect(go.text(), locale).toBe(label(KEYS[2]))
+
+      w.unmount()
+      document.body.innerHTML = ''
+    }
+    setLocale('zh-CN')
+  })
+
+  it('D11 keeps every key in both files, and the English copy is really English', () => {
+    /** 那个键在 JSON 里那一行（`card` 那一节里的名字，缩进 + `"name": "…"` 的形状） */
+    const lineOf = (text: string, key: string): string =>
+      text.split('\n').find((line) => line.trim().startsWith('"' + key.split('.')[1] + '":')) ?? ''
+    const CJK = new RegExp('[\\u4e00-\\u9fff]')
+
+    for (const key of KEYS) {
+      const zh = lineOf(LOCALES['src/locales/zh-CN.json'], key)
+      const en = lineOf(LOCALES['src/locales/en.json'], key)
+      expect(zh, 'the Chinese locale has no line for ' + key).not.toBe('')
+      expect(en, 'the English locale has no line for ' + key).not.toBe('')
+      expect(CJK.test(zh), 'the Chinese copy of ' + key + ' carries no Chinese at all').toBe(true)
+      expect(CJK.test(en), 'the English copy of ' + key + ' is the Chinese one again').toBe(false)
+    }
+  })
+})
+
+describe('the two paths that only share the event name', () => {
+  it('D12 the editor own save button never asks anything', async () => {
+    const w = mountEditor()
+    await dirtyByStep(w)
+    expect(editorIsDirty(w), 'there is something to save').toBe(true)
+
+    await saveButton(w).trigger('click')
+
+    expect(bar(w).exists(), 'saving from the top bar is not a way to throw the draft away').toBe(false)
+    expect(w.emitted('saved'), 'the editor own save announces itself once').toHaveLength(1)
+  })
+
+  it('D13 a panel write the card refuses asks nothing and announces nothing', async () => {
+    const w = mountEditor()
+    await openPanel(w)
+    await dirtyByStep(w)
+    // 清空正文 = 面板自己拦下来的那一类（卡的行数组只拒空表，一行空串是合法的）
+    await saveResource(w, FIRST_BLOCK, '')
+
+    expect(w.find('[data-card-error]').exists(), 'a refused panel write must say why').toBe(true)
+    expect(bar(w).exists(), 'a refused write threw nothing away, so there is nothing to ask').toBe(false)
+    expect(w.emitted('saved'), 'a refused write saves nothing').toBeUndefined()
+  })
+})
