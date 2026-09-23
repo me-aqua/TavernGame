@@ -40,8 +40,13 @@ const openingMarkdownEn = readPrompt('en', 'opening')
 
 const topology = currentCard.graph.topology
 const FIRST_NODE = topology[0]
-/** 没写 `settings` 的节点：五块设定全发（它的 system 消息里那三段最全） */
-const PLAIN_NODE = topology.find((id) => currentCard.graph.nodes[id].settings === undefined) as string
+/**
+ * 读得到**全部五块**设定的那一步：写正文的那一个（卡的结构校验保证恰好一个节点写 `role`）。
+ *
+ * ⚠️ 票 76 之前它靠「不写 `settings`」读全五块，之后靠**显式声明满五块** —— 这一条两版都成立。
+ *    本文件不许去挑「没写这个键」的节点：那正是票 76 要消灭的那一档（三张卡补齐之后挑不出来）。
+ */
+const STORY_STEP = topology.find((id) => currentCard.graph.nodes[id].role !== undefined) as string
 
 /** 测试自己编的 fixture（玩家行动与上游产出） */
 const PLAYER_WORDS = "Player's action: I go to the docks"
@@ -129,8 +134,8 @@ describe('engine prompt files', () => {
 
 describe('the card-side sections', () => {
   it('renders the five setting blocks in the card order, each line verbatim', () => {
-    // 设定块按节点声明筛（决定 #52）：这一个节点没写 settings，于是它读得到全部五块
-    const text = settingsPrompt(currentCard, PLAIN_NODE)
+    // 设定块按节点声明筛（决定 #52）：这一步读得到全部五块，于是五个 `### X` 都在
+    const text = settingsPrompt(currentCard, STORY_STEP)
     expect(text).toContain('## ' + t('prompts.setting'))
     let cursor = 0
     for (const [key, lines] of Object.entries(currentCard.settings)) {
@@ -371,13 +376,13 @@ describe('model language follows the UI language', () => {
    */
   it('switches the engine-written headings but keeps the card content as written', () => {
     setLocale('zh-CN')
-    // 这一个节点没写 settings ⇒ 五块全发：卡的内容两版都在（引擎写的标题随语言变）
-    const zh = systemOf(PLAIN_NODE)
+    // 这一步读得到全部五块 ⇒ 卡的内容两版都在（引擎写的标题随语言变）
+    const zh = systemOf(STORY_STEP)
     const zhNow = t('prompts.now')
     const zhSetting = t('prompts.settingBlock.world')
 
     setLocale('en')
-    const en = systemOf(PLAIN_NODE)
+    const en = systemOf(STORY_STEP)
     const enNow = t('prompts.now')
     const enSetting = t('prompts.settingBlock.world')
 
@@ -387,7 +392,8 @@ describe('model language follows the UI language', () => {
     expect(zh).toContain(zhSetting)
     expect(en).toContain(enSetting)
 
-    // 卡的内容两版都在（作者写什么就是什么）
+    // 卡的内容两版都在（作者写什么就是什么）—— 这一步读得到全部五块，五块的第一行都该在
+    expect(Object.keys(currentCard.settings).length, 'this card declares no setting block').toBeGreaterThan(0)
     for (const lines of Object.values(currentCard.settings)) expect(en).toContain(lines[0])
   })
 

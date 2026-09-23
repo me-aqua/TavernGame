@@ -18,16 +18,33 @@ export const CARD_KEY = 'tavernGame.card'
 /** 示例卡：九个节点，`settings` 逐节点声明（有的不带 style） */
 export const EXAMPLE = parseCard(readFileSync(EXAMPLE_CARD, 'utf8'))
 
-/** 没写某条声明的节点（卡格式的语义：不写 = 全发） */
+/** 没写某条声明的节点（`settings` 的语义见票 76：不写 = 一块都不发） */
 export function declaresNothing(card: CardData, node: string, key: string): boolean {
   return !Object.hasOwn(card.graph.nodes[node], key)
 }
 
 /**
+ * 一份「某一步没写 `settings`」的卡 —— **票 76 那一档唯一的造法**。
+ *
+ * 为什么要造：缺省语义改成「不写 = 一块都不发」之后，三张卡都把声明补齐了，
+ * 仓库里**再也挑不出**「没写这个键」的节点 ⇒ 测试不许再去卡里现找，得自己写出这一档。
+ *
+ * ⚠️ 从**真卡**派生（深拷 → 删键 → 过 `parseCard`，卡里别的内容一个字节不动）：
+ *    卡改了什么，这份夹具跟着改，而「缺省」这一档永远存在。
+ * ⚠️ 用它之前**先断前提**（`declaredSettings(absent, node) === undefined`）：
+ *    前提没了就要当场红，而不是静默变成"在测另一步"。
+ */
+export function withoutSettings(card: CardData, node: string): CardData {
+  const copy = JSON.parse(JSON.stringify(card)) as Record<string, any>
+  delete copy.graph.nodes[node].settings
+  return parseCard(JSON.stringify(copy))
+}
+
+/**
  * 一份「每个节点都写全了声明」的卡副本。
  *
- * 用在要**把声明消掉、看钩子回落到哪一档**的用例上：卡里没写的键在界面上是「全勾」，
- * 于是「全勾 → 取消一个 → 再勾回来」这条来回只有它能跑完（示例卡里没有这样的节点）。
+ * 用在要**把声明补满、看钩子怎么走**的用例上：每一步都显式声明全部五块，
+ * 于是「全勾 → 取消一个 → 再勾回来」这条来回能跑完。
  */
 export function withEveryDeclaration(card: CardData): CardData {
   const copy = JSON.parse(JSON.stringify(card)) as CardData

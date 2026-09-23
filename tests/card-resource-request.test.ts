@@ -15,7 +15,7 @@
  *    那三条的入口是 `marks()`（点卡图上一个节点 → 动勾选框），而 8b-① 把卡图与节点表单一起
  *    移出了编辑器 ⇒ 点不到节点。处置与 `card-resource-marks.test.ts` 同一句：**整体等 8c/8d**
  *    （`it.skip`，不是删掉）。留在这里的两条不经过那个入口：一条走资源面板
- *    （`CardResources`），一条直接装配请求（「没写这个键 = 五块全发」那半的守卫）。
+ *    （`CardResources`），一条直接装配请求（**「没写这个键 = 一块都不发」**那半，票 76 的语义）。
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { defineComponent, h } from 'vue'
@@ -29,6 +29,7 @@ import {
   markerOf,
   savedCard,
   withEveryDeclaration,
+  withoutSettings,
 } from './support/card-resources'
 import { fakeTracker, label, nodeRequest, setLocale } from './support/trace-blocks'
 import type { CardData } from '../src/game/card'
@@ -36,20 +37,32 @@ import type { CardData } from '../src/game/card'
 /** 卡里五块设定的键（顺序就是卡的声明顺序） */
 const SETTING_KEYS = Object.keys(EXAMPLE.settings)
 
-/** 编辑 / 勾选用例碰的第一块与「只写 settings、没写 style」的那个节点 */
+/** 编辑 / 勾选用例碰的第一块 */
 const FIRST_BLOCK = SETTING_KEYS[0]
-const NO_STYLE = EXAMPLE.graph.topology.find(
-  (id) =>
-    declaredSettings(EXAMPLE, id) !== undefined && !(declaredSettings(EXAMPLE, id) ?? []).includes('style'),
-) as string
 
 /**
- * **没写 `settings`** 的节点 —— 「不写这个键 = 五块全发」只有它测得到。
+ * **没写 `settings`** 的那一步 —— **本地夹具造出来的那一个**（票 76 的语义：
+ * 不写这个键 = **一块都不发**）。示例卡补齐显式声明之后，卡里挑不出「没写这个键」的节点
+ * （S0 §五 裁决 3）⇒ 这一档只能自己把某个节点的键删掉，见 `withoutSettings()`。
  *
- * ⚠️ 别拿 `NO_STYLE` 当它：那个节点**写了**声明、只是里面没有 `style`，
- * 所以它**永远拿不到 `style` 那一块**，用它断言「五块全在」是自相矛盾（用例 19 原来就是这么错的）。
+ * ⚠️ 节点**写死**（不现找），而且**控制组不许是它**（见下面 `NO_STYLE` 的注释）。
  */
-const NO_SETTINGS = EXAMPLE.graph.topology.find((id) => declaredSettings(EXAMPLE, id) === undefined) as string
+const NO_SETTINGS = EXAMPLE.graph.topology[0]
+
+/**
+ * 「只写 `settings`、没写 style」的那一个节点 —— 别处用例拿它当"有声明的那一步"。
+ *
+ * 🔴 **必须排掉 `NO_SETTINGS`**：两个夹具撞成同一个节点的话，"写了声明的那一步照旧带着它那几块"
+ * 那条反面控制要的**正是本票删掉的那个行为**（被删了键的那一步当然一块都不带）——
+ * 夹具自撞会把一条守卫变成永远红的假红（2026-09-23 实测踩过一次）。
+ */
+const NO_STYLE = EXAMPLE.graph.topology.find(
+  (id) =>
+    id !== NO_SETTINGS &&
+    declaredSettings(EXAMPLE, id) !== undefined &&
+    !(declaredSettings(EXAMPLE, id) ?? []).includes('style'),
+) as string
+
 /** 每个用例自己装假 fetch，跑完一律还原（否则下一条用例跑到别人的假响应上） */
 const track = fakeTracker()
 afterEach(() => track.restoreAll())
@@ -103,9 +116,9 @@ function carries(system: string, marker: string): boolean {
   return system.includes(marker)
 }
 
-/** 一个节点在卡里**本来**声明了哪几块设定（没写这个键 = 五块全发）—— 期望值一律从它现取 */
+/** 一个节点在卡里**本来**声明了哪几块设定（没写这个键 = 一块都不发）—— 期望值一律从它现取 */
 function originalSettings(card: CardData, node: string): string[] {
-  return declaredSettings(card, node) ?? SETTING_KEYS
+  return declaredSettings(card, node) ?? []
 }
 
 describe('card resources: the request follows the checkboxes', () => {
@@ -169,14 +182,40 @@ describe('card resources: the request follows the checkboxes', () => {
     expect(carries(after, '### ' + label('prompts.settingBlock.' + FIRST_BLOCK))).toBe(true)
   })
 
-  it('a node that had nothing checked from the start still carries all five (the absent key)', async () => {
-    // ⚠️ 这一条是「不勾 = 不写这个键」那半的守卫：卡里没写这个键 = 五块全发。
-    //    最坏的一种实现（勾选集为空也不写键 ⇒ 静默变成「一块都不发」）会让它红。
-    // ⚠️ 节点必须是**没写 `settings`** 的那个：`NO_STYLE` 写了声明、只是没有 `style`，
-    //    拿它断言「五块全在」自相矛盾（这一条原来就是这么错的，见契约 §0 ⑧）。
-    expect(declaredSettings(EXAMPLE, NO_SETTINGS), NO_SETTINGS + ' must declare nothing').toBeUndefined()
-    const system = await systemOf(EXAMPLE, NO_SETTINGS)
-    for (const key of SETTING_KEYS) expect(carries(system, markerOf(EXAMPLE, key)), key).toBe(true)
+  it('a node that wrote no settings carries no block at all (the absent key)', async () => {
+    // 🔴 票 76 的语义：**不写这个键 = 一块都不发**。这一条走的是完整那条链
+    //    （卡 → `buildNodeMessages` → `chat()` → 假 fetch 记下的那条请求），
+    //    不是"读一下 `settingsPrompt`"。
+    const absent = withoutSettings(EXAMPLE, NO_SETTINGS)
+    expect(declaredSettings(absent, NO_SETTINGS), NO_SETTINGS + ' must declare nothing').toBeUndefined()
+    const system = await systemOf(absent, NO_SETTINGS)
+    for (const key of SETTING_KEYS) {
+      expect(carries(system, markerOf(EXAMPLE, key)), key + ' must not travel').toBe(false)
+      expect(carries(system, '### ' + label('prompts.settingBlock.' + key)), key + ' heading').toBe(false)
+    }
+    expect(carries(system, '## ' + label('prompts.setting')), 'the whole section must be gone').toBe(false)
+  })
+
+  /**
+   * 反面控制：**同一张卡**里写了声明的那一步照旧带着它声明的那几块。
+   *
+   * ⚠️ 控制组**必须不是被删键的那一步**（`NO_SETTINGS`）—— 少了这一句，"整份卡都没发"与
+   *    "这一档真的不发"分不开；而两个夹具撞成同一个节点时，这条守卫要的正是本票删掉的那个行为
+   *    ⇒ **永远红**（2026-09-23 实测踩过一次，见 `NO_STYLE` 的注释）。
+   * ⚠️ 它**单独一条用例**：与上面那条判别合成一条的话，判别先红、这条根本跑不到，
+   *    "牙装上了没"从读数上看不出来。
+   */
+  it('keeps the blocks of the steps that did write (reverse control)', async () => {
+    const absent = withoutSettings(EXAMPLE, NO_SETTINGS)
+    const other = EXAMPLE.graph.topology.find(
+      (id) => id !== NO_SETTINGS && originalSettings(absent, id).length > 0,
+    ) as string
+    expect(other, 'the control group must not be the step whose key was dropped').not.toBe(NO_SETTINGS)
+    const declared = originalSettings(absent, other)
+    expect(declared.length, 'this card must keep a step that declares blocks').toBeGreaterThan(0)
+    const kept = await systemOf(absent, other)
+    for (const key of declared)
+      expect(carries(kept, markerOf(EXAMPLE, key)), other + ' keeps ' + key).toBe(true)
   })
 
   it.skip('holds in English too', async () => {

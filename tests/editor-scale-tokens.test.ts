@@ -90,17 +90,25 @@ const EDITOR_OWNED: Record<string, string> = {
   'src/components/CardResources.vue': 'the resource panel is 8d territory',
 }
 
-/** 三张卡：本票不动卡格式、不动卡内容（§四 不做清单） */
+/**
+ * 三张卡：以这里钉住的**值与文件集合**为准 —— 要动它们**必须有票**，而且**同一票里重钉**
+ * （重钉时把"是被哪一条要求改的"写进那一票的契约，评审才看得出重钉有依据）。
+ * 最近一次重钉：票 76，S0 §二 #3（三张卡补齐缺失的 `settings` 显式声明）。
+ */
 const CARD_HASHES: Record<string, string> = {
-  'cards/long-night.json': '6a1f80bf2bc5df22709e74b3fabf17330655dd7dc5a814cfbda01c20299c6628',
-  'cards/morningwind.json': '45dee3c72b4590a26dd8202b7dff8ef0be4d25af1a6c3e18f1eccc20a4d88dfa',
-  'cards/night-watch.json': '8a20fb35aa65da0b453b2c9d95b577ba09729c8db9b78b04618bad7585984fc8',
+  'cards/long-night.json': '0f64e47897f6a955bbda8f0e69b098246c1fecd01bb5e5affab453abb9f18eeb',
+  'cards/morningwind.json': 'b2c99c86478b945b01867fed4398df657274407d9597598e5578c7ae21041926',
+  'cards/night-watch.json': '594e00f4225820f0ccbf9785d90605126413b585a195847b2eb8e25b83bd60dc',
 }
 
 /** 卡的图那一个组件：口径 3 把它留在左栏，**本票一个字不动**（`DebugPanel` 也在用它） */
 const GRAPH_HASH = 'd11175e9134438eaba4018cfa14f9d5add5b7525f5281ffa22c29a1956b9282f'
 
-/** 引擎与显示那一层（段 1–7 刚落地）：本票一个字节都不碰 */
+/**
+ * 引擎与显示那一层：以这里钉住的**值与文件集合**为准 —— 要动它们**必须有票**，而且**同一票里重钉**
+ * （重钉时把"是被哪一条要求改的"写进那一票的契约）。
+ * 最近一次重钉：票 76，S0 §二 #2（`src/game/card.ts` 的报错文案与注释）。
+ */
 const GAME_HASHES: Record<string, string> = {
   'src/game/card-actions.ts': '54bce7b568df843939965bce6e3422553f1be05bbd44e5d3f4a68c5c11a39fd5',
   'src/game/card-calendar.ts': 'de98d44898a36c8eccecf55ef87cf14f69c6b1d5f712c4b60120b5689159b295',
@@ -108,7 +116,7 @@ const GAME_HASHES: Record<string, string> = {
   'src/game/card-read.ts': 'f3db497988950f77ab21024835ae545908cc2ae0271e81b18f714a97c17f59f8',
   'src/game/card-state.ts': '7bcb8708ed898a469de09b71e9f7f22d75396099af7daa0d88d3378142b22cae',
   'src/game/card-time.ts': '3eac6324b039c5ff5bd1488c12d3d18981d29b48055aff123d678bb558829343',
-  'src/game/card.ts': 'd868bfba67d39816e717c55700d28b774a39c14d87b8c424537c04de0bc3ff05',
+  'src/game/card.ts': 'af3f3c70c0f9596ff5c17625876d83db597220f77a1007a6b046f7f589262ae0',
   'src/game/current-card.ts': '4e646b7377b3d40e84ead0a3d401f6bb039d04b43e2dbd34c137aa168eb470ab',
   'src/game/display.ts': '50e1ff921482d2f2a781ea5025ebcd7f542a912fe945f1e243381c3a1d828b31',
   'src/game/lifecycle.ts': 'daf929e362f421ce332dc9ffbb2514c732121bc9449f34dbc5bc2191053590d4',
