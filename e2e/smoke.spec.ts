@@ -8,8 +8,9 @@
  * ⚠️ 一轮要跑完卡里九个节点（时间 / 地图各多一次工具往返 ≈ 十来次模型调用），
  *    所以等开场与等回合都要给足超时 —— 假模型每次调用都要睡一下。
  */
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
+  CARD_KEY,
   CONFIG,
   DEBUG_KEY,
   LANG_KEY,
@@ -519,6 +520,145 @@ test.describe('卡', () => {
     await expect(editor.locator('[data-branch-on]')).toHaveCount(0)
 
     expectClean((await page.evaluate(PROBE)) as Probe)
+  })
+
+  // ───── 票 78（契约 `.team/test/2026-09-23/contract-78.md`）：面板那颗「存回卡」会把手里 ─────
+  // 那份**没保存的草稿**无声带走 ⇒ 脏的时候必须先问一句，两条出路的后果各不相同。
+  // ⚠️ 这一组**只加在本文件里**：`npm run e2e` 跑的是 `smoke.spec.ts` + `selection.spec.ts`
+  //    （`package.json:20`），新建一个 spec 文件根本不会被跑到。
+
+  /** 这一票那四条用例改的那一步与那一块设定（期望值从卡现取，不抄第二份） */
+  const TICKET_STEP = (CARD.graph.topology as string[])[0]
+  const TICKET_BLOCK = Object.keys(CARD.settings)[0]
+  /** 判据自己打进去的两段字（与卡的内容无关；草稿与面板那一段必须是**两样**东西） */
+  const DRAFT_NAME = 'a draft name typed for ticket 78'
+  const DRAFT_LINE = 'a resource line typed for ticket 78'
+
+  /**
+   * 打开卡图浮层（先开应用 → 设置面板 → 「查看 / 编辑卡图」）—— 本组四条用例都从这一步开始。
+   *
+   * ⚠️ `openApp(page)` 这一步**不能省**：Playwright 每条用例一个新页面，本文件没有全局导航
+   *    （`test.beforeEach` 只装错误监听）⇒ 少了它，`button[data-settings]` 会一直等不到。
+   */
+  async function openCardEditor(page: Page): Promise<Locator> {
+    await openApp(page)
+    await page.locator('button[data-settings]').click()
+    await page.locator('[data-card-section] button[data-card-view]').click()
+    const editor = page.locator('[data-card-editor]')
+    await expect(editor).toBeVisible()
+    return editor
+  }
+
+  /**
+   * 造一份脏草稿：细条上点一步、改那一行的「名」。
+   *
+   * ⚠️ 这一段走的是「编一步」那一族；面板那一次写只碰设定块 ⇒ 两处互不相干，
+   *    "草稿还在不在"与"那段正文存没存下去"因此是两个独立的读数。
+   */
+  async function typeStepDraft(editor: Locator): Promise<void> {
+    await editor.locator('[data-step="' + TICKET_STEP + '"]').click()
+    const box = editor.locator('[data-step-form] [data-step-block="name"] input')
+    await expect(box).toBeVisible()
+    await box.fill(DRAFT_NAME)
+  }
+
+  /** 面板那条写路径：开资源面板 → 展开一块设定 → 改正文 → 点「存回卡」 */
+  async function saveResourceDraft(editor: Locator): Promise<void> {
+    await editor.locator('[data-card-resources-open]').click()
+    const item = '[data-card-resource="' + TICKET_BLOCK + '"]'
+    await editor.locator(item + ' [data-card-resource-open]').click()
+    await editor.locator(item + ' [data-card-resource-text]').fill(DRAFT_LINE)
+    await editor.locator(item + ' [data-card-resource-save]').click()
+  }
+
+  /** 盘上那张卡的原始 JSON（面板那条写路径落下去的东西） */
+  async function storedCard(page: Page): Promise<Record<string, any>> {
+    const text = await page.evaluate((key) => localStorage.getItem(key), CARD_KEY)
+    expect(text, 'the panel write must have hit the card storage').not.toBe(null)
+    return JSON.parse(text as string) as Record<string, any>
+  }
+
+  test('存回卡：脏草稿先问一句；取消之后草稿还在、那段正文照样落盘', async ({ page }) => {
+    const editor = await openCardEditor(page)
+    await typeStepDraft(editor)
+    await saveResourceDraft(editor)
+
+    // R1：条在，而且那句话与两颗按钮都来自 locale（这里不抄第二份文案）
+    const bar = editor.locator('[data-editor-confirm]')
+    await expect(bar, 'saving the panel over a dirty draft must ask first').toBeVisible()
+    await expect(bar).toContainText(await translate(page, 'card.discardDraft'))
+    await expect(bar.locator('[data-editor-confirm-cancel]')).toHaveText(
+      await translate(page, 'card.discardCancel'),
+    )
+    await expect(bar.locator('[data-editor-confirm-continue]')).toHaveText(
+      await translate(page, 'card.discardContinue'),
+    )
+    // 条子挂着的时候量一次结构：两颗按钮也要过 24×24 / 不溢出 / 不伸出去那一套
+    expectClean((await page.evaluate(PROBE)) as Probe)
+
+    // R2：取消 ⇒ 草稿逐字还在、编辑器还在（没重载）、顶栏那颗保存仍然能按（dirty 仍真）
+    await bar.locator('[data-editor-confirm-cancel]').click()
+    await expect(editor.locator('[data-editor-confirm]')).toHaveCount(0)
+    await expect(editor.locator('[data-step-form] [data-step-block="name"] input')).toHaveValue(DRAFT_NAME)
+    await expect(editor.locator('[data-top] [data-card-save]')).toBeEnabled()
+    await expect(editor, 'cancel must not reload the page').toBeVisible()
+
+    // R5：面板那一次写照样在盘上（取消不回滚它）
+    expect((await storedCard(page)).settings[TICKET_BLOCK]).toEqual([DRAFT_LINE])
+  })
+
+  test('存回卡：点「继续」⇒ 页面真的重载，草稿跟着走（那是用户点的）', async ({ page }) => {
+    const editor = await openCardEditor(page)
+    await typeStepDraft(editor)
+    await saveResourceDraft(editor)
+
+    // R5：面板那一次写照样在盘上 —— ⚠️ **必须在点「继续」之前读**：重载会把页面重导航一次，
+    // 而 `openApp` 的种子脚本（`e2e/fixtures.ts:366` 的 `addInitScript`）**每次导航都会重跑**，
+    // 它默认把卡键置回 null（"没存过卡"那一态）⇒ 重载之后再读盘读到的是**夹具**，不是产品。
+    // 这条留在这里，是因为它同时是 E1 那条"取消 ⇒ 依旧落盘"的同族读数。
+    expect((await storedCard(page)).settings[TICKET_BLOCK]).toEqual([DRAFT_LINE])
+
+    const bar = editor.locator('[data-editor-confirm]')
+    await expect(bar).toBeVisible()
+    await bar.locator('[data-editor-confirm-continue]').click()
+
+    // 重载的后果：浮层回到「没开」那一态（`cardOpen` 活在组件里，刷新即归位）
+    await expect(page.locator('[data-card-editor]'), 'continuing must really reload the page').toHaveCount(0)
+  })
+
+  test('存回卡：干净的手不加噪音 —— 不问，直接放行', async ({ page }) => {
+    const editor = await openCardEditor(page)
+    // 前提：这一刻真的是干净的（顶栏那颗保存按不动），而且还没有条
+    await expect(editor.locator('[data-top] [data-card-save]')).toBeDisabled()
+    await expect(editor.locator('[data-editor-confirm]')).toHaveCount(0)
+
+    await saveResourceDraft(editor)
+
+    // 没有条可点，页面直接重载 —— 上一条的反面控制：少了它，"永远弹"也满足上面那两句
+    await expect(page.locator('[data-card-editor]')).toHaveCount(0)
+  })
+
+  test('beforeunload：有草稿才拦，干净时不拦', async ({ page }) => {
+    const editor = await openCardEditor(page)
+
+    // 校准：这条探针**看得见** preventDefault 才作数（这一刻应用还没挂任何监听）
+    const probeWorks = await page.evaluate(() => {
+      const mine = (event: Event): void => event.preventDefault()
+      window.addEventListener('beforeunload', mine)
+      const seen = window.dispatchEvent(new Event('beforeunload', { cancelable: true })) === false
+      window.removeEventListener('beforeunload', mine)
+      return seen
+    })
+    expect(probeWorks, 'the probe cannot observe a prevented unload at all').toBe(true)
+
+    /** 派发一个可取消的 `beforeunload`：true ⇔ 有人 preventDefault 过（不起真对话框） */
+    const prevented = (): Promise<boolean> =>
+      page.evaluate(() => window.dispatchEvent(new Event('beforeunload', { cancelable: true })) === false)
+
+    expect(await prevented(), 'a clean editor must not hold the tab back').toBe(false)
+
+    await typeStepDraft(editor)
+    expect(await prevented(), 'a dirty draft must hold the tab back').toBe(true)
   })
 
   test('存着的卡读不出来：退回内置示例，状态行与卡一节都说明原因', async ({ page }) => {
