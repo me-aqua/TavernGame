@@ -679,6 +679,12 @@ async function expectLandscapeShell(page: Page): Promise<void> {
     'the band is the only entry in landscape: the mid column must follow it',
   ).toBeVisible()
   await expect(page.locator('[data-step-node]')).toHaveAttribute('data-step-node', /.+/)
+  // ③（票 73 · 8c-② · S3 的 F-2）：横屏这一档原本**没断"细条那一轴亮着"**（只有冒烟那条断了）
+  //    ⇒ 从横带选一步之后，亮着的那一项**恰好一个**（亮两处 = 两条轴又同时亮）。
+  await expect(
+    page.locator('[data-step-on]'),
+    'picking from the band must light exactly one step of the strip',
+  ).toHaveCount(1)
 }
 
 /**

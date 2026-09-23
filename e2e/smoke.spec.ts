@@ -446,7 +446,7 @@ test.describe('卡', () => {
     expectClean((await page.evaluate(PROBE)) as Probe)
   })
 
-  test('编一步：细条点一步 ⇒ 中栏换成那一屏，而且那一屏全是只读', async ({ page }) => {
+  test('编一步：细条点一步 ⇒ 中栏换成那一屏，那一屏可编且只留一条写路径', async ({ page }) => {
     await openApp(page)
     await page.locator('button[data-settings]').click()
     await page.locator('[data-card-section] button[data-card-view]').click()
@@ -472,10 +472,30 @@ test.describe('卡', () => {
     await expect(editor.locator('[data-branch-title]')).toContainText(CARD.graph.nodes[first].name)
     await expect(editor.locator('[data-step-on]'), 'the strip lights the picked step').toHaveCount(1)
     await expect(editor.locator('[data-branch-on]'), 'the tree must go dark').toHaveCount(0)
-    // R4：那一屏里一个可编控件都没有（本刀只读）
+    // R4（票 73 · **8c-②**）：那一屏**该有的控件必须有** —— 8c-① 那句"一个可编控件都没有"
+    // 随那一刀一起翻过来了（票 73 的 S1 漏清点、组长点出来后补的）。断法与组件层的 `C4` **同形**，
+    // 免得两层各长一套：`INPUT` 与 `TEXTAREA` 真的出现过 · 两栏候选都在 · 垃圾桶与 ＋ 不许进来。
+    const shape = await screen.evaluate((root) => ({
+      tags: [...new Set([...root.querySelectorAll('input, select, textarea')].map((el) => el.tagName))],
+      tools: root.querySelectorAll('[data-step-block="tools"] [data-step-tool]').length,
+      marks: root.querySelectorAll('[data-card-resource-mark]').length,
+      kills: root.querySelectorAll('[data-field-del], [data-add]').length,
+    }))
+    for (const kind of ['INPUT', 'TEXTAREA']) {
+      expect(shape.tags, 'this family of control never showed up on that screen: ' + kind).toContain(kind)
+    }
+    expect(shape.tools, 'the tool column offers no candidate at all').toBeGreaterThan(0)
+    expect(shape.marks, 'the settings column holds no row at all').toBeGreaterThan(0)
+    expect(shape.kills, 'no trash and no plus may be on that screen').toBe(0)
+    // `role` 那一块永远只读 —— 拿**写了 role 的那一步**断：挑第一步（`psych`）时它根本不画那一块，
+    // 那一句就成了没有对象的空断言（票 71 的 ⑧② 那一族）。
+    await editor.locator('[data-step="' + STORY_NODE + '"]').click()
+    await expect(editor.locator('[data-step-block="role"]')).toHaveCount(1)
     expect(
-      await screen.evaluate((root) => root.querySelectorAll('input, select, textarea').length),
-      'this ticket shows the step read-only: no editable control may be inside that screen',
+      await editor
+        .locator('[data-step-block="role"]')
+        .evaluate((el) => el.querySelectorAll('input, select, textarea').length),
+      'role is a pointer of the whole card: it may hold no control at all',
     ).toBe(0)
 
     // 点树上的一行 ⇒ 换回编枝那一屏，细条的高亮清掉
@@ -484,12 +504,13 @@ test.describe('卡', () => {
     await expect(editor.locator('[data-step-form]')).toHaveCount(0)
     await expect(editor.locator('[data-step-on]')).toHaveCount(0)
     await expect(editor.locator('[data-branch-on]')).toHaveCount(1)
-    // 反面控制：**同一句查询**在编枝那张表里数得出控件 —— 少了它，上面那句"0 个"什么也没验
+    // 反面控制：**同一句查询**在编枝那张表里照旧数得出控件 —— 上面那一段翻成白名单之后，
+    // 这一句守的是"切回编枝态没坏"（两张屏各长各的，谁也不许把谁的控件带走）。
     expect(
       await editor
         .locator('[data-branch-form] input, [data-branch-form] select, [data-branch-form] textarea')
         .count(),
-      'the same query finds controls in the field table: without it the line above proves nothing',
+      'the field table lost its controls: the two screens no longer stand on their own',
     ).toBeGreaterThan(0)
 
     // 再点一步 ⇒ 树的高亮清掉（两条轴任一时刻最多一个非空）
