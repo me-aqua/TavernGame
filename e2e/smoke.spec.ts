@@ -446,6 +446,60 @@ test.describe('卡', () => {
     expectClean((await page.evaluate(PROBE)) as Probe)
   })
 
+  test('编一步：细条点一步 ⇒ 中栏换成那一屏，而且那一屏全是只读', async ({ page }) => {
+    await openApp(page)
+    await page.locator('button[data-settings]').click()
+    await page.locator('[data-card-section] button[data-card-view]').click()
+    const editor = page.locator('[data-card-editor]')
+    await expect(editor).toBeVisible()
+
+    const steps = CARD.graph.topology as string[]
+    await expect(editor.locator('[data-step]'), 'the strip must list the steps of the card').toHaveCount(
+      steps.length,
+    )
+    // 开屏：两条轴都空，中栏是显式空态（票 73 的 R2 —— 不自动选第 1 步）
+    await expect(editor.locator('[data-branch-on]')).toHaveCount(0)
+    await expect(editor.locator('[data-step-on]')).toHaveCount(0)
+    await expect(editor.locator('[data-branch-none]')).toBeVisible()
+
+    const first = steps[0]
+    await editor.locator('[data-step="' + first + '"]').click()
+    const screen = editor.locator('[data-step-form]')
+    await expect(screen, 'picking a step must bring up the screen of that step').toBeVisible()
+    await expect(editor.locator('[data-step-node]')).toHaveAttribute('data-step-node', first)
+    await expect(editor.locator('[data-branch-none]'), 'the empty state must step aside').toHaveCount(0)
+    await expect(editor.locator('[data-branch-form]'), 'only one of the two screens at a time').toHaveCount(0)
+    await expect(editor.locator('[data-branch-title]')).toContainText(CARD.graph.nodes[first].name)
+    await expect(editor.locator('[data-step-on]'), 'the strip lights the picked step').toHaveCount(1)
+    await expect(editor.locator('[data-branch-on]'), 'the tree must go dark').toHaveCount(0)
+    // R4：那一屏里一个可编控件都没有（本刀只读）
+    expect(
+      await screen.evaluate((root) => root.querySelectorAll('input, select, textarea').length),
+      'this ticket shows the step read-only: no editable control may be inside that screen',
+    ).toBe(0)
+
+    // 点树上的一行 ⇒ 换回编枝那一屏，细条的高亮清掉
+    await editor.locator('[data-branch-node]').first().click()
+    await expect(editor.locator('[data-branch-form]')).toBeVisible()
+    await expect(editor.locator('[data-step-form]')).toHaveCount(0)
+    await expect(editor.locator('[data-step-on]')).toHaveCount(0)
+    await expect(editor.locator('[data-branch-on]')).toHaveCount(1)
+    // 反面控制：**同一句查询**在编枝那张表里数得出控件 —— 少了它，上面那句"0 个"什么也没验
+    expect(
+      await editor
+        .locator('[data-branch-form] input, [data-branch-form] select, [data-branch-form] textarea')
+        .count(),
+      'the same query finds controls in the field table: without it the line above proves nothing',
+    ).toBeGreaterThan(0)
+
+    // 再点一步 ⇒ 树的高亮清掉（两条轴任一时刻最多一个非空）
+    await editor.locator('[data-step="' + steps[1] + '"]').click()
+    await expect(editor.locator('[data-step-form]')).toBeVisible()
+    await expect(editor.locator('[data-branch-on]')).toHaveCount(0)
+
+    expectClean((await page.evaluate(PROBE)) as Probe)
+  })
+
   test('存着的卡读不出来：退回内置示例，状态行与卡一节都说明原因', async ({ page }) => {
     await openApp(page, { card: '{not valid json' })
 

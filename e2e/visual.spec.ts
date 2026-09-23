@@ -501,8 +501,10 @@ async function pickFirstBranch(page: Page): Promise<void> {
  * （那会把整套宽屏断言顺带跑一遍，超出本票范围）。⇒ 它只借"点一格"这一步，
  * 让那张照片拍到**挤在窄档里的字段表**，而不是空态。
  *
- * ⚠️ **<821px 那一族不点**：那里左栏是**收起来的抽屉**（口径 8），树根本不在屏幕上 ——
- *    点了也拍不到表；横屏那一档"没选中"的观感是票 69 已经定下的（`expectLandscapeShell` 不改）。
+ * ⚠️ **<821px 那一族不点树**：那里左栏是**收起来的抽屉**（口径 8），树根本不在屏幕上 ——
+ *    点了也拍不到表。⚠️ 但横屏那一档**点细条那一步**了（票 73 · 段 8c-① · 裁决 9：
+ *    `expectLandscapeShell` 末尾确认中栏跟着换）⇒ 那张照片是「**选中一步之后**」的观感，
+ *    不再是票 69 那个「没选中」的。
  */
 function shootsPickedViewport(vp: { name: string; width: number }): boolean {
   return vp.width >= 821 && !SHELL_VIEWPORTS.has(vp.name)
@@ -657,6 +659,26 @@ async function expectLandscapeShell(page: Page): Promise<void> {
   //    点按区那一条只在 **≥821px** 那档断（见 `expectWideShell`）；
   //    另外 `expectClean(probe)` 的 `smallTargets` 对**所有可见按钮**都查 ≥24×24，
   //    横屏这一屏不会漏 —— 所以删掉它**不减覆盖面**。
+
+  // ③（票 73 · 8c-① · S0 裁决 9 的两条判据）：横屏下细条整栏 `display:none`，
+  //    **横带是换步的唯一入口** ⇒ 从它选一步，横带要报出那一步、中栏要真的换成那一屏。
+  //    ⚠️ 顺序：放在最后 —— 它换掉了中栏的内容，而上面那几条（抽屉、标尺）都与中栏无关。
+  //    ⚠️ 横带那几颗按钮**没有 `data-*` 钩子**（`EditorShell.vue:128-137` 只有一个 `.band` 类），
+  //    按结构认：头一颗是开合器，后面几颗按顺序是卡里那几步。选中的名字从**按钮自己的文字**取，
+  //    不在这里抄一份卡。
+  const bandButtons = () => band.locator('button')
+  await bandButtons().first().click()
+  const listed = bandButtons()
+  await expect(listed, 'opening the band must list every step of the card').not.toHaveCount(1)
+  const want = ((await listed.nth(1).textContent()) ?? '').trim()
+  expect(want.length, 'the band hands out a step without a name').toBeGreaterThan(0)
+  await listed.nth(1).click()
+  await expect(band.locator('button').first(), 'the band must name the step that is current').toHaveText(want)
+  await expect(
+    page.locator('[data-step-form]'),
+    'the band is the only entry in landscape: the mid column must follow it',
+  ).toBeVisible()
+  await expect(page.locator('[data-step-node]')).toHaveAttribute('data-step-node', /.+/)
 }
 
 /**
