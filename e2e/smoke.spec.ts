@@ -661,6 +661,237 @@ test.describe('卡', () => {
     expect(await prevented(), 'a dirty draft must hold the tab back').toBe(true)
   })
 
+  // ───── 票 81（契约 `.team/test/2026-09-23/contract-81.md`）：卡图是 `fixed inset-0 z-[60]` ─────
+  // 的全屏模态，可它**只管鼠标** —— 遮罩底下那三颗换卡入口照样能被 `focus()` 拿到，
+  // 聚焦之后回车就会真的发 `click`（票 81 S0 的 G4/G5 实测：它们在 Tab 路上排不到，但 `focus()` 进得去）。
+  // 这一票要的是"编辑器开着"在**结构上**成立：遮罩底下那三层（顶栏 / 输入区 / 抽屉）不许被聚焦、也不许被点到。
+  // ⚠️ 范围是组长 2026-09-23 裁的：真浏览器里量到**编辑器之外 27 颗**可聚焦（抽屉 21 + 顶栏 4 + 输入区 2），
+  //    只给抽屉挂会漏掉那 6 颗（`.tools/leader81-scope.log` / `-sib.log`）。
+  // ⚠️ 三条判据都只在**真浏览器**里断得出来：jsdom 30.0.1 没有 `elementFromPoint`、`getBoundingClientRect`
+  //    全是 0、祖先挂 `inert` 之后 `focus()` 照样成功（S1 实测，契约 §2.3）⇒ 组件层那三条是"怎么都红"。
+  // ⚠️ 与票 78 那组同一个理由：**只加在本文件里** —— `npm run e2e` 跑的是本文件 +
+  //    `selection.spec.ts`（`package.json:20`），新建一个 spec 文件根本不会被跑到。
+
+  /** 票 81 点名的三颗抽屉入口：**逐颗报数**（合成一个布尔的话，红了不知道是谁） */
+  const GATED_ENTRIES = ['data-card-view', 'data-card-import', 'data-card-reset']
+
+  /** 一颗入口的读数：盒子、`focus()` 之后焦点在谁身上、它的中心点命中的是谁 */
+  interface EntryReading {
+    /** 就是 `data-card-*` 那个属性名 */
+    attr: string
+    found: boolean
+    width: number
+    height: number
+    /** `focus()` 之后焦点真的落在它身上了没有（`true` ＝ 遮罩没挡住键盘） */
+    focusTookIt: boolean
+    /** 那一刻焦点在谁身上（`focusTookIt` 为真时就是它自己）—— 失败信息直接点名 */
+    active: string
+    /** 它的中心点命中的是谁 */
+    hit: string
+    /** 命中的是不是它自己（＝鼠标点得到） */
+    hitIsSelf: boolean
+    /** 命中的那个东西在不在遮罩 `[data-card-editor]` 里 */
+    hitInsideEditor: boolean
+  }
+
+  /**
+   * 逐颗量那三颗入口 —— 票 81 的三条判据都读这一支。
+   *
+   * ⚠️ **先算命中、再 `focus()`**：`focus()` 会把元素滚进视口；反过来写，两个读数就不是同一帧的几何。
+   * ⚠️ `focus({ preventScroll: true })`：这一条量的是"能不能聚焦"，不是"滚到哪儿去了"。
+   */
+  async function readEntries(page: Page): Promise<EntryReading[]> {
+    const rows = await page.evaluate((attrs: string[]) => {
+      const editor = document.querySelector('[data-card-editor]')
+      /** 一个元素的自述 —— 失败信息要直接点名"是谁还能被聚焦" */
+      const nameOf = (el: Element | null): string => {
+        if (el === null) return 'nothing'
+        if (el === document.body) return 'body'
+        const hook = attrs.find((attr) => el.hasAttribute(attr))
+        return el.tagName.toLowerCase() + (hook === undefined ? '' : '[' + hook + ']')
+      }
+      return attrs.map((attr) => {
+        const el = document.querySelector('[' + attr + ']') as HTMLElement | null
+        if (el === null) {
+          return {
+            attr,
+            found: false,
+            width: 0,
+            height: 0,
+            focusTookIt: false,
+            active: nameOf(document.activeElement),
+            hit: 'nothing',
+            hitIsSelf: false,
+            hitInsideEditor: false,
+          }
+        }
+        const box = el.getBoundingClientRect()
+        const hit = document.elementFromPoint(
+          Math.round(box.left + box.width / 2),
+          Math.round(box.top + box.height / 2),
+        )
+        el.focus({ preventScroll: true })
+        return {
+          attr,
+          found: true,
+          width: Math.round(box.width),
+          height: Math.round(box.height),
+          focusTookIt: document.activeElement === el,
+          active: nameOf(document.activeElement),
+          hit: nameOf(hit),
+          hitIsSelf: hit !== null && (hit === el || el.contains(hit)),
+          hitInsideEditor: editor !== null && hit !== null && editor.contains(hit),
+        }
+      })
+    }, GATED_ENTRIES)
+    return rows as EntryReading[]
+  }
+
+  /**
+   * 前提：那三颗真的在屏上、而且有正的盒子。
+   *
+   * 少了这一句，"一个都没渲染"会被读成"没有一颗能被聚焦"（票 71 那族债：**读不到 ≠ 通过**）。
+   */
+  function expectEntriesMeasurable(readings: EntryReading[]): void {
+    expect(
+      readings.map((one) => one.attr),
+      'the three gated entries must all be read',
+    ).toEqual(GATED_ENTRIES)
+    for (const one of readings) {
+      expect(one.found, 'the drawer handed out no [' + one.attr + '] at all').toBe(true)
+      expect(
+        one.width > 0 && one.height > 0,
+        '[' + one.attr + '] has no box to measure (' + one.width + 'x' + one.height + ')',
+      ).toBe(true)
+    }
+  }
+
+  /**
+   * 遮罩**之外**能聚焦的东西里，还有几颗没被 `[inert]` 罩住 —— 组长 2026-09-23 裁定后的那个范围。
+   *
+   * ⚠️ 范围不是"只有抽屉"：真浏览器里量到**编辑器之外 27 颗**（抽屉 21 + 顶栏 4 + 输入区 2，
+   *    `.tools/leader81-scope.log` / `-sib.log`）。这里**不写死颗数**：新加一颗控件就红是假红，
+   *    这一句断的是"有没有漏网的"。
+   * ⚠️ 那个 `nameOf` 与 `readEntries` 里那份是同一套写法（两处都跑在页面里，函数跨不过 `evaluate`）。
+   */
+  async function readOutsideFocusables(page: Page): Promise<{ total: number; loose: string[] }> {
+    return page.evaluate(() => {
+      const editor = document.querySelector('[data-card-editor]')
+      /** 一个元素的自述 —— 失败信息要直接点名"是谁还能被聚焦" */
+      const nameOf = (el: Element): string => {
+        const hook = [...el.attributes].map((one) => one.name).find((name) => name.startsWith('data-'))
+        const tag = el.tagName.toLowerCase()
+        const named = hook === undefined ? tag : tag + '[' + hook + ']'
+        const text = (el.getAttribute('aria-label') ?? el.textContent ?? '').trim().slice(0, 12)
+        return text === '' ? named : named + ' "' + text + '"'
+      }
+      const outside = [
+        ...document.querySelectorAll('button, input, select, textarea, a[href], [tabindex]'),
+      ].filter((el) => editor === null || !editor.contains(el))
+      return {
+        total: outside.length,
+        loose: outside.filter((el) => el.closest('[inert]') === null).map(nameOf),
+      }
+    })
+  }
+
+  test('卡图开着：抽屉那三颗不许还能被 focus() 拿到焦点', async ({ page }) => {
+    await openCardEditor(page)
+
+    const readings = await readEntries(page)
+    expectEntriesMeasurable(readings)
+
+    for (const one of readings) {
+      expect(
+        one.focusTookIt,
+        'with the card editor open, [' +
+          one.attr +
+          '] must not take focus -- it did, focus landed on ' +
+          one.active,
+      ).toBe(false)
+    }
+
+    // 组长 2026-09-23 的窄修订：范围从"抽屉那一层"放宽成"**遮罩底下那三层**"
+    // （顶栏 + 输入区 + 抽屉，不动根节点）。上面那三颗是实证，这一句是**范围**的读数：
+    // 编辑器开着时，外面一颗能聚焦的都不许剩。现在必须是红的（27 颗全裸）。
+    const outside = await readOutsideFocusables(page)
+    expect(
+      outside.total,
+      'the shell handed out nothing focusable outside the editor, so this check would say nothing',
+    ).toBeGreaterThan(0)
+    expect(
+      outside.loose,
+      'with the card editor open, no focusable thing outside the editor may be left reachable (out of ' +
+        outside.total +
+        ' outside the editor)',
+    ).toEqual([])
+  })
+
+  /**
+   * 把那三颗滚进可视区 —— **T2 与 T3 共用这一句**。
+   *
+   * ⚠️ 为什么必须有它：元素在视口外时 `elementFromPoint` 返 `null` ⇒ 判据**没回归也会红**
+   *    （S3 评审报的机制问题：T3 原来有、T2 漏了）。**两处共用**才不会再走散。
+   */
+  async function scrollEntriesIntoView(page: Page): Promise<void> {
+    await page.evaluate((attrs: string[]) => {
+      for (const attr of attrs) document.querySelector('[' + attr + ']')?.scrollIntoView({ block: 'center' })
+    }, GATED_ENTRIES)
+  }
+
+  test('卡图开着：鼠标路径已经点不到那三颗（防劣化判据 · 起点就是绿的）', async ({ page }) => {
+    await openCardEditor(page)
+    // 先滚进可视区再量（与 T3 同一句）—— 这条判据管的是"点不点得到"，不是"滚到哪儿了"
+    await scrollEntriesIntoView(page)
+
+    const readings = await readEntries(page)
+    expectEntriesMeasurable(readings)
+
+    for (const one of readings) {
+      expect(
+        one.hitIsSelf,
+        'with the card editor open, the centre of [' +
+          one.attr +
+          '] must not hit itself -- it hit ' +
+          one.hit,
+      ).toBe(false)
+      expect(
+        one.hitInsideEditor,
+        '[' + one.attr + '] must be covered by the editor overlay -- its centre hit ' + one.hit,
+      ).toBe(true)
+    }
+  })
+
+  test('关掉卡图之后：那三颗全部恢复（前两条的反面控制）', async ({ page }) => {
+    const editor = await openCardEditor(page)
+    await editor.locator('button[data-card-close]').click()
+    await expect(editor).toHaveCount(0)
+    // 关掉的只是上面那一层：抽屉还在原地（不然下面量的就是别的屏了）
+    await expect(page.locator('.drawer')).toBeVisible()
+    // 先把它们滚进可视区 —— 这条判据管的是"能不能聚焦 / 点到"，不是"滚到哪儿了"
+    await scrollEntriesIntoView(page)
+
+    const readings = await readEntries(page)
+    expectEntriesMeasurable(readings)
+
+    for (const one of readings) {
+      expect(
+        one.focusTookIt,
+        'with the card editor closed, [' +
+          one.attr +
+          '] must take focus again -- focus landed on ' +
+          one.active,
+      ).toBe(true)
+      expect(
+        one.hitIsSelf,
+        'with the card editor closed, the centre of [' +
+          one.attr +
+          '] must hit itself again -- it hit ' +
+          one.hit,
+      ).toBe(true)
+    }
+  })
+
   test('存着的卡读不出来：退回内置示例，状态行与卡一节都说明原因', async ({ page }) => {
     await openApp(page, { card: '{not valid json' })
 

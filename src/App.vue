@@ -72,6 +72,17 @@ const settingsOpen = ref(false)
 const worldOpen = ref(false)
 /** 卡图浮层开着没有 —— 同样只影响这一层（设置面板还开在它下面） */
 const cardOpen = ref(false)
+
+/**
+ * 卡图是**模态浮层**：它开着的时候，遮罩底下**每一层**（顶栏 / 输入区 / 设置抽屉 /
+ * 世界面板 / 调试面板）一起挂 `inert` —— 模态之下的东西不许被聚焦、也不许被点到；关掉就摘干净。
+ *
+ * 这几层绑同一个名字，因为它们是一件事。⚠️ `inert` 落在这几个兄弟层上、**不落根节点**：
+ * 落根上会把卡图自己一起罩进去，那就得再写一条规则把它撤销回来。
+ * ⚠️ 也不许换成 `pointer-events: none`（只管鼠标）/ `disabled` / `tabindex="-1"`（一颗一颗糊）：
+ * 它们都拦不住 Tab 走到这一层。
+ */
+const belowCardModalInert = computed(() => cardOpen.value)
 /** 调试面板开着没有 —— 只在调试模式里有这一层（入口就在调试开关旁边） */
 const debugOpen = ref(false)
 const configState = ref(isConfigured())
@@ -280,7 +291,7 @@ onMounted(() => {
       （e2e/probe.ts 有一条「正文不许被悬浮控件压住」在守着）。
       世界面板是**玩家自己点开**的那一层（与设置面板同类），所以它在带之外。
     -->
-    <div class="flex shrink-0 items-start justify-between gap-2 px-3 pt-3">
+    <div class="flex shrink-0 items-start justify-between gap-2 px-3 pt-3" :inert="belowCardModalInert">
       <AppSidebar
         class="min-w-0 max-w-[62%] sm:max-w-[46%] lg:max-w-[26rem]"
         :items="topbar"
@@ -348,7 +359,13 @@ onMounted(() => {
     </div>
 
     <!-- 世界面板：浮在故事上，不占正文的宽度（块与顺序来自卡的声明，内容读状态树） -->
-    <WorldPanel v-if="worldOpen" :blocks="world" :state="stateTree" @close="worldOpen = false" />
+    <WorldPanel
+      v-if="worldOpen"
+      :blocks="world"
+      :state="stateTree"
+      :inert="belowCardModalInert"
+      @close="worldOpen = false"
+    />
 
     <!-- 调试面板：只在调试模式里存在的一层（只读，入口在调试开关旁边） -->
     <DebugPanel
@@ -362,6 +379,7 @@ onMounted(() => {
       :tools="debugTools"
       :running="runningNode"
       :failed="debugFailedNodes"
+      :inert="belowCardModalInert"
       @close="debugOpen = false"
     />
 
@@ -369,12 +387,18 @@ onMounted(() => {
     <StoryPanel class="min-h-0 flex-1" :rows="rows" :status="status" />
 
     <!-- 下带：输入卡片（在流里，但视觉上浮起） -->
-    <GameComposer :disabled="busy" :configured="configured" @submit="submitAction" />
+    <GameComposer
+      :disabled="busy"
+      :configured="configured"
+      :inert="belowCardModalInert"
+      @submit="submitAction"
+    />
 
     <SettingsDrawer
       v-model:open="settingsOpen"
       :language="languageMode"
       :theme="themeMode"
+      :inert="belowCardModalInert"
       @saved="onSettingsSaved"
       @language="selectLanguage"
       @theme="selectTheme"
