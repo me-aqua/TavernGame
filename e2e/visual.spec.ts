@@ -364,17 +364,31 @@ const SHELL_PROBE = `(() => {
 })()`
 
 /**
- * 中栏是不是真的能长滚动（口径 3）：塞一块高的进去再量，量完就撤。
+ * 中栏是不是真的能长滚动（口径 3）：塞两块东西进去再量，量完就撤。
  *
- * jsdom 没有布局，这一条只有在真浏览器里才量得到：`scrollHeight > clientHeight`（滚得动）
- * 且 `scrollWidth <= clientWidth`（不横向溢出）。
+ * jsdom 没有布局，这一条只有在真浏览器里才量得到：`scrollHeight > clientHeight`（滚得动）。
+ *
+ * ⚠️ **票 71 的 ⑧②**：原来只塞一块**高**的（`height:3000px`、宽 `auto`）——
+ *    宽 `auto` 的块级盒子**永远不会把容器撑宽** ⇒ 跟着那句 `scrollWidth <= clientWidth`
+ *    **咬不到注入物**（空断言：删掉 `[data-mid]` 的横向裁剪它也不会红）。
+ *    现在塞两块：一块高的（量滚得动）+ 一块**固定宽 3000px** 的（量"宽东西进来会怎么样"）。
+ *    断言也跟着换成两条**有对象**的：`[data-mid]` 必须横着**裁掉**（`overflow-x: hidden`），
+ *    而且那块宽的进来之后**页面也不许被撑横**。原来那句 `scrollWidth <= clientWidth` **删掉** ——
+ *    注入物有宽度之后它必然红，留着就是一条永久红的判据。
  */
 const MID_SCROLL_PROBE = `(() => {
   const mid = document.querySelector('[data-mid]')
   if (!mid) return null
+  const tall = document.createElement('div')
+  tall.style.height = '3000px'
+  tall.style.flex = 'none'
+  const wide = document.createElement('div')
+  wide.style.width = '3000px'
+  wide.style.flex = 'none'
   const probe = document.createElement('div')
-  probe.style.height = '3000px'
   probe.style.flex = 'none'
+  probe.appendChild(tall)
+  probe.appendChild(wide)
   mid.appendChild(probe)
   mid.scrollTop = 99999
   const out = {
@@ -384,6 +398,8 @@ const MID_SCROLL_PROBE = `(() => {
     scrollWidth: mid.scrollWidth,
     clientWidth: mid.clientWidth,
     overflowY: getComputedStyle(mid).overflowY,
+    overflowX: getComputedStyle(mid).overflowX,
+    pageOverflow: document.documentElement.scrollWidth - window.innerWidth,
   }
   probe.remove()
   mid.scrollTop = 0
@@ -409,6 +425,57 @@ function expectTapTargets(adds: ShellReading['adds']): void {
     expect(add.w, 'the "' + add.what + '" plus is narrower than 24px').toBeGreaterThanOrEqual(24)
     expect(add.h, 'the "' + add.what + '" plus is shorter than 24px').toBeGreaterThanOrEqual(24)
   }
+}
+
+/**
+ * 中栏到底有多宽 —— **票 71 的 ④：防劣化基线，不是设计意图**。
+ *
+ * 这三个数是组长用**活 DOM**（`npx vite preview` 服已有的 `dist/` + Chromium 直连）量出来的
+ * （`.tools/leader71-measure.log`），量的是**栅格第三条轨**（`[data-col="edit"]`）：
+ * `1100 → 218` · `1280 → 478` · `1920 → 638`。
+ * ⚠️ 我先前从 PNG 像素反推的是 220 / 480 / 640（每条高 2px —— 面板边缘那一个像素的差），
+ *    **以活 DOM 为准**：按 220 断会在 1100 当场红。
+ * ⚠️ **它们不是"应该这么宽"** —— 那张字段表**五列排成一行**需要的中栏宽度是 **408px**（设计口径），
+ *    而 821–1279 那条死带今天只有 37–218px（`980` 这个上限正好等于 `1004 − 24`）；1100 那档
+ *    **每一行折成两行**（行高 49 而不是 24）、1280 一步跳 260px。改布局是**布局票**的事；
+ *    本票（票 71）连 `src/` 一个字节都不许动。⇒ 这组数只干一件事：**谁把宽度档改窄，当场红**。
+ * ⚠️ **成因**：`SHELL_VIEWPORTS`（:56）从来**没有** `laptop-sm` ⇒ 这一档一直没有过活 DOM 读数，
+ *    只能从照片反推（所以才反推出两个数）。这一条判据把 1100 纳进"读外壳"那条线，
+ *    但**不**把它塞进 `SHELL_VIEWPORTS` —— 那一套里有一句"中栏必须长得比框高"（口径 3 的长滚动），
+ *    而 1100×800 下那张表根本不够高（5 行 × 49 + 表头 ≈ 320px，中栏有 ≈600px）⇒ 塞进去会**为别的原因红**。
+ */
+const MID_WIDTH_FLOOR: Record<string, number> = {
+  'laptop-sm': 218,
+  laptop: 478,
+  desktop: 638,
+}
+
+/**
+ * 四栏那几段到底多宽（口径 1 的数值面）—— 票 71 让 `laptop-sm`（1100，死带）也走这一条。
+ *
+ * 断的与 `expectWideShell` 的 ① 同一组东西（四轨、两端的固定宽、中栏弹性），
+ * **但不带**那一套里的长滚动 / 字号 / 点按区 —— 那些在 1100 上没有对象（见上面那段）。
+ */
+async function expectShellWidths(page: Page, name: string): Promise<void> {
+  const floor = MID_WIDTH_FLOOR[name]
+  if (floor === undefined) return
+  const r = await readShell(page)
+  const cols = r.cols.filter((c) => c.visible)
+  expect(
+    cols.map((c) => c.col),
+    'the shell must still be four columns at this width',
+  ).toEqual(['content', 'flow', 'edit', 'prompts'])
+  const tracks = (r.grid?.template ?? '').split(' ').filter(Boolean)
+  expect(tracks.length, 'the shell must be a four-track grid').toBe(4)
+  expect(tracks[0], 'the content column width').toBe('300px')
+  expect(tracks[1], 'the workflow strip width').toBe('120px')
+  expect(tracks[3], 'the prompts column width').toBe('290px')
+  const mid = r.cols.find((c) => c.col === 'edit')
+  expect(mid?.visible, 'the mid column is off screen, so its width says nothing').toBe(true)
+  expect(
+    Math.round(mid?.w ?? 0),
+    'the mid track shrank below the floor pinned in contract-71 (see MID_WIDTH_FLOOR)',
+  ).toBeGreaterThanOrEqual(floor)
 }
 
 /**
@@ -448,7 +515,9 @@ function shootsPickedViewport(vp: { name: string; width: number }): boolean {
  *    于是调用方紧接着拍的那张照片里，**中栏是那张字段表**，不是空态（S3 的条件 4）。
  *    两态都断到具体是哪一个＋（见下面那段注释）。
  */
-async function expectWideShell(page: Page): Promise<void> {
+async function expectWideShell(page: Page, name: string): Promise<void> {
+  // ④（票 71）：这一档的四栏宽度不许低于活 DOM 量到的基线 —— 这一句在下面点那一格**之前**
+  await expectShellWidths(page, name)
   // ① 点节点态（还没选中任何一枝）：三路「＋」都在
   const before = await readShell(page)
   expect(before.branchMode, 'nothing is picked yet, so the editor is not in branch mode').toBe(false)
@@ -501,15 +570,22 @@ async function expectWideShell(page: Page): Promise<void> {
     scrollTop: number
     scrollWidth: number
     clientWidth: number
+    overflowX: string
+    pageOverflow: number
   } | null
   expect(scroll, 'the mid body could not be measured').not.toBeNull()
   expect(scroll?.scrollHeight ?? 0, 'the mid body must grow taller than its box').toBeGreaterThan(
     (scroll?.clientHeight ?? 0) + 1,
   )
   expect(scroll?.scrollTop ?? 0, 'the mid body must really scroll').toBeGreaterThan(0)
-  expect(scroll?.scrollWidth ?? 0, 'the mid body must not scroll sideways').toBeLessThanOrEqual(
-    (scroll?.clientWidth ?? 0) + 1,
-  )
+  // ⑧②（票 71）：一块**固定宽 3000px** 的东西进来之后 —— 中栏必须横着**裁掉**（不是横着滚），
+  // 而且页面也不许被撑横。⚠️ 原来那句 `scrollWidth <= clientWidth` 是空断言（注入物宽 `auto`），
+  // **已删**：注入物有宽度之后它必然红，留着就是一条永久红的判据。
+  expect(scroll?.overflowX, 'the mid body must clip sideways, not scroll sideways').toBe('hidden')
+  expect(
+    scroll?.pageOverflow ?? 1,
+    'a wide child inside the mid column must not push the page sideways',
+  ).toBeLessThanOrEqual(1)
 
   // 口径 5 / 裁决 4：各路的「＋」都在屏幕上，可点区域 ≥ 24×24。
   //
@@ -539,6 +615,16 @@ async function expectLandscapeShell(page: Page): Promise<void> {
     r.cols.filter((c) => c.visible).map((c) => c.col),
     'exactly one column may stay on screen in landscape',
   ).toEqual(['edit'])
+
+  // ② （票 71）：细条 120 收成**顶栏下那条横带** —— 上一句已经断出细条那一栏不在了，
+  //    这一句断"它换了个形态**还在屏上**"，两句合起来才是裁决 5 的那一条降级。
+  //    ⚠️ 那一块**没有 `data-*` 钩子**（`EditorShell.vue:128-137` 只有一个 `.band` 类），
+  //    而本票不许动 `src/` ⇒ 只能按类选。它在 DOM 里**永远存在**（宽屏由媒体查询 `display:none` 藏起来），
+  //    所以"在屏上"这件事只有这一层量得到 —— jsdom 那条（`tests/editor-shell-dom.test.ts` 的 S10）
+  //    断的是它的内容与交互，断不了可见性。
+  const band = page.locator('.band')
+  await expect(band, 'the strip is gone in landscape, so the band must be there instead').toBeVisible()
+  await expect(band.locator('button').first(), 'the band must say which step is current').not.toBeEmpty()
 
   // 标尺压成一行文字也要在位（四段对齐那条判据只属于 ≥821px）
   expect(r.ruler !== null && r.ruler.display !== 'none', 'the ruler must stay in place').toBe(true)
@@ -603,12 +689,15 @@ test.describe('状态 × 屏幕', () => {
         //    于是下面那张照片拍到的才是**有字段表的中栏**（票 69 S3 的条件 4）。
         if (state.name === EDITOR_STATE) {
           if (SHELL_VIEWPORTS.has(vp.name)) {
-            if (vp.width >= 821) await expectWideShell(page)
+            if (vp.width >= 821) await expectWideShell(page, vp.name)
             else await expectLandscapeShell(page)
           } else if (shootsPickedViewport(vp)) {
             // 票 70：不跑外壳断言、但树在屏幕上的那一档（`laptop-sm`＝821–1279 死带）——
             // 不补这一步，它的照片永远是空态，而加这一档的理由正是"中栏那张表要有照片"。
             await pickFirstBranch(page)
+            // 票 71 的 ④：这一档正是死带 —— 把活 DOM 量到的四栏宽度**钉成防劣化基线**
+            // （`MID_WIDTH_FLOOR`；此前这一档从来没量过外壳，只能从照片反推）
+            await expectShellWidths(page, vp.name)
             // …而且**顺手把它断下来**：这一步的全部目的就是"照片里中栏是表"，
             // 少了这一句，表整条不在时也只有人眼看得出来（这一处正是这么被发现的）。
             await expect(

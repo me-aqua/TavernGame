@@ -110,11 +110,16 @@ const TREE_ROWS: Array<{ path: string; fields: string[] }> = []
 }
 
 /**
- * 树上每一行的路径（顺序 = 卡的声明顺序、**逐层向下**）。
+ * 树上每一行的路径（**顺序不承诺**，见下面那段）。
  *
- * ⚠️ 与实现一致（`CardEditor.vue:18` / `StateTreeNav.vue:20`）：S3 用两个独立通道证明过
- *    —— 含整页巡检那张 `editor-open--laptop.png` 的左栏 22 行逐行相同。
- *    ⚠️ 设计图的行序是前序，那一条差异已记 follow-up（归 8b-②）。
+ * 与实现同一套走法（`CardEditor.vue:18` / `StateTreeNav.vue:20` 是**逐层向下**）：
+ * S3 用两个独立通道证明过 —— 含整页巡检那张 `editor-open--laptop.png` 的左栏 22 行逐行相同。
+ *
+ * ⚠️ **票 71（2026-09-23）组长裁：树的显示顺序不算承诺。** 依据是设计 §二.3 给的那一句话
+ *    ——设计图的行序是**前序**、实现是**逐层**，两边都没错，**"哪一行先出现"不是契约的一部分**。
+ *    ⇒ 下面那条断言因此**改成集合相等**（与组件层的 `A1a` 同一口径）：`toEqual` 是**隐藏承诺**
+ *    ——它会把"顺序"钉死在一个从没被承诺过的地方，任何人调整走法都会红，而那不是回归。
+ *    ⚠️ 另一条**不动**：中栏那张表的**行序**是承诺（契约 A3 —— 卡的声明顺序是唯一的顺序）。
  */
 const TREE_PATHS = TREE_ROWS.map((row) => row.path)
 
@@ -386,11 +391,22 @@ test.describe('卡', () => {
     // 旧接缝退场：卡图与「编一步」表单都不该再挂在编辑器里（口径 A7）
     await expect(editor.locator('[data-card-form]')).toHaveCount(0)
 
-    // 每一行一个卡里的状态节点，顺序照卡的声明顺序（期望值从卡现算，不抄第二份）
+    // 每一行一个卡里的状态节点（期望值从卡现算，不抄第二份）。
+    //
+    // ⚠️ **票 71（2026-09-23）**：这一句原来是 `toEqual(TREE_PATHS)` —— 逐项相等，**把顺序也钉死了**。
+    //    组长裁「树的显示顺序不算承诺」（设计 §二.3）⇒ 那句是**隐藏承诺**：谁调整走法（逐层 ⇄ 前序）
+    //    都会红，而那不是回归。现在断的是**集合**（排序后逐个相等，与组件层 `A1a` 同一口径）：
+    //    "少一行 / 多一行 / 名字写错"照样红，"只是换了先后"不再红。
+    // ⚠️ **读的是 `data-branch-node` 属性，不是行上的可见文字**（S3 的 N-5）：组件层 `A1a` 读的也是它
+    //    ⇒ 同源。读文字会**顺手多承诺一件事**（"行上显示的就是路径"），而设计只承诺三件。
+    //    ⚠️ 中栏那张表的**行序仍然断**（下面 `toEqual(treeFields(pick))`）—— 那是契约 A3 承诺过的。
     const nav = editor.locator('[data-branch-node]')
     await expect(nav).toHaveCount(TREE_PATHS.length)
-    expect(await nav.evaluateAll((nodes) => nodes.map((el) => (el.textContent ?? '').trim()))).toEqual(
-      TREE_PATHS,
+    const shown = await nav.evaluateAll((nodes) =>
+      nodes.map((el) => el.getAttribute('data-branch-node') ?? ''),
+    )
+    expect([...shown].sort(), 'the tree must show exactly the card nodes, in any order').toEqual(
+      [...TREE_PATHS].sort(),
     )
 
     // 点一行：中栏字幕、亮着的那一行、表里的行名三处说的是同一格
