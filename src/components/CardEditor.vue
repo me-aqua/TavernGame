@@ -1,6 +1,10 @@
 <script setup lang="ts">
 /**
- * 卡界面：四栏外壳里的**枝树 + 可写字段表**（设置面板「查看 / 编辑卡图」打开它）。
+ * 卡界面：四栏外壳里的**枝树 + 中栏那一屏**（设置面板「查看 / 编辑卡图」打开它）。
+ *
+ * 中栏按**一个**「当前编辑对象」画三态（票 73 · 段 8c-① 把它接成一条轴）：
+ * 一步 ⇒ 只读编屏（`StepForm`）· 一格状态 ⇒ 可写字段表（`BranchForm`）· 都没选 ⇒ 显式空态。
+ * 两个入口：细条点一步（`@select`）、左栏树点一行（`@pick`）—— 点谁谁赢，另一轴随之清掉。
  *
  * 形态按决定 #24：绝对定位的浮层盖在故事上，不挤占正文 —— 关了它下面还是原来那一屏。
  * 四栏骨架（顶栏 / 内容 / 工作流 / 编辑 / 公共提示词 / 宽度标尺）是 EditorShell 的事。
@@ -28,6 +32,7 @@ import BranchForm from './BranchForm.vue'
 import CardResources from './CardResources.vue'
 import EditorShell from './EditorShell.vue'
 import StateTreeNav from './StateTreeNav.vue'
+import StepForm from './StepForm.vue'
 import { CLOCK_STATE_PATH } from '../game/card-time'
 import { isRecord } from '../game/card-read'
 import { schemaElement, schemaFields, schemaType, type Schema, type SchemaNode } from '../game/card-state'
@@ -61,10 +66,18 @@ interface FreshRow {
   initial: string
 }
 
-/** 选中的**那一格**（卡里的点号路径）；空串 = 还没选 */
-const picked = ref('')
-/** 细条里选中的节点 id；空串 = 还没选（中栏编的是枝，节点那一轴 8c 才接上） */
-const selected = ref('')
+/**
+ * 中栏正在编的**那一个**对象 —— 一格状态（枝）或一步节点，**二者只会有一个**。
+ *
+ * ⚠️ 「当前编辑对象」只留这一个：两条轴的高亮与中栏画哪一屏全由它派生 ⇒ 树与细条
+ *    **结构上不可能同时亮**（写成两个 `ref` 再靠"点谁清谁"的规则维持，就是等哪天漏一处）。
+ * `null` = 还没选（开屏不自动选第 1 步）。
+ */
+const target = ref<{ kind: 'branch'; path: string } | { kind: 'step'; id: string } | null>(null)
+/** 树上选中的那一格（卡里的点号路径）；空串 = 那一轴没亮 */
+const picked = computed(() => (target.value?.kind === 'branch' ? target.value.path : ''))
+/** 细条里选中的那一步（节点 id）；空串 = 那一轴没亮 */
+const selected = computed(() => (target.value?.kind === 'step' ? target.value.id : ''))
 /** 资源库面板开着没有（顶栏那颗按钮开合它） */
 const resourcesOpen = ref(false)
 
@@ -229,9 +242,14 @@ const badKeys = computed(() =>
     : [],
 )
 
-/** 点树上的一行：中栏换成那一格的字段表 */
+/** 点树上的一行：中栏换成那一格的字段表（细条那一轴随之清掉） */
 function pick(path: string): void {
-  picked.value = path
+  target.value = { kind: 'branch', path }
+}
+
+/** 点细条上的一步：中栏换成那一步的只读编屏（树那一轴随之清掉） */
+function pickStep(id: string): void {
+  target.value = { kind: 'step', id }
 }
 
 /** 说明格的草稿（跨格留着：一次保存把好几处改动一起提交） */
@@ -368,7 +386,7 @@ function save(): void {
         @close="emit('close')"
         @toggle-resources="resourcesOpen = !resourcesOpen"
         @save="save"
-        @select="selected = $event"
+        @select="pickStep"
         @add-branch="emit('add-branch')"
         @add-action="emit('add-action')"
         @add-step="emit('add-step')"
@@ -378,12 +396,13 @@ function save(): void {
           <StateTreeNav :rows="navRows" :picked="picked" @pick="pick" />
         </template>
 
-        <!-- 中栏：选中那一格的可写字段表；还没选就是一格显式的空态 -->
+        <!-- 中栏三态：一步（只读编屏）· 一格（可写字段表）· 都没选（显式空态） -->
         <template #mid>
           <!-- 整次保存的那个原因（哪一行出事由行上的 `data-row-bad` 指） -->
           <p v-if="failure" data-card-error class="failure" v-text="failure" />
+          <StepForm v-if="selected" :card="card" :id="selected" />
           <BranchForm
-            v-if="picked"
+            v-else-if="picked"
             :path="picked"
             :rows="fieldRows"
             :gone="goneKeys"

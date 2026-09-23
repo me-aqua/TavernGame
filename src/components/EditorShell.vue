@@ -6,8 +6,8 @@
  * 栅格**共用同一份 `--cols`**，所以四段逐个对齐。中栏里只有一个长滚动体 `[data-mid]`，
  * 正在编的那一块从它的插槽进去。
  *
- * ⚠️ 中栏那一格的字幕是**在编什么**（`branch` 给的那一格路径）。细条选的还是**节点**
- *    （工作流那一轴），它只驱动细条自己的高亮与横带 —— 中栏不许顶着上一个选中的节点名。
+ * ⚠️ 中栏那一格的字幕是**当前在编什么**：编枝时是那一格路径（`branch`），编一步时是**那一步的名字**
+ *    （`selected` 那一步的）。**两条轴都驱动中栏** —— `CardEditor` 保证至多一个非空（票 73 · 段 8c-①）。
  * ⚠️ 「编辑」列那个 ＋ 是**节点导向**的（加一个动作），编枝时收起来。
  *
  * ⚠️ 尺寸一律走 `src/styles/main.css` 的尺度层：整页探针会数外壳自己的文字用了几档字号，
@@ -56,8 +56,14 @@ const steps = computed(() => props.card.graph.topology)
 const current = computed(() =>
   props.selected ? props.card.graph.nodes[props.selected].name : t('card.stepNone'),
 )
-/** 中栏那一格的字幕 = 正在编的那一格；还没选就是那句「还没选」 */
-const subtitle = computed(() => props.branch || t('card.stepNone'))
+/**
+ * 中栏那一格的字幕 = 正在编的那一格：编枝时是那一格的路径，编一步时是**那一步的名字**；
+ * 还没选就是那句「还没选」。
+ *
+ * ⚠️ 两条轴由 `CardEditor` 保证互斥 ⇒ 这里 `branch` 与 `selected` 至多一个非空，
+ *    先判 `branch` 不会把一步的名字盖掉。
+ */
+const subtitle = computed(() => props.branch || current.value)
 /** 底部标尺那四个数就是四栏宽度（第三段是弹性的，写不出具体数） */
 const ruler = computed(() => ['300px', '120px', t('card.rulerFit'), '290px'])
 /** 顶栏那两颗抽屉按钮：横屏才看得见，宽屏下由 CSS 收起来 */
