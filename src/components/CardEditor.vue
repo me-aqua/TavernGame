@@ -4,8 +4,9 @@
  *
  * 中栏按**一个**「当前编辑对象」画三态（票 73 · 段 8c-① 把它接成一条轴）：
  * 一步 ⇒ 编屏（`StepForm`）· 一格状态 ⇒ 可写字段表（`BranchForm`）· 都没选 ⇒ 显式空态。
- * 两个入口：细条点一步（`@select`）、左栏树点一行（`@pick`）—— 点谁谁赢，另一轴随之清掉。
- * 形态按决定 #24：绝对定位的浮层盖在故事上，不挤占正文；四栏骨架是 `EditorShell` 的事。
+ * 两个入口：细条点一步（`@select`）、左栏树点一行（`@pick`）—— 点谁谁赢，另一轴随之清掉；
+ * 形态按决定 #24：绝对定位的浮层盖在故事上，不挤占正文，四栏骨架是 `EditorShell` 的事。
+ * **「编一步」那一族的草稿搬在 `useStepDraft.ts`**（票 77）—— 这里只接线与保存。
  *
  * **写路径只有一条**（8b-② 立的，8c-② 让「编一步」也走它）：说明 / 加字段 / 删字段 / 一步的
  * 六个键**都只动草稿**，点顶栏那颗「保存」才落卡 —— **深拷整份卡 → 只改这几处 → `importCard`
@@ -15,12 +16,9 @@
  *    于是「组件层绿、真浏览器红」那种两份走法漂移没有了。
  * ⚠️ **读与写共用同一个 `fieldsOf`**：`object` 读自己的 `fields`，`map` / `list` 读**元素形状**的
  *    `of.fields`；分成两份就会出「表里显示 `of.fields`、写回 `fields`」这种**静默成立**的错。
- * ⚠️ **界面自己挡三件事，校验器一件都不管**（实测 `""` / `" "` / `"a.b"` 全都过 `checkSchema`）：
- *    键名 trim 后非空 · 不含 `.` · 不与同格已有的键重名（JSON 里同名键只能活一个 ⇒ 静默丢编辑）。
- * ⚠️ **草稿**按「哪一格 + 哪个键」或节点 id 索引：换一处再切回来还在；
- *    **干净 ⇔ 草稿与卡里的值逐字相同**（顶栏那颗按钮的 `disabled` 就是它）。
- * ⚠️ **什么进树**：这一格自己有一张**非空字段表**才进树；元素是标量的 `list` 点进去是一张空表，
- *    不是一格。树是**逐层向下**（宽度优先）展开的，行的先后不承诺（裁决 4）。
+ * ⚠️ **界面自己挡三件事，校验器一件都不管**（实测 `""` / `" "` / `"a.b"` 全都过 `checkSchema`）：键名 trim 后非空 · 不含 `.` · 不与同格已有的键重名（同名键在 JSON 里只能活一个 ⇒ 静默丢编辑）。
+ * ⚠️ **草稿**按「哪一格 + 哪个键」索引：换一处再切回来还在；**干净 ⇔ 草稿与卡里的值逐字相同**（顶栏那颗按钮的 `disabled` 就是它）。
+ * ⚠️ **什么进树**：这一格自己有一张**非空字段表**才进树（元素是标量的 `list` 点进去是一张空表，不是一格）；树是**逐层向下**（宽度优先）展开的，行的先后不承诺（裁决 4）。
  */
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -29,6 +27,7 @@ import CardResources from './CardResources.vue'
 import EditorShell from './EditorShell.vue'
 import StateTreeNav from './StateTreeNav.vue'
 import StepForm from './StepForm.vue'
+import { useStepDraft } from './useStepDraft'
 import { CLOCK_STATE_PATH } from '../game/card-time'
 import { isRecord } from '../game/card-read'
 import { schemaElement, schemaFields, schemaType, type Schema, type SchemaNode } from '../game/card-state'
@@ -39,15 +38,8 @@ const { t } = useI18n()
 
 const props = defineProps<{ card: CardData; source: CardSource }>()
 
-/** 三个「＋」各自抛一个事件：真的改卡是各自的票（8e 等）的事 */
-const emit = defineEmits<{
-  close: []
-  /** 改完也存下了 —— 外层负责 reload */
-  saved: []
-  'add-branch': []
-  'add-action': []
-  'add-step': []
-}>()
+/** 三个「＋」各自抛一个事件（真的改卡是各自的票的事）；`close` / `saved` 是外壳那两颗按钮 */
+const emit = defineEmits<{ close: []; saved: []; 'add-branch': []; 'add-action': []; 'add-step': [] }>()
 
 /** 新行四格的草稿（那一行还没落过盘，只活在内存里） */
 type FreshRow = { key: string; kind: 'string' | 'integer'; note: string; initial: string }
@@ -62,8 +54,24 @@ type FreshRow = { key: string; kind: 'string' | 'integer'; note: string; initial
 const target = ref<{ kind: 'branch'; path: string } | { kind: 'step'; id: string } | null>(null)
 /** 树上选中的那一格（卡里的点号路径）；空串 = 那一轴没亮 */
 const picked = computed(() => (target.value?.kind === 'branch' ? target.value.path : ''))
-/** 细条里选中的那一步（节点 id）；空串 = 那一轴没亮 */
-const selected = computed(() => (target.value?.kind === 'step' ? target.value.id : ''))
+/**
+ * 细条里选中的那一步（节点 id）；空串 = 那一轴没亮。
+ *
+ * ⚠️ 它**可写**：写它就是"选中那一步"（`useStepDraft.pickStep` 走的就是它）——
+ *    两条轴仍然落在**同一个 `target`** 上 ⇒ 结构上不可能同时亮。
+ */
+const selected = computed({
+  get: () => (target.value?.kind === 'step' ? target.value.id : ''),
+  set: (id: string) => (target.value = { kind: 'step', id }),
+})
+/**
+ * 「编一步」那一族（草稿 / 候选 / 脏 / 落卡）—— 票 77 从本文件搬出去的。
+ *
+ * ⚠️ **把要用的几样在顶层解出来**：模板只自动解包 setup 顶层的 ref；挂成一个 `steps` 对象再用
+ *    `steps.stepValues` 取，拿到的是 **ref 本身**（`v-bind` 展开成空、`v-if` 恒真）—— 实测踩过一次。
+ */
+const steps = useStepDraft({ card: () => props.card, selected })
+const { roster, stepValues, pickStep, setStepText, setStepPick, applyTo, markSaved } = steps
 /** 资源库面板开着没有（顶栏那颗按钮开合它） */
 const resourcesOpen = ref(false)
 
@@ -77,89 +85,6 @@ const fresh = ref<FreshRow | null>(null)
 const failed = ref(false)
 /** 上一次保存被拒的原因（空串 = 没有；卡自己给的那句话原样带上） */
 const failure = ref('')
-
-/** 一步的草稿：文本三样 + 三栏名单（`prompt` 是多行框里那**一整段文本**，落卡时才按行切回数组） */
-type StepDraft = {
-  name: string
-  duty: string
-  prompt: string
-  tools: string[]
-  reads: string[]
-  settings: string[]
-}
-
-/** 一步的草稿（没有这一条 = 这一步没改过，屏上显示卡里的值） */
-const stepDrafts = ref<Record<string, StepDraft>>({})
-/** 上一次写进存储的那份卡（`null` = 这一次挂载还没存过） */
-const written = ref<CardData | null>(null)
-/** 屏上的那张卡：存过就以存下去的那份为准（外层收到 `saved` 才 reload，在那之前 props 是旧的） */
-const shown = computed(() => written.value ?? props.card)
-
-/** 三栏的候选表：卡里那三张表本身，顺序照卡 */
-const roster = computed(() => ({
-  tools: Object.keys(shown.value.actions),
-  reads: Object.keys(shown.value.state),
-  settings: Object.keys(shown.value.settings),
-}))
-
-/**
- * 卡里那一步现在的样子 —— 一份草稿就是从它长出来的。
- *
- * 🔴 **三栏的缺省语义各不相同**：`tools` / `reads` 不写 = **全给**（`card-actions.ts:104` · `card-state.ts:345`）；`settings` 不写 = **全不给**（票 76）。
- */
-function cardDraft(id: string): StepDraft {
-  const node = shown.value.graph.nodes[id]
-  return {
-    name: node.name,
-    duty: node.duty,
-    prompt: node.prompt.join('\n'),
-    tools: [...(node.tools ?? Object.keys(shown.value.actions))],
-    reads: [...(node.reads ?? Object.keys(shown.value.state))],
-    settings: [...(node.settings ?? [])],
-  }
-}
-
-/**
- * 草稿与卡里的值**逐字相同**吗（改回原值 = 没改，顶栏那颗按钮要跟着变回按不动）。
- * ⚠️ 两边都是 `cardDraft` 那个形状长出来的（键序一致）⇒ 逐串比就够。
- */
-function stepChanged(id: string): boolean {
-  const draft = stepDrafts.value[id]
-  return draft !== undefined && JSON.stringify(draft) !== JSON.stringify(cardDraft(id))
-}
-
-/** 那一屏要显示的值：草稿优先，没改过就是卡里的；`null` = 那一步那一屏整个不画 */
-const stepValues = computed<StepDraft | null>(() =>
-  selected.value === '' ? null : (stepDrafts.value[selected.value] ?? cardDraft(selected.value)),
-)
-
-/** 记一处改动（第一次改这一步时从卡里长一份草稿出来；没选任何一步就什么都不做） */
-function editStep(id: string, change: (draft: StepDraft) => void): void {
-  if (id === '') return
-  const draft = { ...(stepDrafts.value[id] ?? cardDraft(id)) }
-  change(draft)
-  stepDrafts.value = { ...stepDrafts.value, [id]: draft }
-}
-
-/** 文本控件的草稿 */
-function setStepText(key: 'name' | 'duty' | 'prompt', value: string): void {
-  editStep(selected.value, (draft) => (draft[key] = value))
-}
-
-/**
- * 一栏勾选的草稿：取消勾就摘掉，勾上就**插到它在候选表里的位置**（不是接到末尾）——
- * 保存**只改人动过的那几处**（D1 逐字比整份卡），排在末尾会把卡里原来那几样的先后也改掉。
- */
-function setStepPick(key: 'tools' | 'reads' | 'settings', name: string, on: boolean): void {
-  editStep(selected.value, (draft) => {
-    const list = draft[key]
-    if (!on) draft[key] = list.filter((one) => one !== name)
-    else if (!list.includes(name)) {
-      const at = list.findIndex((one) => roster.value[key].indexOf(one) > roster.value[key].indexOf(name))
-      draft[key] = at === -1 ? [...list, name] : [...list.slice(0, at), name, ...list.slice(at)]
-    }
-  })
-}
 
 const meta = computed(() => cardMeta(props.card))
 const sourceLabel = computed(() =>
@@ -294,10 +219,8 @@ const touched = computed(() => {
   return ids
 })
 
-/** 干净 ⇔ 一处改动都没有（顶栏那颗「保存」的 `disabled` 就是它） */
-const dirty = computed(
-  () => fresh.value !== null || touched.value.length > 0 || Object.keys(stepDrafts.value).some(stepChanged),
-)
+/** 干净 ⇔ 一处改动都没有（顶栏那颗「保存」的 `disabled` 就是它；第三项是「编一步」那一族的脏） */
+const dirty = computed(() => fresh.value !== null || touched.value.length > 0 || steps.dirty.value)
 
 /** 这一格**待删**的那几行（别的格也有待删时，不该把同名的那一行画成待删） */
 const goneKeys = computed(() =>
@@ -316,11 +239,6 @@ const badKeys = computed(() =>
 /** 点树上的一行：中栏换成那一格的字段表（细条那一轴随之清掉） */
 function pick(path: string): void {
   target.value = { kind: 'branch', path }
-}
-
-/** 点细条上的一步：中栏换成那一步的编屏，可以直接改（树那一轴随之清掉） */
-function pickStep(id: string): void {
-  target.value = { kind: 'step', id }
 }
 
 /** 说明格的草稿（跨格留着：一次保存把好几处改动一起提交） */
@@ -389,23 +307,7 @@ function writeNote(table: Record<string, Schema>, key: string, text: string): vo
  */
 function save(): void {
   const next = JSON.parse(JSON.stringify(props.card)) as CardData
-  for (const id of Object.keys(stepDrafts.value)) {
-    if (!stepChanged(id)) continue
-    const draft = stepDrafts.value[id]
-    const card = cardDraft(id)
-    const node = next.graph.nodes[id]
-    // 🔴 **只写真的改过的那几样**：卡没写 `tools` / `reads` / `settings` 这个键时，"不写"与
-    //    "写全"在引擎那边等价，可它是**作者没写的一个键** —— 顺手补进卡里就是"保存多改一处"
-    //    （D1 逐字比整份卡要拦的正是这件事）。`name` / `duty` / `prompt` 是必写键，不必判。
-    if (draft.name !== card.name) node.name = draft.name
-    if (draft.duty !== card.duty) node.duty = draft.duty
-    // 主提示词一行一条：空行也是卡里的一行 ⇒ 多行框按 `\n` 切回数组
-    if (draft.prompt !== card.prompt) node.prompt = draft.prompt.split('\n')
-    // 三栏名单：顺序也算（它是卡里的声明顺序）⇒ 逐串比
-    if (JSON.stringify(draft.tools) !== JSON.stringify(card.tools)) node.tools = draft.tools
-    if (JSON.stringify(draft.reads) !== JSON.stringify(card.reads)) node.reads = draft.reads
-    if (JSON.stringify(draft.settings) !== JSON.stringify(card.settings)) node.settings = draft.settings
-  }
+  applyTo(next)
   for (const id of Object.keys(notes.value)) {
     if (!noteChanged(id)) continue
     const { parent, key } = splitId(id)
@@ -452,10 +354,7 @@ function save(): void {
   notes.value = {}
   gone.value = {}
   fresh.value = null
-  // ⚠️ **一步的草稿不清**（它记的就是"这一步屏上现在是什么"），改成把**刚存下去的那份卡**
-  //    记进 `written`：于是草稿与它逐字相同 ⇒ 又是干净的，而别的步也读得到最新的那张卡。
-  //    真实外层收到 `saved` 会 reload 整张卡，那时组件整个重建，这两样自然都不在。
-  written.value = next
+  markSaved(next)
   emit('saved')
 }
 </script>
