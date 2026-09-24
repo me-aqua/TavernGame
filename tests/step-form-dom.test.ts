@@ -15,8 +15,17 @@
  * ⚠️ **期望值一律从卡现取**（`graph.nodes[id]` 的键 / `prompt` 的行 / `tools` / `reads` / `settings`），
  *    一个中文键名都不手写 —— `.githooks/checks/ascii.mjs` 连 `tests/` 里的字符串一起拦。
  * ⚠️ **几何、媒体查询、可见性这里都量不到**（jsdom 没有布局）⇒ 横屏那一档的"在屏上"归 `e2e/`。
- * 🔴 **每一个"一个都没有"型的断言都自带反面控制** —— 票 71 的教训：注入物尺寸 `auto` 的断言
- *    等于没写；这里凡断"数 = 0"的地方，都用**同一句查询**在**别处**先证明它数得出东西。
+ * 🔴 **"一个都没有"型的断言：我数了 43 行**（同一支量具：`.team/review/2026-09-23/zof73s-zero-audit.mjs`
+ *    —— 票 75 补控制之前是 **41**、补之后是 **43**；它数的是"零 / 空 / 没有"那个**形状**）。
+ *    口径是**凡断"数 = 0 / 空 / false"的地方，都用同一句查询在别处先证明它读得出东西** ——
+ *    票 71 的教训：注入物尺寸 `auto` 的断言等于没写。
+ *    S3 点名"找不到反面控制"的那 **6 行**（`none === false` · `branchForm === false` ·
+ *    `stepForm === false` · `roleControls` 空 · `role` 控件 0 · 无可自由文本控件）：
+ *    **5 行各加了一句反面控制断言，1 行（`role` 控件 0，在 D2 里）只加了一句注释** ——
+ *    那一行的控制**本来就在它上面那个循环里**（同一句查询在另外六个块上都数得出控件），
+ *    而这一件里**没有一档故障**能造出它的反面形状 ⇒ **没有硬造**。
+ *    逐行落档见 `.team/test/2026-09-24/S1-交付说明-票75.md` §B5。
+ *    ⚠️ 这是一句**数目**，不是"所有判据都有牙" —— 那 43 行里剩下的那些，牙口没被这一票逐行量过。
  *
  * ⚠️ **票 76（`settings` 缺省语义改成"不写 = 一块都不发"）是本件的前置之一**：
  *    R6 按**票 76 之后的卡**写（示例卡的 `outline` / `story` 会被补上显式声明），
@@ -261,11 +270,22 @@ async function branchTrashCount(w: AnyWrapper): Promise<number> {
 
 /** C1a · R1：细条点一步 ⇒ 中栏换成那一步的编屏（今天点一下中栏纹丝不动） */
 async function checkC1a(w: AnyWrapper): Promise<void> {
+  // 🔴 这一条断的两句 `=== false` 各有反面控制（票 75 的 B5）：
+  //    ① 开屏这一刻 `none` **是真的**（同一句查询读得出"有"，下面那句"让开了"才说得出话）；
+  //    ② `branchTrashCount` 选中一格之后 `branchForm` **是真的**（"两张不许共用中栏"同理）。
+  expect(
+    axesOf(w).none,
+    'the empty state is not on screen at all: then "it stepped aside" says nothing',
+  ).toBe(true)
   // `kills === 0` 的反面控制（S3 的 F-1）：同一句查询在编枝态那张表里**数得出**垃圾桶
   expect(
     await branchTrashCount(w),
     'the same query finds no trash in the field table either: then "no trash on that screen" says nothing',
   ).toBeGreaterThan(0)
+  expect(
+    axesOf(w).branchForm,
+    'the field table is not on screen either: then "they may not share the mid column" says nothing',
+  ).toBe(true)
   await pickStep(w, FIRST)
   const s = screenOf(w)
   expect(s.present, 'picking a step must bring up the screen of that step').toBe(true)
@@ -338,6 +358,11 @@ async function checkC2(w: AnyWrapper): Promise<void> {
   await pickStep(w, FIRST)
   const onStep = invariant('right after picking a step while a tree row was lit')
   expect(onStep.step, 'the step that was clicked must be the lit one').toEqual([FIRST])
+  // `open.stepForm === false` 的反面控制（票 75 的 B5）：同一句查询在选中一步之后**读得出"在"**
+  expect(
+    axesOf(w).stepForm,
+    'the step screen never shows up at all: then "it may not be up before anything is picked" says nothing',
+  ).toBe(true)
 
   await pickBranch(w, PICK_B)
   const back = invariant('after going back to the tree')
@@ -447,9 +472,11 @@ async function checkC3d(w: AnyWrapper): Promise<void> {
  * ⚠️ **这一条是把 8c-① 那条整条翻过来的**：上一刀断的是"一个可编控件都没有"（那一屏只读），
  *    这一刀那一屏可编 ⇒ 换成**正面的白名单**，并且**每一族都要真的出现过**
  *    （与 8b-② 的 `A4b` 同一套做法：少了后半句，"一个控件都没有"的实现照样绿 —— 那正是上一刀的合法形状）。
- * ⚠️ **两处反面控制**（票 71 的 ⑧② 与 S3 的 F-1）：
- *    ① 同一句查询在**编枝态那张表**里数得出控件；
- *    ② 同一句"垃圾桶"查询在编枝态那张表里数得出垃圾桶（`kills === 0` 那句的牙）。
+ * ⚠️ **两处反面控制，但只有一处在下面这个函数里**（票 75 的 B6 把这句话说准了）：
+ *    ① **就在本函数开头**：同一句查询在**编枝态那张表**里数得出控件；
+ *    ② **不在本函数里** —— 「同一句『垃圾桶』查询在编枝态那张表里数得出垃圾桶」住在 **C1a**
+ *       （`branchTrashCount`，见 `:265-268`）；它是 C1a 那句 `kills === 0` 与本法末尾那句
+ *       `s.kills === 0` **共用**的那颗牙。别在这两行下面找它。
  */
 async function checkC4(w: AnyWrapper): Promise<void> {
   await pickBranch(w, PICK_A)
@@ -484,6 +511,11 @@ async function checkC5(w: AnyWrapper): Promise<void> {
     nodes[keeper].role as string,
   )
   expect(s.roleControls, 'role is a pointer of the whole card: it is read-only here').toEqual([])
+  // 反面控制（票 75 的 B5）：同一句查询在**那一屏**上数得出控件 —— 空的只是 `role` 那一块
+  expect(
+    controlsIn(w, '[data-step-form]').length,
+    'that screen hands out no control at all: then "role holds none" says nothing',
+  ).toBeGreaterThan(0)
   for (const id of withoutRole) {
     await pickStep(w, id)
     expect(screenOf(w).role, 'a step that writes no role must not draw that block: ' + id).toBe(false)
@@ -688,6 +720,9 @@ describe('the step screen in the mid column (ticket 73: read it, then edit it)',
         ).toBeGreaterThan(0)
       }
       expect(controlsIn(w, '[data-step-block="role"]').length, 'role must stay read-only').toBe(0)
+      // ⚠️ 上面那句的反面控制**就在它上面那个循环里**（票 75 的 B5）：同一句查询
+      //    （`controlsIn(w, '[data-step-block="…"]')`）在另外六个块上都数得出控件。
+      //    少了那个循环，这一句"0 个"就可能是"这个查询根本照不到任何东西"。
       // ② 六个键各改一处（文本三个走控件、三栏走勾选）
       await w.find('[data-step-block="name"] input, [data-step-block="name"] textarea').setValue(NEW_NAME)
       await w.find('[data-step-block="duty"] input, [data-step-block="duty"] textarea').setValue(NEW_DUTY)
@@ -719,8 +754,13 @@ describe('the step screen in the mid column (ticket 73: read it, then edit it)',
       const block = w.find('[data-step-block="tools"]')
       expect(block.exists(), 'the tools block is not there').toBe(true)
       // ① 选择型：这一块里**没有**自由文本控件（写不出卡里没有的动作名）
-      const free = block
-        .findAll('input, textarea, select')
+      const boxes = block.findAll('input, textarea, select')
+      // 反面控制（票 75 的 B5）：同一句查询**数得出控件** —— 空的只是"自由文本"那一半
+      expect(
+        boxes.length,
+        'this column hands out no control at all: then "no free text box" says nothing',
+      ).toBeGreaterThan(0)
+      const free = boxes
         .filter((el) => {
           if (el.element.tagName === 'TEXTAREA') return true
           if (el.element.tagName !== 'INPUT') return false
@@ -848,12 +888,16 @@ function stubHtml(fault: string, step: string, branch: string, frozen: string): 
   ).join('')
   // `nostep`：选了一步也不出那一屏（今天真界面就是这个样子）
   const target = fault === 'nostep' ? '' : lit
+  // `noempty`：什么都没选时**连空态都不画** —— C1a / C2 里那两句 `none === true` 的反面控制
+  //（票 75 的 B5 补的；少了这一档，那两句"空态在这儿"就只有"它自己绿了"做证据）
   const mid =
     target !== ''
       ? screenHtml(fault, target)
       : branch !== ''
         ? '<div data-branch-form><input data-x><button data-field-del>-</button></div>'
-        : '<p data-branch-none></p>'
+        : fault === 'noempty'
+          ? ''
+          : '<p data-branch-none></p>'
   const head = step !== '' ? nodes[step].name : branch
   return (
     '<header data-top></header>' +
@@ -933,8 +977,12 @@ async function redsOn(fault: string): Promise<string[]> {
 /**
  * 故障矩阵：一次整条关掉一样能力，数它红几条。第一条是**通道自检**（替身照契约长 ⇒ 0 红）。
  *
- * ⚠️ 这些数是**跑出来的**（`node .tools/zof69-vitest.mjs tests/step-form-dom.test.ts`），
+ * ⚠️ 这些数是**跑出来的**（`ZOF73_DEBUG=1 node .tools/zof69-vitest.mjs tests/step-form-dom.test.ts`），
  *    不是推出来的 —— 8b-① 那一票凭"注入 ⇒ 哪条会红"推期望值，错了四格。
+ * 🔴 **票 75 重算过整张表**（不是"重推"）：给 C1a / C2 / C5 补了反面控制之后，**旧的那十格只有一格变了**
+ *    —— `readonly` 多红一条 `C5`（那一屏整条没有控件时，"role 那一块没有控件"就没牙了，
+ *    这正是那条反面控制该说的话）；另加**一格新档** `noempty`（什么都不选时连空态都不画），
+ *    红 `C1a` / `C2` —— 它正是那两句"空态在这儿"的牙。**没有任何一格变短。**
  */
 const FAULTS: Array<{ fault: string; reds: string[] }> = [
   { fault: '', reds: [] },
@@ -942,8 +990,10 @@ const FAULTS: Array<{ fault: string; reds: string[] }> = [
   { fault: 'both', reds: ['C2'] },
   // `nostep`：选了一步也不出那一屏
   { fault: 'nostep', reds: ['C1a', 'C1b', 'C2', 'C3a', 'C3b', 'C3c', 'C3d', 'C4', 'C5', 'C6a'] },
+  // `noempty`（票 75 新加）：什么都没选时连空态都不画 ⇒ C1a / C2 里那句"空态在这儿"当场咬到
+  { fault: 'noempty', reds: ['C1a', 'C2'] },
   // `readonly`：那一屏画成 8c-① 的只读形状（＝这一刀开工前的样子）⇒ "可编"那一族全红
-  { fault: 'readonly', reds: ['C1b', 'C3b', 'C3c', 'C3d', 'C4', 'C6a'] },
+  { fault: 'readonly', reds: ['C1b', 'C3b', 'C3c', 'C3d', 'C4', 'C5', 'C6a'] },
   // `kill`：那一屏里混进一颗垃圾桶（S3 的 F-1 要的那一档：`kills === 0` 从此有牙）
   { fault: 'kill', reds: ['C1a', 'C4'] },
   { fault: 'rolectrl', reds: ['C5'] },

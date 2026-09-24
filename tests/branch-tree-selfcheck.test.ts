@@ -6,12 +6,17 @@
  * 它拿一份**照契约长的替身**（进不了产品的测试替身）跑 `support/branch-tree.ts` 里那同一批
  * `CHECKS`：替身全绿 ⇒ 那些判据不是永远红的；再按 `fault` 把某一样**整条关掉** ⇒ 数它们红几条。
  *
- * ⚠️ `fault` 一次只关一样，关的都是"整条能力"（整棵树 / 整个表 / 整条标记 / 整个保存路径）。
+ * ⚠️ `fault` 一次只动一样：有的是**整条关掉**（整棵树 / 整个表 / 整条标记 / 整个保存路径），
+ *    有的是**半步走偏** —— 把某一样改小 / 改偏、别处照旧（票 75 的 B3 补的那几档：
+ *    `freshdrop` `addfirst` `clearwrite` `element-scope` `badall`）。
  * ⚠️ 那些"红了几条"是**冻结的期望值**：谁把某条判据改弱或删掉，这里当场红 —— 这就是本队
  *    「0 红 = 没牙」的落地形态。
  * ⚠️ 本票的替身**自己会改卡**（深拷 → 只改这几处 → `importCard` → 失败只报不改）：
  *    照契约 §1.4 那条保存路径长，否则写的那一族判据（B2 / B3 / B4）在替身上永远是红的，
  *    "能绿"就没人证得了。
+ * 🔴 **替身与真件必须说同一件事**（票 75 的 B2）：换一格时**不许**把那一行新行收掉 ——
+ *    真件的 `CardEditor.pick` 只换当前编辑对象，`BranchForm` 拿**当前那一格**当
+ *    `data-field-parent` ⇒ 新行留着、跟着新那一格走。旧替身在换格时收掉它，谁都没看着。
  * ⚠️ 判据那一侧**每次重新查 DOM**（组件换格 / 保存 / 报错都可能整行重画）：替身用
  *    `innerHTML` 铺屏，抓着上一次的元素不放就是点一个已经离屏的节点。
  */
@@ -114,7 +119,8 @@ function rowHtml(fault: string, s: StubState, parent: string, key: string, first
   if (fault !== 'nodeclare') attrs.push(`data-field-initial="${declaredInitial(parent, key)}"`)
   if (mark) attrs.push('data-field-readonly')
   if (s.gone[idOf(parent, key)]) attrs.push('data-row-pending-del')
-  if (s.bad && involved(s, parent, key)) attrs.push('data-row-bad')
+  // `badall`（半步走偏）：报错时**每一行**都打上标记，而不是只打这次改动牵动的那几行
+  if (s.bad && (fault === 'badall' || involved(s, parent, key))) attrs.push('data-row-bad')
   const label = fault === 'rowname' ? String(fieldsOf(parent)[0]) : key
   // `treemark-parent-only`：只给第一行打标记（其余行漏掉 —— A5a 逐行数，会红）
   const shown = fault === 'treemark-parent-only' ? first : taken
@@ -206,14 +212,16 @@ function stubHtml(fault: string, s: StubState): string {
  *
  * ⚠️ 界面自己挡的三件事（W7）在这里：trim 后非空 · 不含 `.` · 不与同格已有的键重名 ——
  *    校验器一件都不管（实测：`""` / `" "` / `"a.b"` 全都过 `checkSchema`）。
+ * ⚠️ 里面两处「半步走偏」的开关（票 75 的 B3）：`clearwrite` 只在**完全空串**时才删那个键
+ *    （输空格就写成空串）；`element-scope` 在**元素形状**那一格上把新键写回根枝那一格。
  */
-function save(s: StubState, done: () => void): void {
+function save(fault: string, s: StubState, done: () => void): void {
   const next = JSON.parse(JSON.stringify(card)) as CardJson
   for (const [id, text] of Object.entries(s.notes)) {
     const [parent, key] = id.split('|')
     const field = tableIn(next, parent)[key]
     if (field === undefined) continue
-    if (text.trim() === '') delete field.note
+    if (fault === 'clearwrite' ? text === '' : text.trim() === '') delete field.note
     else field.note = text.trim()
   }
   for (const id of Object.keys(s.gone)) {
@@ -244,7 +252,18 @@ function save(s: StubState, done: () => void): void {
       field.initial = s.fresh.kind === 'integer' ? Number(s.fresh.initial) : s.fresh.initial
     }
     if (s.fresh.note !== '') field.note = s.fresh.note
-    table[name] = field
+    const node = schemaAtPath(s.picked)
+    const elementShaped = node !== undefined && schemaFields(node) === undefined
+    const landing = fault === 'element-scope' && elementShaped ? tableIn(next, TREE_PATHS[0]) : table
+    if (fault === 'addfirst') {
+      // 半步走偏：加是加了，插在**表头**（别处照旧）
+      const rows = Object.entries(landing)
+      for (const key of Object.keys(landing)) delete landing[key]
+      landing[name] = field
+      for (const [key, value] of rows) landing[key] = value
+    } else {
+      landing[name] = field
+    }
   }
   try {
     importCard(JSON.stringify(next))
@@ -272,13 +291,14 @@ const BranchStub = defineComponent({
   /** 替身的状态都在这一个 ref 里：点与输入改它，渲染函数照它铺那一屏 */
   setup(props, { emit }) {
     const s = ref<StubState>({ picked: '', notes: {}, gone: {}, fresh: null, error: '', bad: false })
-    /** 点树上的一行 = 选中它（顺手把没保存的新行收掉） */
+    /** 点树上的一行 = 选中它（那一行新行**留着** —— 真件就是这么做的，见文件头） */
     const onClick = (event: MouseEvent) => {
       const el = event.target as Element
       const node = el.closest('[data-branch-node]')
       if (node) {
         s.value.picked = node.getAttribute('data-branch-node') ?? ''
-        s.value.fresh = null
+        // `freshdrop`（漂移的旧形状）：换一格就把没保存的新行收掉 —— 真件**不这么做**
+        if (props.fault === 'freshdrop') s.value.fresh = null
         return
       }
       if (el.closest('[data-field-add]')) {
@@ -300,7 +320,7 @@ const BranchStub = defineComponent({
         s.value.gone[id] = !s.value.gone[id]
         return
       }
-      if (el.closest('[data-card-save]')) save(s.value, () => emit('saved'))
+      if (el.closest('[data-card-save]')) save(props.fault, s.value, () => emit('saved'))
     }
     /** 输入：说明那一格按行分流（新行的三格各有自己的草稿） */
     const onInput = (event: Event) => {
@@ -361,11 +381,13 @@ async function redsOn(fault: string): Promise<string[]> {
 }
 
 /**
- * 故障矩阵：一次整条关掉一样能力，数它红几条。第一条是**通道自检**（替身照契约长 ⇒ 0 红），
+ * 故障矩阵：一次动一样能力，数它红几条。第一条是**通道自检**（替身照契约长 ⇒ 0 红），
  * 有了它，下面那些数才不是"永远红"。
  *
- * ⚠️ 这些数是**跑出来的**（`node .tools/zof69-vitest.mjs tests/branch-tree-selfcheck.test.ts`），
+ * ⚠️ 这些数是**跑出来的**（`ZOF70_DEBUG=1 node .tools/zof69-vitest.mjs tests/branch-tree-selfcheck.test.ts`），
  *    不是推出来的 —— 8b-① 那一票在这件事上栽过两次（凭"注入 ⇒ 哪条会红"推期望值）。
+ * 🔴 **票 75 重算过整张表**（不是"重推"）：新增了一条判据 `B3e` ⇒ 四条旧档的红名单各长一项
+ *    （`notree` `noform` `deadctrls` `nosave`），**没有任何一格变短**。
  */
 const FAULTS: Array<{ fault: string; reds: string[] }> = [
   { fault: '', reds: [] },
@@ -396,6 +418,7 @@ const FAULTS: Array<{ fault: string; reds: string[] }> = [
       'B3b',
       'B3c',
       'B3d',
+      'B3e',
       'B4a',
       'B4b',
       'B4c',
@@ -424,6 +447,7 @@ const FAULTS: Array<{ fault: string; reds: string[] }> = [
       'B3b',
       'B3c',
       'B3d',
+      'B3e',
       'B4a',
       'B4b',
       'B4c',
@@ -435,7 +459,7 @@ const FAULTS: Array<{ fault: string; reds: string[] }> = [
   { fault: 'readonlyall', reds: ['A4a', 'A5b'] },
   { fault: 'ctrls', reds: ['A4b'] },
   // 票 71 的 A4c：四个控件都在、形状也对，就是全 `disabled` —— 只有"能不能用"那一条咬得到
-  { fault: 'deadctrls', reds: ['A4c', 'B2a', 'B2b', 'B3a', 'B3b', 'B3c', 'B4a', 'B4b'] },
+  { fault: 'deadctrls', reds: ['A4c', 'B2a', 'B2b', 'B3a', 'B3b', 'B3c', 'B3e', 'B4a', 'B4b'] },
   { fault: 'legacy', reds: ['A4b'] },
   { fault: 'nodeclare', reds: ['A2d'] },
   // 票 69 那条洞（只标第一行）：A4a 改成"逐行 ⇔"之后**多红一条** A4a —— 标记落在作者的行上，
@@ -443,7 +467,18 @@ const FAULTS: Array<{ fault: string; reds: string[] }> = [
   { fault: 'treemark-parent-only', reds: ['A4a', 'A5a', 'A5b'] },
   { fault: 'nonote', reds: ['A4b', 'A4c', 'B1a', 'B2a', 'B2b', 'B4a'] },
   { fault: 'nodel', reds: ['B3a', 'B3d', 'B4c'] },
-  { fault: 'nosave', reds: ['A4c', 'B2a', 'B2b', 'B3b', 'B3c', 'B3d', 'B4a', 'B4b', 'B4c'] },
+  { fault: 'nosave', reds: ['A4c', 'B2a', 'B2b', 'B3b', 'B3c', 'B3d', 'B3e', 'B4a', 'B4b', 'B4c'] },
+  // ---- 票 75 的 B3：**半步走偏**那一族 —— 不是整条关掉，而是把某一样改小 / 改偏 ----
+  // `freshdrop`：替身换格时把没保存的新行收掉（**漂移的旧形状**）⇒ 只有 B3e 咬得到
+  { fault: 'freshdrop', reds: ['B3e'] },
+  // `addfirst`：新键插在**表头** —— 加成功了、卡也落了，"在最后"那三句一起咬
+  { fault: 'addfirst', reds: ['B3b', 'B3c', 'B3e'] },
+  // `clearwrite`：只有**完全空串**才删键（输空格写成空串）⇒ 咬的是 B2b 的第二轮
+  { fault: 'clearwrite', reds: ['B2b'] },
+  // `element-scope`：元素形状那一格上把新键写回**根枝那一格**（格子走偏）
+  { fault: 'element-scope', reds: ['B3c', 'B3e'] },
+  // `badall`：卡拒了、原因也说了，就是**每一行**都打上"这一行出事" ⇒ 只有 B4b 数得出走偏
+  { fault: 'badall', reds: ['B4b'] },
 ]
 
 describe('self-check: these criteria can go red, and by how much', () => {

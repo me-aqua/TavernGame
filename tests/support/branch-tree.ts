@@ -542,6 +542,11 @@ async function checkA3b(w: AnyWrapper): Promise<void> {
  * ⚠️ 上一票断的是"每一行都带 `data-field-readonly`"—— 本票把"写"接回来之后那句话就不成立了。
  *    新断言比旧的**严**：不只是"带"，而是**双向相等**（带它的行 ⇔ 引擎接管那一族），
  *    并且接管行要**整行**没控件（说明格是只读文字、行尾连垃圾桶都不画）。
+ * 🔴 **① 在真件上量出来是同一个表达式**（票 75 的 B4）：`BranchForm.vue:94-95` 那两个属性
+ *    绑的都是 `row.taken ? '' : null` ⇒ 真件上"逐行相等"这句**不可能红**，它守的只是
+ *    "这两个绑定哪天不许被拆成两份"（那件事由 `step-write-tails.test.ts` 的 B4 那条守着）。
+ *    它在**自检替身**上有真牙（替身那两个标记是两个独立开关）—— 读数见交付说明，不在真件上。
+ *    真件上的牙是 ②③：别的格一行都不许带、接管行整行不可写。
  */
 async function checkA4a(w: AnyWrapper): Promise<void> {
   // ① 一张混着两种行的表：只读与接管必须**逐行相等**（两个方向都在这一句里）
@@ -801,6 +806,8 @@ async function checkB2a(w: AnyWrapper): Promise<void> {
  *
  * ⚠️ 这一条自带反面证据：空串**连校验器都过不了**（`checkSchema` 的 `requireText`）⇒
  *    "删键"不是风格选择，是唯一走得通的路。少了这句，把 `note` 写成 `""` 的实现也会绿。
+ * ⚠️ **每一轮都先播种**（票 75 补）：不播种时，**第二轮**被拒的那一次会因为存储里还留着
+ *    第一轮成功的结果而**看不出来** —— 两轮都"对"了，红的却没人看见。
  */
 async function checkB2b(w: AnyWrapper): Promise<void> {
   expect(
@@ -813,6 +820,7 @@ async function checkB2b(w: AnyWrapper): Promise<void> {
   const want = JSON.parse(JSON.stringify(card)) as CardJson
   delete tableIn(want, PICK_A)[row].note
   for (const typed of ['', '   ']) {
+    localStorage.setItem(CARD_KEY, JSON.stringify(card))
     await noteBox(w, PICK_A, row).setValue(typed)
     await save(w)
     expect(
@@ -826,7 +834,10 @@ async function checkB2b(w: AnyWrapper): Promise<void> {
 /**
  * B3a · 「＋ 加一个字段」：表尾**多一行**新行，四格控件齐、类型默认「文字」、键名格拿到焦点。
  *
- * ⚠️ 新行落在**表尾**：保存按行序写回 ⇒ 新键必然是那一格 `fields` 的最后一个（B3b/B3c 验落盘）。
+ * ⚠️ 新行落在**表尾**：保存按行序写回 ⇒ 新键落在那一格 `fields` 的最后一个（B3b/B3c 验落盘）。
+ *    🔴 **"最后一个"不是 JS 保证的**（票 75 的 B1）：`Object.keys` 对**整数样**的键名
+ *    （`"0"` / `"7"`）按数值排到**前面**，与它什么时候插进去无关 ⇒ 那句话只在"键名不是整数样"时
+ *    成立，而 B3b 用的 `NEW_KEY` 正是这一档 —— 边界在 B3b 里当场钉住，不靠记性。
  * ⚠️ 刚开出来的行**还没落过盘** ⇒ 它的垃圾桶是"取消"，不进"待删"。
  */
 async function checkB3a(w: AnyWrapper): Promise<void> {
@@ -868,6 +879,9 @@ async function checkB3a(w: AnyWrapper): Promise<void> {
  * B3b · W4：加一行 → 保存 ⇒ 那一格**多一个键、而且在最后**（`object` 自己的 `fields`）。
  *
  * ⚠️ 新行没填初值 ⇒ 卡里**不写 `initial` 这个键**（"开局没有这一栏"是卡里有意义的一个状态）。
+ * 🔴 **"最后一个"那句话的边界在这儿**（票 75 的 B1）：`Object.keys` 不是"插入序"，
+ *    **整数样**的键名排在前面 —— 所以上面那句只在 `NEW_KEY` 这种普通名字上成立，
+ *    最后两句把这件事当场量出来（替身那一侧的 `addfirst` 档是它的牙）。
  */
 async function checkB3b(w: AnyWrapper): Promise<void> {
   await pickRow(w, PICK_A)
@@ -879,6 +893,15 @@ async function checkB3b(w: AnyWrapper): Promise<void> {
   expect(table[NEW_KEY], 'a new field with an empty initial carries no initial key').toEqual({
     type: 'string',
   })
+  // 反面控制（B1 的边界）：上面那句的**前提**是"这个键名不是整数样" —— 两句当场比出来
+  expect(
+    Object.keys({ z: 0, ...{ [NEW_KEY]: 1 } }),
+    'a plain key keeps its insertion place: the line above leans on exactly this',
+  ).toEqual(['z', NEW_KEY])
+  expect(
+    Object.keys({ z: 0, '7': 1 }),
+    'an integer-like key sorts ahead of every other key, so "last" cannot be asserted with such a name',
+  ).toEqual(['7', 'z'])
 }
 
 /**
@@ -931,6 +954,44 @@ async function checkB3d(w: AnyWrapper): Promise<void> {
     await cancelNewRow(w)
   }
   expect(JSON.stringify(card), 'a refused save must not touch the card').toBe(before)
+}
+
+/**
+ * B3e · 那一行**还没落过盘**的新行不挂在任何一格上（票 75 的 B2：替身与真件漂移的哨兵）。
+ *
+ * 为什么要有这一条：自检那份替身原来在"换一格"的时候把新行收掉，而**真件**（`CardEditor.pick`
+ * 只换 `target`，`BranchForm` 拿**当前那一格**当 `data-field-parent`）把它留着
+ * ⇒ 那两句话说不到一块去，而**没有任何判据看着这件事**：替身那一趟照样 0 红，"能绿"就没人证得了。
+ *
+ * 这一条钉的是**真件的行为**（`src/` 一个字节不动，所以口径按真件写）：
+ * 换一格 ⇒ 新行**还在**（仍是恰好一行）、`data-field-parent` **跟着新那一格**，保存就落在新那一格；
+ * 开它出来的那一格**一个键都不许多**。自检那一侧的 `freshdrop` 档长的正是漂移的旧形状。
+ */
+async function checkB3e(w: AnyWrapper): Promise<void> {
+  expect(PICK_B, 'this check needs two different cells to move between').not.toBe(PICK_A)
+  await pickRow(w, PICK_A)
+  await openNewRow(w, NEW_KEY)
+  expect(w.findAll('[data-row-new]').length, 'the plus opened no new row at all').toBe(1)
+  await pickRow(w, PICK_B)
+  const fresh = w.findAll('[data-row-new]')
+  expect(fresh.length, 'picking another cell may not drop an unsaved new row').toBe(1)
+  expect(
+    fresh[0].attributes('data-field-parent'),
+    'an unsaved new row belongs to the cell being edited right now',
+  ).toBe(PICK_B)
+  expect(
+    fresh[0].find('[data-field-key-new]').exists(),
+    'the row that survived the move lost its key cell',
+  ).toBe(true)
+  await save(w)
+  expect(
+    Object.keys(tableIn(storedRaw(), PICK_B)),
+    'the save must add the key to the cell that is being edited when the save happens',
+  ).toEqual([...declaredOrder(PICK_B), NEW_KEY])
+  expect(
+    Object.keys(tableIn(storedRaw(), PICK_A)),
+    'the cell the row was opened in may not gain that key behind the back of the author',
+  ).toEqual(declaredOrder(PICK_A))
 }
 
 /**
@@ -1066,6 +1127,7 @@ export const CHECKS: Check[] = [
   { id: 'B3b', what: 'a new field lands last in the fields of the node', run: checkB3b },
   { id: 'B3c', what: 'a new field lands last in the element table too', run: checkB3c },
   { id: 'B3d', what: 'the UI refuses the four key names the card format cannot catch', run: checkB3d },
+  { id: 'B3e', what: 'an unsaved new row follows the cell being edited', run: checkB3e },
   { id: 'B4a', what: 'the save is out of reach until something really changed', run: checkB4a },
   { id: 'B4b', what: 'a card that refuses the change says why and touches nothing', run: checkB4b },
   { id: 'B4c', what: 'the trash marks a row first and only the save deletes it', run: checkB4c },
