@@ -14,7 +14,8 @@
  *    多一档就红（插进来的卡图 / 表单 / 资源库有各自的长相，不算）。
  * ⚠️ ≤820px 降级成「一栏 + 抽屉」：中栏独占整宽、左右两栏收成贴边的抽屉、细条收成顶栏下
  *    那条横带、标尺压成一行文字。**抽屉关着必须是 `display: none`** —— 靠 translateX 挪出屏
- *    会被 e2e/probe.ts 记成「伸出视口的元素」，整页检查当场全红。
+ *    会被 e2e/probe.ts 记成「伸出视口的元素」，整页检查当场全红。两颗面板开关住在横带里。
+ * ⚠️ ≤599px **且**竖屏另有一条闸门：只留「身份 + ✕」与一句提示（见 `<style>` 末尾那条媒体查询）。
  * ⚠️ 三个「＋」的点按区 24x24，画出来还是 `--h-btn` 那个小方块（probe 拦小于 24px 的目标）。
  */
 import { computed, ref } from 'vue'
@@ -66,7 +67,7 @@ const current = computed(() =>
 const subtitle = computed(() => props.branch || current.value)
 /** 底部标尺那四个数就是四栏宽度（第三段是弹性的，写不出具体数） */
 const ruler = computed(() => ['300px', '120px', t('card.rulerFit'), '290px'])
-/** 顶栏那两颗抽屉按钮：横屏才看得见，宽屏下由 CSS 收起来 */
+/** 两颗抽屉开关：住在横带里（窄档从顶栏搬过去，把地方让给卡名），宽屏由 CSS 收起来 */
 const toggles = computed(() => [
   { name: 'content', label: t('card.drawerContent') },
   { name: 'prompts', label: t('card.drawerPrompts') },
@@ -104,17 +105,6 @@ function pick(id: string) {
       >
         {{ t('card.resourcesTitle') }}
       </button>
-      <button
-        v-for="one in toggles"
-        :key="one.name"
-        type="button"
-        class="top-btn"
-        :data-drawer-toggle="one.name"
-        :aria-expanded="drawer === one.name ? 'true' : 'false'"
-        @click="toggleDrawer(one.name)"
-      >
-        {{ one.label }}
-      </button>
       <!-- 保存：一次把说明 / 加字段 / 删字段一起提交；干净时按不动（改回原值也算干净） -->
       <button type="button" data-card-save class="top-btn" :disabled="!dirty" @click="emit('save')">
         {{ t('card.save') }}
@@ -131,6 +121,12 @@ function pick(id: string) {
       </button>
     </header>
 
+    <!-- 窄 且 竖那一屏：这套编辑器放不下，只留身份 + ✕ 与这一句（宽 ≥600 或横过来就回来） -->
+    <section data-rotate>
+      <h2 v-text="t('card.rotateTitle')" />
+      <p v-text="t('card.rotateBody')" />
+    </section>
+
     <!-- 横带：细条 120 的降级形态，只显示当前那一步 + 换一步（宽屏下不出现） -->
     <div class="band">
       <span class="band-k">{{ t('card.shellFlow') }}</span>
@@ -140,6 +136,18 @@ function pick(id: string) {
           {{ card.graph.nodes[id].name }}
         </button>
       </template>
+      <!-- 两颗面板开关：口径 A 从顶栏搬来这里（把宽度让给卡名），DOM 序排在步骤按钮之后 -->
+      <button
+        v-for="one in toggles"
+        :key="one.name"
+        type="button"
+        class="top-btn"
+        :data-drawer-toggle="one.name"
+        :aria-expanded="drawer === one.name ? 'true' : 'false'"
+        @click="toggleDrawer(one.name)"
+      >
+        {{ one.label }}
+      </button>
     </div>
 
     <div data-shell>
@@ -245,9 +253,9 @@ function pick(id: string) {
   padding: 0 var(--s2) 0 var(--s3);
   border-bottom: 1px solid var(--color-line);
 }
-/* 身份那一块先让位、再截断：窄屏挤到一行时它不许把顶栏顶宽 */
+/* 身份那一块先让位、再截断：96px 是地板 —— 挤穿了宁可顶栏溢出（有判据抓），也不许把卡名吞成 0 */
 .top-id {
-  min-width: 0;
+  min-width: 96px;
   margin-right: auto;
   overflow: hidden;
 }
@@ -309,6 +317,25 @@ function pick(id: string) {
 .band-k {
   font-size: var(--fs3);
   color: var(--color-faint);
+}
+/* 竖屏那一屏的提示块：默认收起，只在文件末尾那条闸门（窄 且 竖）里现形 */
+[data-rotate] {
+  display: none;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--s4) var(--s3);
+  text-align: center;
+}
+[data-rotate] h2 {
+  margin: 0 0 var(--s2);
+  font-size: var(--fs1);
+  color: var(--color-text);
+}
+[data-rotate] p {
+  margin: 0;
+  font-size: var(--fs2);
+  color: var(--color-muted);
 }
 /* ---------- 四栏 ---------- */
 [data-shell] {
@@ -497,6 +524,19 @@ function pick(id: string) {
   [data-ruler-seg] {
     display: inline-block;
     margin-right: var(--s3);
+  }
+}
+/* ---------- ≤599px 且竖屏：不给编辑 —— 必须排在 ≤820 之后（同特异性下 `.is-open` 会漏出来） ---------- */
+@media (max-width: 599px) and (orientation: portrait) {
+  [data-card-resources-open],
+  [data-card-save],
+  [data-shell],
+  .band,
+  [data-ruler] {
+    display: none;
+  }
+  [data-rotate] {
+    display: flex;
   }
 }
 </style>

@@ -169,6 +169,8 @@
     "rulerFit": "自适应",
     "drawerContent": "内容栏",
     "drawerPrompts": "提示词栏",
+    "rotateTitle": "请把手机横过来",
+    "rotateBody": "竖着的手机屏放不下卡图编辑器：横过来就能编。",
     "promptsClosed": "顶栏那颗「提示词资源」把它打开",
     "addBranch": "加一枝",
     "addAction": "加一个动作",

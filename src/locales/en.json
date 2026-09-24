@@ -169,6 +169,8 @@
     "rulerFit": "flexible",
     "drawerContent": "Content",
     "drawerPrompts": "Prompts",
+    "rotateTitle": "Please turn your phone sideways",
+    "rotateBody": "The card editor does not fit a screen held upright: turn it sideways to edit.",
     "promptsClosed": "Open it with the prompt-resources button in the top bar",
     "addBranch": "Add a branch",
     "addAction": "Add an action",
