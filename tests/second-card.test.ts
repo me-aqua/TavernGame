@@ -51,8 +51,10 @@ function storyNodeOf(card: typeof first): string {
 
 describe('two cards, one engine', () => {
   it('both parse from their file text and look nothing alike', () => {
-    expect(first.card.format).toBe('card/4')
-    expect(second.card.format).toBe('card/4')
+    // 票 68（2026-09-24）：格式戳提到 card/5（`side` 必填 ⇒ 旧戳一并失效）。
+    // 这一处钉的是**现状**、不是历史 ⇒ 跟着常量走（契约 §八.1 那张表把它列成 S2 要改的面）。
+    expect(first.card.format).toBe('card/5')
+    expect(second.card.format).toBe('card/5')
     expect(first.card.id).not.toBe(second.card.id)
     expect(first.graph.topology.length).toBeGreaterThan(second.graph.topology.length)
     // 历法：一个是引擎预设，一个是卡自己写的

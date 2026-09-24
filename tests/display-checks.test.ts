@@ -99,11 +99,14 @@ describe('a sidebar entry of the wrong shape is refused, with the place named', 
   })
 
   it('9 refuses an entry whose fields are the wrong type', () => {
-    // 三个字段各来一次：缺一个键、写错类型 —— 报错都要点名那一处
-    const base = { path: MAP, title: 'the map', format: 'grouped' }
-    expect(rejectionOf(withDisplay({ sidebar: [{ path: MAP, format: 'grouped' }] }))).toContain('title')
+    // 四个字段各来一次：缺一个键、写错类型 —— 报错都要点名那一处
+    const base = { path: MAP, title: 'the map', format: 'grouped', side: 'left' }
+    expect(rejectionOf(withDisplay({ sidebar: [{ path: MAP, format: 'grouped', side: 'left' }] }))).toContain(
+      'title',
+    )
     expect(rejectionOf(withDisplay({ sidebar: [{ ...base, format: 7 }] }))).toContain('format')
     expect(rejectionOf(withDisplay({ sidebar: [{ ...base, path: 7 }] }))).toContain('path')
+    expect(rejectionOf(withDisplay({ sidebar: [{ ...base, side: 7 }] }))).toContain('side')
   })
 })
 

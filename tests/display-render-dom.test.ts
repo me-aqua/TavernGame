@@ -52,9 +52,9 @@ function pathOfFormat(format: string): string {
   return String(entry.path)
 }
 
-/** 挂一块面板（块来自当前卡；状态可换） */
+/** 挂一栏（块来自当前卡；状态可换）—— 票 68 起组件是**一栏**，`side` 是它自己的那一侧 */
 function panel(tree: StateTree = state) {
-  return mount(WorldPanel, { props: { blocks: world, state: tree } })
+  return mount(WorldPanel, { props: { side: 'left', blocks: world, state: tree } })
 }
 
 /**
@@ -196,10 +196,14 @@ describe('the panel draws one block per declared branch', () => {
     }
   })
 
-  it('19 an empty declaration and an empty branch draw nothing and do not throw', () => {
-    // 卡声明了空侧栏（long-night 就是）：一块都没有，也不抛
-    const none = mount(WorldPanel, { props: { blocks: [], state } })
+  it('19 an empty column and an empty branch: no blocks drawn, nothing throws', () => {
+    // 一栏手里 0 块（票 68：`long-night` 的空表、或某一边本来就没有块）—— 一句提示，不抛
+    const none = mount(WorldPanel, { props: { side: 'left', blocks: [], state } })
     expect(none.findAll('[data-block]')).toHaveLength(0)
+    expect(
+      none.find('[data-side-empty]').exists(),
+      'an empty column must say so instead of drawing nothing at all',
+    ).toBe(true)
     // 一枝是合法的空（空字典）：那一块照画（标题在），里面一条都没有
     const bare = JSON.parse(JSON.stringify(state)) as StateTree
     ;(bare.world as Record<string, unknown>).map = {}
@@ -220,14 +224,14 @@ describe('a preset format draws a shape, not a branch name', () => {
           fields: { sky: 'string', wind: 'string' },
         },
       },
-      [{ path: 'world.weather', title: 'the weather', format: 'key-value' }],
+      [{ path: 'world.weather', title: 'the weather', format: 'key-value', side: 'left' }],
     )
     const blocks = worldBlocks(displayOf(fresh))
     expect(
       blocks.map((block) => block.name),
       'the new branch is not one block',
     ).toEqual(['world.weather'])
-    const w = mount(WorldPanel, { props: { blocks, state: instantiate(fresh) } })
+    const w = mount(WorldPanel, { props: { side: 'left', blocks, state: instantiate(fresh) } })
     const block = w.find('[data-block="world.weather"]')
     expect(block.exists(), 'a branch no engine table knows has no block of its own').toBe(true)
     const text = block.text()
@@ -244,12 +248,12 @@ describe('a preset format draws a shape, not a branch name', () => {
         right: { type: 'object', initial: { one: 'r-one', two: 'r-two' }, fields: { ...fields } },
       },
       [
-        { path: 'world.left', title: 'left', format: 'key-value' },
-        { path: 'world.right', title: 'right', format: 'key-value' },
+        { path: 'world.left', title: 'left', format: 'key-value', side: 'left' },
+        { path: 'world.right', title: 'right', format: 'key-value', side: 'right' },
       ],
     )
     const w = mount(WorldPanel, {
-      props: { blocks: worldBlocks(displayOf(fresh)), state: instantiate(fresh) },
+      props: { side: 'left', blocks: worldBlocks(displayOf(fresh)), state: instantiate(fresh) },
     })
     const left = w.find('[data-block="world.left"]')
     const right = w.find('[data-block="world.right"]')
@@ -286,7 +290,7 @@ describe('the panel is a function of what it is handed', () => {
 
   it('23 it draws the blocks it is handed, in that order (no order of its own)', () => {
     const reversed = [...world].reverse()
-    const w = mount(WorldPanel, { props: { blocks: reversed, state } })
+    const w = mount(WorldPanel, { props: { side: 'left', blocks: reversed, state } })
     expect(w.findAll('[data-block]').map((el) => el.attributes('data-block'))).toEqual(
       reversed.map((block) => block.name),
     )

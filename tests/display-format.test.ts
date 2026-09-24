@@ -114,15 +114,21 @@ function pathsByContainer(root: StateSchema): Record<string, string[]> {
   return out
 }
 
-/** 只有一条声明的卡（反例都这么造：一条声明、一处坏） */
+/**
+ * 只有一条声明的卡（反例都这么造：一条声明、一处坏）。
+ *
+ * ⚠️ 票 68（2026-09-24）：`side` 由这里**补上**（调用方给了就用它的）——
+ *    否则每条反例都会先被"缺 `side`"拒掉，**红在错的原因上**（那四条判据要断的是
+ *    `world.nowhere` / 未知格式 / 容器不符 / 多余的键）。**一条断言都没改。**
+ */
 function cardWith(entry: Record<string, unknown>): Record<string, any> {
   const broken = copy(morningwind)
-  broken.display.sidebar = [entry]
+  broken.display.sidebar = [{ side: 'left', ...entry }]
   return broken
 }
 
 describe('a sidebar entry names one branch, a title and one preset format', () => {
-  it('1 every card declares display.sidebar, and every entry is exactly {path, title, format}', () => {
+  it('1 every card declares display.sidebar, and every entry is exactly {path, title, format, side}', () => {
     for (const { name, raw } of CARDS) {
       expect(Object.hasOwn(displayOf(raw), 'sidebar'), name + ' declares no display.sidebar').toBe(true)
       expect(Array.isArray(displayOf(raw).sidebar), name + ' display.sidebar is not a list').toBe(true)
@@ -131,6 +137,7 @@ describe('a sidebar entry names one branch, a title and one preset format', () =
         expect(Object.keys(entry).sort(), where + ' carries keys no entry has').toEqual([
           'format',
           'path',
+          'side',
           'title',
         ])
         expect(typeof entry.title, where + ' title').toBe('string')

@@ -64,9 +64,14 @@ const GAP = 1.5
  * ⚠️ 票 71 补的两个：`src/App.vue`（**4 处**）与 `src/components/CardSection.vue`（**5 处**）。
  *    它们是玩家界面，既不在名单里、也不在任何哈希里 ⇒ 那 9 处没人守。
  * ⚠️ 路径别照抄前缀：`App.vue` 在 **`src/App.vue`**，不在 `src/components/`。
+ * ⚠️ **票 68（2026-09-24）同票重钉两条**（本票必然改这两件，S0 §10.2 的硬约束）：
+ *    `src/App.vue` **4 → 5**（多了竖屏闸门那一对提示：标题 14px / 正文 12.5px；同时撤掉右上角
+ *    那颗「世界」按钮的一处 11px）· `src/components/WorldPanel.vue` **8 → 7**
+ *    （抽屉的头与收起按钮撤了 = 少两处 12px，换成空栏那一句 = 多一处 11px）。
+ *    值由 `.tools/marta68-repin.mjs` 现算，与盘上文件逐字相同。
  */
 const PLAYER_CENSUS: Record<string, { count: number; sizes: string[] }> = {
-  'src/App.vue': { count: 4, sizes: ['11', '12.5'] },
+  'src/App.vue': { count: 5, sizes: ['11', '12.5', '14'] },
   'src/components/AppSidebar.vue': { count: 2, sizes: ['11.5', '12.5'] },
   'src/components/Blocks.vue': { count: 3, sizes: ['11', '12'] },
   'src/components/CardSection.vue': { count: 5, sizes: ['11.5', '12.5', '13'] },
@@ -74,7 +79,7 @@ const PLAYER_CENSUS: Record<string, { count: number; sizes: string[] }> = {
   'src/components/GameComposer.vue': { count: 3, sizes: ['11', '14'] },
   'src/components/SettingsDrawer.vue': { count: 16, sizes: ['11.5', '12.5', '13', '13.5', '17'] },
   'src/components/StoryPanel.vue': { count: 16, sizes: ['12', '12.5', '13', '15'] },
-  'src/components/WorldPanel.vue': { count: 8, sizes: ['11', '12'] },
+  'src/components/WorldPanel.vue': { count: 7, sizes: ['11', '12'] },
 }
 
 /**
@@ -93,11 +98,15 @@ const EDITOR_OWNED: Record<string, string> = {
  * 三张卡：以这里钉住的**值与文件集合**为准 —— 要动它们**必须有票**，而且**同一票里重钉**
  * （重钉时把"是被哪一条要求改的"写进那一票的契约，评审才看得出重钉有依据）。
  * 最近一次重钉：票 76，S0 §二 #3（三张卡补齐缺失的 `settings` 显式声明）。
+ * ⚠️ **票 68（2026-09-24）重钉三条**：`display.sidebar[]` 每条多一样**必填的 `side`**、
+ *    `morningwind` / `night-watch` 的 `layout` 散文改成现在的事实（两条栏常驻）、
+ *    格式戳提到 **`card/5`**（契约 §八.1 第 5 行）⇒ 三张卡逐字都变了。
+ *    值由 `.tools/marta68-repin.mjs` 现算（口径与下面的 `hashOf` 逐字同源）。
  */
 const CARD_HASHES: Record<string, string> = {
-  'cards/long-night.json': '0f64e47897f6a955bbda8f0e69b098246c1fecd01bb5e5affab453abb9f18eeb',
-  'cards/morningwind.json': 'b2c99c86478b945b01867fed4398df657274407d9597598e5578c7ae21041926',
-  'cards/night-watch.json': '594e00f4225820f0ccbf9785d90605126413b585a195847b2eb8e25b83bd60dc',
+  'cards/long-night.json': '248ad29ec4ab0d0b275d2fbaed45443ef42ac18871d639750d6f7525bce96e7b',
+  'cards/morningwind.json': 'fb32854c38833bc0d1958195351616d6c006bd6049519ebfd2d69d5ea1f00e84',
+  'cards/night-watch.json': 'ef56cbbd09669f5753edfc54c71e050e404a4a1df09a0e37d9d7d54eac19ce92',
 }
 
 /** 卡的图那一个组件：口径 3 把它留在左栏（`DebugPanel` 也在用它），票 72 之后以这里钉住的值与文件集合为准 */
@@ -110,6 +119,11 @@ const GRAPH_HASH = 'efdd93c79f034529f1807b9ac0f162e388a8f553ebfa339578d1ae403981
  * 引擎与显示那一层：以这里钉住的**值与文件集合**为准 —— 要动它们**必须有票**，而且**同一票里重钉**
  * （重钉时把"是被哪一条要求改的"写进那一票的契约）。
  * 最近一次重钉：票 76，S0 §二 #2（`src/game/card.ts` 的报错文案与注释）。
+ * ⚠️ **票 68（2026-09-24）也钉了这一组**：`card.ts` 的格式戳 `card/4` → **`card/5`**
+ *    （常量 + 类型里的字面量 + 文件头那两句）· `display.ts` 的 **`side`**（每条侧栏声明必填、
+ *    键集多一样、取值只有 left / right，契约 §一/§二）。契约 §八.1 那份"要动的面"清单**漏了本组**
+ *    （只列了 `CARD_HASHES` / `PLAYER_CENSUS`）⇒ 按 §九 `T12` 的同一套先例由 S2 重钉。
+ *    值由 `.tools/zof68-gamehashes.mjs` 现算：13 个文件里**只有上面那两个变了**、其余逐字不变。
  */
 const GAME_HASHES: Record<string, string> = {
   'src/game/card-actions.ts': '54bce7b568df843939965bce6e3422553f1be05bbd44e5d3f4a68c5c11a39fd5',
@@ -118,9 +132,9 @@ const GAME_HASHES: Record<string, string> = {
   'src/game/card-read.ts': 'f3db497988950f77ab21024835ae545908cc2ae0271e81b18f714a97c17f59f8',
   'src/game/card-state.ts': '7bcb8708ed898a469de09b71e9f7f22d75396099af7daa0d88d3378142b22cae',
   'src/game/card-time.ts': '3eac6324b039c5ff5bd1488c12d3d18981d29b48055aff123d678bb558829343',
-  'src/game/card.ts': 'af3f3c70c0f9596ff5c17625876d83db597220f77a1007a6b046f7f589262ae0',
+  'src/game/card.ts': 'e1c4acb65f82ff10f66027f5c8b93eed43259bc268e9123e82e4072d5fca72f6',
   'src/game/current-card.ts': '4e646b7377b3d40e84ead0a3d401f6bb039d04b43e2dbd34c137aa168eb470ab',
-  'src/game/display.ts': '50e1ff921482d2f2a781ea5025ebcd7f542a912fe945f1e243381c3a1d828b31',
+  'src/game/display.ts': '11fa026e1daaaf63bf9de3d32eeda14320fbd44e3feed520e7c193a810b0a0d0',
   'src/game/lifecycle.ts': 'daf929e362f421ce332dc9ffbb2514c732121bc9449f34dbc5bc2191053590d4',
   'src/game/opening.ts': '9676f5676449f75f2b0fb7cc33799d2978875bf4dd3d6770249a8d0078e1b6f2',
   'src/game/save.ts': 'e6076882cc49df1cccb78e596717449f7f1daa3d28b76db9cd138dccf07f32ce',

@@ -49,11 +49,12 @@ describe('the sidebar vocabulary lives in the card, not in the engine', () => {
     const declared = (JSON.parse(JSON.stringify(currentCard.display)) as Record<string, any>)
       .sidebar as Array<Record<string, unknown>>
     expect(declared.length, 'the demo card declares an empty sidebar').toBeGreaterThan(0)
-    // 一个事实只有一处能改：声明里那三样就是画出来要用的三样，引擎不另存一份
+    // 一个事实只有一处能改：声明里那四样就是画出来要用的四样，引擎不另存一份
     for (const entry of declared) {
       expect(Object.keys(entry).sort(), 'a sidebar entry carries keys no entry has').toEqual([
         'format',
         'path',
+        'side',
         'title',
       ])
     }

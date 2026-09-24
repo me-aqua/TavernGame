@@ -147,24 +147,27 @@ describe('the same-named required in the tool parameters must stay', () => {
   })
 })
 
-describe('card/4: the format stamp moved, and the old saves die', () => {
-  it('10 the engine constant is card/4', () => {
-    expect(CARD_FORMAT).toBe('card/4')
+describe('card/5: the format stamp moved, and the old saves die', () => {
+  it('10 the engine constant is card/5', () => {
+    expect(CARD_FORMAT).toBe('card/5')
   })
 
-  it('11 a save stamped card/3 no longer loads', () => {
+  it('11 a save stamped with an older format no longer loads', () => {
     const card = minimalCard() as unknown as CardData
     // 卡带当前戳、存档带旧戳：问的是「旧存档会不会被静默重跑」（格式戳就是干这个的）
     ;(card.card as unknown as Record<string, unknown>).format = CARD_FORMAT
-    const saved = createInitialState(card)
-    saved.meta.card.format = 'card/3'
-    expect(() => normalize(saved, card), 'an old save must be refused, not silently re-run').toThrow()
+    // 票 68（2026-09-24）：`side` 必填 ⇒ 格式戳提到 card/5 ⇒ **上一个戳（card/4）也要拒**
+    // ⚠️ `card/3` 那半**留着**：更旧的戳同样不许静默重跑，这条纪律没变
+    for (const stamp of ['card/4', 'card/3']) {
+      const saved = createInitialState(card)
+      saved.meta.card.format = stamp
+      expect(() => normalize(saved, card), 'an old save must be refused, not silently re-run').toThrow()
+    }
   })
 
   it('12 the cards in the repo carry the new stamp too', () => {
-    // ⚠️ 这一条**依赖 `cards/**` 的那 3 行**（三张卡的 "format"）：S0 说"卡一个字节不改"，
-    //    而引擎认 card/4 之后旧戳的卡会被拒 —— 两句话不能同时成立，见契约 §S0 缺口。
-    //    **卡没 bump 之前它必红**，那不是回归，是这一票要求的一步。
+    // ⚠️ 这一条**依赖 `cards/**` 的那 3 行**（三张卡的 "format"）：格式戳是引擎与卡之间的那一份事实，
+    //    引擎认 card/5 之后旧戳的卡会被拒 —— **卡必须在同一票里跟上**。
     expect(parseCard(readFileSync(EXAMPLE_CARD, 'utf8')).card.format).toBe(CARD_FORMAT)
   })
 })

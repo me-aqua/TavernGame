@@ -79,7 +79,7 @@ describe('which card is active', () => {
 
   it('falls back when the stored card declares a sidebar entry this app cannot draw', async () => {
     const card = JSON.parse(goodCard()) as Record<string, any>
-    card[DISPLAY][SIDEBAR] = [{ path: 'world.nowhere', title: 'nope', format: 'grouped' }]
+    card[DISPLAY][SIDEBAR] = [{ path: 'world.nowhere', title: 'nope', format: 'grouped', side: 'left' }]
     localStorage.setItem(CARD_KEY, JSON.stringify(card))
 
     const { currentCard, cardStartup } = await freshCard()
@@ -90,7 +90,7 @@ describe('which card is active', () => {
 
   it('falls back when the stored card declares a format this app cannot draw', async () => {
     const card = JSON.parse(goodCard()) as Record<string, any>
-    card[DISPLAY][SIDEBAR] = [{ path: 'world.map', title: 'nope', format: 'weather' }]
+    card[DISPLAY][SIDEBAR] = [{ path: 'world.map', title: 'nope', format: 'weather', side: 'left' }]
     localStorage.setItem(CARD_KEY, JSON.stringify(card))
 
     const { currentCard, cardStartup } = await freshCard()
@@ -120,7 +120,7 @@ describe('importing a card', () => {
     expect(() => importCard('{}')).toThrow('missing top-level key')
 
     const card = JSON.parse(goodCard()) as Record<string, any>
-    card[DISPLAY][SIDEBAR] = [{ path: 'world.nowhere', title: 'nope', format: 'grouped' }]
+    card[DISPLAY][SIDEBAR] = [{ path: 'world.nowhere', title: 'nope', format: 'grouped', side: 'left' }]
     expect(() => importCard(JSON.stringify(card))).toThrow('world.nowhere')
 
     // 三次都失败，存储里那份必须一个字节都没动

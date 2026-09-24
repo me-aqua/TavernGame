@@ -128,26 +128,31 @@ describe('numeral', () => {
 })
 
 describe('toGraph: a hand-made minimal card', () => {
-  const minimal = toGraph(validateCard(minimalCard()))
+  /**
+   * ⚠️ 票 68（2026-09-24）：这一句原来直接写在 describe 体里 —— 描述体在**收集阶段**就跑，
+   * 而夹具换格式的那一瞬间它会抛 ⇒ **整份文件变成 0 个用例**（报的是"文件炸了"，
+   * 不是"哪一条红"）。搬进函数之后，红的是用例自己，读数还在。
+   */
+  const minimal = () => toGraph(validateCard(minimalCard()))
 
   it('draws the two nodes in topology order, on one row', () => {
-    expect(minimal.nodes.map((node) => node.id)).toEqual([NODE_A, NODE_B])
-    expect(minimal.nodes.map((node) => node.row)).toEqual([0, 0])
+    expect(minimal().nodes.map((node) => node.id)).toEqual([NODE_A, NODE_B])
+    expect(minimal().nodes.map((node) => node.row)).toEqual([0, 0])
   })
 
   it('draws the solid chain plus the read edge the prefix implies (no wrap on one row)', () => {
-    expect(minimal.edges).toEqual([
+    expect(minimal().edges).toEqual([
       { source: NODE_A, target: NODE_B, kind: 'chain' },
       { source: NODE_A, target: NODE_B, kind: 'read' },
     ])
   })
 
   it('keeps the declarations it found, and null where the card wrote none', () => {
-    expect(minimal.nodes[0].tools).toEqual(['set_place'])
-    expect(minimal.nodes[0].reads).toEqual(['world'])
-    expect(minimal.nodes[0].role).toBe(null)
-    expect(minimal.nodes[1].role).toBe('story')
-    expect(minimal.nodes[1].tools).toEqual([])
-    expect(minimal.nodes[1].reads).toBe(null)
+    expect(minimal().nodes[0].tools).toEqual(['set_place'])
+    expect(minimal().nodes[0].reads).toEqual(['world'])
+    expect(minimal().nodes[0].role).toBe(null)
+    expect(minimal().nodes[1].role).toBe('story')
+    expect(minimal().nodes[1].tools).toEqual([])
+    expect(minimal().nodes[1].reads).toBe(null)
   })
 })

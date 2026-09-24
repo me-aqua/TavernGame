@@ -41,7 +41,7 @@ export function minimalCard(): Record<string, unknown> {
       version: '0.1.0',
       compat: '>=0.9.0',
       author: 'tester',
-      format: 'card/4',
+      format: 'card/5',
       language: 'en',
       summary: 'a minimal card',
     },
@@ -195,11 +195,12 @@ export function minimalCard(): Record<string, unknown> {
       layout: 'full screen',
       // 一段 6：侧栏条目 = 一枝状态的路径 + 标题 + 一种预设格式（三种各来一条；
       // 分组列表 ↔ map、键值 ↔ object、列表 ↔ list —— 容器名就是下面 `state` 里的 `type`）
+      // 票 68（2026-09-24）追加第四样 `side`（放哪一边）：`world.*` / `roles` 在左、`lead.*` 在右
       sidebar: [
-        { path: 'world.map', title: 'the map', format: 'grouped' },
-        { path: 'world.location', title: 'where the lead is', format: 'key-value' },
-        { path: 'roles', title: 'the cast', format: 'grouped' },
-        { path: 'lead.pack', title: 'the pack', format: 'list' },
+        { path: 'world.map', title: 'the map', format: 'grouped', side: 'left' },
+        { path: 'world.location', title: 'where the lead is', format: 'key-value', side: 'left' },
+        { path: 'roles', title: 'the cast', format: 'grouped', side: 'left' },
+        { path: 'lead.pack', title: 'the pack', format: 'list', side: 'right' },
       ],
       // 「场景」那条固定状态行的来源：册子 + 主控名字那一格
       scene: { path: 'world.whoIsWhere', who: 'lead.name' },

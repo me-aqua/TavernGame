@@ -11,7 +11,6 @@ import { mount } from '@vue/test-utils'
 import StoryPanel from '../src/components/StoryPanel.vue'
 import AppSidebar from '../src/components/AppSidebar.vue'
 import WorldPanel from '../src/components/WorldPanel.vue'
-import { world } from '../src/components/display-blocks'
 import { entriesOf, isScalar, itemOf, linesOf, scalarText, textsOf } from '../src/components/state-view'
 import GameComposer from '../src/components/GameComposer.vue'
 import SettingsDrawer from '../src/components/SettingsDrawer.vue'
@@ -255,14 +254,22 @@ describe('AppSidebar', () => {
 
 describe('WorldPanel', () => {
   /**
-   * 面板画什么由**卡声明的侧栏条目**决定（路径 + 标题 + 一种预设格式），那一套判据只有一份，
-   * 在 `tests/display-render-dom.test.ts`（顺序 / 三种格式 / 每个值自己一个元素 / 当前所在怎么标）。
-   * 这里只剩组件自己的契约：关得掉。
+   * 面板画什么由**卡声明的侧栏条目**决定（路径 + 标题 + 一种预设格式 + 放哪一边），那一套判据只有一份，
+   * 在 `tests/display-render-dom.test.ts`（顺序 / 三种格式 / 每个值自己一个元素 / 当前所在怎么标）
+   * 与 `tests/display-side-dom.test.ts`（两栏 / 归属 / 空栏）。
+   * 这里只剩**一栏自己**的契约：它带的 `side`、以及空栏那一句。
+   *
+   * ⚠️ 票 68（2026-09-24）换掉了原来那条「关得掉」：世界面板那层**抽屉整个撤了**
+   *    （老板：「都常驻了，就不用展开按钮了」）⇒ `button[data-world-close]` 与 `emit('close')`
+   *    都没有主语了。**一条断言都没减**，减的是那条不再存在的行为。
    */
-  it('closes itself by emitting close', async () => {
-    const w = render(WorldPanel, { props: { blocks: world, state } })
-    await w.find('button[data-world-close]').trigger('click')
-    expect(w.emitted('close')).toHaveLength(1)
+  it('carries the side it was handed, and says so when it has no blocks', () => {
+    const w = render(WorldPanel, { props: { side: 'right', blocks: [], state } })
+    expect(w.attributes('data-side'), 'the column does not carry its side').toBe('right')
+    expect(w.findAll('[data-block]')).toHaveLength(0)
+    expect(w.find('[data-side-empty]').text(), 'an empty column must say it in the player text').toBe(
+      String(t('play.emptySide')),
+    )
   })
 })
 
