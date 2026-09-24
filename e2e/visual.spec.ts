@@ -9,7 +9,7 @@
  * 用法：npm run visual（不进 pre-commit：慢，而且要浏览器）
  */
 import { writeFileSync } from 'node:fs'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import {
   APP_PATH,
   CARD_IDENTITY,
@@ -21,6 +21,7 @@ import {
   fakeLlm,
   saveWith,
   seedStorage,
+  translate,
   writeEvent,
   type FakeMode,
 } from './fixtures'
@@ -36,6 +37,10 @@ const VIEWPORTS = [
   // 横屏手机：票 67（口径 8）新加的工位 —— 四栏最少要 750px（设计 §四.1 的算术），
   // 800px 下只剩 40px 给中栏 ⇒ 这一档量的不是"四栏"，是"一栏 + 抽屉"
   { name: 'phone-landscape', width: 800, height: 400, dsf: 2, mobile: true },
+  // 票 74：窄横屏的**第二格**（480×320 ——「已经横过来的老手机」）。降级档的覆盖面从 1 格变 2 格。
+  // ⚠️ 它是**可编辑档里最窄的承诺工位**：`max-width: 599px` 成立、`orientation: portrait` 不成立
+  //    ⇒ 竖屏那道闸门**不该**把它关掉（`contract-74.md` §二 的 J10 就是钉这一件事）。
+  { name: 'phone-landscape-sm', width: 480, height: 320, dsf: 2, mobile: true },
   // 票 69（S3 的条件 3）：窄笔记本 —— 落在设计点名的 **821–1279 死带**里。
   // 原来那套视口 {360, 430, 768, 800, 1280, 1920} **一档都不在这条带里** ⇒
   // "中栏被压成 35–193px"那条 follow-up 永远无法被证伪。这一档还跑 `expectClean`（横向溢出会红）。
@@ -52,8 +57,11 @@ const VIEWPORTS = [
  *    ⇒ 再添一个"编辑器状态"只会是同一屏的第二份（裁决 6 明说不加第二个）。
  */
 const EDITOR_STATE = 'editor-open'
-/** 外壳只在口径说得清的那几个视口上量：≥821px 量四栏（口径 1–7），800×400 量降级（口径 8） */
-const SHELL_VIEWPORTS = new Set(['laptop', 'desktop', 'phone-landscape'])
+/** 外壳只在口径说得清的那几个视口上量：≥821px 量四栏（口径 1–7），800×400 与 480×320 量降级（口径 8） */
+const SHELL_VIEWPORTS = new Set(['laptop', 'desktop', 'phone-landscape', 'phone-landscape-sm'])
+
+/** 只跑编辑器那一屏的横屏工位（别的状态在这两档不归任何票验） */
+const LANDSCAPE_ONLY = new Set(['phone-landscape', 'phone-landscape-sm'])
 
 /** 建像素基线的画面：稳定（数据固定）且值得盯住 */
 const BASELINE = new Set([
@@ -465,6 +473,13 @@ async function expectShellWidths(page: Page, name: string): Promise<void> {
     cols.map((c) => c.col),
     'the shell must still be four columns at this width',
   ).toEqual(['content', 'flow', 'edit', 'prompts'])
+  // J12（票 74）：两颗抽屉开关属于 ≤820 那条横带 —— ≥821 这一档**一颗都不许看见**。
+  // 它们的默认态本来就是 `display: none`（只在 ≤820 的分支里现形）⇒ 这是条**守卫**，
+  // 挡的是"为了窄档把它们挪出来、顺手在宽屏也露了脸"。
+  const toggles = page.locator('[data-drawer-toggle]')
+  await expect(toggles, 'one toggle per drawer panel, both of them in the DOM').toHaveCount(2)
+  await expect(toggles.nth(0), 'a drawer toggle must not show up on a wide screen').toBeHidden()
+  await expect(toggles.nth(1), 'a drawer toggle must not show up on a wide screen').toBeHidden()
   const tracks = (r.grid?.template ?? '').split(' ').filter(Boolean)
   expect(tracks.length, 'the shell must be a four-track grid').toBe(4)
   expect(tracks[0], 'the content column width').toBe('300px')
@@ -626,7 +641,18 @@ async function expectLandscapeShell(page: Page): Promise<void> {
   //    断的是它的内容与交互，断不了可见性。
   const band = page.locator('.band')
   await expect(band, 'the strip is gone in landscape, so the band must be there instead').toBeVisible()
-  await expect(band.locator('button').first(), 'the band must say which step is current').not.toBeEmpty()
+  //    ⚠️ 横带那几颗按钮**没有 `data-*` 钩子**（`EditorShell.vue` 只有一个 `.band` 类），
+  //    按结构认：头一颗是开合器，后面几颗按顺序是卡里那几步。
+  //    ⚠️ 票 74 的重钉（T1）：横带里多了两颗 `[data-drawer-toggle]`（A 形态把面板开关搬进来），
+  //    所以"数出来几个"一律把它们**排除在外** —— 数出来仍是「开合器 + 卡里那几步」。
+  //    **一条断言都没减**，减的只是数数时混进来的东西。
+  const bandButtons = () => band.locator('button:not([data-drawer-toggle])')
+  //    ⚠️ 这一句**断的就是它说的那件事**：开合器报的是**当前那一步**。此刻还没选任何一步，
+  //    所以它报的必须是那句"还没选"—— 文案从**应用自己的 i18n 表**取（`translate`），不在这里抄一份。
+  await expect(
+    bandButtons().first(),
+    'nothing is picked yet, so the band must say so on its pager',
+  ).toHaveText(await translate(page, 'card.stepNone'))
 
   // 标尺压成一行文字也要在位（四段对齐那条判据只属于 ≥821px）
   expect(r.ruler !== null && r.ruler.display !== 'none', 'the ruler must stay in place').toBe(true)
@@ -663,10 +689,8 @@ async function expectLandscapeShell(page: Page): Promise<void> {
   // ③（票 73 · 8c-① · S0 裁决 9 的两条判据）：横屏下细条整栏 `display:none`，
   //    **横带是换步的唯一入口** ⇒ 从它选一步，横带要报出那一步、中栏要真的换成那一屏。
   //    ⚠️ 顺序：放在最后 —— 它换掉了中栏的内容，而上面那几条（抽屉、标尺）都与中栏无关。
-  //    ⚠️ 横带那几颗按钮**没有 `data-*` 钩子**（`EditorShell.vue:128-137` 只有一个 `.band` 类），
-  //    按结构认：头一颗是开合器，后面几颗按顺序是卡里那几步。选中的名字从**按钮自己的文字**取，
-  //    不在这里抄一份卡。
-  const bandButtons = () => band.locator('button')
+  //    ⚠️ 数数走上面那个 `bandButtons()`（它把两颗抽屉开关排除在外）。选中的名字从**按钮自己的
+  //    文字**取，不在这里抄一份卡。
   await bandButtons().first().click()
   const listed = bandButtons()
   await expect(listed, 'opening the band must list every step of the card').not.toHaveCount(1)
@@ -696,9 +720,9 @@ async function expectLandscapeShell(page: Page): Promise<void> {
 test.describe('状态 × 屏幕', () => {
   for (const state of STATES) {
     for (const vp of VIEWPORTS) {
-      // 横屏那一个新工位只跑编辑器那一屏：口径 8 要证的是一栏 + 抽屉能开关，
-      // 别的状态在 800×400 下不归这一票验（裁决 6：不加第二个状态、也不铺满矩阵）
-      if (vp.name === 'phone-landscape' && state.name !== EDITOR_STATE) continue
+      // 横屏那两个工位只跑编辑器那一屏：口径 8 要证的是一栏 + 抽屉能开关，
+      // 别的状态在 800×400 / 480×320 下不归任何票验（裁决 6：不加第二个状态、也不铺满矩阵）
+      if (LANDSCAPE_ONLY.has(vp.name) && state.name !== EDITOR_STATE) continue
       test(`${state.name} @ ${vp.name}`, async ({ browser }) => {
         const context = await browser.newContext({
           viewport: { width: vp.width, height: vp.height },
@@ -759,6 +783,321 @@ test.describe('状态 × 屏幕', () => {
         await context.close()
       })
     }
+  }
+})
+
+/* ==================== 票 74 · 窄屏那三件（J1–J15）====================
+ *
+ * 契约 `.team/test/2026-09-24/contract-74.md`；设计 `.team/design/2026-09-24/票74-窄档形态.md`；
+ * 定形 `.team/leader/2026-09-24/票74-S0.md`（**§九 订正过 §二 的工位表**）。
+ *
+ * 两条形状上的要点：
+ *   · **闸门（竖屏不给编辑）是活媒体查询** ⇒ 旋转那些判据写成**一条用例里的 `setViewportSize`**：
+ *     不刷新、不重开浮层。这一条同时证明"它不是开屏算一次"。
+ *   · **语言要能单独钉**：en 那一列的按钮比 zh 宽（`Prompt resources` 一颗 123.11px），
+ *     窄档的账全压在它身上 —— 而本文件原来那些窄档工位**只跑 zh**（`locale` 没设成 en），
+ *     ⇒ 那条路从来没被扫过。契约 §四 有那一列读数。
+ */
+
+/** 窄档的工位：语言单独钉（`en` 是最宽的那一列） */
+interface NarrowStation {
+  width: number
+  height: number
+  lang: string
+}
+
+/** 顶栏那一组格子：三个工位 × 两种语言（zh 是反面控制 —— 它今天就在框内） */
+const NARROW_TOP_STATIONS: NarrowStation[] = [
+  { width: 360, height: 640, lang: 'en' },
+  { width: 360, height: 640, lang: 'zh-CN' },
+  { width: 430, height: 932, lang: 'en' },
+  { width: 430, height: 932, lang: 'zh-CN' },
+  { width: 480, height: 320, lang: 'en' },
+  { width: 480, height: 320, lang: 'zh-CN' },
+]
+
+/** 窄档那一屏的读数（J1–J15 吃这一份） */
+interface NarrowReading {
+  id: { w: number; h: number; visible: boolean } | null
+  name: { sw: number; cw: number } | null
+  close: { right: number; visible: boolean } | null
+  card: { right: number } | null
+  rotate: { visible: boolean; text: string } | null
+  visibleButtons: number
+  visibleControls: number
+  shell: boolean | null
+  mid: boolean | null
+  band: { visible: boolean; clientH: number } | null
+  ruler: boolean | null
+  save: boolean | null
+  resources: boolean | null
+  toggles: Array<{ name: string | null; inBand: boolean; visible: boolean }>
+  drawers: Array<{ name: string | null; display: string; visible: boolean }>
+  cols: Array<string | null>
+}
+
+/**
+ * 窄档读数：顶栏 / 闸门 / 横带 / 抽屉一次取齐。
+ *
+ * ⚠️ 可见性一律用"有没有矩形"（宽高都 > 0.5），不读 `display` —— `display:none` 的元素矩形是 0，
+ *    而"被别的规则顶掉"与"根本没渲染"在这一层是同一件事。
+ * ⚠️ 这一段在**模板字符串**里：注释里别写反引号 + 美元花括号，那会被当成插值求值（踩过一次）。
+ */
+const NARROW_PROBE = `(() => {
+  const box = (el) => {
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    return { w: Math.round(r.width * 100) / 100, h: Math.round(r.height * 100) / 100, right: r.right, visible: r.width > 0.5 && r.height > 0.5 }
+  }
+  const vis = (sel) => { const el = document.querySelector(sel); return el ? box(el).visible : null }
+  const editor = document.querySelector('[data-card-editor]')
+  const band = document.querySelector('.band')
+  const rotate = document.querySelector('[data-rotate]')
+  const name = document.querySelector('.top-name')
+  const buttons = editor ? [...editor.querySelectorAll('button')] : []
+  const controls = editor ? [...editor.querySelectorAll('input, textarea, select, [contenteditable]')] : []
+  return {
+    id: box(document.querySelector('.top-id')),
+    name: name ? { sw: name.scrollWidth, cw: name.clientWidth } : null,
+    close: box(document.querySelector('[data-card-close]')),
+    card: box(document.querySelector('[data-card-editor] > div')),
+    rotate: rotate ? { visible: box(rotate).visible, text: (rotate.textContent || '').trim() } : null,
+    visibleButtons: buttons.filter((el) => box(el).visible).length,
+    visibleControls: controls.filter((el) => box(el).visible).length,
+    shell: vis('[data-shell]'),
+    mid: vis('[data-mid]'),
+    band: band ? { visible: box(band).visible, clientH: band.clientHeight } : null,
+    ruler: vis('[data-ruler]'),
+    save: vis('[data-card-save]'),
+    resources: vis('[data-card-resources-open]'),
+    toggles: [...document.querySelectorAll('[data-drawer-toggle]')].map((el) => ({
+      name: el.getAttribute('data-drawer-toggle'),
+      inBand: el.closest('.band') !== null,
+      ...box(el),
+    })),
+    drawers: [...document.querySelectorAll('[data-drawer]')].map((el) => ({
+      name: el.getAttribute('data-drawer'),
+      display: getComputedStyle(el).display,
+      ...box(el),
+    })),
+    cols: [...document.querySelectorAll('[data-col]')].filter((el) => box(el).visible).map((el) => el.getAttribute('data-col')),
+  }
+})()`
+
+/** 读一屏窄档读数 */
+async function readNarrow(page: Page): Promise<NarrowReading> {
+  return (await page.evaluate(NARROW_PROBE)) as NarrowReading
+}
+
+/** 按工位建一个自己的 context（语言与方向都要能单独钉），并把编辑器浮层打开 */
+async function openEditorAt(
+  browser: Browser,
+  one: NarrowStation,
+): Promise<{ context: BrowserContext; page: Page }> {
+  const context = await browser.newContext({
+    viewport: { width: one.width, height: one.height },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+    locale: one.lang === 'en' ? 'en-US' : 'zh-CN',
+    timezoneId: 'Asia/Shanghai',
+    reducedMotion: 'reduce',
+  })
+  const page = await context.newPage()
+  await seedStorage(page, {
+    'tavernGame.lang': one.lang,
+    'tavernGame.theme': null,
+    'tavernGame.debug': null,
+    'tavernGame.config': CONFIG,
+    'tavernGame.save': saveWith({ events: STORY }),
+  })
+  await page.goto(APP_PATH)
+  await expect(page.locator('#app > *')).toHaveCount(1)
+  await page.waitForTimeout(600)
+  await page.evaluate(`(async () => {
+    document.querySelector('button[data-settings]')?.click()
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    document.querySelector('button[data-card-view]')?.click()
+  })()`)
+  await page.waitForTimeout(900)
+  return { context, page }
+}
+
+/** 转屏幕：等媒体查询与栅格都落定再读（`setViewportSize` 是异步的） */
+async function turnTo(page: Page, width: number, height: number): Promise<NarrowReading> {
+  await page.setViewportSize({ width, height })
+  await page.waitForTimeout(350)
+  return readNarrow(page)
+}
+
+for (const station of [
+  { width: 360, height: 640 },
+  { width: 430, height: 932 },
+]) {
+  test(`J1/J2/J5/J6/J7 the rotate gate @ ${station.width}x${station.height}`, async ({ browser }) => {
+    const { context, page } = await openEditorAt(browser, { ...station, lang: 'zh-CN' })
+    try {
+      const title = await translate(page, 'card.rotateTitle')
+      const body = await translate(page, 'card.rotateBody')
+      const r = await readNarrow(page)
+      // J5 —— 闸门真的生效：提示块在，而且说的就是 i18n 表里那两句
+      expect.soft(r.rotate, 'the notice must be in the DOM even while it is hidden (no v-if)').not.toBeNull()
+      expect.soft(r.rotate?.visible, 'narrow AND portrait: the gate must be up').toBe(true)
+      expect.soft(r.rotate?.text ?? '', 'the notice must spell the title').toContain(title)
+      expect.soft(r.rotate?.text ?? '', 'the notice must spell the body').toContain(body)
+      // J1/J2 —— 身份块的地板（这一屏的满足者是闸门形态，不是顶栏改造）
+      expect.soft(r.id, 'the top bar has no identity block').not.toBeNull()
+      expect
+        .soft(Math.round(r.id?.w ?? 0), 'the identity block is narrower than the 96px floor')
+        .toBeGreaterThanOrEqual(96)
+      // J6 —— 这一屏不给编辑
+      expect
+        .soft(
+          [r.shell, r.mid, r.band?.visible ?? null, r.ruler, r.save, r.resources],
+          'the gate must take the shell, the band, the ruler and the save/resources buttons away',
+        )
+        .toEqual([false, false, false, false, false, false])
+      expect
+        .soft(
+          r.toggles.map((t) => t.visible),
+          'the drawer toggles live in the band, so the gate takes them away too',
+        )
+        .toEqual([false, false])
+      expect.soft(r.visibleControls, 'the gate screen must offer zero editable controls').toBe(0)
+      expect.soft(r.cols, 'the gate screen must not keep a single column').toEqual([])
+      // J7 —— 出路：这一屏只剩一颗按钮，而它就是 ✕（不给编辑 ≠ 把人关在里面）
+      expect.soft(r.visibleButtons, 'the gate screen must leave exactly one button: the close one').toBe(1)
+      expect.soft(r.close?.visible, 'the close button must be the one that is left').toBe(true)
+      await page.evaluate(`document.querySelector('[data-card-close]')?.click()`)
+      await page.waitForTimeout(400)
+      await expect
+        .soft(page.locator('[data-card-editor]'), 'the close button must really get you out of the gate')
+        .toHaveCount(0)
+    } finally {
+      await context.close()
+    }
+  })
+}
+
+for (const one of NARROW_TOP_STATIONS) {
+  test(`J3 the identity block and the close button @ ${one.width}x${one.height} ${one.lang}`, async ({
+    browser,
+  }) => {
+    const { context, page } = await openEditorAt(browser, one)
+    try {
+      const r = await readNarrow(page)
+      expect.soft(r.id, 'the top bar has no identity block').not.toBeNull()
+      expect
+        .soft(Math.round(r.id?.w ?? 0), 'the identity block is narrower than the 96px floor')
+        .toBeGreaterThanOrEqual(96)
+      expect.soft(r.close?.visible, 'the close button must stay visible').toBe(true)
+      expect.soft(r.card, 'the card box could not be measured').not.toBeNull()
+      expect
+        .soft(
+          Math.round(((r.card?.right ?? 0) - (r.close?.right ?? 0)) * 100) / 100,
+          'the close button must stay inside the card instead of being pushed off it',
+        )
+        .toBeGreaterThanOrEqual(1)
+    } finally {
+      await context.close()
+    }
+  })
+}
+
+test('J4 a 320x240 window must not swallow the title', async ({ browser }) => {
+  const { context, page } = await openEditorAt(browser, { width: 360, height: 640, lang: 'en' })
+  try {
+    const r = await turnTo(page, 320, 240)
+    expect.soft(r.id, 'the top bar has no identity block').not.toBeNull()
+    expect
+      .soft(Math.round(r.id?.w ?? 0), 'the identity block must not be squeezed away to nothing')
+      .toBeGreaterThan(0)
+    expect.soft(r.name?.cw ?? 0, 'the title has no box to sit in').toBeGreaterThan(0)
+    expect
+      .soft(r.name?.sw ?? 0, 'the title is clipped sideways instead of being shown whole')
+      .toBeLessThanOrEqual((r.name?.cw ?? 0) + 1)
+  } finally {
+    await context.close()
+  }
+})
+
+test('J8/J9/J10/J11/J13/J15 one phone that turns: the gate is a live media query', async ({ browser }) => {
+  const { context, page } = await openEditorAt(browser, { width: 360, height: 640, lang: 'zh-CN' })
+  try {
+    // J9 正：599 还是"窄且竖"
+    const at599 = await turnTo(page, 599, 900)
+    expect.soft(at599.rotate?.visible, '599x900 is narrow AND portrait: the gate must be up').toBe(true)
+    // J9 反：600 就不再窄了 —— 这就是"600"这个数的牙
+    const at600 = await turnTo(page, 600, 900)
+    expect.soft(at600.rotate, 'the notice must stay in the DOM (no v-if), only hidden').not.toBeNull()
+    expect.soft(at600.rotate?.visible, '600x900 is not narrow any more: the gate must be down').toBe(false)
+    expect.soft(at600.cols, 'wide enough to edit again').toEqual(['edit'])
+    // J10 反：窄但横着 ⇒ 可编（闸门看的是"窄且竖"，不是"窄"）
+    const landscape = await turnTo(page, 480, 320)
+    expect.soft(landscape.rotate, 'the notice must stay in the DOM (no v-if), only hidden').not.toBeNull()
+    expect
+      .soft(landscape.rotate?.visible, '480x320 is already sideways: the notice would contradict itself')
+      .toBe(false)
+    expect.soft(landscape.cols, 'a narrow landscape window must stay editable').toEqual(['edit'])
+    // J11：两颗开关住在横带里，点一下开、再点一下关
+    expect
+      .soft(
+        landscape.toggles.map((t) => t.inBand),
+        'both drawer toggles must live inside the band',
+      )
+      .toEqual([true, true])
+    expect
+      .soft(
+        landscape.toggles.map((t) => t.visible),
+        'both drawer toggles must be visible in landscape',
+      )
+      .toEqual([true, true])
+    const widths: Record<string, number> = { content: 300, prompts: 290 }
+    for (const t of landscape.toggles) {
+      const name = t.name ?? ''
+      const opened = await toggleDrawer(page, name)
+      expect.soft(opened.visible, 'the ' + name + ' drawer must open from its band toggle').toBe(true)
+      expect
+        .soft(Math.abs(opened.w - widths[name]), 'the ' + name + ' drawer keeps its column width')
+        .toBeLessThanOrEqual(1)
+      const shut = await toggleDrawer(page, name)
+      expect.soft(shut.display, 'the ' + name + ' drawer must go back to display:none').toBe('none')
+    }
+    // J13：横带仍然是一行 —— 两颗开关不许把它顶成两行
+    const banded = await readNarrow(page)
+    expect.soft(banded.band?.visible, 'the band must be on screen at this width').toBe(true)
+    expect
+      .soft(banded.band?.clientH ?? 99, 'the band grew to two lines: the two extra toggles do not fit')
+      .toBeLessThanOrEqual(40)
+    // J8 反：同一台手机转过来就能编（不刷新、不重开浮层）
+    const turned = await turnTo(page, 640, 360)
+    expect.soft(turned.rotate, 'the notice must stay in the DOM (no v-if), only hidden').not.toBeNull()
+    expect.soft(turned.rotate?.visible, 'turned sideways: the notice must go away').toBe(false)
+    expect.soft(turned.cols, 'turned sideways: exactly the mid column is editable').toEqual(['edit'])
+    expect.soft(turned.band?.visible, 'turned sideways: the band replaces the strip').toBe(true)
+    const band = page.locator('.band')
+    const bandButtons = () => band.locator('button:not([data-drawer-toggle])')
+    await bandButtons().first().click()
+    await expect.soft(bandButtons(), 'opening the band must list every step of the card').not.toHaveCount(1)
+    await bandButtons().nth(1).click()
+    await expect
+      .soft(
+        page.locator('[data-step-form]'),
+        'the band is the only entry here: the mid column must follow it',
+      )
+      .toBeVisible()
+    // J15 反：抽屉先开着，再转回竖屏 —— 闸门必须压得住 <=820 那句 .is-open
+    const reopened = await toggleDrawer(page, 'content')
+    expect.soft(reopened.visible, 'the content drawer must open while still sideways').toBe(true)
+    const back = await turnTo(page, 360, 640)
+    expect
+      .soft(
+        back.drawers.map((d) => d.visible),
+        'the gate must hide both drawers, including the one that was open',
+      )
+      .toEqual([false, false])
+  } finally {
+    await context.close()
   }
 })
 
