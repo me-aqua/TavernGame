@@ -65,6 +65,11 @@
     "close": "Close the world panel",
     "closeIcon": "✕"
   },
+  "play": {
+    "rotateTitle": "Please turn your phone sideways",
+    "rotateBody": "The game does not fit a screen held upright: turn it sideways to play.",
+    "emptySide": "No blocks on this side today."
+  },
   "toolbar": {
     "toolCall": "⚙ call {tool}({args})"
   },

@@ -1,9 +1,9 @@
 /**
- * src/game/display.ts —— 卡声明的显示：**一条侧栏声明 = 一枝状态的路径 + 标题 + 一种预设格式**（R12/R13/R14）。
+ * src/game/display.ts —— 卡声明的显示：**一条侧栏声明 = 一枝状态的路径 + 标题 + 一种预设格式 + 放哪一侧**（R12/R13/R14）。
  *
  * 这一层分两半：
- *   · **声明侧**（这一票换掉的东西）：`display.sidebar[]` 从"点名一个引擎认识的块"变成
- *     "点名一枝 + 标题 + 格式"；格式同时约束**渲染**与**数据形状** ⇒ 载入卡时校验，
+ *   · **声明侧**：`display.sidebar[]` 每一条点名"一枝 + 标题 + 格式 + 哪一侧"；格式同时约束
+ *     **渲染**与**数据形状**，哪一侧决定它画在玩家屏的哪一栏 ⇒ 载入卡时校验，
  *     不符**启动即失败**（R14）—— 坏声明不许静默少画一块（静默少画等于替作者改卡，
  *     玩家会以为那块内容本来就不存在）。
  *   · **数据侧**：按声明里的路径从**状态树**取那一段（`atPath`），以及「当前所在」那一行的值
@@ -32,6 +32,16 @@ export const DISPLAY_FORMATS = ['key-value', 'list', 'grouped'] as const
 export type DisplayFormat = (typeof DISPLAY_FORMATS)[number]
 
 /**
+ * 一块画在哪一侧 —— **只有这两个**（决定 #59）。
+ *
+ * ⚠️ 大小写敏感：写 `Left` 就是坏声明（载入即失败），不在这里顺手 `toLowerCase()` ——
+ *    引擎替作者猜一个值，等于替作者改卡。
+ */
+export const DISPLAY_SIDES = ['left', 'right'] as const
+
+export type DisplaySide = (typeof DISPLAY_SIDES)[number]
+
+/**
  * 格式 → 它要求那一枝是什么容器。
  *
  * 容器名是**卡自己的 schema 词表**（`SchemaType`）：格式是形状的契约，不是内容的约定 ——
@@ -43,11 +53,13 @@ const FORMAT_CONTAINER: Record<DisplayFormat, string> = {
   grouped: 'map',
 }
 
-/** 一条侧栏声明：恰好三样，多一个键就是坏声明（旧形状的 `block` / `note` 不再合法） */
+/** 一条侧栏声明：恰好四样（路径 / 标题 / 格式 / 放哪一侧），多一个键就是坏声明 */
 export interface DisplayEntry {
   path: string
   title: string
   format: DisplayFormat
+  /** 画在左栏还是右栏 —— 必填：界面不许替作者挑一边 */
+  side: DisplaySide
 }
 
 /** 「当前所在」那一行的来源：册子（map）的路径 + 主控名字那一格（标量）的路径 */
@@ -63,18 +75,26 @@ export interface DisplayDecl {
 }
 
 /** 一条侧栏声明的键集（多一个少一个都拒） */
-const ENTRY_KEYS = ['path', 'title', 'format']
+const ENTRY_KEYS = ['path', 'title', 'format', 'side']
 
 /** 场景来源的键集 */
 const SCENE_KEYS = ['path', 'who']
 
-/** 一条声明里"画得出来"的三个条件：路径在、格式认识、格式与容器相符 */
+/** 一条声明里"画得出来"的四个条件：路径在、格式认识、格式与容器相符、放哪一侧认识 */
 function checkEntry(entry: unknown, index: number, state: StateSchema, seen: Set<string>): void {
   const where = 'display.sidebar[' + index + ']'
-  if (!isRecord(entry)) fail(where, 'must be an object {path, title, format}')
+  if (!isRecord(entry)) fail(where, 'must be an object {path, title, format, side}')
   checkKeys(entry, ENTRY_KEYS, where)
   requireText(entry, 'title', where)
   const format = requireText(entry, 'format', where)
+  // 放哪一侧：先于路径那条 —— 取值错了就不该再拿它去读状态（与 format 同一条纪律）
+  const side = requireText(entry, 'side', where)
+  if (!(DISPLAY_SIDES as readonly string[]).includes(side)) {
+    fail(
+      at(where, 'side'),
+      JSON.stringify(side) + ' is not a side (known: ' + DISPLAY_SIDES.join(' / ') + ')',
+    )
+  }
   const path = requireText(entry, 'path', where)
 
   // ① 格式在词表里（不认识的格式 ⇒ 那一块永远画不出来，点名拒掉）

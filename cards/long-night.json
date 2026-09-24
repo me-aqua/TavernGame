@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "compat": ">=0.6.0",
     "author": "stella",
-    "format": "card/4",
+    "format": "card/5",
     "language": "zh-CN",
     "summary": "一艘睡了十二万人的移民船，一个醒着的人。两个节点的最小卡：证明这么小的图也跑得起来。"
   },

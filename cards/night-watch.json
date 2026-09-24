@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "compat": ">=0.9.0",
     "author": "demo",
-    "format": "card/4",
+    "format": "card/5",
     "language": "zh-CN",
     "summary": "一个人在灯塔上值一夜班。"
   },
@@ -140,8 +140,8 @@
   },
 
   "display": {
-    "layout": "正文占满整屏；时间 / 场景 / 回合收在左上角浮层；日志从右上角展开。",
-    "sidebar": [{ "path": "lead.pack", "title": "随身", "format": "list" }],
+    "layout": "正文在中间那一列；卡声明的那一块常驻在右栏（左栏今天没有块，空着写一句「这一栏今天没有块」）；时间 / 场景 / 回合收在左上角浮层；日志从右上角展开。",
+    "sidebar": [{ "path": "lead.pack", "title": "随身", "format": "list", "side": "right" }],
     "scroll": "面板放不下就滚动。"
   },
 

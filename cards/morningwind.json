@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "compat": ">=0.6.0",
     "author": "me-aqua",
-    "format": "card/4",
+    "format": "card/5",
     "language": "zh-CN",
     "summary": "边境小镇外有座地牢，没人知道它有多深。人们下去是为找东西 —— 药师收苔，铁匠收旧铁，还有人专捡前人没带走的家伙。三百金的悬赏也挂在镇公所，不过没几个人当真。"
   },
@@ -1351,37 +1351,43 @@
     ]
   },
   "display": {
-    "layout": "故事正文占满整屏、是唯一的主线；时间 / 场景 / 回合（加最近一次时间跳跃）收在左上角一小块浮层里，设置 / 世界 / 调试是右上角的悬浮按钮，世界面板从右上角展开成浮层抽屉盖在正文上、自己滚，输入框浮在底部",
+    "layout": "故事正文在中间那一列、是唯一的主线；卡声明的块常驻在左右两条栏里（左栏是世界那本册子、右栏是主控自己），栏里放不下就自己滚；屏一窄，两条栏先收成一条栏（右在上、左在下），再窄就改成正文下面的两条横带；时间 / 场景 / 回合（加最近一次时间跳跃）收在左上角一小块浮层里，设置 / 调试是右上角的悬浮按钮，输入框浮在底部",
     "sidebar": [
       {
         "path": "world.map",
         "title": "区域地图",
-        "format": "grouped"
+        "format": "grouped",
+        "side": "left"
       },
       {
         "path": "world.谁在哪",
         "title": "谁在哪",
-        "format": "grouped"
+        "format": "grouped",
+        "side": "left"
       },
       {
         "path": "roles",
         "title": "角色",
-        "format": "grouped"
+        "format": "grouped",
+        "side": "left"
       },
       {
         "path": "lead.pack",
         "title": "随身",
-        "format": "list"
+        "format": "list",
+        "side": "right"
       },
       {
         "path": "lead.固有",
         "title": "主控",
-        "format": "key-value"
+        "format": "key-value",
+        "side": "right"
       },
       {
         "path": "lead.当下",
         "title": "此刻",
-        "format": "key-value"
+        "format": "key-value",
+        "side": "right"
       }
     ],
     "scene": {

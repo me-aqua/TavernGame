@@ -65,6 +65,11 @@
     "close": "收起世界面板",
     "closeIcon": "✕"
   },
+  "play": {
+    "rotateTitle": "请把手机横过来",
+    "rotateBody": "竖着的手机屏放不下游戏画面：横过来就能玩。",
+    "emptySide": "这一栏今天没有块"
+  },
   "toolbar": {
     "toolCall": "⚙ 调用 {tool}({args})"
   },

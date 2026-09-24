@@ -1,0 +1,139 @@
+/**
+ * src/components/player-screen.css —— 玩家屏那一屏的**三档形状**（票 68 · 决定 #59）。
+ *
+ * ⚠️ 它是 `src/App.vue` 的 **scoped 样式**（那边写的是 `<style scoped src="./components/player-screen.css">`）——
+ *    不是全局样式表：选择器挑的全是玩家屏自己的钩子（`.player-grid` / `[data-story]` / `[data-side]` /
+ *    `[data-play-rotate]`），scoped 之后才落得到那些元素上，也不会漏进编辑器。
+ *    ⇒ **别把它 import 进 `main.ts`**：那样 `[data-play-rotate]` 就成了全局规则。
+ * ⚠️ 闸门那块叫 **`[data-play-rotate]`**：**别与编辑器那一块重名**（`EditorShell.vue:125` 的闸门用的那个属性）——
+ *    玩家屏在 DOM 里更靠前 ⇒ 同名会让按那个属性取元素的人捞到玩家屏这一块。
+ *
+ * 三档共用同一份 DOM（左栏 | 正文 | 右栏），六块每块只出现一次 —— 换档只换栅格与栅格位置：
+ *   · 默认（≤820 且**横着**）**块带**：正文在上，两条满宽带接在下面（左先右后）
+ *   · `≥821` **一条栏**：正文 | 一条栏，栏里右在上、左在下（窄窗先给"我现在有什么、我在哪"）
+ *   · `≥1280` **两栏**：左栏 | 正文 | 右栏（`1280×720` 是最差承诺工位）
+ * ⚠️ 一条 `transform` 都不用（也不用绝对定位把栏挪出屏）：靠 `display` 与栅格换行，
+ *    每个元素才都还在视口里 —— 整页巡检把"伸出视口的元素"记成 offenders，一红就是全屏。
+ * ⚠️ 断点不新造：1280 是 Tailwind 的 `xl`（项目里本来就用着），820 是编辑器降级用的那一条。
+ */
+.player-grid {
+  /* 正文那一行的**硬地板**（≈3 行正文）：对玩家的承诺，判据断的也是它 */
+  --story-min: 120px;
+  /* 给带留的地方 —— 它是带的高度算法里的一个**参数**，不是对玩家的承诺 */
+  --story-floor: 220px;
+  /* 栏宽：过渡值，将来由用户拖拽决定（判据不断它，只断"两条栏在 + 归属对 + 正文不低于地板"） */
+  --side-w: 300px;
+  /* 一条带的上限：跟着剩余空间走，且**有下限 24px**（两条带各写一个 vh 百分比会相加超出） */
+  --band-max: min(40dvh, max(24px, (100dvh - var(--story-floor) - 108px - 20px) / 2));
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  gap: var(--gut);
+  padding: 0 var(--s3);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(var(--story-min), 1fr) auto auto;
+}
+
+/* 块带那一档（默认）：正文在上，两条满宽带接在下面 */
+.player-grid > [data-story] {
+  grid-area: 1 / 1;
+}
+.player-grid > [data-side='left'] {
+  grid-area: 2 / 1;
+}
+.player-grid > [data-side='right'] {
+  grid-area: 3 / 1;
+}
+/* 带自己滚：内容再长也压不走正文 */
+.player-grid > [data-side] {
+  max-height: var(--band-max);
+}
+
+/* 高一点但还窄的窗：给带留的地方小一些，那 40px 还给正文 */
+@media (min-height: 380px) {
+  .player-grid {
+    --story-floor: 180px;
+  }
+}
+
+/* 一条栏那一档（821–1279）：两段住同一条栏，右在上、左在下；那条栏在正文右边 */
+@media (min-width: 821px) {
+  .player-grid {
+    grid-template-columns: minmax(0, 1fr) var(--side-w);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .player-grid > [data-story] {
+    grid-area: 1 / 1 / 3 / 2;
+  }
+  .player-grid > [data-side='right'] {
+    grid-area: 1 / 2;
+  }
+  .player-grid > [data-side='left'] {
+    grid-area: 2 / 2;
+  }
+  .player-grid > [data-side] {
+    max-height: none;
+  }
+}
+
+/* 两栏那一档（≥1280）：左栏 | 正文 | 右栏 —— 三列各占满高 */
+@media (min-width: 1280px) {
+  .player-grid {
+    grid-template-columns: var(--side-w) minmax(0, 1fr) var(--side-w);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .player-grid > [data-story] {
+    grid-area: 1 / 2;
+  }
+  .player-grid > [data-side='left'] {
+    grid-area: 1 / 1;
+  }
+  .player-grid > [data-side='right'] {
+    grid-area: 1 / 3;
+  }
+}
+
+/* 矮窗兜底：≤480px 高（就是那几台横屏手机）**只画右带** —— 两条都画会把正文压没。
+   🔴 左栏那三块在这一档看不到，是**已知取舍**（不是没做）：`side` 的值不变，只是这一档不画。 */
+@media (max-width: 820px) and (max-height: 480px) {
+  .player-grid > [data-side='left'] {
+    display: none;
+  }
+}
+
+/* ---------- 竖屏闸门（与编辑器同一条媒体查询、同一套形状）---------- */
+
+/* 那一对提示：默认收起，只在文件末尾那条闸门（窄 **且** 竖）里现形 —— 是媒体查询，不是 v-if */
+[data-play-rotate] {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--s4) var(--s3);
+  text-align: center;
+}
+[data-play-rotate] h2 {
+  margin: 0 0 var(--s2);
+  color: var(--color-text);
+}
+[data-play-rotate] p {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+/* ≤599px 且竖屏：横过来才能玩 —— 游戏屏整屏收起来，顶带那几颗按钮一并收，
+   只留左上角那条「时间 / 场景 / 回合」（玩家至少知道这是哪一局）与这一对提示。
+   ⚠️ 必须排在最后：同特异性下它要压得住前面那三档的栅格。 */
+@media (max-width: 599px) and (orientation: portrait) {
+  .player-grid,
+  .player-composer,
+  [data-debug],
+  [data-debug-panel-toggle],
+  [data-settings] {
+    display: none;
+  }
+  [data-play-rotate] {
+    display: flex;
+  }
+}

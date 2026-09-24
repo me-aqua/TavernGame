@@ -2,12 +2,14 @@
 /**
  * App.vue —— 应用外壳（沉浸式布局）
  *
- * 分工只有一句话：**文字是主线，控件都浮在它上面**。故事区占满整屏，输入框浮在底部，
- * 状态（顶栏条目 + 最近一次时间跳跃）浮在左上角，世界 / 设置 / 调试浮在右上角。
+ * 分工只有一句话：**文字是主线，控件都浮在它上面**。正文那一列占满剩下的高度、只有它自己滚；
+ * 输入框浮在底部；状态（顶栏条目 + 最近一次时间跳跃）浮在左上角，设置 / 调试浮在右上角。
  *
- * 世界面板有哪几块由当前卡的 声明.显示.侧栏 决定（R12：一条 = 一枝状态的路径 + 标题 + 一种预设格式，
- * 按声明解析出来的是 components/display-blocks.ts 的 `world`）；左上角那三行（时间 / 场景 / 回合）
- * 是**引擎自己的**（R32，`topbar`）—— App 只负责把这两样摆出来。
+ * 玩家屏是**三档形状**（决定 #59）：≥1280 左栏 | 正文 | 右栏 · 821–1279 一条栏（右在上）·
+ * ≤820 两条满宽带接在正文下面；窄 **且** 竖的那一屏不给玩（与编辑器同一条闸门）。
+ * 哪一块画在哪一栏由当前卡的 声明.显示.侧栏 决定（R12：一条 = 一枝状态的路径 + 标题 +
+ * 一种预设格式 + 放哪一侧，按声明解析出来的是 components/display-blocks.ts 的 `world`）；
+ * 左上角那三行（时间 / 场景 / 回合）是**引擎自己的**（R32，`topbar`）—— App 只负责把这两样摆出来。
  *
  * ⚠️ 界面上的每一行都属于三类之一，各有各的家（见 stores/game.ts）：事件流（故事 +
  *    调试痕迹，rows 是它的投影，由 StoryPanel 渲染）、进行中与通知（status =
@@ -22,7 +24,7 @@ import SettingsDrawer from './components/SettingsDrawer.vue'
 import CardEditor from './components/CardEditor.vue'
 import WorldPanel from './components/WorldPanel.vue'
 import DebugPanel from './components/DebugPanel.vue'
-import { topbar, world } from './components/display-blocks'
+import { blocksOfSide, topbar, world } from './components/display-blocks'
 import { storeDebug, useGame } from './stores/game'
 import { useTheme } from './composables/useTheme'
 import { useLanguage } from './composables/useLanguage'
@@ -68,14 +70,21 @@ const { mode: themeMode, select: selectTheme } = useTheme()
 const { mode: languageMode, select: selectLanguage } = useLanguage()
 
 const settingsOpen = ref(false)
-/** 世界面板开着没有 —— 它是浮层，开关只影响这一层 */
-const worldOpen = ref(false)
-/** 卡图浮层开着没有 —— 同样只影响这一层（设置面板还开在它下面） */
+/** 卡图浮层开着没有 —— 只影响这一层（设置面板还开在它下面） */
 const cardOpen = ref(false)
 
 /**
- * 卡图是**模态浮层**：它开着的时候，遮罩底下**每一层**（顶栏 / 输入区 / 设置抽屉 /
- * 世界面板 / 调试面板）一起挂 `inert` —— 模态之下的东西不许被聚焦、也不许被点到；关掉就摘干净。
+ * 两条栏里的块：按卡的声明分左右（分栏是 `world` 那张表的**投影**，不另存一份常量）。
+ * 卡一条都没声明 ⇒ `hasSides` 为假，这一屏退回单栏（`long-night` 的空表就是这个形状）：
+ * 两栏画不画，看的是**声明空不空**，不是"内容有没有"。
+ */
+const leftBlocks = blocksOfSide(world, 'left')
+const rightBlocks = blocksOfSide(world, 'right')
+const hasSides = world.length > 0
+
+/**
+ * 卡图是**模态浮层**：它开着的时候，遮罩底下**每一层**（顶栏 / 两条栏 / 输入区 / 设置抽屉 /
+ * 调试面板）一起挂 `inert` —— 模态之下的东西不许被聚焦、也不许被点到；关掉就摘干净。
  *
  * 这几层绑同一个名字，因为它们是一件事。⚠️ `inert` 落在这几个兄弟层上、**不落根节点**：
  * 落根上会把卡图自己一起罩进去，那就得再写一条规则把它撤销回来。
@@ -286,10 +295,11 @@ onMounted(() => {
 <template>
   <div class="story-bg relative flex h-full flex-col overflow-hidden">
     <!--
-      三段式：上带（浮层）/ 故事（占满剩下的高度，自己滚）/ 下带（输入卡片）。
+      四段式：上带（浮层）/ 左栏 · 正文 · 右栏（三档形状）/ 下带（输入卡片）。
       ⚠️ 常驻浮层（顶栏与那几颗按钮）有自己的**带**，不压在正文上 —— 文字滚到哪儿都不会被挡
       （e2e/probe.ts 有一条「正文不许被悬浮控件压住」在守着）。
-      世界面板是**玩家自己点开**的那一层（与设置面板同类），所以它在带之外。
+      ⚠️ 卡声明的块**常驻在两条栏里**：没有"点开世界面板"这一层了（老板：「都常驻了，
+         就不用展开按钮了」）—— 所以右上角那颗「世界」按钮与那层浮层一起撤了。
     -->
     <div class="flex shrink-0 items-start justify-between gap-2 px-3 pt-3" :inert="belowCardModalInert">
       <AppSidebar
@@ -300,22 +310,8 @@ onMounted(() => {
         :scene="scene"
         :turn="turn"
       />
-      <!-- 三颗按钮成一组靠右：justify-between 会把中间那颗推到屏幕正中 -->
+      <!-- 两颗按钮成一组靠右：justify-between 会把中间那颗推到屏幕正中 -->
       <div class="flex shrink-0 items-center gap-1.5">
-        <button
-          data-world
-          :title="t('world.toggleTitle')"
-          :aria-expanded="worldOpen"
-          class="shrink-0 rounded-full border px-2.5 py-1 text-[11px] backdrop-blur transition-colors"
-          :class="
-            worldOpen
-              ? 'border-accent-line bg-accent-soft/70 text-accent'
-              : 'border-line/70 bg-surface/70 text-faint hover:text-muted'
-          "
-          @click="worldOpen = !worldOpen"
-        >
-          {{ t('world.toggle') }}
-        </button>
         <button
           v-if="devHost"
           data-debug
@@ -358,14 +354,38 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 世界面板：浮在故事上，不占正文的宽度（块与顺序来自卡的声明，内容读状态树） -->
-    <WorldPanel
-      v-if="worldOpen"
-      :blocks="world"
-      :state="stateTree"
-      :inert="belowCardModalInert"
-      @close="worldOpen = false"
-    />
+    <!--
+      窄 **且** 竖那一屏：横过来才能玩（与编辑器同一条闸门、同一套形状）。
+      ⚠️ 它是**活媒体查询**、不是 `v-if`（见 player-screen.css 末尾那条 `@media`）—— 转屏就现形，不用刷新。
+      ⚠️ 钩子叫 `data-play-rotate`、**不与编辑器那一块重名**（`EditorShell.vue:125` 的闸门用的那个属性）：
+         玩家屏在 DOM 里更靠前 ⇒ 同名会让按那个属性取元素的人捞到这一块。
+    -->
+    <section data-play-rotate>
+      <h2 class="text-[14px] font-semibold" v-text="t('play.rotateTitle')" />
+      <p class="text-[12.5px] leading-relaxed" v-text="t('play.rotateBody')" />
+    </section>
+
+    <!-- 左栏 | 正文 | 右栏：三档共用这一份 DOM，六块每块只出现一次（见 <style> 那三档） -->
+    <div class="player-grid">
+      <WorldPanel
+        v-if="hasSides"
+        side="left"
+        :blocks="leftBlocks"
+        :state="stateTree"
+        :inert="belowCardModalInert"
+      />
+
+      <!-- 主线：正文（占满剩下的高度，只有它滚动） -->
+      <StoryPanel data-story class="min-w-0" :rows="rows" :status="status" />
+
+      <WorldPanel
+        v-if="hasSides"
+        side="right"
+        :blocks="rightBlocks"
+        :state="stateTree"
+        :inert="belowCardModalInert"
+      />
+    </div>
 
     <!-- 调试面板：只在调试模式里存在的一层（只读，入口在调试开关旁边） -->
     <DebugPanel
@@ -383,11 +403,9 @@ onMounted(() => {
       @close="debugOpen = false"
     />
 
-    <!-- 主线：故事（占满剩下的高度，只有它滚动） -->
-    <StoryPanel class="min-h-0 flex-1" :rows="rows" :status="status" />
-
     <!-- 下带：输入卡片（在流里，但视觉上浮起） -->
     <GameComposer
+      class="player-composer"
       :disabled="busy"
       :configured="configured"
       :inert="belowCardModalInert"
@@ -415,3 +433,5 @@ onMounted(() => {
     />
   </div>
 </template>
+
+<style scoped src="./components/player-screen.css"></style>
