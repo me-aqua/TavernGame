@@ -12,8 +12,9 @@
  *
  * ⚠️ 容器不给最小宽度：图再宽在手机上也会把元素顶出视口（探针当场拦下）。
  *    整张图看得见靠 fitView 按容器缩放 + 把视口夹回容器（见 fitInBox）。
+ *    容器尺寸是会变的，所以那一套每次尺寸变了都要重算（见下面那句 watch）。
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Handle, MarkerType, Position, VueFlow, useVueFlow } from '@vue-flow/core'
 import type { Edge, Node, NodeMouseEvent } from '@vue-flow/core'
@@ -192,6 +193,15 @@ function onNodeLeave() {
 // 画布尺寸量好之后再摆视口：不用模板上的 fit-view-on-init，那个 Promise
 // 什么时候落地不由这里决定，夹取可能被它盖掉
 onPaneReady(() => void fitInBox())
+
+// 尺寸变了就重摆：拟合的缩放是按**当时的**容器宽度算的（见 fitInBox），
+// 只摆一次的话，窗口或容器之后变窄，图就按旧宽度摊着 ⇒ 画布伸出容器
+// （整页巡检的 offenders）。
+//
+// 跟着 `dimensions` 走就是跟着"尺寸真的变了"这个事件走：vue-flow 的
+// useResizeHandler 自己挂着 window resize 与 ResizeObserver，两边都把那整块换掉
+// （@vue-flow/core 的 useResizeHandler）⇒ 这里必然被叫醒，不靠定时器去赌。
+watch(dimensions, () => void fitInBox())
 </script>
 
 <template>
