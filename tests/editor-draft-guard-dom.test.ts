@@ -125,7 +125,7 @@ async function pickBranch(w: AnyWrapper, path: string): Promise<void> {
 /**
  * 造一份脏草稿 —— **来源①**：「编一步」那一族（改一步的名）。
  *
- * ⚠️ 三个来源各喂一次不是啰嗦：`dirty` 是**并集**（`CardEditor.vue:223`），
+ * ⚠️ 三个来源各喂一次不是啰嗦：`dirty` 是**并集**（`useBranchDraft.ts:261`），
  *    只认其中一族（"编一步"）的实现会过 D1 而漏掉 D2/D3 —— 那正是 S0 §六 点名的那个风险。
  */
 async function dirtyByStep(w: AnyWrapper): Promise<void> {

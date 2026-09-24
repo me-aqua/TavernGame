@@ -113,7 +113,7 @@ const TREE_ROWS: Array<{ path: string; fields: string[] }> = []
 /**
  * 树上每一行的路径（**顺序不承诺**，见下面那段）。
  *
- * 与实现同一套走法（`CardEditor.vue:18` / `StateTreeNav.vue:20` 是**逐层向下**）：
+ * 与实现同一套走法（`useBranchDraft.ts:196` / `StateTreeNav.vue:20` 是**逐层向下**）：
  * S3 用两个独立通道证明过 —— 含整页巡检那张 `editor-open--laptop.png` 的左栏 22 行逐行相同。
  *
  * ⚠️ **票 71（2026-09-23）组长裁：树的显示顺序不算承诺。** 依据是设计 §二.3 给的那一句话
