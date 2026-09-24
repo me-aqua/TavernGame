@@ -196,44 +196,47 @@ test.describe('第一屏', () => {
   })
 })
 
-test.describe('世界面板', () => {
-  test('按卡声明的块与顺序渲染，内容读状态树，高亮当前地点', async ({ page }) => {
+test.describe('世界那一栏与主控那一栏', () => {
+  test('两条栏常驻：块按卡声明的哪一边分栏、顺序一致，内容读状态树，高亮当前地点', async ({ page }) => {
     await openApp(page, { save: saveWith(), config: CONFIG })
 
-    // 它是玩家点开的浮层：默认不在
+    // 票 68（2026-09-24）：那层「世界面板抽屉」整个撤了 —— 老板原话「都常驻了，就不用展开按钮了」。
+    // 所以它的三个钩子一个都不许在：面板层、右上角那颗开关、面板里的那颗收起按钮。
+    // （原来是「默认不在 → 点开 → 关掉」，两条栏常驻之后那三步都没有主语了。）
     await expect(page.locator('[data-world-panel]')).toHaveCount(0)
-    await page.locator('button[data-world]').click()
-    const panel = page.locator('[data-world-panel]')
-    await expect(panel).toBeVisible()
+    await expect(page.locator('button[data-world]')).toHaveCount(0)
+    await expect(page.locator('[data-world-close]')).toHaveCount(0)
 
-    // 块与顺序来自卡的 声明.显示.侧栏（期望值从卡里现读，不抄一份内容）
-    const declared = (CARD.display.sidebar as Array<Record<string, string>>).map((block) => block.path)
-    await expect(panel.locator('[data-block]')).toHaveCount(declared.length)
-    const rendered = await panel
-      .locator('[data-block]')
-      .evaluateAll((els) => els.map((el) => el.getAttribute('data-block')))
-    expect(rendered).toEqual(declared)
+    // 两条栏常驻：**哪块在哪一栏**从卡的声明现读（不在这里抄一份内容）
+    const declared = CARD.display.sidebar as Array<Record<string, string>>
+    await expect(page.locator('[data-side]')).toHaveCount(2)
+    for (const side of ['left', 'right']) {
+      const wanted = declared.filter((block) => block.side === side).map((block) => block.path)
+      const shown = await page
+        .locator('[data-side="' + side + '"] [data-block]')
+        .evaluateAll((els) => els.map((el) => el.getAttribute('data-block')))
+      expect(shown, 'the ' + side + ' column does not draw the declared blocks in order').toEqual(wanted)
+    }
+    // 一块不多一块不少：六块每块只出现一次（降级不许克隆一份）
+    await expect(page.locator('[data-block]')).toHaveCount(declared.length)
 
     // 内容读的是**状态树**：区域一个不少、背包一件不少、角色字典里的人都在。
     // ⚠️ 钩子是通用的（`data-entry` / `data-value`，不含任何内容名）⇒ 数哪一块得先按
-    //    `data-block`（那一条声明的路径）圈出来，面板整体的条目数分不出是哪一块的。
+    //    `data-block`（那一条声明的路径）圈出来，两栏加起来的条目数分不出是哪一块的。
     const saved = JSON.parse(saveWith()) as { state: Record<string, any> }
     const areas = Object.keys(saved.state.world.map)
     const pack = saved.state.lead.pack as unknown[]
     const cast = Object.keys(saved.state.roles)
-    await expect(panel.locator('[data-block="world.map"] [data-entry]')).toHaveCount(areas.length)
-    await expect(panel.locator('[data-block="lead.pack"] [data-entry]')).toHaveCount(pack.length)
-    for (const name of cast) await expect(panel).toContainText(name)
+    await expect(page.locator('[data-block="world.map"] [data-entry]')).toHaveCount(areas.length)
+    await expect(page.locator('[data-block="lead.pack"] [data-entry]')).toHaveCount(pack.length)
+    for (const name of cast) await expect(page.locator('[data-side="left"]')).toContainText(name)
 
-    // ⚠️ 当前地点（R20）：主控在谁在哪里的那一条 ⇒ 世界面板该把它标出来。
-    //    标的是那一组与**那一个值自己**（`data-value` 落在每个值上），判据是值相等。
-    const here = panel.locator('[data-block="world.map"] [data-value][data-current]')
+    // ⚠️ 当前地点（R20）：主控在谁在哪里的那一条 ⇒ 世界那一栏该把它标出来。
+    //    标的是那一组与**那一个值自己**（`data-value` 落在每个值上），判据是值相等 —— 与原来逐字相同。
+    const here = page.locator('[data-block="world.map"] [data-value][data-current]')
     await expect(here).toHaveCount(1)
     await expect(here).toHaveText(LEAD.place[PLACE_FIELDS.spot])
-    await expect(panel.locator('[data-block="world.map"] [data-entry][data-current]')).toHaveCount(1)
-
-    await page.locator('button[data-world-close]').click()
-    await expect(panel).toHaveCount(0)
+    await expect(page.locator('[data-block="world.map"] [data-entry][data-current]')).toHaveCount(1)
   })
 })
 

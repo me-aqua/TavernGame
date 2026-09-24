@@ -26,6 +26,12 @@ import {
   type FakeMode,
 } from './fixtures'
 import { FONT_TIERS, PROBE, expectClean, type Probe } from './probe'
+// 只读卡的 JSON：不 import 应用模块（那条链会拖进 i18n 的 .json，
+// Playwright 的 ESM 加载器需要 import attribute，而 Vite 构建不需要）
+import cardJson from '../cards/morningwind.json' with { type: 'json' }
+
+/** 卡里声明的侧栏条目（哪一块放哪一边）—— 票 68 的期望值全部从卡现取，不在这里抄一份内容 */
+const DECLARED = (cardJson as unknown as Record<string, any>).display.sidebar as Array<Record<string, string>>
 
 const OUT = 'artifacts/screenshots'
 
@@ -45,6 +51,11 @@ const VIEWPORTS = [
   // 原来那套视口 {360, 430, 768, 800, 1280, 1920} **一档都不在这条带里** ⇒
   // "中栏被压成 35–193px"那条 follow-up 永远无法被证伪。这一档还跑 `expectClean`（横向溢出会红）。
   { name: 'laptop-sm', width: 1100, height: 800, dsf: 1, mobile: false },
+  // 票 68（2026-09-24）：**老板点名的「最差承诺工位」—— 720p**（原话：「我们玩家用的最差最差
+  // 也是个 720p 屏幕」）⇒ 玩家屏那两条栏**要认真守的就是这一格**。
+  // ⚠️ **只加不换**：上面那八格是协作者定的口径，一个都不动（`npm run e2e` 用的 Desktop Chrome
+  //    本来就是 1280×720 ⇒ 加这一格让整页巡检与冒烟量的是同一块屏幕）。
+  { name: 'laptop-720', width: 1280, height: 720, dsf: 1, mobile: false },
   { name: 'laptop', width: 1280, height: 800, dsf: 1, mobile: false },
   { name: 'desktop', width: 1920, height: 1080, dsf: 1, mobile: false },
 ]
@@ -195,10 +206,12 @@ const STATES: State[] = [
     waitAfterMs: 400,
   },
   {
+    // 票 68（2026-09-24）：这个状态原来点的是右上角那颗 `button[data-world]` —— 那颗按钮
+    // **本票撤了**（老板：「都常驻了，就不用展开按钮了」）⇒ `?.click()` 会**静默变成空动作**，
+    // 状态名开始说谎。**状态本身不删**（`STATES` 是协作者定的口径），改成"世界那几块现在常驻"
+    // ⇒ 它与 `playing-zh` 拍的是同一屏（没有交互步骤了，这一行留在这里说明为什么）。
     name: 'world-open',
     seed: { config: CONFIG, save: saveWith({ events: STORY }) },
-    interact: "document.querySelector('button[data-world]')?.click()",
-    waitAfterMs: 400,
   },
   {
     // 四栏外壳那一屏：设置面板的「卡」一节打开编辑器浮层 —— 那正是外壳的家。
@@ -1100,6 +1113,356 @@ test('J8/J9/J10/J11/J13/J15 one phone that turns: the gate is a live media query
     await context.close()
   }
 })
+
+/* ==================== 票 68 · 玩家屏的两条栏与竖屏闸门（P / G / H）====================
+ *
+ * 契约 `.team/test/2026-09-24/contract-68.md` §三（三档形状）· §五.3（P/G/H）· §七（闸门）。
+ * 口径源 `.team/leader/2026-09-24/票68-S0.md` 的八项 + 老板 2026-09-24 的三条：
+ * 「最差最差也是个 720p 屏幕」·「以后肯定要让用户拖拽改变左右栏宽度」·「手机上一律强制横屏」。
+ *
+ * 🔴 **这是 S1 的红判据**：S2 落地之前一个 `[data-side]` 都不在（今天那是 `v-if="worldOpen"` 的抽屉）。
+ * ⚠️ **三档的"档位"只有真浏览器量得到**（jsdom 没有布局）⇒ 结构那一半在
+ *    `tests/display-side-dom.test.ts`；这一节断的是**几何关系**与**闸门**。
+ * ⚠️ 🔴 **判据不许钉栏宽**（老板：「以后咱们肯定要让用户拖拽改变左右栏宽度的，现在都是过渡版本」）
+ *    ⇒ 只断三样：**两条栏在 + 块归属对 + 正文不低于地板**。
+ * ⚠️ **`≤820` 那几档是过渡形态**（老板：「不用太纠结低分辨率屏幕的显示效果」）⇒ 那一档只断结构、
+ *    不溢出、闸门与地板，**不钉具体高度/宽度**。
+ * ⚠️ 序列里的断言一律 `expect.soft`（票 74 的返工教训：硬断言撞到第一条就停 ⇒ 后面几条**一次都没被评到**）；
+ *    每条用例开头那条**守卫**是硬的（前置条件不成立就不该往下读）。
+ */
+
+/** 正文那一行的硬地板（设计 v5：`--story-min = 120px`，`120 − 32 ≈ 3` 行正文） */
+const STORY_FLOOR = 120
+/** 两栏档的行宽地板：实测 68ch = 498px（`leader68-probe4.log` 每档第 ③ 行，与浏览器解出的值差 0px） */
+const STORY_WIDTH_FLOOR = 498
+
+/** 一个盒子（四边 + 可见性；可见 = 有矩形） */
+interface PlayerBox {
+  left: number
+  right: number
+  top: number
+  bottom: number
+  width: number
+  height: number
+  visible: boolean
+}
+
+/** 玩家屏那一屏的读数（P/G/H 吃这一份） */
+interface PlayerReading {
+  columns: Array<PlayerBox & { side: string | null }>
+  blocks: Array<{ path: string | null; side: string | null }>
+  story: PlayerBox | null
+  rotate: { visible: boolean; text: string } | null
+  composer: boolean | null
+  drawer: { panel: boolean; toggle: boolean; close: boolean }
+}
+
+/**
+ * 玩家屏读数：两条栏 / 每块落哪一栏 / 正文那一列 / 闸门那一块 / 输入框 / 抽屉的三个钩子。
+ *
+ * ⚠️ **可见性一律用"有没有矩形"**（宽高都 > 0.5），不读 `display` —— `display:none` 的元素
+ *    矩形是 0，而"被别的规则顶掉"与"根本没渲染"在这一层是同一件事。
+ * ⚠️ 这一段在**模板字符串**里：注释里别写反引号 + 美元花括号，那会被当成插值求值（踩过一次）。
+ */
+const PLAYER_PROBE = `(() => {
+  const box = (el) => {
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    const round = (n) => Math.round(n * 100) / 100
+    return {
+      left: round(r.left), right: round(r.right), top: round(r.top), bottom: round(r.bottom),
+      width: round(r.width), height: round(r.height),
+      visible: r.width > 0.5 && r.height > 0.5,
+    }
+  }
+  const sideOf = (el) => {
+    const column = el.closest('[data-side]')
+    return column ? column.getAttribute('data-side') : null
+  }
+  const rotate = document.querySelector('[data-play-rotate]')
+  const composer = document.querySelector('.composer-row')
+  return {
+    columns: [...document.querySelectorAll('[data-side]')].map((el) => ({
+      side: el.getAttribute('data-side'),
+      ...box(el),
+    })),
+    blocks: [...document.querySelectorAll('[data-block]')].map((el) => ({
+      path: el.getAttribute('data-block'),
+      side: sideOf(el),
+    })),
+    story: box(document.querySelector('[data-story]')),
+    rotate: rotate ? { visible: box(rotate).visible, text: (rotate.textContent || '').trim() } : null,
+    composer: composer ? box(composer).visible : null,
+    drawer: {
+      panel: document.querySelector('[data-world-panel]') !== null,
+      toggle: document.querySelector('[data-world]') !== null,
+      close: document.querySelector('[data-world-close]') !== null,
+    },
+  }
+})()`
+
+/**
+ * 结构检查（`probe.ts` 那四条阈值，**这一节不新增任何阈值**）。
+ *
+ * ⚠️ 用软失败包住只为**保住后面的读数** —— 它照样让这条用例红（票 74 的返工：两个块都撞到第一条就停）。
+ */
+function expectCleanSoft(probe: Probe, where: string): void {
+  try {
+    expectClean(probe)
+  } catch (error) {
+    expect.soft(false, where + ' 那一屏没过结构检查：' + (error as Error).message).toBe(true)
+  }
+}
+
+/** 按工位开一屏玩家屏（语言单独钉；不打开任何浮层 —— 两条栏是常驻的） */
+async function openPlayerAt(
+  browser: Browser,
+  one: { width: number; height: number; lang: string },
+): Promise<{ context: BrowserContext; page: Page }> {
+  const context = await browser.newContext({
+    viewport: { width: one.width, height: one.height },
+    deviceScaleFactor: 1,
+    locale: one.lang === 'en' ? 'en-US' : 'zh-CN',
+    timezoneId: 'Asia/Shanghai',
+    reducedMotion: 'reduce',
+  })
+  const page = await context.newPage()
+  await seedStorage(page, {
+    'tavernGame.lang': one.lang,
+    'tavernGame.theme': null,
+    'tavernGame.debug': null,
+    'tavernGame.config': CONFIG,
+    'tavernGame.save': saveWith({ events: STORY }),
+  })
+  await page.goto(APP_PATH)
+  await expect(page.locator('#app > *')).toHaveCount(1)
+  await page.waitForTimeout(600)
+  return { context, page }
+}
+
+/** 读一屏玩家屏（顺带跑那四条结构检查） */
+async function readPlayer(page: Page, where: string): Promise<PlayerReading> {
+  const reading = (await page.evaluate(PLAYER_PROBE)) as PlayerReading
+  expectCleanSoft((await page.evaluate(PROBE)) as Probe, where)
+  return reading
+}
+
+/** 换屏幕尺寸（媒体查询与栅格都落定再读） */
+async function sizeTo(page: Page, width: number, height: number): Promise<PlayerReading> {
+  await page.setViewportSize({ width, height })
+  await page.waitForTimeout(350)
+  return readPlayer(page, width + 'x' + height)
+}
+
+/** 一栏的盒子 */
+function columnOf(r: PlayerReading, side: string): (PlayerBox & { side: string | null }) | undefined {
+  return r.columns.find((column) => column.side === side)
+}
+
+/**
+ * **归属 + 顺序**（这一票唯一真正有牙的那条）：每块恰好一份、落在声明那一栏里、栏内保持声明相对顺序。
+ *
+ * ⚠️ 两边都断：`left` 的块不许落在右栏、`right` 的块不许落在左栏 ——
+ *    只断"有两条栏"抓不住"分错边"这半个 bug（S0 R3 逐字）。
+ */
+function expectOwnership(r: PlayerReading, where: string): void {
+  for (const entry of DECLARED) {
+    const found = r.blocks.filter((block) => block.path === entry.path)
+    expect.soft(found.length, where + '：块 ' + entry.path + ' 在屏上的份数不是 1').toBe(1)
+    expect.soft(found[0]?.side, where + '：块 ' + entry.path + ' 画在了错误的栏里').toBe(entry.side)
+  }
+  for (const side of ['left', 'right']) {
+    const wanted = DECLARED.filter((entry) => entry.side === side).map((entry) => entry.path)
+    const shown = r.blocks.filter((block) => block.side === side).map((block) => block.path)
+    expect.soft(shown, where + '：' + side + ' 栏里的块与声明顺序对不上').toEqual(wanted)
+  }
+}
+
+/** 抽屉那一层撤了：三个钩子一个都不许在（老板：「都常驻了，就不用展开按钮了」） */
+function expectNoDrawer(r: PlayerReading, where: string): void {
+  expect
+    .soft(r.drawer, where + '：世界面板抽屉的钩子还在（面板 / 右上角开关 / 收起按钮）')
+    .toEqual({ panel: false, toggle: false, close: false })
+}
+
+test('P1/P2/P3 两栏档：两条栏、归属、顺序、正文地板 @ 1280x720 起', async ({ browser }) => {
+  const { context, page } = await openPlayerAt(browser, { width: 1280, height: 720, lang: 'zh-CN' })
+  try {
+    const first = await readPlayer(page, '1280x720')
+    // 守卫（硬）：这一档是游戏屏、不是闸门屏 —— 后面那些读数才有对象
+    expect(first.rotate?.visible ?? false, '1280x720 不是窄且竖，闸门不该成立').toBe(false)
+    for (const [width, height] of [
+      [1280, 720],
+      [1280, 800],
+      [1440, 900],
+      [1920, 1080],
+    ] as const) {
+      const where = width + 'x' + height
+      const r = width === 1280 && height === 720 ? first : await sizeTo(page, width, height)
+      const left = columnOf(r, 'left')
+      const right = columnOf(r, 'right')
+      expect
+        .soft(r.columns.map((column) => column.side).sort(), where + '：两条栏不在')
+        .toEqual(['left', 'right'])
+      expect.soft(left?.visible && right?.visible, where + '：两条栏有一条不可见').toBe(true)
+      expect.soft(r.story?.visible, where + '：正文那一列不可见').toBe(true)
+      // 左 < 正文 < 右：比的是左右沿，**不钉任何宽度**（拖拽那一票落地时这三句不用改）
+      expect.soft((left?.right ?? 1e9) <= (r.story?.left ?? -1) + 1, where + '：左栏不在正文左边').toBe(true)
+      expect
+        .soft((right?.left ?? -1e9) >= (r.story?.right ?? 1e9) - 1, where + '：右栏不在正文右边')
+        .toBe(true)
+      // 地板：正文那一行不低于 120px；两栏档再加一条行宽地板（68ch = 498px）
+      expect.soft((r.story?.height ?? 0) >= STORY_FLOOR, where + '：正文那一行低于 120px 的地板').toBe(true)
+      expect
+        .soft((r.story?.width ?? 0) >= STORY_WIDTH_FLOOR, where + '：正文列比 68ch（498px）还窄')
+        .toBe(true)
+      expectOwnership(r, where)
+      expectNoDrawer(r, where)
+    }
+  } finally {
+    await context.close()
+  }
+})
+
+test('P4/P5 一条栏档：两段住同一条栏（右在上），1279 与 1280 是一对牙', async ({ browser }) => {
+  const { context, page } = await openPlayerAt(browser, { width: 1100, height: 800, lang: 'zh-CN' })
+  try {
+    const first = await readPlayer(page, '1100x800')
+    expect(first.rotate?.visible ?? false, '1100x800 是宽屏，闸门不该成立').toBe(false)
+    for (const [width, height] of [
+      [1100, 800],
+      [1279, 800],
+    ] as const) {
+      const where = width + 'x' + height
+      const r = width === 1100 && height === 800 ? first : await sizeTo(page, width, height)
+      const left = columnOf(r, 'left')
+      const right = columnOf(r, 'right')
+      expect.soft(left?.visible && right?.visible, where + '：两段都该在屏上').toBe(true)
+      // 同一条栏：两段的左沿相同（这就是"一条栏"与"两条栏"在几何上的分界，不钉栏宽）
+      expect
+        .soft(Math.abs((left?.left ?? 0) - (right?.left ?? 1e9)) <= 1, where + '：两段不在同一条栏里')
+        .toBe(true)
+      // 右在上、左在下（组长 2026-09-24 拍的：窄窗先给"我现在有什么、我在哪"）
+      expect.soft((right?.top ?? 1e9) < (left?.top ?? -1), where + '：这条栏里右在上、左在下').toBe(true)
+      // 那一条栏在正文右边
+      expect
+        .soft((left?.left ?? -1e9) >= (r.story?.right ?? 1e9) - 1, where + '：那条栏不在正文右边')
+        .toBe(true)
+      expect.soft((r.story?.height ?? 0) >= STORY_FLOOR, where + '：正文那一行低于 120px 的地板').toBe(true)
+      expectOwnership(r, where)
+      expectNoDrawer(r, where)
+    }
+    // 1280 一步跨过去就是两栏 —— 这就是"1280"这个数的牙（与上面 1279 那一格成对）
+    const wide = await sizeTo(page, 1280, 800)
+    const left = columnOf(wide, 'left')
+    const right = columnOf(wide, 'right')
+    expect
+      .soft(
+        (left?.right ?? 1e9) <= (wide.story?.left ?? -1) + 1 &&
+          (right?.left ?? -1e9) >= (wide.story?.right ?? 1e9) - 1,
+        '1280：这一档必须是两条栏（左在正文左边、右在右边）',
+      )
+      .toBe(true)
+    expectOwnership(wide, '1280x800')
+  } finally {
+    await context.close()
+  }
+})
+
+test('P6/H1/H2 块带档与矮窗兜底 @ 768x1024 / 600x900 / 800x400 / 480x320 / 640x360', async ({ browser }) => {
+  const { context, page } = await openPlayerAt(browser, { width: 768, height: 1024, lang: 'zh-CN' })
+  try {
+    // 高窗（≥481px）：正文在上、两条带接在下面（左先右后），各占满宽
+    const tall = await readPlayer(page, '768x1024')
+    const tallLeft = columnOf(tall, 'left')
+    const tallRight = columnOf(tall, 'right')
+    expect.soft(tall.story?.visible, '768x1024：正文那一列不可见').toBe(true)
+    expect.soft((tall.story?.top ?? 1e9) < (tallLeft?.top ?? -1), '768x1024：正文在上').toBe(true)
+    expect.soft((tallLeft?.top ?? 1e9) < (tallRight?.top ?? -1), '768x1024：正文下面左先右后').toBe(true)
+    expect
+      .soft(
+        Math.abs((tallLeft?.left ?? 0) - (tall.story?.left ?? 1e9)) <= 1 &&
+          Math.abs((tallLeft?.right ?? 0) - (tall.story?.right ?? 1e9)) <= 1,
+        '768x1024：带要跟正文一样宽（满宽带）',
+      )
+      .toBe(true)
+    expect.soft((tall.story?.height ?? 0) >= STORY_FLOOR, '768x1024：正文那一行低于 120px 的地板').toBe(true)
+    expectOwnership(tall, '768x1024')
+    expectNoDrawer(tall, '768x1024')
+    // H2 反面控制：高窗上**左带必须看得见**（矮窗兜底不许扩到高窗）
+    expect.soft(tallLeft?.visible, 'H2：高窗上左带必须看得见 —— 矮窗兜底不许扩到高窗').toBe(true)
+
+    // H2 第二格：600×900（闸门不成立的那一格，高 900 > 480）
+    const six = await sizeTo(page, 600, 900)
+    expect.soft(six.rotate?.visible, '600x900：这一档不是闸门').toBe(false)
+    expect.soft(columnOf(six, 'left')?.visible, 'H2：600x900 上左带必须看得见').toBe(true)
+    expect.soft(columnOf(six, 'right')?.visible, '600x900 上右带必须看得见').toBe(true)
+
+    // H1 矮窗（`max-height: 480px`：800×400 / 480×320 / 640×360）—— **只画右带**
+    for (const [width, height] of [
+      [800, 400],
+      [480, 320],
+      [640, 360],
+    ] as const) {
+      const where = width + 'x' + height
+      const r = await sizeTo(page, width, height)
+      expect
+        .soft(columnOf(r, 'left')?.visible, where + '：矮窗上左带必须不出现（这是选择的形状，不是没做）')
+        .toBe(false)
+      expect.soft(columnOf(r, 'right')?.visible, where + '：矮窗上右带要在').toBe(true)
+      expect
+        .soft(r.story?.visible && (r.story?.height ?? 0) >= STORY_FLOOR, where + '：正文要有地板')
+        .toBe(true)
+      // 归属不因降级而变：`left` 的块仍在左栏里（只是那一栏这一档不显示）
+      expectOwnership(r, where)
+      expectNoDrawer(r, where)
+    }
+  } finally {
+    await context.close()
+  }
+})
+
+for (const lang of ['zh-CN', 'en'] as const) {
+  test('G1/G2/G3/G4 竖屏闸门 @ 360x640（' + lang + '）', async ({ browser }) => {
+    const { context, page } = await openPlayerAt(browser, { width: 360, height: 640, lang })
+    try {
+      const title = await translate(page, 'play.rotateTitle')
+      const body = await translate(page, 'play.rotateBody')
+      const gated = await readPlayer(page, '360x640')
+      expect.soft(gated.rotate, '闸门那一块必须在 DOM 里（它是媒体查询，不是 v-if）').not.toBeNull()
+      expect.soft(gated.rotate?.visible, '360x640 是窄且竖：闸门必须成立').toBe(true)
+      expect.soft(gated.rotate?.text ?? '', '闸门要说出标题那一句').toContain(title)
+      expect.soft(gated.rotate?.text ?? '', '闸门要说出正文那一句').toContain(body)
+      expect.soft(gated.columns.filter((column) => column.visible).length, '闸门屏上不许还有栏').toBe(0)
+      expect.soft(gated.story?.visible ?? false, '闸门屏上不许还有正文').toBe(false)
+      expect.soft(gated.composer, '闸门屏上不许还有输入框').not.toBe(true)
+      // ⚠️ 闸门档**不断正文高度**：正文根本不显示（设计自拼页在那一档量到的那 110px 是"没显示"的读数）
+
+      // G3：599 还是闸门、600 就不是 —— "599"这个数的牙
+      const narrow = await sizeTo(page, 599, 900)
+      expect.soft(narrow.rotate?.visible, '599x900 还是窄且竖：闸门必须成立').toBe(true)
+      const wide = await sizeTo(page, 600, 900)
+      expect.soft(wide.rotate?.visible, '600x900 不再窄：闸门必须撤').toBe(false)
+      expect
+        .soft(
+          wide.story?.visible && (wide.story?.height ?? 0) >= STORY_FLOOR,
+          '600x900：正文回来且不低于地板',
+        )
+        .toBe(true)
+
+      // G2：同一台手机转过来就能玩（不刷新、不重开）
+      const turned = await sizeTo(page, 640, 360)
+      expect.soft(turned.rotate?.visible, '转过来了：闸门必须撤').toBe(false)
+      expect.soft(columnOf(turned, 'right')?.visible, '转过来之后右带要在').toBe(true)
+      expect
+        .soft(turned.story?.visible && (turned.story?.height ?? 0) >= STORY_FLOOR, '转过来之后正文要有地板')
+        .toBe(true)
+      expectOwnership(turned, '640x360')
+    } finally {
+      await context.close()
+    }
+  })
+}
 
 test.afterAll(() => {
   const byState = new Map<string, Shot[]>()
