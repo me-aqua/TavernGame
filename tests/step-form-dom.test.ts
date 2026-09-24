@@ -587,6 +587,9 @@ describe('the step screen in the mid column (ticket 73: read it, then edit it)',
    *
    * ⚠️ 横带那几颗按钮**没有 `data-*` 钩子**（`EditorShell.vue:128-137` 只有 `.band` 一个类），
    *    而本刀不许动 `src/` 的既有钩子面 ⇒ 只能按 `.band` 与结构认（与 `S10` 同一套读法）。
+   * ⚠️ **票 74 的取法（T1）**：横带里另有两颗 `[data-drawer-toggle]`（A 形态把面板开关搬进来），
+   *    所以"数出来几颗"一律把它们**排除在外** —— 数出来仍是「开合器 + 卡里那几步」。
+   *    **期望值一个没改**（关着 1 颗 / 展开 1 + 步数 / 第 3 颗是第二步）。
    * ⚠️ "它只在 ≤820px 出现"这一半 jsdom 量不到 —— 那一半在 `e2e/visual.spec.ts` 的
    *    `expectLandscapeShell`。
    */
@@ -595,7 +598,8 @@ describe('the step screen in the mid column (ticket 73: read it, then edit it)',
     try {
       const band = w.find('.band')
       expect(band.exists(), 'the landscape band is missing').toBe(true)
-      const buttons = () => band.findAll('button')
+      const buttons = () =>
+        band.findAll('button').filter((el) => el.attributes('data-drawer-toggle') === undefined)
       expect(buttons().length, 'closed, the band hands out its toggle and nothing else').toBe(1)
       await buttons()[0].trigger('click')
       expect(buttons().length, 'opening the band must list every step of the card').toBe(1 + topology.length)

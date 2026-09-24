@@ -31,7 +31,7 @@ import { readFileSync } from 'node:fs'
 /* eslint-disable vue/one-component-per-file -- 这一件里有两个测试替身（卡图与外壳），都不是产品组件 */
 import { afterEach, describe, expect, it } from 'vitest'
 import { defineComponent, h, ref, type PropType } from 'vue'
-import { mount, type VueWrapper } from '@vue/test-utils'
+import { mount, type DOMWrapper, type VueWrapper } from '@vue/test-utils'
 import CardEditor from '../src/components/CardEditor.vue'
 import { parseCard } from '../src/game/card'
 import { i18n } from '../src/i18n'
@@ -98,6 +98,12 @@ interface Shell {
   adds: Array<{ what: string; col: string | null; tag: string; disabled: boolean; tabindex: number }>
   /** 细条每一项自己的文字（判「显示哪一步」用） */
   stepText: Record<string, string>
+  /** 票 74 · A 形态：两颗抽屉开关的取值、在不在横带里、是不是排在步骤按钮之后 */
+  toggles: { values: string[]; allInBand: boolean; lastInBand: boolean }
+  /** 抽屉自己的取值（票 74 · J11b：两个集合要逐项相等） */
+  drawers: string[]
+  /** 票 74 · B 形态：竖屏那一屏的提示块（`display:none` 由 CSS 管，jsdom 只判它在不在） */
+  rotate: { present: boolean; text: string }
 }
 
 /** 读一棵渲染好的树：外壳长什么样（缺什么就报缺，不抛） */
@@ -139,7 +145,45 @@ function shellOf(w: AnyWrapper): Shell {
       tabindex: Number(el.attributes('tabindex') ?? '0'),
     })),
     stepText: Object.fromEntries(steps.map((el) => [el.attributes('data-step') ?? '', el.text()])),
+    toggles: togglesOf(w),
+    drawers: w.findAll('[data-drawer]').map((el) => el.attributes('data-drawer') ?? ''),
+    rotate: rotateOf(w),
   }
+}
+
+/**
+ * 横带里那几颗按钮（**不含**抽屉开关）—— 票 74 的重钉口径。
+ *
+ * 两颗 `[data-drawer-toggle]` 搬进横带之后，`findAll('button')` 数的就是**三样**东西的混合
+ * （换一步的开合器 + 卡里那几步 + 两颗面板开关）⇒ "数出来几个"这件事必须先说清数的是哪一堆。
+ */
+function bandButtons(w: AnyWrapper): DOMWrapper<HTMLButtonElement>[] {
+  const band = w.find('.band')
+  return band.exists()
+    ? band.findAll('button').filter((el) => el.attributes('data-drawer-toggle') === undefined)
+    : []
+}
+
+/** 两颗抽屉开关搬到哪去了（取值 / 在不在横带 / 是不是排在步骤按钮之后） */
+function togglesOf(w: AnyWrapper): Shell['toggles'] {
+  const all = w.findAll('[data-drawer-toggle]')
+  const band = w.find('.band')
+  const inside = band.exists() ? band.findAll('button') : []
+  const first = inside.findIndex((el) => el.attributes('data-drawer-toggle') !== undefined)
+  return {
+    values: all.map((el) => el.attributes('data-drawer-toggle') ?? ''),
+    allInBand: all.length > 0 && all.every((el) => el.element.closest('.band') !== null),
+    lastInBand:
+      first > 0 &&
+      inside.length > first &&
+      inside.slice(first).every((el) => el.attributes('data-drawer-toggle') !== undefined),
+  }
+}
+
+/** 竖屏那一屏的提示块（`[data-rotate]`）；不在就报不在，不抛 */
+function rotateOf(w: AnyWrapper): Shell['rotate'] {
+  const el = w.find('[data-rotate]')
+  return { present: el.exists(), text: el.exists() ? el.text() : '' }
 }
 
 /** 选一个节点：点细条上那一步（卡图不再挂在编辑器里，选节点那一轴现在由细条承担） */
@@ -259,7 +303,10 @@ async function checkS9(w: AnyWrapper): Promise<void> {
  * S10 · 票 71 补的那一条（口径 8 的另一半）· **横带**：细条收成它之后，
  * 它要显示**当前那一步**，而且「换一步」真的换得动。
  *
- * ⚠️ 这一块**没有 `data-*` 钩子**（`EditorShell.vue:128-137` 只有一个 `.band` 类），
+ * ⚠️ **票 74 的重钉（T1）**：横带里多了两颗 `[data-drawer-toggle]`（A 形态把面板开关搬进来），
+ *    所以"数出来几个按钮"一律走 `bandButtons()` —— 它把抽屉开关**排除在外**，
+ *    数出来仍是「开合器 + 卡里那几步」。**一条断言都没减**，减的只是数数时混进来的东西。
+ * ⚠️ 这一块**没有 `data-*` 钩子**（`EditorShell.vue` 的横带只有 `.band` 与按钮），
  *    而票 71 的边界是"`src/` 一个字节不动" ⇒ 只能按类选、按结构认（头一颗是开合器、后面几颗是步骤）。
  * ⚠️ "它**只在 ≤820px 出现**"这一半 jsdom 量不到（没有媒体查询）—— 那一半在
  *    `e2e/visual.spec.ts` 的 `expectLandscapeShell`（`.band` 在屏上、细条那一栏不在）。
@@ -268,7 +315,7 @@ async function checkS10(w: AnyWrapper): Promise<void> {
   expect(w.find('.band').exists(), 'the landscape band is missing: the strip has no fallback shape').toBe(
     true,
   )
-  const buttons = () => w.find('.band').findAll('button')
+  const buttons = () => bandButtons(w)
   await pick(w, topology[0])
   expect(buttons()[0].text(), 'the band must name the step that is currently picked').toContain(
     card.graph.nodes[topology[0]].name,
@@ -286,6 +333,53 @@ async function checkS10(w: AnyWrapper): Promise<void> {
   await buttons()[2].trigger('click')
   expect(shellOf(w).on, 'picking a step from the band must move the selection').toEqual([topology[1]])
   expect(buttons().length, 'picking a step must close the menu again').toBe(1)
+}
+
+/**
+ * J11s · 票 74 · A 形态的位置面：两颗抽屉开关（`[data-drawer-toggle]`）**搬进横带**，
+ * 而且按设计 §A.1-2 的 DOM 序**排在步骤按钮之后**（开合器 → 各步 → 内容 → 提示词）。
+ *
+ * ⚠️ 顺序这一半**不是装饰**：`e2e/visual.spec.ts` 的 `expectLandscapeShell` 是从横带
+ *    "头一颗是开合器、第 2 颗起是各步"认出那几步的 —— 顺序变了，那一条就会认错对象。
+ * ⚠️ "它们在 ≤820 才可见"那一半 jsdom 量不到（没有媒体查询）：默认态由 CSS `display:none` 收起，
+ *    这一条只管**它们在不在那棵树里、在横带的哪一段**。
+ */
+function checkJ11s(w: AnyWrapper): void {
+  const s = shellOf(w)
+  expect(s.toggles.values.slice().sort(), 'one toggle per drawer panel').toEqual(['content', 'prompts'])
+  expect(s.toggles.allInBand, 'the two drawer toggles must live inside the landscape band').toBe(true)
+  expect(s.toggles.lastInBand, 'inside the band the drawer toggles must come after the step buttons').toBe(
+    true,
+  )
+}
+
+/**
+ * J11b · 票 74 的一致性面：**有抽屉就必须有它自己的开关，反过来也一样**。
+ *
+ * 查的是"对不对"而不是"有没有" —— 多一个抽屉而横带没跟上（或反过来）⇒ 当场红。
+ * 它**今天就是绿的**，而且必须是绿的：它不是判别，是守卫（`contract-74.md` §三 有分工表）。
+ */
+function checkJ11b(w: AnyWrapper): void {
+  const s = shellOf(w)
+  expect(
+    s.toggles.values.slice().sort(),
+    'every drawer panel needs its own toggle in the band, and the other way round',
+  ).toEqual(s.drawers.slice().sort())
+}
+
+/**
+ * J5s · 票 74 · B 形态的结构面：竖屏那一屏的提示块 `[data-rotate]` 在 DOM 里，
+ * 而且它写的**就是 i18n 表里那两句**（标题 + 说明）。
+ *
+ * ⚠️ 机制是**纯 CSS `display:none`**（设计 §五.3 明说不许 `v-if` + `matchMedia`）⇒
+ *    这一块**永远在树里**，可见性归真浏览器那一层（`e2e/visual.spec.ts` 的 J5）。
+ *    `v-if` 会让"它在不在"取决于替身环境，那正是这一条要挡住的。
+ */
+function checkJ5s(w: AnyWrapper): void {
+  const s = shellOf(w)
+  expect(s.rotate.present, 'the rotate notice [data-rotate] is missing from the editor DOM').toBe(true)
+  expect(s.rotate.text, 'the rotate notice must spell the title').toContain(i18n.global.t('card.rotateTitle'))
+  expect(s.rotate.text, 'the rotate notice must spell the body').toContain(i18n.global.t('card.rotateBody'))
 }
 
 /** 一条判据：编号 + 一句话（用例名）+ 断言（吃一棵挂好的树） */
@@ -306,6 +400,13 @@ const CHECKS: Check[] = [
   { id: 'S8', what: 'every plus is a button that can take focus', run: checkS8 },
   { id: 'S9', what: 'pressing a plus emits its own event', run: checkS9 },
   { id: 'S10', what: 'the landscape band names the current step and can swap it', run: checkS10 },
+  {
+    id: 'J11s',
+    what: 'the two drawer toggles live in the band, after the step buttons',
+    run: checkJ11s,
+  },
+  { id: 'J11b', what: 'every drawer panel and every toggle come in pairs', run: checkJ11b },
+  { id: 'J5s', what: 'the rotate notice is in the DOM and spells the two i18n keys', run: checkJ5s },
 ]
 
 describe('the four-column editor shell (criteria 1-5)', () => {
@@ -324,7 +425,7 @@ describe('the four-column editor shell (criteria 1-5)', () => {
 /**
  * 替身：一份照契约长的最小外壳，用 `innerHTML` 铺出来、点击走事件委托。
  *
- * 它**不进产品**，只做一件事 —— 让上面那 9 条判据在一个「照契约做对了」的树上跑一遍：
+ * 它**不进产品**，只做一件事 —— 让 `CHECKS` 里**每一条**判据在一个「照契约做对了」的树上跑一遍：
  * 全绿 ⇒ 这些判据不是永远红的；再按 `fault` 把某一样**整条关掉** ⇒ 数它们红几条。
  * `fault` 一次只关一样，关的都是「整条能力」，不是改一个数。
  */
@@ -394,11 +495,13 @@ function shellHtml(fault: string, selected: string, picking: boolean): string {
   const plus = (what: string) => (fault === 'adds' ? '' : `<button data-add="${what}">+</button>`)
   // 'mid' = 中栏不再是那个长滚动体（编辑面还在中栏里，只是没有 [data-mid]）
   const body = fault === 'mid' ? plus('action') : `<div data-mid>${plus('action')}</div>`
+  // 'drawerpair' = 提示词那一栏少了 data-drawer ⇒ 面板与开关配不成对（J11b 的牙长在这一处）
+  const promptsDrawer = fault === 'drawerpair' ? '' : ' data-drawer="prompts"'
   const cols =
-    `<div data-col="content">${plus('branch')}${nodes.join('')}</div>` +
+    `<div data-col="content" data-drawer="content">${plus('branch')}${nodes.join('')}</div>` +
     `<div data-col="flow" data-flow>${plus('step')}${steps}</div>` +
     `<div data-col="edit">${body}</div>` +
-    `<div data-col="prompts"></div>`
+    `<div data-col="prompts"${promptsDrawer}></div>`
   // 四栏没长在栅格容器里 = "骨架那一条整条不在"（别的一律照旧，故障要切得干净）
   const shell = fault === 'shell' ? `<div>${cols}</div>` : `<div data-shell>${cols}</div>`
   const ruler =
@@ -410,9 +513,24 @@ function shellHtml(fault: string, selected: string, picking: boolean): string {
   const bandMenu = picking
     ? topology.map((id) => `<button type="button">${card.graph.nodes[id].name}</button>`).join('')
     : ''
+  // 票 74 的 A 形态：两颗抽屉开关**跟在步骤之后**（'bandtoggles' = 它们没搬进来，仍落在顶栏里）
+  const toggles = ['content', 'prompts']
+    .map((name) => `<button type="button" data-drawer-toggle="${name}">${name}</button>`)
+    .join('')
   const band =
-    fault === 'band' ? '' : `<div class="band"><span class="band-k"></span>${bandToggle}${bandMenu}</div>`
-  return `<header data-top></header>${band}${shell}${ruler}`
+    fault === 'band'
+      ? ''
+      : `<div class="band"><span class="band-k"></span>${bandToggle}${bandMenu}${
+          fault === 'bandtoggles' ? '' : toggles
+        }</div>`
+  // 票 74 的 B 形态：竖屏那一屏的提示块（真件里**永远在树里**，看不看得见由 CSS 定）
+  const rotate =
+    fault === 'rotate'
+      ? ''
+      : `<div data-rotate><span>${String(i18n.global.t('card.rotateTitle'))}</span>` +
+        `<span>${String(i18n.global.t('card.rotateBody'))}</span></div>`
+  const top = `<header data-top>${fault === 'bandtoggles' ? toggles : ''}</header>`
+  return `${top}${rotate}${band}${shell}${ruler}`
 }
 
 /** 挂一版替身：同一批判据在它身上跑，`fault` 决定关掉哪一样 */
@@ -424,7 +542,7 @@ function stub(fault: string): AnyWrapper {
   }) as AnyWrapper
 }
 
-/** 在替身上跑完 8 条判据，返回红了的那些编号（**每条各挂一版**：判据之间不许互相带状态） */
+/** 在替身上把 `CHECKS` 里**每一条**判据都跑一遍，返回红了的那些编号（**每条各挂一版**：判据之间不许互相带状态） */
 async function redsOn(fault: string): Promise<string[]> {
   const red: string[] = []
   for (const check of CHECKS) {
@@ -473,7 +591,53 @@ describe('self-check: these criteria can go red, and by how much', () => {
     expect(await redsOn('adds')).toEqual(['S7', 'S8', 'S9'])
   })
 
-  it('T8 without the landscape band exactly S10 goes red', async () => {
-    expect(await redsOn('band')).toEqual(['S10'])
+  it('T8 without the landscape band exactly S10/J11s/J11b go red', async () => {
+    // ⚠️ 票 74 之后这是一条**真的依赖**：两颗抽屉开关住在横带里 ⇒ 横带整条不在，它们也就没地方长
+    //    ⇒ J11s（在不在横带里）与 J11b（开关与面板配不配得上）一起红。不是连带误伤，是同一条事实。
+    expect(await redsOn('band')).toEqual(['S10', 'J11s', 'J11b'])
   })
+
+  it('T9 a shell without the rotate notice turns exactly J5s red', async () => {
+    expect(await redsOn('rotate')).toEqual(['J5s'])
+  })
+
+  it('T10 drawer toggles left in the top bar turn exactly J11s red', async () => {
+    expect(await redsOn('bandtoggles')).toEqual(['J11s'])
+  })
+
+  it('T11 a drawer panel without its data-drawer turns exactly J11b red', async () => {
+    expect(await redsOn('drawerpair')).toEqual(['J11b'])
+  })
+})
+
+/**
+ * 票 74 · 窄屏那三件 —— 组件层的**静态那一半**。
+ *
+ * 几何（可用宽度、可见性、媒体查询）一律在 `e2e/visual.spec.ts` 里对着真浏览器量；这里只管
+ * "那两句话在不在、在几份表里" —— 它是 `[data-rotate]` 那一块**能不能有内容**的前提，
+ * 而内容在 jsdom 里读得到、在真浏览器那层反而只能读到"渲染出来的那一份"。
+ *
+ * 🔴 **为什么非要在这一层断一次**：`vue-i18n` 取不到键时**把键名原样回显**（不抛、不报错）
+ *    ⇒ `[data-rotate]` 照样有文字、照样"看得见"，两句提示却是一串 `card.rotateTitle`。
+ *    那种坏法在 e2e 那层**长得跟成功一模一样**（契约 §五 有这一段）。
+ */
+describe('the rotate notice has something to say (criteria J5t)', () => {
+  /** 两颗 locale 表：设计 §B.3 要求同一个键表、中英各一份 */
+  const LOCALES = ['zh-CN', 'en']
+  /** 那一屏的两句话 */
+  const NOTICE_KEYS = ['rotateTitle', 'rotateBody']
+
+  for (const lang of LOCALES) {
+    for (const key of NOTICE_KEYS) {
+      it(`J5t card.${key} is spelled out in ${lang}`, () => {
+        const table = JSON.parse(readFileSync(`src/locales/${lang}.json`, 'utf8')) as {
+          card: Record<string, string>
+        }
+        const said = table.card[key]
+        expect(typeof said, lang + ' has no card.' + key).toBe('string')
+        expect((said ?? '').trim().length, lang + ' leaves card.' + key + ' empty').toBeGreaterThan(0)
+        expect(said, lang + ' echoes the key back instead of saying something').not.toBe('card.' + key)
+      })
+    }
+  }
 })
