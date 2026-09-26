@@ -102,11 +102,30 @@ const EDITOR_OWNED: Record<string, string> = {
  *    `morningwind` / `night-watch` 的 `layout` 散文改成现在的事实（两条栏常驻）、
  *    格式戳提到 **`card/5`**（契约 §八.1 第 5 行）⇒ 三张卡逐字都变了。
  *    值由 `.tools/marta68-repin.mjs` 现算（口径与下面的 `hashOf` 逐字同源）。
+ * ⚠️ **票 68b（2026-09-26）同票重钉三条**：那一票的 G3 是"**散文与盘上一致**"（S0 §二 G3 / 契约 §十二），
+ *    三张卡各改了一处**给人看的散文**，所以三条值全变、**文件集合不变**：
+ *    · `morningwind` —— `display.scroll` 那句还在叫「世界面板」（那个名字票 68 就撤了，
+ *      判据 `K11` 就是红在这一句上）⇒ 改成"两条栏各自滚"，`display.layout` 补上"矮窗只留右带"与竖屏闸门；
+ *    · `night-watch` —— `display.layout` 删掉「日志从右上角展开」（全仓没有任何"日志"入口）、
+ *      `display.scroll` 的「面板」改成「栏」；
+ *    · `long-night` —— `notes` 里那句「不声明世界面板」改名字（它语义没错，错的是那个名字）。
+ *    **只换值 + 留痕，`checkB1` 一个字没删**；旧值（票 68 那一版）：
+ *    `long-night` `248ad29ec4ab0d0b275d2fbaed45443ef42ac18871d639750d6f7525bce96e7b` ·
+ *    `morningwind` `fb32854c38833bc0d1958195351616d6c006bd6049519ebfd2d69d5ea1f00e84` ·
+ *    `night-watch` `ef56cbbd09669f5753edfc54c71e050e404a4a1df09a0e37d9d7d54eac19ce92`。
+ * ⚠️ **同日第二趟（S4 收评审的 C-1）又重钉这三条**：评审指出第一版新写的那半句**本身不成立** ——
+ *    "横带那一档会把左带收起来"漏了那条媒体查询还要求 **`≤480` 高**（`player-screen.css:96-102`），
+ *    而 768×1024 / 600×900 同属"横带那一档"却两条带都在 ⇒ 改成"那一档里**只有矮窗（屏高 ≤480）**才收左带"；
+ *    同趟顺手收了竖屏闸门那句"整屏换成…"（左上角那条局况照样在）与 `long-night` 的"不声明侧栏"。
+ *    **还是只换值 + 留痕，`checkB1` 一个字没删**；旧值（本票第一版）：
+ *    `long-night` `48cfd7e78472126bbd7e2c474eeece8de0e1ae52c6cc96c8c45f030241e1f1f3` ·
+ *    `morningwind` `49ee10e42cfbe40f7b65d3f0e6ca0e3a101f27fb4dbb37703b9ff4a16e0f0e54` ·
+ *    `night-watch` `706906d52945e64021725d3056cabf815af71053487a44ca13344ba0a6f3bce4`。
  */
 const CARD_HASHES: Record<string, string> = {
-  'cards/long-night.json': '248ad29ec4ab0d0b275d2fbaed45443ef42ac18871d639750d6f7525bce96e7b',
-  'cards/morningwind.json': 'fb32854c38833bc0d1958195351616d6c006bd6049519ebfd2d69d5ea1f00e84',
-  'cards/night-watch.json': 'ef56cbbd09669f5753edfc54c71e050e404a4a1df09a0e37d9d7d54eac19ce92',
+  'cards/long-night.json': '261ef19e0f05fc0791a7c282efec1b8b3deea9acfb08173f061d5b37de665e3e',
+  'cards/morningwind.json': 'd897d35470be0ce76aa2b40d773a6572b4e31b4525922234f9d6dfc3220a819a',
+  'cards/night-watch.json': '4d00edfd4269769b3d113eb552d83461346a1d8e3dc648bb793d10a9d446fa81',
 }
 
 /** 卡的图那一个组件：口径 3 把它留在左栏（`DebugPanel` 也在用它），票 72 之后以这里钉住的值与文件集合为准 */
