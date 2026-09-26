@@ -1464,6 +1464,95 @@ for (const lang of ['zh-CN', 'en'] as const) {
   })
 }
 
+/**
+ * C3（票 68b）—— **最窄那一档，中英各跑一趟**。
+ *
+ * 由来：S3 在票 68 上开的条件 C3 —— `480×320` 在"状态 × 屏幕"矩阵里属 `LANDSCAPE_ONLY`，
+ * 玩家屏那一格**只跑过 zh-CN**；而票 74 那条真 bug 的形状正是"英文那列最宽 + 最窄工位"。
+ * ⚠️ 这一条**不动** `VIEWPORTS` / `LANDSCAPE_ONLY` / `STATES`（那是协作者的口径，只加不删不弱化）。
+ * ⚠️ `lang` 那一路**先核一次应用真的换了语言**：`translate()` 读的是应用自己的表，
+ *    拿它当期望值去比 DOM 是**循环论证** —— 应用压根没换语言时两边一起错，照样绿。
+ */
+for (const lang of ['zh-CN', 'en'] as const) {
+  test('H3/H4 最窄那一档（中英各一趟）@ 480x320（' + lang + '）', async ({ browser }) => {
+    const { context, page } = await openPlayerAt(browser, { width: 480, height: 320, lang })
+    try {
+      const active = await page.evaluate(
+        () => (window as unknown as { __dshE2E?: any }).__dshE2E?.i18n?.global?.locale?.value ?? null,
+      )
+      expect(active, '这一趟没有真的切到 ' + lang + '：下面的读数不是那种语言的').toBe(lang)
+      const r = await readPlayer(page, '480x320 ' + lang)
+      expect(r.rotate?.visible ?? false, '480x320 是横着的窄屏，闸门不该成立').toBe(false)
+      expect
+        .soft(columnOf(r, 'left')?.visible, '矮窗上左带必须不出现（这是选择的形状，不是没做）')
+        .toBe(false)
+      expect.soft(columnOf(r, 'right')?.visible, '矮窗上右带要在').toBe(true)
+      expect.soft(r.story?.visible, '正文那一列不可见').toBe(true)
+      expect.soft((r.story?.height ?? 0) >= STORY_FLOOR, '正文那一行低于 120px 的地板').toBe(true)
+      // 反面：这一档得真读到那一屏的结构（不是"闸门把什么都藏了"造成的空读数）
+      expect.soft(r.blocks.length, '这一档一块都没读到：这条判据什么都没量').toBe(DECLARED.length)
+      expectOwnership(r, '480x320 ' + lang)
+      expectNoDrawer(r, '480x320 ' + lang)
+    } finally {
+      await context.close()
+    }
+  })
+}
+
+/**
+ * G6（票 68b）—— `821–1279` 宽 **×** `≤480` 高 那一条死带（`1000×400`）。
+ *
+ * 由来：S3 的条件 G6 + 验收记录 §八.3 —— 这一档**没有判据、也没量过**；而它是**桌面窗口**
+ *（不是手机），越是不承诺的档越容易被真人撞上。同一宽度跑两格（800 高 / 400 高）⇒ 把"矮"单独拎出来。
+ * ⚠️ 不断"两段带各有多高"（设计没承诺那个数），只断**两条带都在 + 正文不低于地板**；
+ *    正文高与两段带高**打进日志**（`[G6]` 前缀）当读数用 —— 那三个数是这一条的产物。
+ */
+test('G6 死带 1000x400：一条栏档 × 矮窗（与同宽的 1000x800 成一对）', async ({ browser }) => {
+  const { context, page } = await openPlayerAt(browser, { width: 1000, height: 800, lang: 'zh-CN' })
+  try {
+    const tall = await readPlayer(page, '1000x800')
+    expect(tall.rotate?.visible ?? false, '1000x800 是宽屏，闸门不该成立').toBe(false)
+    const short = await sizeTo(page, 1000, 400)
+    for (const [where, r] of [
+      ['1000x800', tall],
+      ['1000x400', short],
+    ] as const) {
+      const left = columnOf(r, 'left')
+      const right = columnOf(r, 'right')
+      console.log(
+        '[G6] ' +
+          where +
+          ' story=' +
+          (r.story?.height ?? -1) +
+          ' leftBand=' +
+          (left?.height ?? -1) +
+          ' rightBand=' +
+          (right?.height ?? -1),
+      )
+      expect
+        .soft(left?.visible && right?.visible, where + '：两段都该在屏上（这一档把两条带放在正文右边那一列）')
+        .toBe(true)
+      expect
+        .soft(Math.abs((left?.left ?? 0) - (right?.left ?? 1e9)) <= 1, where + '：两段不在同一条栏里')
+        .toBe(true)
+      expect.soft((right?.top ?? 1e9) < (left?.top ?? -1), where + '：这条栏里右在上、左在下').toBe(true)
+      expect
+        .soft((left?.left ?? -1e9) >= (r.story?.right ?? 1e9) - 1, where + '：那条栏不在正文右边')
+        .toBe(true)
+      expect
+        .soft(
+          (r.story?.height ?? 0) >= STORY_FLOOR,
+          where + '：正文那一行低于 120px 的地板（这一档的 CSS 不兜它，靠正文跨两行）',
+        )
+        .toBe(true)
+      expectOwnership(r, where)
+      expectNoDrawer(r, where)
+    }
+  } finally {
+    await context.close()
+  }
+})
+
 test.afterAll(() => {
   const byState = new Map<string, Shot[]>()
   for (const shot of shots) {

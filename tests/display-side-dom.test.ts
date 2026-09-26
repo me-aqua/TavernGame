@@ -11,9 +11,15 @@
  * ⚠️ **闸门那一半这里只断"提示块在 DOM 里"**（不是 `v-if`）—— 可见性是媒体查询的事，
  *    jsdom 里断不了（票 74 的教训：窄档那三件全按纯 CSS 落，正是因为这一层没有布局）。
  * ⚠️ 字符串一律 ASCII（`tests/` 不豁免 `ascii.mjs`）⇒ 卡里的中文一律从卡 / i18n 现取。
+ *
+ * 🆕 **票 68b（2026-09-26）补的三条**：
+ *   · `G5` —— 闸门钩子的**唯一性**（玩家屏那棵树里 `[data-rotate]` 计数 = 0）：票 68 那次撞车
+ *     就是"同名、diff 看不见、跑起来才显形"（编辑器的 J5 一直在读玩家屏那一块）。
+ *   · `C2a` / `C2b` —— 「卡一张都没声明」与「某一边今天没有块」这两条路。
+ *     ⚠️ 它们**在内置演示卡上走不到**（它是六块、两边都有）⇒ 换一张真卡再挂 `App`（见 `withCard`）。
  */
 import { readFileSync } from 'node:fs'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import App from '../src/App.vue'
 import WorldPanel from '../src/components/WorldPanel.vue'
@@ -21,6 +27,7 @@ import { world } from '../src/components/display-blocks'
 import { instantiate } from '../src/game/card-state'
 import { currentCard } from '../src/game/current-card'
 import { i18n } from '../src/i18n'
+import { LONG_NIGHT_CARD, NIGHT_WATCH_CARD } from './support/card-fixtures'
 
 /** 内置示例卡（morningwind）：六块、左三右三 —— 期望值全部从卡现取，不抄一份内容 */
 const card = currentCard
@@ -181,6 +188,31 @@ describe('the player screen itself', () => {
       expect(text, 'the notice does not spell ' + key).toContain(String(i18n.global.t('play.' + key)))
     }
   })
+
+  it('G5 the player screen carries exactly one gate hook, and it does not borrow the editor name', () => {
+    openPlayer()
+    const root = mounted?.element as Element
+    // 正面：这一屏的闸门钩子**恰好一个**，而且就在这一屏的树里
+    expect(
+      document.querySelectorAll('[data-play-rotate]').length,
+      'the gate hook is not unique on the player screen: whoever reads it may read another block',
+    ).toBe(1)
+    expect(
+      root.querySelectorAll('[data-play-rotate]').length,
+      'the gate hook is not inside the player screen tree',
+    ).toBe(1)
+    // 反面（票 68 那次撞车的形状）：按 `[data-rotate]` 取元素的人拿的是**文档序第一个**，
+    // 而玩家屏在 DOM 里更靠前 ⇒ 这一屏只要有一个 `[data-rotate]`，那个 reader 就会读错对象
+    expect(
+      document.querySelectorAll('[data-rotate]').length,
+      'a [data-rotate] element is on screen while the player screen is mounted: the editor gate reads the ' +
+        'first one in document order, so it would read this screen instead of its own (ticket 68)',
+    ).toBe(0)
+    expect(
+      root.querySelectorAll('[data-rotate]').length,
+      'the player screen tree carries the editor gate name',
+    ).toBe(0)
+  })
 })
 
 describe('one column on its own', () => {
@@ -224,5 +256,80 @@ describe('the two texts a portrait phone gets', () => {
     const zh = String(localeOf('zh-CN').play?.rotateBody)
     expect(zh, 'the player sentence talks about playing').toContain('\u73a9')
     expect(zh, 'the player sentence still talks about the card editor').not.toContain('\u7f16\u8f91\u5668')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// C2（票 68b）—— 「一张都没声明」与「某一边今天没有块」这两条路：**在真件上**
+// ---------------------------------------------------------------------------
+
+/** 活动卡的存储键（与 `game/current-card.ts` 一致：写错了这里会当场读不到那一张卡） */
+const CARD_KEY = 'tavernGame.card'
+
+/** 一张真卡文件里的两样东西（期望值从卡现取，这一件不抄一份内容） */
+function cardFileOf(path: string): { id: string; sidebar: Array<Record<string, string>> } {
+  const raw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, any>
+  return { id: raw.card.id as string, sidebar: raw.display.sidebar as Array<Record<string, string>> }
+}
+
+/**
+ * 挂一个"当前卡是这一张"的真 `App` —— 这两条路在内置演示卡上走不到（它是六块、两边都有）。
+ *
+ * ⚠️ 选卡发生在**模块加载期**（`current-card.ts` 的 `activate()` 读存储）⇒ 换了存储之后必须拿
+ *    一份全新的模块图：`vi.resetModules()` + 动态 `import()`（与 `current-card.test.ts` 的
+ *    `freshCard` / `components.test.ts` 的 `freshGame` 同一套做法）。
+ * ⚠️ 挂载**不显式传 plugin**：`tests/setup.ts` 已经把那份 zh-CN 的 i18n 装在全局配置里，
+ *    而这一件上半个 `describe` 的期望值也正是从同一个实例现取的（`i18n.global.t`）。
+ */
+async function withCard(path: string): Promise<{ id: string; sidebar: Array<Record<string, string>> }> {
+  const card = cardFileOf(path)
+  localStorage.setItem(CARD_KEY, readFileSync(path, 'utf8'))
+  vi.resetModules()
+  const [app, current] = await Promise.all([import('../src/App.vue'), import('../src/game/current-card')])
+  expect(
+    current.currentCard.card.id,
+    'the stored card did not take effect: the readings below would be about another card',
+  ).toBe(card.id)
+  mounted = mount(app.default, { attachTo: document.body }) as VueWrapper
+  return card
+}
+
+describe('a card that declares nothing, and a card with blocks on one side only', () => {
+  it('C2a an empty sidebar draws no column at all (the screen falls back to the single-column shape)', async () => {
+    const card = await withCard(LONG_NIGHT_CARD)
+    expect(card.sidebar, 'this fixture is supposed to declare an empty sidebar').toEqual([])
+    expect(
+      columns().length,
+      'a card that declares no block still got side columns: "nothing declared" must fall back to the ' +
+        'single-column screen (decision: the shape follows the declaration, not the content)',
+    ).toBe(0)
+    expect(blocks().length, 'a card that declares no block drew blocks').toBe(0)
+    expect(
+      document.querySelector('[data-story]'),
+      'the story column is gone too: the fallback is a single column, not an empty screen',
+    ).not.toBe(null)
+  })
+
+  it('C2b a card with a block on one side draws both columns, and the empty one says so', async () => {
+    const card = await withCard(NIGHT_WATCH_CARD)
+    expect(card.sidebar.length, 'this fixture is supposed to declare exactly one block').toBe(1)
+    expect(card.sidebar[0].side, 'the single block of this fixture is on the right').toBe('right')
+    expect(
+      columns()
+        .map((el) => el.getAttribute('data-side'))
+        .sort(),
+      'one side has blocks and the other does not: both columns must still be on screen',
+    ).toEqual(['left', 'right'])
+    const left = columns().find((el) => el.getAttribute('data-side') === 'left') as Element
+    const right = columns().find((el) => el.getAttribute('data-side') === 'right') as Element
+    expect(left.querySelectorAll('[data-block]').length, 'the left column is not empty').toBe(0)
+    expect(
+      left.querySelector('[data-side-empty]')?.textContent,
+      'the empty column draws nothing to say why it is empty: the player cannot tell "no block" from "broken"',
+    ).toBe(String(i18n.global.t('play.emptySide')))
+    expect(
+      Array.from(right.querySelectorAll('[data-block]')).map((el) => el.getAttribute('data-block')),
+      'the one declared block is not the one drawn in the right column',
+    ).toEqual([card.sidebar[0].path])
   })
 })

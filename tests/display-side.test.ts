@@ -31,11 +31,21 @@ const SIDES = ['left', 'right'] as const
 const SAYS_FULL_SCREEN = '\u5360\u6ee1\u6574\u5c4f'
 /** `抽屉` —— 世界面板那一层本票撤了 */
 const SAYS_DRAWER = '\u62bd\u5c49'
+/** `世界面板` —— 被撤掉那一层的**名字**（票 68b 补：撤了抽屉之后，卡里那句 `scroll` 还在叫它） */
+const SAYS_WORLD_PANEL = '\u4e16\u754c\u9762\u677f'
 /** `栏`（U+680F）—— 新形态那句话里该出现的字（判据 K12 只要求"提了一句"）
  *  ⚠️ 2026-09-24 改前是 `'\u6805'`＝「栅」（错字：注释与契约都写着「栏」）。
  *     写错的 `\uXXXX` **编译得过、跑得起来**，只会让 K12 去断另一个字 ⇒ 量具自检见
  *     `.tools/marta68-codepoints.mjs`（它把两份判据里每一处中文转义逐字解出来对账）。 */
 const SAYS_COLUMN = '\u680f'
+
+/**
+ * 卡里那三段**给人看的散文**（`card.ts` 的 `layout` / `time` / `scroll` —— 引擎不读它们）。
+ *
+ * ⚠️ 票 68b 把 K11 的扫描面从"只有 `layout`"扩到这三段：只扫 `layout` 会漏掉
+ *    `scroll` 里那句「世界面板放不下就加滚动条」—— 那是本票抓到的**真假话**。
+ */
+const PROSE_KEYS = ['layout', 'time', 'scroll'] as const
 
 /** 三张真卡（期望值从卡现取；**不从源码里抄路径名**） */
 const CARDS = [
@@ -264,15 +274,28 @@ describe('K: the prose in the cards stops saying what is no longer true', () => 
     ).toBe(false)
   })
 
-  it('K11 the two cards with a layout no longer claim a full screen or a drawer', () => {
-    for (const path of [EXAMPLE_CARD, NIGHT_WATCH_CARD]) {
-      const layout = String(rawOf(path).display.layout ?? '')
-      expect(layout.length, path + ': the layout prose is empty').toBeGreaterThan(0)
-      expect(layout, path + ': the prose still says the story takes the whole screen').not.toContain(
-        SAYS_FULL_SCREEN,
-      )
-      expect(layout, path + ': the prose still says the world panel is a drawer').not.toContain(SAYS_DRAWER)
+  it('K11 no card prose names the full screen, the drawer, or the world panel any more', () => {
+    // 票 68b：扫描面从"只有 `layout`"扩到三段散文（`layout` / `time` / `scroll`），
+    // 词表多一个 `世界面板` —— 只扫 `layout` 就漏掉 `scroll` 里那句「世界面板放不下就加滚动条」。
+    let read = 0
+    for (const { name, path } of CARDS) {
+      const display = rawOf(path).display as Record<string, unknown>
+      for (const key of PROSE_KEYS) {
+        if (!Object.hasOwn(display, key)) continue
+        read += 1
+        const prose = String(display[key])
+        expect(prose.length, name + '.' + key + ': the prose is empty').toBeGreaterThan(0)
+        for (const [what, word] of [
+          ['a story that takes the whole screen', SAYS_FULL_SCREEN],
+          ['a drawer', SAYS_DRAWER],
+          ['the world panel (removed in ticket 68)', SAYS_WORLD_PANEL],
+        ] as const) {
+          expect(prose, name + '.' + key + ' still says ' + what).not.toContain(word)
+        }
+      }
     }
+    // 反面：一张卡都没有散文也照样"全过"（那这条判据什么都没读）
+    expect(read, 'no card prose was read at all').toBeGreaterThan(0)
   })
 
   it('K12 the two cards with a layout say the blocks live in columns', () => {
