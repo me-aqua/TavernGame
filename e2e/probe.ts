@@ -121,7 +121,7 @@ export interface FontCensus {
   leaves: number
   /** 这一片里有几个 `<select>` */
   selects: number
-  /** 这一屏有几处 `[data-branch-form]`（＝中栏那张表在不在；不在就不是这条判据的地盘） */
+  /** 这一屏有几处中栏那张表的根（两种形态之一；一个都不在 ⇒ 不是这条判据的地盘） */
   forms: number
 }
 
@@ -130,18 +130,26 @@ export interface FontCensus {
  *
  * ⚠️ 与整页矩阵那次普查（`visual.spec.ts` 的 `SHELL_PROBE`）**同一套口径**：只数"有文字、
  *    没有子节点"的元素 ⇒ `<input>` / `<select>` 本身不进（它们没有文字），但 **`<option>` 进**。
- * ⚠️ 作用域收到中栏那张表里面（`#storybook-root [data-branch-form]`）：口径 7 管的是**编辑器那一屏
- *    的文字**，别的组件的故事各有各的尺度，不归它管。
+ * ⚠️ 作用域是中栏那张表的**两种形态**的根（字段表与「编一块显示」）—— 见函数体第一条注释。
  * 🔴 为什么这一层非要有它：整页矩阵那次普查**只在 `editor-open` 那一屏跑**，而那一屏**从不按「＋」**
  *    ⇒ 屏上 `select = 0 / option = 0` ⇒ 那条判据对 `<option>` **零信息量**（不是红也不是绿）。
  *    组件故事里 `Editing` / `Refused` 两个故事带着新行 ⇒ `<option>` 真在屏上。
  */
 export function fontCensus(): FontCensus {
-  const scope = document.querySelector('#storybook-root [data-branch-form]')
+  // 🔴 这条选择器**必须写在这个函数体里**（不许抽成模块作用域的常量）：`page.evaluate(fontCensus)`
+  //    把这个函数**序列化成源码**再在页面里 eval ⇒ 引用模块作用域的任何东西在那边都是 `undefined`
+  //    （2026-09-26 真炸过一次：`ReferenceError: FORM_SCOPE is not defined`，整层故事全红）。
+  // ⚠️ 两种形态都要收：三形态互斥 ⇒ 屏上只会有一个；**少收一个，那一屏就是"照不到"**
+  //    （`forms === 0` ⇒ 当场 early return，本票那个新形态的下拉就是这么漏掉的）。
+  const scopes = [
+    ...document.querySelectorAll('#storybook-root [data-branch-form], #storybook-root [data-display-form]'),
+  ]
   const sizes: string[] = []
   const optionSizes: string[] = []
   let leaves = 0
-  if (scope !== null) {
+  let selects = 0
+  for (const scope of scopes) {
+    selects += scope.querySelectorAll('select').length
     for (const el of scope.querySelectorAll('*')) {
       if (el.children.length > 0 || (el.textContent ?? '').trim() === '') continue
       const size = getComputedStyle(el).fontSize
@@ -154,8 +162,8 @@ export function fontCensus(): FontCensus {
     sizes: [...new Set(sizes)].sort(),
     optionSizes: [...new Set(optionSizes)].sort(),
     leaves,
-    selects: scope === null ? 0 : scope.querySelectorAll('select').length,
-    forms: document.querySelectorAll('#storybook-root [data-branch-form]').length,
+    selects,
+    forms: scopes.length,
   }
 }
 
