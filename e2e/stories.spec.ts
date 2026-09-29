@@ -13,11 +13,24 @@
  *    只许用三档。整页矩阵那次普查**只在 `editor-open` 那一屏跑**，而那一屏**从不按「＋」**
  *    ⇒ 它照不到 `<option>`；这一层的故事里真有（`Editing` / `Refused` 带着新行）。
  *
+ * 🔴 阶段 3（搬纹章 / 剪影）：文件末尾还管一条**动效判据** —— 剪影在 reduced motion 下必须静止。
+ *    它同样只有这一层看得见（组件层是 jsdom、截图那步把动画冻住），详见 `probe.ts` 的
+ *    `expectSigilStill`。它单独成块，因为要**两个动效上下文对撞**，塞进下面那个矩阵会把
+ *    每个故事都跑两遍。
+ *
  * 用法：npm run stories（会先 storybook build）
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
-import { PROBE, expectClean, expectTierFonts, fontCensus, type Probe } from './probe'
+import {
+  PROBE,
+  expectClean,
+  expectSigilStill,
+  expectTierFonts,
+  fontCensus,
+  sigilCensus,
+  type Probe,
+} from './probe'
 import { startStaticServer } from './static-server'
 
 const PORT = 4175
@@ -139,4 +152,57 @@ test.describe('组件故事', () => {
       }
     }
   }
+})
+
+/**
+ * 剪影的呼吸动效在 reduced motion 下必须静止 —— `SceneSigil.vue` 文件头里写的就是这一条。
+ *
+ * 三个"为什么只能在这一层"（判据本体与正反两半都在 `probe.ts` 的 `expectSigilStill`）：
+ *   · 组件层是 jsdom，`matchMedia` 恒为 `false` ⇒ 那条媒体查询永远不匹配，看不见；
+ *   · 上面那个矩阵的截图带 `animations: 'disabled'`，Playwright 会把动画冻住 ⇒ 看图看不出；
+ *   · 只有**真浏览器 + 两个动效上下文对撞**（reduce / no-preference）能把它钉住。
+ *
+ * ⚠️ 单开一块、而不是塞进上面那个矩阵：上面那一趟**本来就跑在 `reducedMotion: 'reduce'` 里**
+ *    ⇒ 只有一半；把第二个上下文塞进去会把每个故事都多跑一遍。
+ * ⚠️ 动效不吃语言 ⇒ 这一层只跑一种语言（省一半）；浅深两档照跑（它是 CSS 级联的一部分）。
+ */
+test.describe('剪影在 reduced motion 下静止', () => {
+  /** 剪影那四个故事（按故事标题认，不去拼 id） */
+  const sigilStories = stories.filter((entry) => entry.title === '组件/SceneSigil')
+  /** 照到过剪影的屏数（收尾要断它 —— 一条都没照到就是空转） */
+  let seen = 0
+
+  test('剪影的故事在清单里（照不到 ≠ 通过）', () => {
+    expect(sigilStories.length, '清单里一个剪影故事都没有 —— 这一条什么也没验').toBeGreaterThan(0)
+  })
+
+  for (const story of sigilStories) {
+    for (const theme of THEMES) {
+      test(`${story.id} [${theme}]`, async ({ browser }) => {
+        /** 同一个故事、同一个主题，**只在动效偏好上不同** —— 这一条就是那两个上下文对撞 */
+        const censusIn = async (reducedMotion: 'reduce' | 'no-preference') => {
+          const context = await browser.newContext({
+            viewport: VIEWPORT,
+            deviceScaleFactor: 1,
+            locale: 'zh-CN',
+            timezoneId: 'Asia/Shanghai',
+            reducedMotion,
+          })
+          const page = await context.newPage()
+          await page.goto(`/iframe.html?id=${story.id}&globals=theme:${theme};locale:zh-CN`)
+          await expect(page.locator('#storybook-root > *').first()).toBeVisible()
+          const census = await page.evaluate(sigilCensus)
+          await context.close()
+          return census
+        }
+        if (expectSigilStill(await censusIn('reduce'), await censusIn('no-preference'), story.id)) {
+          seen += 1
+        }
+      })
+    }
+  }
+
+  test.afterAll(() => {
+    expect(seen, '整趟一块剪影都没照到 —— 这一条空转了').toBeGreaterThan(0)
+  })
 })

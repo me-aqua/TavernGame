@@ -200,3 +200,50 @@ export function expectTierFonts(font: FontCensus, where: string): void {
     expect(font.optionSizes, where + '：屏上有下拉，就必须照到它的 <option>（照不到 ≠ 通过）').not.toEqual([])
   }
 }
+
+/** 剪影动效普查读出来的（`sigilCensus` 的返回值） */
+export interface SigilCensus {
+  /** 这一屏上有几个 `.scene-sigil`（0 ⇒ 这一条对这一幕不适用） */
+  sigils: number
+  /** 它们的 `animation-name`（去重、排序） */
+  animations: string[]
+}
+
+/**
+ * 剪影动效普查（在页面里跑）。
+ *
+ * ⚠️ 与 `fontCensus` 同一条注意：`page.evaluate` 把这个函数**序列化成源码**再在页面里 eval
+ *    ⇒ 函数体里不许引用模块作用域的任何东西。
+ */
+export function sigilCensus(): SigilCensus {
+  const all = [...document.querySelectorAll('.scene-sigil')]
+  return {
+    sigils: all.length,
+    animations: [...new Set(all.map((el) => getComputedStyle(el).animationName))].sort(),
+  }
+}
+
+/**
+ * 剪影在 reduced motion 下静止（`SceneSigil.vue` 的文件头写的就是这一条）。
+ *
+ * 🔴 **为什么只能在这一层量**：jsdom 的 `matchMedia` 恒为 `false`（媒体查询永远不匹配）
+ *    ⇒ 组件层那件判据看不见它；截图那一步又带 `animations: 'disabled'`（Playwright 会把
+ *    动画冻住）⇒ 看图也看不出。只有**真浏览器 + 两个动效上下文对撞**能看见。
+ * 🔴 **正反两半都要断** —— 少了后半，「样式根本没加载」与「样式加载了且静止」长得一模一样：
+ *    ① `reduce` 上下文里 `animation-name` 必须是 `none`；
+ *    ② `no-preference` 上下文里必须**不是** `none`（它就是①的反面控制）。
+ * ⚠️ 屏上没有剪影 ⇒ 这一条不适用，返回 `false`；调用方要累计它，
+ *    **整趟一条都没照到**得报出来 —— "照不到"既不是红也不是绿。
+ */
+export function expectSigilStill(reduce: SigilCensus, animated: SigilCensus, where: string): boolean {
+  if (reduce.sigils === 0) return false
+  expect(animated.sigils, where + '：两个上下文该照到同样多的剪影').toBe(reduce.sigils)
+  expect(reduce.animations, where + '：reduced motion 下剪影必须静止（animation-name 该是 none）').toEqual([
+    'none',
+  ])
+  expect(
+    animated.animations,
+    where + '：不 reduce 时它得真的在动 —— 否则是样式根本没加载，不是它变静了',
+  ).not.toEqual(['none'])
+  return true
+}
