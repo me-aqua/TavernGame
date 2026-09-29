@@ -627,6 +627,13 @@ describe('G7 creating a branch only feeds the draft, and the top bar stays the o
         picked.size,
         'the panel hands out too few buttons: this census would say nothing',
       ).toBeGreaterThanOrEqual(SHAPES.length + 5)
+      // 🔴 **收尾再核一次：面板上不许剩「没点到」的按钮。** 上面那两族名单（`of` / `field-shape`）与下限
+      //    `+5` 都是**今天这张面板的枚举** —— 将来谁加一族条件渲染的按钮而忘了进 `extras()`，那些按钮会
+      //    **静默漏网**，而 `picked = 11 + n ≥ 11` **照样通过**。这一行把"剩没剩"也钉住。
+      //    📌 出处：S3 复审确认时给的非阻塞观察（组长 2026-09-29 采纳）。
+      expect(unclicked(), 'a create-panel button was never clicked: this census is not exhaustive').toEqual(
+        [],
+      )
       // 🔴 全局那次普查（编辑器里**每一颗**按钮各点一遍）住在 `tests/editor-draft-guard-dom.test.ts`
       //    的 `D15`：它照旧只许数出 `[data-card-save]` 一颗 —— 新按钮自动进那次普查，这里不复制它。
     } finally {
