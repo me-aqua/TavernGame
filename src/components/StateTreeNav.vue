@@ -13,6 +13,9 @@
  * ⚠️ 字号只用 `--fs1/2/3` 三档（整页巡检会数 `[data-card-editor]` 里用了几档）。
  * ⚠️ 引擎接管那一行**不禁用**：看一眼是允许的，改不了是这一票的常态 —— 它的长相按项目里
  *    「只读 ＝ 左竖条 + 灰字」那一套（`data-branch-takeover` 是给判据与真浏览器读的）。
+ * ⚠️ 树下面那颗「新建一枝」（票 8e）**点下去只抛事件**：面板与草稿都是 `CardEditor` 的事，
+ *    这一层照旧只铺屏。它用 `data-branch-add`，**绝不能叫 `data-add`** —— `data-add` 是 8a 的保留集合
+ *    （编枝态恰好 2 颗，`smoke.spec.ts` / `visual.spec.ts` 逐项断过），改名会把那三条判据一起打红。
  */
 import { useI18n } from 'vue-i18n'
 
@@ -25,7 +28,7 @@ defineProps<{
   picked: string
 }>()
 
-const emit = defineEmits<{ pick: [path: string] }>()
+const emit = defineEmits<{ pick: [path: string]; create: [] }>()
 
 /** 缩进：路径几段就缩几级（`*` 也算一段 —— 它就是元素形状那一层） */
 function indent(path: string): string {
@@ -50,6 +53,9 @@ function indent(path: string): string {
     >
       {{ row.path }}
     </button>
+
+    <!-- 新建一枝：行的那一串外面（行里一个字都不许多），点下去只抛 `create` -->
+    <button type="button" class="add" data-branch-add v-text="t('card.branchNew')" @click="emit('create')" />
   </nav>
 </template>
 
@@ -88,5 +94,25 @@ function indent(path: string): string {
   color: var(--color-accent);
   font-weight: 600;
   box-shadow: inset 2px 0 0 var(--color-accent);
+}
+/* 新建一枝：整行宽 + ≥24 高（整页巡检的下限），虚线框照 `BranchForm` 那颗「＋ 加一个字段」 */
+.add {
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  margin-top: var(--s1);
+  padding: 0 var(--s2);
+  border: 1px dashed var(--color-line);
+  border-radius: var(--r1);
+  background: none;
+  color: var(--color-accent);
+  font-family: inherit;
+  font-size: var(--fs2);
+  text-align: left;
+  cursor: pointer;
+}
+.add:hover {
+  border-color: var(--color-accent-line);
+  background: var(--color-accent-soft);
 }
 </style>

@@ -10,13 +10,14 @@
  * 形态按决定 #24：绝对定位的浮层盖在故事上，不挤占正文，四栏骨架是 `EditorShell` 的事。
  * **四族草稿各有一层**：「编一步」那一族在 `useStepDraft.ts`（票 77），另一格那一族（树 / 字段表 /
  * 唯一那条写路径 / 脏守卫）在 `useBranchDraft.ts`（票 80），「编一块显示」那一族在
- * `useDisplayDraft.ts`（票 8d-①），「编公共提示词」那一族在 `usePromptDraft.ts`（票 8d-②）
- * —— 这里只剩那一条轴与接线。
+ * `useDisplayDraft.ts`（票 8d-①），「编公共提示词」那一族在 `usePromptDraft.ts`（票 8d-②），
+ * 「新建一枝」那一族在 `useBranchCreate.ts`（票 8e）—— 这里只剩那一条轴与接线。
  *
  * **写路径只有一条**（8b-② 立的，8c-② 让「编一步」也走它，8d-① 让「编一块显示」也走它，
- * 8d-② 让「编公共提示词」也走它）：说明 / 加字段 / 删字段 / 一步的六个键 / 一块显示的四个键 /
- * 一条公共提示词的正文**都只动草稿**，点顶栏那颗「保存」才落卡 —— **深拷整份卡 → 只改这几处 →
- * `importCard`（先校验后落盘）→ 失败只报不改**；成功只 emit `saved`，reload 是外层的事。
+ * 8d-② 让「编公共提示词」也走它，8e 让「新建一枝」也走它）：说明 / 加字段 / 删字段 / 一步的六个键 /
+ * 一块显示的四个键 / 一条公共提示词的正文 / 一枝的新建**都只动草稿**，点顶栏那颗「保存」才落卡 ——
+ * **深拷整份卡 → 只改这几处 → `importCard`（先校验后落盘）→ 失败只报不改**；
+ * 成功只 emit `saved`，reload 是外层的事。
  *
  * ⚠️ **公共提示词那一条的坏值拦在草稿层**：`script` 的正文是 JSON 文本 ⇒ `saveAll()` 先问
  *    `badEntry()` —— 有坏值就把它挑到屏上（那句人话在 `[data-prompt-error]`）、**不落盘也不 emit**。
@@ -30,24 +31,35 @@
  */
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import BranchCreateForm from './BranchCreateForm.vue'
 import BranchForm from './BranchForm.vue'
 import DisplayForm from './DisplayForm.vue'
 import EditorShell from './EditorShell.vue'
 import PromptForm from './PromptForm.vue'
 import StateTreeNav from './StateTreeNav.vue'
 import StepForm from './StepForm.vue'
+import { useBranchCreate } from './useBranchCreate'
 import { useBranchDraft } from './useBranchDraft'
 import { useDisplayDraft } from './useDisplayDraft'
 import { usePromptDraft } from './usePromptDraft'
 import { useStepDraft } from './useStepDraft'
 import { cardMeta, type CardSource } from '../game/current-card'
+import type { Schema } from '../game/card-state'
 import type { CardData } from '../game/card'
 
 const { t } = useI18n()
 
 const props = defineProps<{ card: CardData; source: CardSource }>()
 
-/** 三个「＋」各自抛一个事件（真的改卡是各自的票的事）；`close` / `saved` 是外壳那两颗按钮 */
+/**
+ * 外壳那几颗「＋」的事件面：`add-action` / `add-step` 照旧往上抛（各自的票的事）、
+ * `close` / `saved` 是外壳那两颗按钮。
+ *
+ * ⚠️ **`add-branch` 照旧抛**（票 8e 一个字节没改这条接缝）：`editor-shell-dom` 的 `S9` 把它钉在
+ *    **这一层** —— 按一下外壳那颗 ＋ 要恰好抛一次。组长 2026-09-29 裁的"由 `CardEditor` 接管"
+ *    是**再加一件事**：它现在同时开出与 `[data-branch-add]` **同一张**建枝面板（原来那一抛到
+ *    `App.vue` 就断了、点了没反应）；`App.vue` 那边没有监听，抛上去无害。
+ */
 const emit = defineEmits<{ close: []; saved: []; 'add-branch': []; 'add-action': []; 'add-step': [] }>()
 
 /**
@@ -131,6 +143,47 @@ const promptRow = computed(() => promptEntries.value.find((one) => one.id === pr
 const promptError = computed(() => (promptAt.value === null ? '' : promptProblem(promptAt.value)))
 
 /**
+ * 「新建一枝」那一族（票 8e）：左栏那颗按钮开的那张面板（`BranchCreateForm`）+ **已建、还没落卡**
+ * 的那几枝。
+ *
+ * ⚠️ 它与另外四族**同一个形状**：值只活在内存里、落卡只走 `save()` 那一条路 —— 脏并进下面那条
+ *    并集、`applyTo` 写进**同一份**深拷卡。⚠️ 面板**不长在树行里**，也不占中栏那条轴。
+ * ⚠️ 🔴 **今天建出来的枝存不进卡**（S0 §三 选的乙案：本票不建配套动作）⇒ 屏上当场说清
+ *    （`data-branch-unwritten` 那句），保存会被引擎按它自己的原话拦下 —— 那句话**是真的**。
+ * ⚠️ **外壳那颗 `[data-add="branch"]` 也走这里**：它抛的 `add-branch` 原来一路抛到 `App.vue`
+ *    就断了（那边没有那个监听）⇒ 按组长 2026-09-29 的裁决，这一层直接接管它、开**同一张**面板
+ *    （`EditorShell.vue` 一个字节没动，它照旧只抛自己的事件）。
+ */
+const {
+  rows: createRows,
+  taken: createTaken,
+  dirty: createDirty,
+  applyTo: applyCreated,
+  markSaved: markCreatedSaved,
+  add: addBranch,
+} = useBranchCreate({ card: () => props.card })
+
+/** 那颗按钮开合的面板开着没有（`v-if` ⇒ 面板每次打开都是一个新实例、那几格本来就是干净的） */
+const createOpen = ref(false)
+
+/** 左栏那颗「新建一枝」：开 / 关那张面板 */
+function toggleCreate(): void {
+  createOpen.value = !createOpen.value
+}
+
+/** 外壳那颗 `[data-add="branch"]`：开**同一张**面板，**并照旧往上抛一次**（`S9` 钉着那一抛） */
+function addFromShell(): void {
+  toggleCreate()
+  emit('add-branch')
+}
+
+/** 面板里建出来的一枝：进草稿、面板收起来（树上多出那一行，中栏同时挂出"没有动作写它"那句） */
+function makeBranch(name: string, schema: Schema): void {
+  addBranch(name, schema)
+  createOpen.value = false
+}
+
+/**
  * 「另一格」那一族（树 / 字段表 / 草稿 / 唯一那条写路径 / 脏守卫）—— 票 80 从本文件搬出去的。
  *
  * ⚠️ **同样在顶层解构**：模板直接读下面这些名字，而挂成对象再取（`family.navRows`）拿到的是
@@ -155,21 +208,30 @@ const {
 } = useBranchDraft({
   card: () => props.card,
   picked: () => picked.value,
-  // 四族草稿搭**同一条**写路径（那几件的形状一样）：脏是并集，落卡时各自写进**同一份**深拷卡
+  // 五族草稿搭**同一条**写路径（那几件的形状一样）：脏是并集，落卡时各自写进**同一份**深拷卡
   steps: {
-    dirty: computed(() => steps.dirty.value || displayDirty.value || promptDirty.value),
-    // 落卡：三族各自写进**同一份**深拷卡（分别动 `graph.nodes` / `display` / `settings`，先后无所谓）
+    dirty: computed(() => steps.dirty.value || displayDirty.value || promptDirty.value || createDirty.value),
+    // 落卡：四族各自写进**同一份**深拷卡（分别动 `graph.nodes` / `display` / `settings` / 顶层新枝，
+    // 先后无所谓）
     applyTo: (next) => {
       steps.applyTo(next)
       applyDisplay(next)
       applyPrompts(next)
+      applyCreated(next)
     },
-    // 显示块与公共提示词那两族读的都是 `steps.shown` ⇒ 那一边记下刚存的那份，它们就跟着变
-    markSaved: steps.markSaved,
+    // 显示块与公共提示词那两族读的都是 `steps.shown` ⇒ 那一边记下刚存的那份，它们就跟着变；
+    // 新建的那几枝存下去之后就在卡里了 ⇒ 那一族的草稿自己清空
+    markSaved: (next) => {
+      steps.markSaved(next)
+      markCreatedSaved()
+    },
   },
   onSaved: () => emit('saved'),
 })
 onBeforeUnmount(() => dispose())
+
+/** 左栏那棵树画的行 = 卡里的 ∪ 草稿里新建的（新的排在末位：刚点出来的就在那颗按钮上头） */
+const treeRows = computed(() => [...navRows.value, ...createRows.value])
 
 /** 第四栏（公共提示词那一栏）开着没有 —— 顶栏那颗按钮开合它，关着时列表整块不在 */
 const resourcesOpen = ref(false)
@@ -250,22 +312,33 @@ function saveAll(): void {
         @toggle-resources="resourcesOpen = !resourcesOpen"
         @save="saveAll"
         @select="pickStep"
-        @add-branch="emit('add-branch')"
+        @add-branch="addFromShell"
         @add-action="emit('add-action')"
         @add-step="emit('add-step')"
       >
-        <!-- 左栏：进第三形态那颗按钮 + 卡声明的那棵状态树（选一格就在中栏编它） -->
+        <!-- 左栏：进第三形态那颗按钮 + 卡声明的那棵状态树（选一格就在中栏编它）+ 票 8e 的建枝面板 -->
         <template #content>
           <button type="button" data-display-open class="open-display" @click="openDisplay">
             {{ t('card.displayOpen') }}
           </button>
-          <StateTreeNav :rows="navRows" :picked="picked" @pick="pick" />
+          <StateTreeNav :rows="treeRows" :picked="picked" @pick="pick" @create="toggleCreate" />
+
+          <!-- 「新建一枝」那张面板：六选一 ⇒ 那个形状的必收项 ⇒ 建出来（不长在树行里） -->
+          <BranchCreateForm v-if="createOpen" :taken="createTaken" @make="makeBranch" />
         </template>
 
         <!-- 中栏四态：一步（编屏）· 一格（可写字段表）· 一块显示（四个键）· 一条公共提示词（正文）· 都没选 -->
         <template #mid>
           <!-- 整次保存的那个原因（哪一行出事由行上的 `data-row-bad` 指） -->
           <p v-if="failure" data-card-error class="failure" v-text="failure" />
+          <!-- 新建的那几枝还没有动作写它（S0 §三 的乙案）：这句提示说的是真的 —— 保存会被引擎拦下 -->
+          <p
+            v-for="row in createRows"
+            :key="row.path"
+            data-branch-unwritten
+            class="failure"
+            v-text="t('card.branchUnwritten', { name: row.path })"
+          />
           <StepForm
             v-if="stepValues"
             :card="card"
