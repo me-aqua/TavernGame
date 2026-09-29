@@ -522,22 +522,9 @@ describe('validateCard: opening / display / notes', () => {
     expect(validateCard(card)).toBeDefined()
   })
 
-  it('accepts a known atmosphere and rejects one no stage can light', () => {
-    const lit = fixture()
-    lit.display.atmosphere = 'lamplight'
-    expect(validateCard(lit)).toBeDefined()
-
-    const unknown = fixture()
-    unknown.display.atmosphere = 'neon'
-    expectRejected(unknown, 'display.atmosphere')
-  })
-
-  it('accepts the self block when the card declares lead', () => {
-    const card = fixture()
-    card.display.sidebar = [{ block: 'self' }]
-    expect(validateCard(card)).toBeDefined()
-  })
-
+  // 2026-09-29 合并时移出：两条判据测的是「display.atmosphere」与「self 块」——
+  // 它们来自协作者分支 feat/game-stage-hud，而按老板裁「以我们为准」，那两样没进主线。
+  // ⇒ 要收它们时，去 c50d476 取回这两条（它们在那里原样健在）。
   it('rejects a notes entry that is empty or not text', () => {
     for (const value of ['', [], 7, ['ok', 7]]) {
       const card = fixture()
