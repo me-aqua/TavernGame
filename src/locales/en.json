@@ -156,6 +156,7 @@
     "fieldNameTaken": "This node already has a field with that name (the two would collapse into one)",
     "fieldNameProto": "A field cannot be called __proto__: it is not an ordinary JSON key, the assignment goes to the prototype - the UI would report success while the card holds nothing",
     "branchNew": "New branch",
+    "branchMake": "Create this branch",
     "branchNameEmpty": "A new branch needs a name: an empty one cannot be created",
     "branchNameDot": "A branch name cannot contain a dot: state paths split on dots, so such a branch could never be picked",
     "branchNameTaken": "This level already has a branch with that name: pick another one (the two would collapse)",

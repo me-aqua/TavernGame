@@ -103,7 +103,7 @@ function make(): void {
       type="button"
       data-branch-make
       :disabled="form.shape === ''"
-      v-text="t('card.branchNew')"
+      v-text="t('card.branchMake')"
       @click="make"
     />
   </div>

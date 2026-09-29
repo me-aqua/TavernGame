@@ -47,6 +47,7 @@ const BAD_SHAPE = 'probe_not_a_shape'
  */
 const KEYS = [
   'card.branchNew',
+  'card.branchMake',
   'card.branchNameEmpty',
   'card.branchNameDot',
   'card.branchNameTaken',
@@ -582,18 +583,50 @@ describe('G7 creating a branch only feeds the draft, and the top bar stays the o
       await entry.trigger('click')
       expect(w.emitted('saved'), 'the entry itself must not save anything').toBeUndefined()
 
-      const inside = w.findAll('[data-branch-create] button')
-      expect(
-        inside.length,
-        'the panel hands out too few buttons: this census would say nothing',
-      ).toBeGreaterThan(SHAPES.length)
-      for (const el of inside) {
+      // 🔴 **贴着形状走**：`data-branch-of` / `data-branch-field-shape` 是**条件渲染**的 ——
+      //    换一颗形状就会把它们卸掉。所以每点完一颗形状，**立刻**把那一刻长出来的次级选择器点掉；
+      //    "每一轮只点一颗"会把 `of` 那一对漏在网外（轮到点 `map` / `object` 时它已经不在了）。
+      const picked = new Set<Element>()
+      const unclicked = () => w.findAll('[data-branch-create] button').filter((el) => !picked.has(el.element))
+      /** 点一颗按钮，并断它没有走到那条会重新载入的路径（`saved`） */
+      const press = async (el: {
+        element: Element
+        text: () => string
+        trigger: (name: string) => Promise<unknown>
+      }) => {
+        picked.add(el.element)
         await el.trigger('click')
         expect(
           w.emitted('saved'),
           'a create-panel button reached the reload path: ' + el.text().trim(),
         ).toBeUndefined()
       }
+      /** 此刻面板上还没点过的次级选择器（`of` / `field-shape` 那两族） */
+      const extras = () =>
+        unclicked().filter(
+          (el) =>
+            el.attributes('data-branch-of') !== undefined ||
+            el.attributes('data-branch-field-shape') !== undefined,
+        )
+      for (const shape of w.findAll('[data-branch-create] button[data-branch-shape]')) {
+        if (picked.has(shape.element)) continue
+        await press(shape)
+        for (let guard = 0; guard < 8; guard++) {
+          const extra = extras()
+          if (!extra.length) break
+          await press(extra[0])
+        }
+      }
+      const make = unclicked().find((el) => el.attributes('data-branch-make') !== undefined)
+      if (make) await press(make)
+      console.log('[C7b] picked = ' + picked.size + ' (shapes ' + SHAPES.length + ')')
+      // 🔴 下限是 **`SHAPES.length + 5`**，不是 `SHAPES.length`：那 5 颗是 `of` 一对 +
+      //    `field-shape` 一对 + `make` 一颗 —— S3 窄复审抓到的正是"`of` 那对没进网时
+      //    `9 > 6` 照样通过"。写宽了，这条普查就退回成一句空话。
+      expect(
+        picked.size,
+        'the panel hands out too few buttons: this census would say nothing',
+      ).toBeGreaterThanOrEqual(SHAPES.length + 5)
       // 🔴 全局那次普查（编辑器里**每一颗**按钮各点一遍）住在 `tests/editor-draft-guard-dom.test.ts`
       //    的 `D15`：它照旧只许数出 `[data-card-save]` 一颗 —— 新按钮自动进那次普查，这里不复制它。
     } finally {

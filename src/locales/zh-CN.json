@@ -156,6 +156,7 @@
     "fieldNameProto": "键名不能叫 __proto__：它不是 JSON 里一个普通的键，赋值会被原型吃掉 —— 界面会报成功，而卡里根本没有它",
     "fieldNameTaken": "这一格已经有同名的字段了（同名的那一个会被顶掉）",
     "branchNew": "新建一枝",
+    "branchMake": "建这一枝",
     "branchNameEmpty": "新枝得有名字：空名字建不出来",
     "branchNameDot": "枝名里不能有点号：状态路径按点号分段，带点号的枝名永远选不中",
     "branchNameTaken": "这一层已经有同名的枝了：换一个名字（同名的那一枝会被顶掉）",
