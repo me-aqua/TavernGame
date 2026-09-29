@@ -7,6 +7,15 @@
          这里是 ASCII 占位，规则见 .githooks/checks/ascii.mjs -->
     <title>TavernGame</title>
     <meta name="description" content="An agent-driven text game" />
+    <!-- 主题底色在 CSS 之前先落上，避免 Vite 注入样式前闪一下白屏 -->
+    <style>
+      html {
+        background: #ede4d3;
+      }
+      html.dark {
+        background: #100e0b;
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>
