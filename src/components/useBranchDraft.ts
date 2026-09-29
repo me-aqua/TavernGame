@@ -7,7 +7,7 @@
  * 照的是下面这几条**各自有输入输出**的真逻辑：
  *   · 左栏进什么 / 什么算"引擎接管"（`navRows`）；
  *   · 中栏那张表的键序、`hasInitial`、说明的取值优先（`fieldRows`）；
- *   · `dirty` 是**三个来源的并集**（新行 / 待删·说明 / 一步那一族）；
+ *   · `dirty` 是**几个来源的并集**（新行 / 待删·说明 / 另外三族草稿）；
  *   · 草稿按「哪一格 + 哪个键」索引（两格有同名键时不许撞车）。
  *
  * ⚠️ **形状：纯函数提到模块顶层、带状态的封成工厂**。`schemaOf` / `fieldsOf` / `writeNote` 这一族
@@ -19,7 +19,7 @@
  *    就是"在组件外翻译"），关窗守卫摘成 `dispose()` 由编辑器在 `onBeforeUnmount` 里调 ——
  *    判据因此在**组件外面**直接调它；加 `onMounted` / `useI18n` 会让那几条当场红（签名变了）。
  * ⚠️ **写路径只有一条**：`save()` 深拷整份卡、只改这几处、再走 `importCard`（先校验后落盘）；
- *    一步那一族的草稿由 `input.steps.applyTo(next)` 写进**同一份**深拷卡。
+ *    另外三族的草稿由 `input.steps.applyTo(next)` 写进**同一份**深拷卡。
  * ⚠️ **两个 composable 互相看不见**：本件不 import `./useStepDraft`（连类型都不 import），
  *    认识两边的只有 `CardEditor.vue` 那一处接线。
  * ⚠️ **读与写共用同一个 `fieldsOf`**：`object` 读自己的 `fields`，`map` / `list` 读**元素形状**的
@@ -33,6 +33,17 @@
  *    拿到的是 **ref 本身**（`v-if` 恒真、`v-bind` 展开成空）。⇒ 编辑器在 setup 顶层解构。
  * ⚠️ **`navRows` / `fieldRows` 现读 `input.card()`**（不是一步那一族存过的那份）：存下去之后、
  *    外层 reload 之前，中栏那张表仍显示卡里声明的值。
+ *
+ * 🔴 **本件不再有「问一句要不要丢草稿」那一套**（票 8d-② 退休的，组长 2026-09-26 裁）：
+ *    它原来守的是**旧面板**那条写回路径 —— 面板那颗「存回卡」自己 `importCard` 落盘、成功即
+ *    `emit('saved')` ⇒ 外层 `reloadForCard()`（整页重载），而手里那份未保存的草稿会**无声消失**
+ *    （票 78 立的那条守卫就是为它）。面板退休之后，编辑器里**再没有**会绕过草稿落盘再重载的入口
+ *    （S1 的 `D15` 把 47 颗按钮各点一遍：只有顶栏 `[data-card-save]` 会 emit `saved`，而它落盘之后
+ *    手里没有未保存的草稿）⇒ 触发点没了，`onResourceSaved` / `discardAsk` / `keepDraft` /
+ *    `discardDraft` 与编辑器底栏那条确认条一起退休。
+ *    ⚠️ **关窗 / 刷新那半照旧**（`beforeunload` 永远有触发点，票 78 的 `D8`/`D9` + e2e 靠它）。
+ *    ⚠️ **哪天编辑器里又冒出一个"落盘之后还要重载"的入口**（例如「另存为另一张卡」），
+ *       这条"有草稿先问一句"必须**带回来**：那时候问的时机是新入口自己那一处，不再是旧面板的 `saved`。
  */
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { t } from '../i18n'
@@ -96,18 +107,14 @@ export interface BranchDraftApi {
   failed: Ref<boolean>
   failure: Ref<string>
   fresh: Ref<FreshRow | null>
-  /** 干净 ⇔ 一处改动都没有（**三源并集**：`fresh` / `touched` / `steps.dirty`） */
+  /** 干净 ⇔ 一处改动都没有（**几源并集**：`fresh` / `touched` / 另外三族草稿的脏） */
   dirty: ComputedRef<boolean>
-  discardAsk: Ref<boolean>
   save(): void
   setNote(key: string, text: string): void
   toggleDel(key: string): void
   addRow(): void
   cancelRow(): void
   setFresh(cell: 'key' | 'kind' | 'note' | 'initial', text: string): void
-  onResourceSaved(): void
-  keepDraft(): void
-  discardDraft(): void
   /** 摘掉关窗守卫（编辑器在 `onBeforeUnmount` 里调） */
   dispose(): void
 }
@@ -286,17 +293,16 @@ interface DraftRefs {
   failure: Ref<string>
 }
 
-/** 关窗守卫那一族交给外面的两件 */
+/** 关窗守卫那一族交给外面的那一件 */
 interface GuardPort {
-  setGuard(on: boolean): void
   dispose(): void
 }
 
 /**
  * 关窗 / 刷新那条守卫：跟着 `dirty` 挂与摘（票 78 那条）。
  *
- * ⚠️ 摘与挂都只走 `setGuard`，同一条守卫只挂一次也只摘一次 —— `dispose()` 与「继续」那条路
- *    都要能**显式**摘掉它（那一刻 `dirty` 还是真的，`watch` 收不到变化）。
+ * ⚠️ 挂与摘只有 `setGuard` 一处：草稿一脏就挂、变回干净就摘，`dispose()` 再显式摘一次
+ *    （编辑器卸载那一刻 `dirty` 可能还是真的，`watch` 收不到那个变化）。
  */
 function makeGuard(dirty: ComputedRef<boolean>): GuardPort {
   /** 那条守卫此刻挂着没有（挂 / 摘成对：同一条只挂一次、也只摘一次） */
@@ -324,7 +330,7 @@ function makeGuard(dirty: ComputedRef<boolean>): GuardPort {
     setGuard(false)
   }
 
-  return { setGuard, dispose }
+  return { dispose }
 }
 
 /** 那一颗顶栏「保存」的工厂：把 `input` 与要读写的那几个 ref 收进来，返回那一条写路径 */
@@ -423,19 +429,17 @@ export function useBranchDraft(input: BranchDraftInput): BranchDraftApi {
   const failed = ref(false)
   /** 上一次保存被拒的原因（空串 = 没有；卡自己给的那句话原样带上） */
   const failure = ref('')
-  /** 面板那颗「存回卡」撞上了脏草稿：那句问话挂在底栏上没有 */
-  const discardAsk = ref(false)
 
   const navRows = computed(() => navRowsOf(input.card()))
   const fieldRows = computed(() => fieldRowsOf(input.card(), input.picked(), notes.value))
   /** 这一次保存牵动的行：待删的 + 说明被改过的 */
   const touched = computed(() => touchedOf(input.card(), gone.value, notes.value))
-  /** 干净 ⇔ 一处改动都没有（顶栏那颗「保存」的 `disabled` 就是它；第三项是「编一步」那一族的脏） */
+  /** 干净 ⇔ 一处改动都没有（顶栏那颗「保存」的 `disabled` 就是它；第三项是另外三族草稿的脏） */
   const dirty = computed(() => fresh.value !== null || touched.value.length > 0 || steps.dirty.value)
   const goneKeys = computed(() => goneKeysOf(gone.value, input.picked()))
   const badKeys = computed(() => badKeysOf(failed.value, touched.value, input.picked()))
 
-  const { setGuard, dispose } = makeGuard(dirty)
+  const { dispose } = makeGuard(dirty)
   const save = makeSave(input, { notes, gone, fresh, failed, failure })
 
   /** 说明格的草稿（跨格留着：一次保存把好几处改动一起提交） */
@@ -467,30 +471,6 @@ export function useBranchDraft(input: BranchDraftInput): BranchDraftApi {
     else row[cell] = text
   }
 
-  /** 资源库面板那条 `saved`：有草稿就先问一句，干净就直接放行（顶栏那颗「保存」也发同名事件，但不走这条路） */
-  function onResourceSaved(): void {
-    if (!dirty.value) {
-      input.onSaved()
-      return
-    }
-    discardAsk.value = true
-  }
-
-  /** 那句问话的「取消」：草稿逐字不动，只是把问话收掉（面板那一次写照样在盘上） */
-  function keepDraft(): void {
-    discardAsk.value = false
-  }
-
-  /**
-   * 那句问话的「继续」：守卫的理由已经用掉了 —— ⚠️ 这一刻 `dirty` 还是真的 ⇒ `watch` 收不到变化，
-   * 所以要**显式**摘，否则重载时浏览器会拿它再问一遍（用户刚说过"丢掉吧"）。
-   */
-  function discardDraft(): void {
-    discardAsk.value = false
-    setGuard(false)
-    input.onSaved()
-  }
-
   return {
     navRows,
     fieldRows,
@@ -500,16 +480,12 @@ export function useBranchDraft(input: BranchDraftInput): BranchDraftApi {
     failure,
     fresh,
     dirty,
-    discardAsk,
     save,
     setNote,
     toggleDel,
     addRow,
     cancelRow,
     setFresh,
-    onResourceSaved,
-    keepDraft,
-    discardDraft,
     dispose,
   }
 }
