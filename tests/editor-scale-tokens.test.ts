@@ -16,7 +16,7 @@
  *    这里按「两组数 + 间隔不变」这条能算出来的口径落（见契约 §二 的订正）。
  */
 import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -85,14 +85,29 @@ const PLAYER_CENSUS: Record<string, { count: number; sizes: string[] }> = {
 /**
  * 编辑器自己那一族 —— **唯一允许"带字面量但不在普查里"**的名单（票 71 的 ①）。
  *
- * 它们的字号正要换成 token（8a 的外壳 / 8c 的节点表单 / 8d 的资源库），所以不归"玩家界面一处不动"管。
+ * 它们都是**编辑器自己的件**：字号归编辑器那套尺度表管，**不归"玩家界面一处不动"那一条**。
  * `CardGraph.vue` 另有 **B2 的逐字哈希**钉着 ⇒ 也不进来（进来就是两处管同一件事）。
  * ⚠️ 每加一个都要**写得出理由**：这不是"懒得登记"的筐。
  */
 const EDITOR_OWNED: Record<string, string> = {
   'src/components/CardGraph.vue': 'pinned byte for byte by B2 (GRAPH_HASH)',
-  'src/components/CardResources.vue': 'the resource panel is 8d territory',
 }
+
+/**
+ * 🔴 **名单里的件必须真的在盘上** —— 否则「豁免一个已删的件」会**静默留着**，而没有任何检查会红。
+ * 实测撞过一次（2026-09-29）：`CardResources.vue` 那条豁免挂在一个**已经删掉的面板**上，
+ * 是**读代码**读出来的，不是任何判据报的（S3 评审的观察 ④）。
+ */
+describe('the EDITOR_OWNED roster guard', () => {
+  it('every name on that roster is still on disk', () => {
+    // ⚠️ 先断"名单不为空" —— 空名单时下面那个循环**一次都不进**、0 条断言、恒真
+    //    （同族：`D15` 的 `clicks.length > 10`、`C7b` 的 `picked.size >= SHAPES.length + 5`）。
+    expect(Object.keys(EDITOR_OWNED).length).toBeGreaterThan(0)
+    for (const file of Object.keys(EDITOR_OWNED)) {
+      expect(existsSync(file), `EDITOR_OWNED lists ${file}, which is not on disk`).toBe(true)
+    }
+  })
+})
 
 /**
  * 三张卡：以这里钉住的**值与文件集合**为准 —— 要动它们**必须有票**，而且**同一票里重钉**

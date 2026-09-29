@@ -1,14 +1,16 @@
 /**
  * 票 56 的共享夹具：**编辑器写回哪里** + **怎么把写回去的那张卡读回来**。
  *
- * 谁在用（2026-09-26 实测）：`card-resource-marks.test.ts`（节点勾选区）· `step-form-dom.test.ts`
- * 与 `use-branch-draft.test.ts`（一步那一族）· `prompt-form-dom.test.ts`（第四栏那条公共提示词）
+ * 谁在用（2026-09-29 全仓 grep `support/card-resources`，**七个文件**）：`card-resource-marks.test.ts`（节点勾选区）·
+ * `step-form-dom.test.ts` 与 `use-branch-draft.test.ts`（一步那一族）· `prompt-form-dom.test.ts`（第四栏那条公共提示词）
+ * · `prompt-request.test.ts`（**跨层那条链**：界面改的正文 ⇒ 真发出去的请求）· `branch-create-dom.test.ts`
+ * 与 `display-form-dom.test.ts`（各自那一屏的 `CARD_KEY` 读法）
  * —— 都要**同一份**读法：各写一份必然走偏，而契约只认**界面写进存储的那份文本**。
  *
  * ⚠️ **票 8d-②（2026-09-26）之后两样起了变化**：`card-resources-dom.test.ts` 与
- * `card-resource-request.test.ts`（原来最大的两个用户）随退休的资源库面板一起删了；
- * 于是 `declaresNothing()` 与 `markerOf()` **现在没有调用者**（`markerOf` 是"从卡正文里取标志行"
- * 那条跨层读法，见 `.team/test/2026-09-26/S2-收口说明-票8d2.md` §二）—— 留在原地等那条判据回来。
+ * `card-resource-request.test.ts`（原来最大的两个用户）随退休的资源库面板一起删了。
+ * `markerOf()`（"从卡正文里取标志行"那条跨层读法）**已经回到盘上**：`prompt-request.test.ts`
+ * 那两条引擎侧判据搬到了新形态上、用的还是它；`declaresNothing()` 仍然没有调用者。
  *
  * ⚠️ 资源的**名字**一律从 locale 现取（`prompts.settingBlock.*` 就是调试痕迹里显示的那一套），
  *    本文件与用它的测试文件里都不许出现中文字面量（.githooks/checks/ascii.mjs 连测试也拦）。

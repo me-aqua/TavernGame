@@ -16,6 +16,8 @@
  *        `src/`** 里**一个都不许剩**（`D16`）；
  *      · 🆕 **`D15`：把编辑器里每一颗按钮各点一遍**，数出还有几条路会走到 `reloadForCard`
  *        （`App.vue:202 → location.reload()`；三个调用点 `:224` / `:235` / `:432`）。
+ *        两个读者：**抛 `saved` 的**（靠事件名，只抓得住"换了名字但照旧抛事件"）与
+ *        **点了之后存储变了的**（外部事实，不吃任何名字 —— 2026-09-29 加的）。
  *    ⇒ **读数（不是推的）**：编辑器里只剩 `[data-card-save]` **一颗**；而它落盘之后手里没有没保存的草稿
  *      ⇒ 「有草稿才问一句」在编辑器里**没有触发点**，那一套（`onResourceSaved` / `discardAsk` /
  *      `keepDraft` / `discardDraft` 与那条确认条）**已随面板退休**。
@@ -234,18 +236,35 @@ function nameOf(el: Element): string {
   return el.tagName + ':' + (el.textContent ?? '').trim().slice(0, 24)
 }
 
-/** 点一遍的结果：点的是谁 + 它有没有把 `saved` 抛出来 + 点它炸没炸 */
+/** 点一遍的结果：点的是谁 + 它有没有把 `saved` 抛出来 + **点它之后存储变了没有** + 点它炸没炸 */
 interface Clicked {
   what: string
   saved: boolean
+  storage: boolean
   error: string
+}
+
+/**
+ * 这一刻的存储快照（键 → 值）。
+ *
+ * 🔴 **这是 D15 的第二个读者，也是唯一不吃字形的那个**：`emitted('saved')` 只有
+ *    `CardEditor` 自己的事件名一个形状，谁换个名字发就沉默；而"点了之后存储变了"
+ *    是**外部事实** —— 一个新名字都不用认（组长 2026-09-29 裁的改法，出处 `验收记录-票8d-2.md` §六）。
+ */
+function storageSnapshot(): string {
+  const keys = Object.keys(localStorage).sort()
+  return JSON.stringify(keys.map((key) => [key, localStorage.getItem(key)]))
 }
 
 /**
  * 把编辑器里**每一颗按钮**各点一遍（各挂一版新编辑器）。
  *
- * ⚠️ 这是**读数**，不是"读源码的确认"：`saved` 是 `CardEditor` 交给外层的那个事件，
- *    而外层（`App.vue:432`）正是拿它调 `reloadForCard()` ⇒ **谁 emit 它，谁就把整页重载掉**。
+ * ⚠️ 这是**读数**，不是"读源码的确认"：
+ *    · `saved` 是 `CardEditor` 交给外层的那个事件，而外层（`App.vue:432`）正是拿它调
+ *      `reloadForCard()` ⇒ **谁 emit 它，谁就把整页重载掉**；
+ *    · `storage` 问的是**另一件事**：点这一下有没有把东西写进存储（落卡 / 落配置都算）——
+ *      一条"悄悄直接 `importCard`、但不 emit `saved`"的新入口在 `saved` 那一列**看不见**，
+ *      而它照样会把手里那份草稿冲掉。
  */
 async function census(): Promise<Clicked[]> {
   const total = await openedEditor((w) => w.findAll('[data-card-editor] button').length)
@@ -255,13 +274,14 @@ async function census(): Promise<Clicked[]> {
       await openedEditor(async (w) => {
         const el = w.findAll('[data-card-editor] button')[index]
         const what = nameOf(el.element)
+        const before = storageSnapshot()
         let error = ''
         try {
           await el.trigger('click')
         } catch (err) {
           error = (err as Error).message
         }
-        return { what, saved: w.emitted('saved') !== undefined, error }
+        return { what, saved: w.emitted('saved') !== undefined, storage: storageSnapshot() !== before, error }
       }),
     )
   }
@@ -378,13 +398,27 @@ describe('R7 counting the ways out of the editor into a reload', () => {
    * 为什么要有它：票 78 那 10 条判据量的那个入口（面板那一次写）没了，**"还有没有别的重载入口"
    * 这件事就没有任何判据看着了** —— 而它正是那条守卫存在的理由。这一条把它变成读数：
    * 数出来的清单写在失败信息里，将来多长出一条路当场红。
+   *
+   * 🔴 **两个读者一起看这一份读数**（组长 2026-09-29 裁的改法，出处 `验收记录-票8d-2.md` §六）：
+   *    光认 `emitted('saved')` 只抓得住"**换了名字但照旧抛事件**"那一类；一条**悄悄直接
+   *    `importCard`、连事件都不抛**的新入口会同时漏过 `D11` / `D16` / `G3` 与它自己
+   *    —— 而用户真的会丢草稿。**"点了之后存储变了"是外部事实**：一个新名字都不用认。
    */
   it('D15 the editor hands out exactly one way into a reload: its own save', async () => {
     const clicks = await census()
-    /** 会走到重载的那几颗（这一条要数的就是它） */
+    /** 会走到重载的那几颗（抛了 `saved`） */
     const saved = clicks.filter((one) => one.saved).map((one) => one.what)
-    // 读数落进 stdout（跑这一件时看得到）—— 报给组长的那份"入口清单"就是这一行
-    console.log('[census] clicked=' + clicks.length + ' saved=' + JSON.stringify(saved))
+    /** 点一下就会写存储的那几颗（落卡 / 落配置都算）—— 它**不必**等于上面那一串 */
+    const wrote = clicks.filter((one) => one.storage).map((one) => one.what)
+    // 读数落进 stdout（跑这一件时看得到）—— 报给组长的那两份"入口清单"就是这一行
+    console.log(
+      '[census] clicked=' +
+        clicks.length +
+        ' saved=' +
+        JSON.stringify(saved) +
+        ' wrote=' +
+        JSON.stringify(wrote),
+    )
     // 守卫：一颗按钮都没点到的话，下面那句"只有一颗"什么都没证
     expect(clicks.length, 'no button was clicked: this census would say nothing').toBeGreaterThan(10)
     expect(
@@ -392,6 +426,16 @@ describe('R7 counting the ways out of the editor into a reload', () => {
       'a click blew up: the census is not trustworthy',
     ).toEqual([])
     expect(saved, 'the editor must own exactly one way to a reload, and it is the top-bar save').toEqual([
+      '[data-card-save]',
+    ])
+    // 🔴 存储那一列：**抛了 `saved` 的每一颗都真的动过存储**（"抛事件"与"落盘"不许各说各的）
+    expect(
+      saved.filter((one) => !wrote.includes(one)),
+      'a button announced a reload without writing anything: the two readings disagree',
+    ).toEqual([])
+    // 🔴 反向：还有别的按钮会写存储吗？今天**恰好一颗**（就是那颗保存）——
+    //    多出来的那一颗就是"悄悄写卡、却不抛 `saved`"的新入口，草稿会从它手里丢
+    expect(wrote, 'a second button writes storage: does it reload the page behind the draft?').toEqual([
       '[data-card-save]',
     ])
   })
