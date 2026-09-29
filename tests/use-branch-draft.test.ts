@@ -1,14 +1,18 @@
 // @vitest-environment jsdom
 /**
  * 票 80（拆 `CardEditor.vue` 第二刀）：**搬出去那一族**的直接判据 —— 契约
- * `.team/test/2026-09-24/contract-80.md` §3 的 **B0–B9**。
+ * `.team/test/2026-09-24/contract-80.md` §3 的 **B0–B9**（`B9` 随面板问答一起退休，见它那一处的留痕）。
+ *
+ * 🔴 **公开面在 2026-09-29 收窄过一次**（T1 · 票 8d-② 的判据收口）：19 个键 → **15** ——
+ *    `onResourceSaved` / `discardAsk` / `keepDraft` / `discardDraft` 随资源库面板退休（组长 2026-09-26 裁），
+ *    台账在 `.team/test/2026-09-29/判据收口-票8d2.md`。**总条数是这一条的一半牙**（`B0` 钉死）。
  *
  * 为什么给它单独一份判据：那一族里有一串**各自有输入输出的真逻辑**，今天只被"七个判据文件挂在
  * 组件上"**间接**照到 —— 一处动了，红的是"那一屏不对"，读的人得自己往回找：
  *   · 左栏那棵树进什么 / 什么算"引擎接管"（`navRows`）
  *   · 中栏那张表的键序、`initial`、说明的取值优先（`fieldRows`）
  *   · `dirty` 是**三个来源的并集**（新行 / 待删·说明 / 一步那一族）
- *   · 关窗守卫"脏了才挂、干净就摘"，以及「继续」要**显式**摘（票 78 那条）
+ *   · 关窗守卫"脏了才挂、干净就摘"（票 78 那半还在：关窗 / 刷新永远有触发点）
  *   · 唯一那条写路径：先深拷、只改动过的那几处、卡拒了只报不改
  *   · 草稿按「哪一格 + 哪个键」索引（同名键在不同格不许撞车）
  *
@@ -46,7 +50,11 @@ const TAKEN = CLOCK_STATE_PATH
 const NOTE_A = 'a note typed by the ticket-80 judge in the first node'
 const NOTE_B = 'a note typed by the ticket-80 judge in the second node'
 
-/** 这一族对外必须给出来的那几样（多给不算错，少给就是接缝破了） */
+/**
+ * 这一族对外必须给出来的那几样。
+ *
+ * ⚠️ 次序 = 实现 `return { … }` 的次序（契约 §2 的"19 个键与顺序"那一句在 8d-② 之后是 **15 个**）。
+ */
 const REQUIRED: Array<[string, 'ref' | 'fn']> = [
   ['navRows', 'ref'],
   ['fieldRows', 'ref'],
@@ -56,18 +64,24 @@ const REQUIRED: Array<[string, 'ref' | 'fn']> = [
   ['failure', 'ref'],
   ['fresh', 'ref'],
   ['dirty', 'ref'],
-  ['discardAsk', 'ref'],
   ['save', 'fn'],
   ['setNote', 'fn'],
   ['toggleDel', 'fn'],
   ['addRow', 'fn'],
   ['cancelRow', 'fn'],
   ['setFresh', 'fn'],
-  ['onResourceSaved', 'fn'],
-  ['keepDraft', 'fn'],
-  ['discardDraft', 'fn'],
   ['dispose', 'fn'],
 ]
+
+/**
+ * 🔴 **公开面的总条数** —— 这一条的一半牙。
+ *
+ * 票 80 钉过 **19** 个键与顺序；票 8d-② 随面板退休了四个（`onResourceSaved` / `discardAsk` /
+ * `keepDraft` / `discardDraft`）⇒ **15**。两个方向都钉死：名单**少**一条要有人带票号来改这一行，
+ * **多**一条同样（那四个回来的时候必须有人显式放行）—— 台账
+ * `.team/test/2026-09-29/判据收口-票8d2.md`。
+ */
+const SURFACE_SIZE = 15
 
 /** 那一族**不许**漏出来的内部量（漏了就等于接缝变成双向的：编辑器又能自己算草稿键了） */
 const INTERNAL = ['idOf', 'splitId', 'noteChanged']
@@ -208,13 +222,24 @@ function sharedKey(): { a: string; b: string; key: string } {
 }
 
 describe('R3 the state/branch family that moves out of CardEditor (ticket 80)', () => {
-  it('B0 the seam: every contracted name is handed out, and the draft-key internals are not', async () => {
+  it('B0 the seam: every contracted name is handed out, nothing else is, and the internals are not', async () => {
     const { api } = await family()
+    expect(
+      REQUIRED.length,
+      'the contract list itself changed size: a name must not leave it (or join it) silently',
+    ).toBe(SURFACE_SIZE)
     for (const [name, kind] of REQUIRED) {
       expect(typeof api[name], 'the family must hand out ' + name).not.toBe('undefined')
       if (kind === 'fn') expect(typeof api[name], name + ' must be a function').toBe('function')
       else expect(api[name], name + ' must be a ref (the template reads it)').toHaveProperty('value')
     }
+    // 🔴 另一半牙：**多给也要红** —— 退休的名字回来时，必须有人带着票号来改这一条
+    const handed = Object.keys(api)
+    expect(
+      handed.filter((name) => !REQUIRED.some(([one]) => one === name)),
+      'the family hands out names the contract no longer has: that is how a retired name comes back',
+    ).toEqual([])
+    expect(handed.length, 'the family must hand out exactly the contracted names').toBe(SURFACE_SIZE)
     for (const name of INTERNAL) {
       expect(
         api[name],
@@ -485,39 +510,18 @@ describe('R3 the state/branch family that moves out of CardEditor (ticket 80)', 
     expect(api.goneKeys.value, 'the other node must not show that pending delete').toEqual([])
   })
 
-  it('B9 the panel question: clean goes through, dirty asks, cancel keeps, continue drops the guard', async () => {
-    const { api, onSaved } = await family()
-    expect(api.discardAsk.value, 'nothing is being asked before the panel says anything').toBe(false)
-    api.onResourceSaved()
-    expect(onSaved.mock.calls.length, 'a clean editor lets the panel save through right away').toBe(1)
-    expect(api.discardAsk.value, 'a clean editor must not be asked anything').toBe(false)
-
-    api.addRow()
-    await nextTick()
-    expect(guardUp(), 'the new row is a draft: the guard is up').toBe(true)
-    api.onResourceSaved()
-    expect(api.discardAsk.value, 'a dirty editor must be asked first').toBe(true)
-    expect(onSaved.mock.calls.length, 'asking is not letting it through').toBe(1)
-
-    api.keepDraft()
-    expect(api.discardAsk.value, 'cancelling closes the question').toBe(false)
-    expect(api.fresh.value, 'cancelling keeps the draft word for word').not.toBeNull()
-    expect(api.dirty.value, 'the editor is still dirty after cancelling').toBe(true)
-    expect(onSaved.mock.calls.length, 'cancelling does not reload').toBe(1)
-    await nextTick()
-    expect(guardUp(), 'cancelling does not drop the guard either').toBe(true)
-
-    api.onResourceSaved()
-    expect(api.discardAsk.value, 'the panel can ask again').toBe(true)
-    api.discardDraft()
-    expect(api.discardAsk.value, 'continuing closes the question').toBe(false)
-    expect(onSaved.mock.calls.length, 'continuing lets the reload through').toBe(2)
-    expect(api.dirty.value, 'continuing does not wipe the drafts by itself').toBe(true)
-    expect(
-      guardUp(),
-      'continuing must drop the guard explicitly: dirty is still true, so the watcher cannot fire',
-    ).toBe(false)
-  })
+  // ───────────────────────────────────────────────────────────────────────────
+  // `B9`（面板那条 `saved` 撞上脏草稿：干净直接放行 / 脏了先问 / 「取消」留住草稿 / 「继续」显式摘守卫）
+  // **随资源库面板一起退休了**（组长 2026-09-26 裁；8d-② 把那一套从 `src/` 删干净）。
+  // 它没有可以改写的对象：`onResourceSaved` / `discardAsk` / `keepDraft` / `discardDraft` 这四个名字
+  // 连同那条确认条一起没了 —— **公开面那 15 个键就是这条的替代**（`B0` 两个方向都钉着：
+  // 少一条要留痕，多一条同样 ⇒ 它们想回来必须有人带票号放行）。
+  // ⚠️ 它守过的那几半现在分别住在：关窗守卫跟不跟 `dirty` 走 = `B4`（本文件）· 唯一那条写路径
+  //    "保存真的落盘、按次序通知外层" = `B7`（本文件）· 编辑器里"点保存一个字都不问" =
+  //    `tests/editor-draft-guard-dom.test.ts` 的 `D12` / `D15` · 关窗 / 刷新的浏览器行为 = e2e 那条。
+  // 🔴 哪天编辑器里又冒出一个"落盘之后还要重载"的入口 ⇒ 把这一条连编号一起带回来（依据见
+  //    `useBranchDraft.ts` 抬头那条约定）。
+  // ───────────────────────────────────────────────────────────────────────────
 })
 
 /**
@@ -525,7 +529,7 @@ describe('R3 the state/branch family that moves out of CardEditor (ticket 80)', 
  *
  * 🔴 **`expect` 那一句是这一轮补的、不是装饰**：第一版 `release()` 只有 `dispose()`，
  *    看起来"收尾了"、其实**漏**掉"挂起的那次 `watch` 会在收尾之后把守卫挂回来"——
- *    红的是**别的用例**（B9），而红的地方离病根很远。
+ *    红的是**别的用例**，而红的地方离病根很远（票 80 的 S2 撞出来的）。
  *    "收尾函数存在"不等于"收尾有效" ⇒ 给它一条断言，让漏掉的那条路径**当场**在这里现形。
  */
 afterEach(async () => {

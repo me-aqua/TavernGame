@@ -1,57 +1,119 @@
 // @vitest-environment jsdom
 /**
- * 票 78：「存回卡」与「关窗 / 刷新」不许**无声吞掉**那份没保存的草稿 —— 判据（组件层）。
+ * 票 78「不许无声吞掉草稿」的判据 —— **票 8d-② 收口之后**（收口 2026-09-26 · 判据翻面 2026-09-29 · 玛尔塔）。
  *
- * 契约 `.team/test/2026-09-23/contract-78.md` §1（触发条件 · 两条出路 · DOM / i18n / `beforeunload`
- * 三张表）与 §2 的 **D1–D14**；口径源 `.team/leader/2026-09-23/票78-S0.md` 的 **R1–R8**。
- * 这一件管三样：
- *   · 面板那颗「存回卡」碰到**脏草稿**要先问一句，**干净时一个字都不问**（两半都在）；
- *   · 「取消」之后草稿逐字还在、`dirty` 仍真、**面板那一次写照样落盘**；「继续」才放行重载；
- *   · 关窗 / 刷新只在**有草稿**时拦，干净时**不注册**那个监听。
+ * 契约 `.team/test/2026-09-26/contract-8d2.md` §四；票 78 那一族的口径源 `.team/leader/2026-09-23/票78-S0.md`；
+ * 两条"退休棘轮"的翻面台账在 `.team/test/2026-09-29/判据收口-票8d2.md`（T1 留痕）。
  *
- * ⚠️ **判据挂在 `CardEditor.vue` 这个现成的接缝上**（`step-form-dom.test.ts:11` 已经这么挂）：
- *    条子是它自己模板里的一段，但必须能被 `CardEditor` 渲染出来 —— 这条钉住的是「换内容不换接缝」，
- *    也让"功能没做"的红落在**钩子不在**上，不是"模块找不到"上。
- * ⚠️ **"重载被放行"一律读 `emitted('saved')`**：不挂 `App`、不 mock `location.reload`
- *    （`App.vue:182` 直接调它，jsdom 里那是 `Not implemented: navigation` ⇒ 测不到还容易假绿）。
- * ⚠️ **期望值全部从卡与 locale 现取**：一个中文键名、一句中文字面量都不手写
- *    （`.githooks/checks/ascii.mjs` 连 `tests/` 里的字符串一起拦；文案只住在 `src/locales/*.json`）。
- * 🔴 **凡断"没有 / 数 = 0"的地方都自带前提**（先证明"这一屏真的长得出来"），
- *    免得"读不到东西"被读成"通过" —— 票 71 那族债的教训。**守卫不等于判别**，见契约 §2.1 的报数口径。
+ * 🔴 **这一族的入口退休了**：那 10 条（D1–D7 / D10 / D13 / D14）量的都是「**资源库面板那一次写**
+ *    撞上脏草稿」—— 面板随 8d-② 退休（`CardResources.vue` 删掉、`importCard` 那条绕过草稿的路关掉），
+ *    第四栏换成 `PromptForm`，写路径只剩**一条**：草稿 + 顶栏那颗保存。**那 10 条没有可搬的入口。**
+ * ⚠️ **票 78 的意图不许跟着死**，所以这一件留下的是它**还站得住**的那几半：
+ *      · 关窗 / 刷新那条守卫（`D8` / `D9`）—— 触发点照旧（`beforeunload` 挂在共享的 `window` 上）；
+ *      · 编辑器自己那颗保存**一个字都不问**（`D12`）—— 它现在**是唯一**能走到重载的入口（`D15` 数过）；
+ *      · 🆕 **退休那一套不许长回来**（组长 2026-09-26 裁"三样退休"）：三颗 locale 键在两份文件里
+ *        **都不许有**、运行时也不许解析得出（`D11`），那条确认条的钩子与三颗键的点号名字在**整棵
+ *        `src/`** 里**一个都不许剩**（`D16`）；
+ *      · 🆕 **`D15`：把编辑器里每一颗按钮各点一遍**，数出还有几条路会走到 `reloadForCard`
+ *        （`App.vue:202 → location.reload()`；三个调用点 `:224` / `:235` / `:432`）。
+ *    ⇒ **读数（不是推的）**：编辑器里只剩 `[data-card-save]` **一颗**；而它落盘之后手里没有没保存的草稿
+ *      ⇒ 「有草稿才问一句」在编辑器里**没有触发点**，那一套（`onResourceSaved` / `discardAsk` /
+ *      `keepDraft` / `discardDraft` 与那条确认条）**已随面板退休**。
+ *    ⚠️ `useBranchDraft.ts` 抬头那条约定照旧成立：**哪天编辑器里又冒出一个"落盘之后还要重载"的入口**，
+ *      这条"有草稿先问一句"**必须带回来** —— 那时把 `D11` / `D16` 这两条钉法一起解冻（带票号），
+ *      组合层那 15 个键的公开面也要一起放行（`tests/use-branch-draft.test.ts` 的 `B0`）。
+ *    ⚠️ **e2e 那条 `[data-editor-confirm]` 的 `toHaveCount(0)` 已删**（UI 没了之后它恒真、没有信息量）：
+ *      它守的"点保存一个字都不问"由 `D12` 接手，源码那一半由 `D16` 接手（交接写在交付说明 §三）。
+ * ⚠️ **没动的另外两半**：`App.vue:224` / `:235`（导入卡 / 恢复内置示例）住在 `SettingsDrawer` 里，
+ *    编辑器开着时那一层被 `inert` 罩着 + 全屏遮罩挡着鼠标（票 81 的 `tests/drawer-inert-dom.test.ts` 与 e2e 守着）；
+ *    「被拒的保存不许 emit `saved`」由 `tests/support/branch-tree.ts` 的 `B3d` 继续守着。
+ * ⚠️ 期望值全部从卡与 locale 现取；中文字面量一个都不写（`.githooks/checks/ascii.mjs` 连 `tests/` 一起拦）。
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import CardEditor from '../src/components/CardEditor.vue'
 import { parseCard } from '../src/game/card'
-import { i18n } from '../src/i18n'
+import { i18n, t } from '../src/i18n'
 import { EXAMPLE_CARD } from './support/card-fixtures'
-import { CARD_KEY } from './support/card-resources'
-import { PICK_A, declaredOrder, noteBox, type AnyWrapper, type RowWrapper } from './support/branch-tree'
-import { label, setLocale } from './support/trace-blocks'
+import { type AnyWrapper, type RowWrapper } from './support/branch-tree'
+import { setLocale } from './support/trace-blocks'
 
-/** 示例卡（拓扑、设定块、字段名全部从它现算，不抄第二份） */
+/** 示例卡（拓扑那一步从它现算，不抄第二份） */
 const card = parseCard(readFileSync(EXAMPLE_CARD, 'utf8'))
 
 /** 拓扑的第一步（造「编一步」那一族的脏用它） */
 const FIRST_STEP = card.graph.topology[0]
 
-/** 卡里第一块设定（面板那条写路径改的就是它） */
-const FIRST_BLOCK = Object.keys(card.settings)[0]
+/** 判据自己打进去的那个名字（测试里的字符串字面量一律 ASCII） */
+const TYPED_NAME = 'a draft name typed for the recovery of ticket 78'
 
-/** 判据自己打进去的字（测试里的字符串字面量一律 ASCII） */
-const TYPED_NAME = 'a draft name typed for ticket 78'
-const TYPED_NOTE = 'a note draft typed for ticket 78'
-const TYPED_RESOURCE = 'a resource line typed for ticket 78'
+/** 随资源库面板一起退休的三颗 locale 键（组长 2026-09-26 裁；S2 已从两份 locale 删掉） */
+const RETIRED_KEYS = ['card.discardDraft', 'card.discardCancel', 'card.discardContinue']
+
+/** 那条确认条在模板里的钩子 —— 它退休之后 `src/**` 里一个都不许剩 */
+const RETIRED_HOOK = 'data-editor-confirm'
+
+/**
+ * 一颗**还活着**的键（`D11` / `D16` 的校准）：两条棘轮都先证明"这套读法看得见'在'"。
+ *
+ * 少了这一步，"三颗都不在"与"这套读法什么都没读到"长得一模一样。
+ */
+const LIVE_KEY = 'card.saveFailed'
+
+/** 两份 locale 的名字（语言切换与读文件两处共用同一份次序） */
+const LOCALE_NAMES = ['zh-CN', 'en'] as const
+
+/** 键名在它那一节里的写法（`card.saveFailed` → `saveFailed`） */
+function leafOf(key: string): string {
+  return key.slice(key.indexOf('.') + 1)
+}
+
+/**
+ * 两份 locale 的 `card` 那一节（按**点号路径**取，不按行找）。
+ *
+ * ⚠️ 不按行找是有来由的：`"saveFailed"` 在两份文件里各有**两处**（`card` 与 `agent` 各一节），
+ *    按行 `.find()` 拿到的是"文件里先出现的那一处"—— 那是巧合，不是判据。
+ */
+function cardSections(): Record<string, Record<string, unknown>> {
+  const out: Record<string, Record<string, unknown>> = {}
+  for (const name of LOCALE_NAMES) {
+    const parsed = JSON.parse(readFileSync('src/locales/' + name + '.json', 'utf8')) as {
+      card?: Record<string, unknown>
+    }
+    out[name] = parsed.card ?? {}
+  }
+  return out
+}
+
+/**
+ * 应用源码的全文（`.ts` / `.vue` 都算；`src/locales/` 那两份不算 —— 它们由 `cardSections()` 读）。
+ *
+ * 走法与 `tests/locale-keys.test.ts` 的 `appSource()` 一致：那一条判"键有没有人用"，
+ * 这一条判"退休的记号有没有剩" —— 两件事，同一把尺。
+ */
+function appSource(): string {
+  const files: string[] = []
+  /** 走一层：把 `.ts` / `.vue` 都收进来（locale 自己不算） */
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name).replace(/\\/g, '/')
+      if (entry.isDirectory()) walk(path)
+      else if (/\.(ts|vue)$/.test(path) && !path.includes('/locales/')) files.push(path)
+    }
+  }
+  walk('src')
+  return files.map((file) => readFileSync(file, 'utf8')).join('\n')
+}
 
 /** 这一件里**当前**挂着的那一版编辑器（挂出来的东西一律收摊：收尾要 `unmount`，挂在 `document.body` 上） */
 let mounted: VueWrapper | null = null
 
 afterEach(() => {
   // ⚠️ **必须 `unmount`，不能只清 DOM**：`beforeunload` 那条守卫挂在**共享的 `window`** 上，
-  //    只清 DOM 的话前一条用例留下的脏编辑器还挂着监听 ⇒ D8 那半条"干净编辑器不许拦"
-  //    读到的 `defaultPrevented` 是**上一条用例**留下的真相（票 78 的 S2 撞出来的）。
-  //    真产品里同时只有一个编辑器，所以"先卸干净"才是忠实的隔离。
+  //    只清 DOM 的话前一条用例留下的脏编辑器还挂着监听 ⇒ "干净编辑器不许拦"读到的
+  //    是**上一条用例**留下的真相（票 78 的 S2 撞出来的）。
   mounted?.unmount()
   mounted = null
   document.body.innerHTML = ''
@@ -68,8 +130,14 @@ function mountEditor(): AnyWrapper {
   return mounted
 }
 
-/** 那条确认条（不在 = `exists()` 假 —— 判据读的就是这个"在不在"） */
-function bar(w: AnyWrapper): RowWrapper {
+/**
+ * 那条确认条（`[data-editor-confirm]`）。
+ *
+ * ⚠️ **票 8d-② 之后 `src/` 里一个字节都不剩**（`D16` 在源码层看着这件事）⇒ 这里读到的
+ *    永远该是"没有"。`D12` 读它，问的是"脏草稿 + 点顶栏保存这条路**不出现**它" ——
+ *    那正是它退休前唯一会出现的那条路。
+ */
+function confirmBar(w: AnyWrapper): RowWrapper {
   return w.find('[data-editor-confirm]')
 }
 
@@ -80,25 +148,16 @@ function saveButton(w: AnyWrapper): RowWrapper {
   return button
 }
 
-/** 这一刻编辑器脏不脏（顶栏那颗按钮能不能按）—— 契约 §1.4 里"dirty 仍为真"的读法 */
+/** 这一刻编辑器脏不脏（顶栏那颗按钮能不能按） */
 function editorIsDirty(w: AnyWrapper): boolean {
   return saveButton(w).attributes('disabled') === undefined
 }
 
-/** 开提示词资源面板（顶栏那一颗开合它的按钮） */
-async function openPanel(w: AnyWrapper): Promise<void> {
+/** 开第四栏（顶栏那一颗开合它的按钮）—— 8d-② 之后第四栏是公共提示词列表 */
+async function openPrompts(w: AnyWrapper): Promise<void> {
   const button = w.find('[data-card-resources-open]')
-  expect(button.exists(), 'the top bar hands out no resource-panel toggle').toBe(true)
+  expect(button.exists(), 'the top bar hands out no prompts-column toggle').toBe(true)
   await button.trigger('click')
-}
-
-/** 面板那条写路径：展开一块设定 → 改正文 → 点「存回卡」 */
-async function saveResource(w: AnyWrapper, id: string, text: string): Promise<void> {
-  const item = '[data-card-resource="' + id + '"]'
-  expect(w.find(item).exists(), 'the panel lists no resource called ' + id).toBe(true)
-  await w.find(item + ' [data-card-resource-open]').trigger('click')
-  await w.find(item + ' [data-card-resource-text]').setValue(text)
-  await w.find(item + ' [data-card-resource-save]').trigger('click')
 }
 
 /** 细条上点一步（「编一步」那一族的入口） */
@@ -115,53 +174,25 @@ function stepNameBox(w: AnyWrapper): RowWrapper {
   return box
 }
 
-/** 左栏树上点一行（说明 / 加字段那两族草稿的入口） */
-async function pickBranch(w: AnyWrapper, path: string): Promise<void> {
-  const row = w.find('[data-branch-node="' + path + '"]')
-  expect(row.exists(), 'no row for this state node in the tree: ' + path).toBe(true)
-  await row.trigger('click')
-}
-
-/**
- * 造一份脏草稿 —— **来源①**：「编一步」那一族（改一步的名）。
- *
- * ⚠️ 三个来源各喂一次不是啰嗦：`dirty` 是**并集**（`useBranchDraft.ts:261`），
- *    只认其中一族（"编一步"）的实现会过 D1 而漏掉 D2/D3 —— 那正是 S0 §六 点名的那个风险。
- */
+/** 造一份脏草稿（`dirty` 的三源并集在这里只走「编一步」那一源 —— 另两源在各自的门里量） */
 async function dirtyByStep(w: AnyWrapper): Promise<void> {
   await pickStep(w, FIRST_STEP)
   await stepNameBox(w).setValue(TYPED_NAME)
   expect(editorIsDirty(w), 'editing a step did not make the editor dirty').toBe(true)
 }
 
-/** 造一份脏草稿 —— **来源②**：说明草稿（与「编一步」无关的那一族：`touched`） */
-async function dirtyByNote(w: AnyWrapper): Promise<void> {
-  await pickBranch(w, PICK_A)
-  const key = declaredOrder(PICK_A)[0]
-  expect(key, 'this node has no field to write a note on').not.toBe(undefined)
-  await noteBox(w, PICK_A, key).setValue(TYPED_NOTE)
-  expect(editorIsDirty(w), 'editing a note did not make the editor dirty').toBe(true)
-}
-
-/** 造一份脏草稿 —— **来源③**：表尾那颗「＋」开出来的新行（`fresh`：还没落过盘的那一行） */
-async function dirtyByFreshRow(w: AnyWrapper): Promise<void> {
-  await pickBranch(w, PICK_A)
-  const plus = w.find('[data-field-add]')
-  expect(plus.exists(), 'the table hands out no add-a-field entry').toBe(true)
-  await plus.trigger('click')
-  expect(w.find('[data-row-new]').exists(), 'the plus opened no new row').toBe(true)
-  expect(editorIsDirty(w), 'an unsaved new row did not make the editor dirty').toBe(true)
-}
-
-/** 把面板那段正文改掉再存回卡（四条判别用例的公共开头） */
-async function stashDraftThenSaveResource(w: AnyWrapper, kind: string): Promise<void> {
-  await openPanel(w)
-  if (kind === 'step') await dirtyByStep(w)
-  else if (kind === 'note') await dirtyByNote(w)
-  else await dirtyByFreshRow(w)
-  // 前提：点之前**没有**条 —— 它是被这一下点出来的，不是常驻的
-  expect(bar(w).exists(), 'the confirm bar must not be there before anything asked for it').toBe(false)
-  await saveResource(w, FIRST_BLOCK, TYPED_RESOURCE)
+/** 挂一版编辑器 + 走一遍开场（开第四栏、造一份脏草稿）—— 普查从同一个开场出发，**跑完自己收摊** */
+async function openedEditor<T>(run: (w: AnyWrapper) => Promise<T> | T): Promise<T> {
+  const w = mountEditor()
+  try {
+    await openPrompts(w)
+    await dirtyByStep(w)
+    return await run(w)
+  } finally {
+    w.unmount()
+    mounted = null
+    document.body.innerHTML = ''
+  }
 }
 
 /** 往 window 上派发一个**可取消**的 `beforeunload`：true ⇔ 有人 `preventDefault` 过 */
@@ -172,8 +203,7 @@ function beforeUnloadPrevented(): boolean {
 /**
  * 装一对 `addEventListener` / `removeEventListener` 探针，返回"净剩几个 `beforeunload` 监听"。
  *
- * D9 与 D14 共用**同一支量具**（一个断"脏了才挂、卸载要摘"，一个断"答应丢掉之后要摘掉"）——
- * 各写一份必然走偏。它量的是**挂没挂**（行为那一半由 D8 的派发探针管）。
+ * 原来 D9 与 D14 共用这一支量具；D14 随那条确认条一起走了（没有触发点），现在 D9 自己用。
  */
 function countBeforeUnloadGuards(): () => number {
   const add = vi.spyOn(window, 'addEventListener')
@@ -183,111 +213,60 @@ function countBeforeUnloadGuards(): () => number {
     remove.mock.calls.filter((call) => call[0] === 'beforeunload').length
 }
 
-describe('R1 the panel write asks before it throws a draft away', () => {
-  it('D1 asks when the step draft is dirty, and does not let the reload through', async () => {
-    const w = mountEditor()
-    await stashDraftThenSaveResource(w, 'step')
+/** 一颗按钮的读法：先认它的钩子，认不出就用标签 + 头几个字（目的是**在读数里认得出是谁**） */
+function nameOf(el: Element): string {
+  for (const attr of [
+    'data-card-save',
+    'data-card-close',
+    'data-card-resources-open',
+    'data-add',
+    'data-step',
+    'data-prompt-row',
+    'data-display-open',
+    'data-field-add',
+    'data-field-del',
+    'data-branch-node',
+    'data-drawer-toggle',
+  ]) {
+    const value = el.getAttribute(attr)
+    if (value !== null) return '[' + attr + (value === '' ? ']' : '="' + value + '"]')
+  }
+  return el.tagName + ':' + (el.textContent ?? '').trim().slice(0, 24)
+}
 
-    expect(bar(w).exists(), 'saving the panel over a dirty draft must ask first').toBe(true)
-    expect(
-      w.emitted('saved'),
-      'the reload must not be let through while the question is open',
-    ).toBeUndefined()
-  })
+/** 点一遍的结果：点的是谁 + 它有没有把 `saved` 抛出来 + 点它炸没炸 */
+interface Clicked {
+  what: string
+  saved: boolean
+  error: string
+}
 
-  it('D2 asks for a dirty note draft as well (the union, not just the step family)', async () => {
-    const w = mountEditor()
-    await stashDraftThenSaveResource(w, 'note')
-    // 反面：这一条不许靠「编一步」那一族脏起来（两条轴都空着）
-    expect(w.findAll('[data-step-on]').length, 'this check must not lean on the step family').toBe(0)
-
-    expect(bar(w).exists(), 'a dirty note draft is a dirty draft: it must ask too').toBe(true)
-    expect(
-      w.emitted('saved'),
-      'the reload must not be let through while the question is open',
-    ).toBeUndefined()
-  })
-
-  it('D3 asks for an unsaved new row as well (the third source of the union)', async () => {
-    const w = mountEditor()
-    await stashDraftThenSaveResource(w, 'fresh')
-    expect(w.findAll('[data-step-on]').length, 'this check must not lean on the step family').toBe(0)
-
-    expect(bar(w).exists(), 'an unsaved new row is a dirty draft: it must ask too').toBe(true)
-    expect(
-      w.emitted('saved'),
-      'the reload must not be let through while the question is open',
-    ).toBeUndefined()
-  })
-})
-
-describe('R4 a clean editor is never asked', () => {
-  it('D4 goes straight through when nothing is unsaved', async () => {
-    const w = mountEditor()
-    await openPanel(w)
-    // 前提：这一刻真的是干净的（顶栏那颗按钮按不动），而且还没有条
-    expect(editorIsDirty(w), 'nothing was changed yet, so the editor must be clean').toBe(false)
-    expect(bar(w).exists(), 'the confirm bar must not be there before anything asked for it').toBe(false)
-
-    await saveResource(w, FIRST_BLOCK, TYPED_RESOURCE)
-
-    expect(bar(w).exists(), 'a clean hand must not be asked anything').toBe(false)
-    expect(w.emitted('saved'), 'the reload must go through right away').toHaveLength(1)
-  })
-})
-
-describe('R3 / R2 the two ways out of the question', () => {
-  it('D5 continuing lets the reload through, exactly once', async () => {
-    const w = mountEditor()
-    await stashDraftThenSaveResource(w, 'step')
-
-    const go = w.find('[data-editor-confirm] [data-editor-confirm-continue]')
-    expect(go.exists(), 'the bar hands out no continue button (is the bar there at all?)').toBe(true)
-    await go.trigger('click')
-
-    expect(bar(w).exists(), 'the bar must step aside once the question is answered').toBe(false)
-    expect(w.emitted('saved'), 'continuing is what lets the reload through').toHaveLength(1)
-  })
-
-  it('D6 cancelling keeps the draft verbatim and keeps the editor dirty', async () => {
-    const w = mountEditor()
-    await stashDraftThenSaveResource(w, 'step')
-
-    const cancel = w.find('[data-editor-confirm] [data-editor-confirm-cancel]')
-    expect(cancel.exists(), 'the bar hands out no cancel button (is the bar there at all?)').toBe(true)
-    await cancel.trigger('click')
-
-    expect(bar(w).exists(), 'the bar must step aside once the question is answered').toBe(false)
-    expect(w.emitted('saved'), 'cancel must not let the reload through').toBeUndefined()
-    expect(
-      (stepNameBox(w).element as HTMLInputElement).value,
-      'the draft in the box must survive the cancel verbatim',
-    ).toBe(TYPED_NAME)
-    expect(editorIsDirty(w), 'the draft must still be dirty after a cancel').toBe(true)
-  })
-
-  it('D7 keeps the panel write on disk while the draft stays out of it', async () => {
-    const w = mountEditor()
-    await stashDraftThenSaveResource(w, 'step')
-    const cancel = w.find('[data-editor-confirm] [data-editor-confirm-cancel]')
-    expect(cancel.exists(), 'no cancel button to answer the question with (is the bar there at all?)').toBe(
-      true,
+/**
+ * 把编辑器里**每一颗按钮**各点一遍（各挂一版新编辑器）。
+ *
+ * ⚠️ 这是**读数**，不是"读源码的确认"：`saved` 是 `CardEditor` 交给外层的那个事件，
+ *    而外层（`App.vue:432`）正是拿它调 `reloadForCard()` ⇒ **谁 emit 它，谁就把整页重载掉**。
+ */
+async function census(): Promise<Clicked[]> {
+  const total = await openedEditor((w) => w.findAll('[data-card-editor] button').length)
+  const clicks: Clicked[] = []
+  for (let index = 0; index < total; index += 1) {
+    clicks.push(
+      await openedEditor(async (w) => {
+        const el = w.findAll('[data-card-editor] button')[index]
+        const what = nameOf(el.element)
+        let error = ''
+        try {
+          await el.trigger('click')
+        } catch (err) {
+          error = (err as Error).message
+        }
+        return { what, saved: w.emitted('saved') !== undefined, error }
+      }),
     )
-    await cancel.trigger('click')
-
-    const text = localStorage.getItem(CARD_KEY)
-    expect(text, 'the panel write must have hit the card storage').not.toBe(null)
-    const stored = JSON.parse(text as string) as Record<string, any>
-    expect(
-      stored.settings[FIRST_BLOCK],
-      'the block the panel saved must be on disk verbatim, cancel or not',
-    ).toEqual([TYPED_RESOURCE])
-    // 反面：编辑器那份草稿**不许**跟着落盘（两处写的不是同一样东西）
-    expect(stored.graph.nodes[FIRST_STEP].name, 'the editor draft must not travel with the panel write').toBe(
-      card.graph.nodes[FIRST_STEP].name,
-    )
-  })
-})
+  }
+  return clicks
+}
 
 describe('R6 closing the tab is only held back while a draft is open', () => {
   it('D8 lets a clean editor close, and holds a dirty one', async () => {
@@ -316,94 +295,122 @@ describe('R6 closing the tab is only held back while a draft is open', () => {
     w.unmount()
     expect(live(), 'unmounting must take that listener away again').toBe(0)
   })
-
-  it('D14 continuing takes the tab guard down before the reload goes out', async () => {
-    // 加固条（不在 S0 的 R 表里，理由写在契约 §6-⑨）：用户刚说过"丢掉吧"，
-    // 那条守卫的**理由**已经用掉了 —— 留着它，重载时会再弹一次浏览器的原生警告，
-    // 而那个警告在 Playwright 里是自动 dismiss（= **取消**这次导航）⇒ `E2` 那条也会红。
-    const live = countBeforeUnloadGuards()
-    const w = mountEditor()
-    await stashDraftThenSaveResource(w, 'step')
-    expect(live(), 'the guard must be up while the question is open').toBeGreaterThan(0)
-
-    const go = w.find('[data-editor-confirm] [data-editor-confirm-continue]')
-    expect(go.exists(), 'the bar hands out no continue button (is the bar there at all?)').toBe(true)
-    await go.trigger('click')
-
-    expect(live(), 'the draft was just given up: the tab guard must step down with it').toBe(0)
-  })
 })
 
-describe('R8 the sentence and the two buttons live in the locale files', () => {
-  /** 那条确认 + 两颗按钮的键（判据只认键名，字从 locale 现取） */
-  const KEYS = ['card.discardDraft', 'card.discardCancel', 'card.discardContinue']
+describe('R8 the three keys stay retired in both locale files', () => {
+  /**
+   * 🔴 **这一条在 2026-09-29 翻了个面**（T1）：三颗键随面板退休 ⇒ 判据从"必须在两份 locale 里"
+   *    改成"**两边都不许有**"（台账 `.team/test/2026-09-29/判据收口-票8d2.md` §一）。
+   *    它现在是**棘轮**：这三颗键回来的时候，必须有人带着票号来解冻这一条 ——
+   *    因为"回来"只在一件事成立时才是对的：编辑器里又有了"落盘之后还要重载"的入口
+   *    （`useBranchDraft.ts` 抬头那条约定）。
+   */
+  // 两份 locale 的 `card` 那一节（键的存在与否按点号路径判）
+  const SECTIONS = cardSections()
 
-  /** 两份 locale 文件的原文（直接读文件：光看渲染分不出"两份都有"与"只有 en 那份"） */
-  const LOCALES: Record<string, string> = {
-    'src/locales/zh-CN.json': readFileSync('src/locales/zh-CN.json', 'utf8'),
-    'src/locales/en.json': readFileSync('src/locales/en.json', 'utf8'),
-  }
-
-  it('D10 renders all three strings from the locale, in both languages', async () => {
-    for (const locale of ['zh-CN', 'en'] as const) {
+  it('D11 keeps those three keys out of both files, and out of the runtime', () => {
+    // ① 校准：这套读法看得见"在" —— 一颗活着的键两份里都有、两套语言都解析得出
+    for (const name of LOCALE_NAMES) {
+      expect(
+        Object.hasOwn(SECTIONS[name], leafOf(LIVE_KEY)),
+        'the ' + name + ' locale came back without ' + LIVE_KEY + ': this reader sees nothing',
+      ).toBe(true)
+    }
+    for (const locale of LOCALE_NAMES) {
       setLocale(locale)
-      const w = mountEditor()
-      await stashDraftThenSaveResource(w, 'step')
+      expect(t(LIVE_KEY), 'the reader cannot see a key that is really there').not.toBe(LIVE_KEY)
+    }
 
-      const root = w.find('[data-editor-confirm]')
-      expect(root.exists(), locale + ': the bar never showed up, so this check would say nothing').toBe(true)
-      expect(root.text(), locale).toContain(label(KEYS[0]))
-      const cancel = root.find('[data-editor-confirm-cancel]')
-      const go = root.find('[data-editor-confirm-continue]')
-      expect(cancel.exists(), locale + ': the bar hands out no cancel button').toBe(true)
-      expect(go.exists(), locale + ': the bar hands out no continue button').toBe(true)
-      expect(cancel.text(), locale).toBe(label(KEYS[1]))
-      expect(go.text(), locale).toBe(label(KEYS[2]))
-
-      w.unmount()
-      document.body.innerHTML = ''
+    // ② 三颗退休键：两份文件里那一行都不在，两套语言也都不解析（缺 key 时 `t()` 原样吐回键名）
+    for (const key of RETIRED_KEYS) {
+      for (const name of LOCALE_NAMES) {
+        expect(
+          Object.hasOwn(SECTIONS[name], leafOf(key)),
+          key +
+            ' is back in the ' +
+            name +
+            ' locale: the panel question was retired with the panel (see useBranchDraft.ts). ' +
+            'If a save-then-reload entry point is back, bring the question back and unfreeze this pin ' +
+            'with a ticket number',
+        ).toBe(false)
+      }
+      for (const locale of LOCALE_NAMES) {
+        setLocale(locale)
+        expect(t(key), 'the ' + locale + ' screen still has copy for ' + key).toBe(key)
+      }
     }
     setLocale('zh-CN')
   })
+})
 
-  it('D11 keeps every key in both files, and the English copy is really English', () => {
-    /** 那个键在 JSON 里那一行（`card` 那一节里的名字，缩进 + `"name": "…"` 的形状） */
-    const lineOf = (text: string, key: string): string =>
-      text.split('\n').find((line) => line.trim().startsWith('"' + key.split('.')[1] + '":')) ?? ''
-    const CJK = new RegExp('[\\u4e00-\\u9fff]')
-
-    for (const key of KEYS) {
-      const zh = lineOf(LOCALES['src/locales/zh-CN.json'], key)
-      const en = lineOf(LOCALES['src/locales/en.json'], key)
-      expect(zh, 'the Chinese locale has no line for ' + key).not.toBe('')
-      expect(en, 'the English locale has no line for ' + key).not.toBe('')
-      expect(CJK.test(zh), 'the Chinese copy of ' + key + ' carries no Chinese at all').toBe(true)
-      expect(CJK.test(en), 'the English copy of ' + key + ' is the Chinese one again').toBe(false)
+describe('R8b no retired marker is left anywhere in the app source', () => {
+  /**
+   * 🆕 `D16` · **源码层那条棘轮**：三颗键的点号名字与那条确认条的钩子在 `src/**` 里一个都不许剩。
+   *
+   * 为什么要有它：`e2e/smoke.spec.ts` 那条 `toHaveCount(0)` 随着 UI 删掉**恒真**（没有信息量）⇒
+   * 那条读数由 `D12`（同一条路：脏草稿 + 点保存）+ 这一条接手。这一条比 e2e 那条强的地方是
+   * "**复活了但这条路上渲染不出来**"也抓得到 —— 而"退休的 UI 又长回来"正是这条棘轮要防的事。
+   * ⚠️ 注释里的留痕不算：`useBranchDraft.ts` 抬头那段退休说明写着这四个名字（**那是留痕，不是代码**），
+   *    所以这一条只认**点号键名**（`card.discardDraft`）与**模板钩子**（`data-editor-confirm`）这两种形状。
+   */
+  it('D16 no retired key and no confirm-bar hook is left in src', () => {
+    const source = appSource()
+    // 校准：这套读法读到了真东西（读成空串的话下面几条什么都没证）
+    expect(
+      source.includes(LIVE_KEY),
+      'the app source came back without ' + LIVE_KEY + ': this scan says nothing',
+    ).toBe(true)
+    for (const key of RETIRED_KEYS) {
+      expect(source.includes(key), 'the retired key ' + key + ' is back in the app source').toBe(false)
     }
+    expect(
+      source.includes(RETIRED_HOOK),
+      'the retired confirm bar ' + RETIRED_HOOK + ' is back in the app source',
+    ).toBe(false)
   })
 })
 
-describe('the two paths that only share the event name', () => {
-  it('D12 the editor own save button never asks anything', async () => {
+describe('R7 counting the ways out of the editor into a reload', () => {
+  /**
+   * 🆕 D15 · **把编辑器里每一颗按钮点一遍**：谁 emit `saved`，谁就是一条会走到
+   * `reloadForCard()`（`App.vue:202`）的路 —— 由 `App.vue:432` 那一句接上。
+   *
+   * 为什么要有它：票 78 那 10 条判据量的那个入口（面板那一次写）没了，**"还有没有别的重载入口"
+   * 这件事就没有任何判据看着了** —— 而它正是那条守卫存在的理由。这一条把它变成读数：
+   * 数出来的清单写在失败信息里，将来多长出一条路当场红。
+   */
+  it('D15 the editor hands out exactly one way into a reload: its own save', async () => {
+    const clicks = await census()
+    /** 会走到重载的那几颗（这一条要数的就是它） */
+    const saved = clicks.filter((one) => one.saved).map((one) => one.what)
+    // 读数落进 stdout（跑这一件时看得到）—— 报给组长的那份"入口清单"就是这一行
+    console.log('[census] clicked=' + clicks.length + ' saved=' + JSON.stringify(saved))
+    // 守卫：一颗按钮都没点到的话，下面那句"只有一颗"什么都没证
+    expect(clicks.length, 'no button was clicked: this census would say nothing').toBeGreaterThan(10)
+    expect(
+      clicks.filter((one) => one.error !== '').map((one) => one.what + ' -> ' + one.error),
+      'a click blew up: the census is not trustworthy',
+    ).toEqual([])
+    expect(saved, 'the editor must own exactly one way to a reload, and it is the top-bar save').toEqual([
+      '[data-card-save]',
+    ])
+  })
+})
+
+describe('the one path left: the editor own save', () => {
+  /**
+   * ⚠️ 这一条原来与"面板那条路"配成一对（两条路只共享 `saved` 这个事件名）—— 面板那条路退休之后
+   *    只剩它一条。它读的那条确认条**已经在 `src/` 里不存在**（`D16` 看着源码那一侧）⇒
+   *    这里问的是"脏草稿 + 点顶栏保存**这条路上不出现**它"，而它退休前唯一会出现的就是这条路。
+   */
+  it('D12 the editor own save never asks anything, and the retired bar stays away', async () => {
     const w = mountEditor()
     await dirtyByStep(w)
     expect(editorIsDirty(w), 'there is something to save').toBe(true)
 
     await saveButton(w).trigger('click')
 
-    expect(bar(w).exists(), 'saving from the top bar is not a way to throw the draft away').toBe(false)
+    expect(confirmBar(w).exists(), 'saving from the top bar is not a way to throw the draft away').toBe(false)
     expect(w.emitted('saved'), 'the editor own save announces itself once').toHaveLength(1)
-  })
-
-  it('D13 a panel write the card refuses asks nothing and announces nothing', async () => {
-    const w = mountEditor()
-    await openPanel(w)
-    await dirtyByStep(w)
-    // 清空正文 = 面板自己拦下来的那一类（卡的行数组只拒空表，一行空串是合法的）
-    await saveResource(w, FIRST_BLOCK, '')
-
-    expect(w.find('[data-card-error]').exists(), 'a refused panel write must say why').toBe(true)
-    expect(bar(w).exists(), 'a refused write threw nothing away, so there is nothing to ask').toBe(false)
-    expect(w.emitted('saved'), 'a refused write saves nothing').toBeUndefined()
   })
 })
