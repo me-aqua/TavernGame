@@ -66,6 +66,9 @@ const VIEWPORTS = [
  * ⚠️ 它是**改名来的**：原来的 `card-open` 点的就是设置面板里那颗 `[data-card-view]`，
  *    而它打开的 `CardEditor` 正是编辑器浮层（`App.vue:385-389` 的 `v-if="cardOpen"`）
  *    ⇒ 再添一个"编辑器状态"只会是同一屏的第二份（裁决 6 明说不加第二个）。
+ * ⚠️ 🆕 **另外两屏是"中栏第几形态"的，不是第三个"编辑器状态"**：`editor-display`（8d-①）
+ *    与 `editor-prompts`（8d-②）各自多走一步到那一形态就停 —— 一律**只在它们自己那两格里
+ *    多按几下**，`EDITOR_STATE` 与别的 `STATES` 一个字节不动（加工位只许"加"，老板 2026-09-24）。
  */
 const EDITOR_STATE = 'editor-open'
 /** 外壳只在口径说得清的那几个视口上量：≥821px 量四栏（口径 1–7），800×400 与 480×320 量降级（口径 8） */
@@ -238,6 +241,39 @@ const STATES: State[] = [
       ;${SUBMIT_TURN}
     })()`,
     waitAfterMs: 900,
+  },
+  {
+    // 🆕 票 8d-① 那一屏「编一块显示」：左栏那颗按钮 ⇒ 中栏第三形态（卡里那几条声明 + 四个键）。
+    // 出处：`.team/leader/2026-09-29/验收记录-票8d2.md:101` 与 `todo.md` 的欠账节 ——
+    // 8d 那两屏做完了，而**整页巡检里没有一个工位会打开它们**（屏上量不到 = 没人看着它）。
+    // ⚠️ 这一格是**新增**：别的 `STATES` 一个都不动（老板 2026-09-24 的口径：加工位只许"加"）。
+    name: 'editor-display',
+    seed: { config: CONFIG, save: saveWith({ events: STORY }) },
+    interact: `(async () => {
+      document.querySelector('button[data-settings]')?.click()
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      document.querySelector('button[data-card-view]')?.click()
+      await new Promise((resolve) => setTimeout(resolve, 600))
+      document.querySelector('button[data-display-open]')?.click()
+    })()`,
+    waitAfterMs: 500,
+  },
+  {
+    // 🆕 票 8d-② 那一屏「编公共提示词」：顶栏那颗 ⇒ 第四栏那 7 条 ⇒ 点一条 ⇒ 中栏第四形态（正文）。
+    // 取景与 `CardEditor.stories.ts` 的 `Prompts` 那一篇同一个形状；选 `style` 那一条
+    // （示例卡里正文最长的一块，正文框自己滚）⇒ 这一格量的是"最长的那一条撑不撑得住"。
+    name: 'editor-prompts',
+    seed: { config: CONFIG, save: saveWith({ events: STORY }) },
+    interact: `(async () => {
+      document.querySelector('button[data-settings]')?.click()
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      document.querySelector('button[data-card-view]')?.click()
+      await new Promise((resolve) => setTimeout(resolve, 600))
+      document.querySelector('button[data-card-resources-open]')?.click()
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      document.querySelector('[data-prompt-row="style"]')?.click()
+    })()`,
+    waitAfterMs: 500,
   },
   {
     // 工具调用：一轮跑完之后切到「工具调用」那一页（哪个节点、什么工具、原始参数、写入）
@@ -772,6 +808,32 @@ test.describe('状态 × 屏幕', () => {
               'the mid column must show the field table, not the empty state',
             ).toBeVisible()
           }
+        }
+
+        // 🆕 8d 那两屏（票 8d-① 「编一块显示」/ 8d-② 「编公共提示词」）：**先把状态验住**，
+        //    再让 `expectClean(probe)` 去量那一屏 —— 少了这一步，"点了没反应"会变成
+        //    一张空中栏的照片、而**结构检查照样绿**（它检查的是溢出与点按区，不是"这一屏在不在"）。
+        // ⚠️ 用 `toBeAttached` 不用 `toBeVisible`：窄档下中栏会被压成 0 宽（设计点名的 821–1279
+        //    死带与降级档）—— 那正是**该由 `expectClean` 去判**的事，不该在这里先炸。
+        if (state.name === 'editor-display') {
+          await expect(
+            page.locator('[data-mid] [data-display-form]'),
+            'the third form is not on screen: this station would probe an empty mid column',
+          ).toBeAttached()
+          await expect(
+            page.locator('[data-display-block]').first(),
+            'the third form lists no declaration of the card',
+          ).toBeAttached()
+        }
+        if (state.name === 'editor-prompts') {
+          await expect(
+            page.locator('[data-mid] [data-prompt-form]'),
+            'the fourth form is not on screen: this station would probe an empty mid column',
+          ).toBeAttached()
+          await expect(
+            page.locator('[data-prompt-form] [data-prompt-text]'),
+            'the fourth form hands out no body box: the longest block is not being edited',
+          ).toBeAttached()
         }
 
         const probe = (await page.evaluate(PROBE)) as Probe

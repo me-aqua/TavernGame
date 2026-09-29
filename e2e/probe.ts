@@ -130,7 +130,7 @@ export interface FontCensus {
   leaves: number
   /** 这一片里有几个 `<select>` */
   selects: number
-  /** 这一屏有几处中栏那张表的根（两种形态之一；一个都不在 ⇒ 不是这条判据的地盘） */
+  /** 这一屏有几处中栏那张表的根（四种形态之一；一个都不在 ⇒ 不是这条判据的地盘） */
   forms: number
 }
 
@@ -139,7 +139,8 @@ export interface FontCensus {
  *
  * ⚠️ 与整页矩阵那次普查（`visual.spec.ts` 的 `SHELL_PROBE`）**同一套口径**：只数"有文字、
  *    没有子节点"的元素 ⇒ `<input>` / `<select>` 本身不进（它们没有文字），但 **`<option>` 进**。
- * ⚠️ 作用域是中栏那张表的**两种形态**的根（字段表与「编一块显示」）—— 见函数体第一条注释。
+ * ⚠️ 作用域是中栏那张表的**四种形态**的根（一步 · 字段表 · 「编一块显示」·「编公共提示词」）
+ *    —— 见函数体第一条注释。
  * 🔴 为什么这一层非要有它：整页矩阵那次普查**只在 `editor-open` 那一屏跑**，而那一屏**从不按「＋」**
  *    ⇒ 屏上 `select = 0 / option = 0` ⇒ 那条判据对 `<option>` **零信息量**（不是红也不是绿）。
  *    组件故事里 `Editing` / `Refused` 两个故事带着新行 ⇒ `<option>` 真在屏上。
@@ -148,10 +149,15 @@ export function fontCensus(): FontCensus {
   // 🔴 这条选择器**必须写在这个函数体里**（不许抽成模块作用域的常量）：`page.evaluate(fontCensus)`
   //    把这个函数**序列化成源码**再在页面里 eval ⇒ 引用模块作用域的任何东西在那边都是 `undefined`
   //    （2026-09-26 真炸过一次：`ReferenceError: FORM_SCOPE is not defined`，整层故事全红）。
-  // ⚠️ 两种形态都要收：三形态互斥 ⇒ 屏上只会有一个；**少收一个，那一屏就是"照不到"**
-  //    （`forms === 0` ⇒ 当场 early return，本票那个新形态的下拉就是这么漏掉的）。
+  // ⚠️ 中栏**四种形态**都要收：形态互斥 ⇒ 屏上只会有一个；**少收一个，那一屏就是"照不到"**
+  //    （`forms === 0` ⇒ 当场 early return）。漏收的代价实测过两次：8d-① 那个新形态的下拉，
+  //    与 8d-② 的第四形态（`[data-prompt-form]`，它的根就是中栏那张表的第四个根）。
+  // 🔴 这一条是**普查的作用域**，不是判据本身：多收一个根不会放宽任何阈值 ——
+  //    它照到的文字照样只许用 `--fs1/2/3` 三档（`expectTierFonts`）。
   const scopes = [
-    ...document.querySelectorAll('#storybook-root [data-branch-form], #storybook-root [data-display-form]'),
+    ...document.querySelectorAll(
+      '#storybook-root [data-branch-form], #storybook-root [data-display-form], #storybook-root [data-prompt-form]',
+    ),
   ]
   const sizes: string[] = []
   const optionSizes: string[] = []
