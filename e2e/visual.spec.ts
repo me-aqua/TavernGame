@@ -344,8 +344,10 @@ const SHELL_PROBE = `(() => {
   }))
   const ruler = document.querySelector('[data-ruler]')
   const mid = document.querySelector('[data-mid]')
-  // 外壳自己的文字只用三档字号：插进来的既有组件（卡图 / 表单 / 资源库）不算
-  const legacy = '[data-card-form], [data-card-resources], .card-graph'
+  // 外壳自己的文字只用三档字号：插进来的既有组件（卡图 / 节点表单）不算
+  // ⚠️ 资源库面板（[data-card-resources]）那一项随票 8d-② 退休 —— 第四栏换成公共提示词列表，
+  //    它**要进普查**（字号走 --fs1/2/3 那三档）。⚠️ 这一整段是**模板串**里的源码，注释里别用反引号。
+  const legacy = '[data-card-form], .card-graph'
   const fonts = new Set()
   for (const el of document.querySelectorAll('[data-card-editor] *')) {
     if (el.closest(legacy)) continue
