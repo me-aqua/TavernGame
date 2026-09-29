@@ -10,6 +10,7 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
+  CARD_KEY,
   CONFIG,
   DEBUG_KEY,
   LANG_KEY,
@@ -850,6 +851,63 @@ test.describe('卡', () => {
     const section = page.locator('[data-card-section]')
     await expect(section).toContainText(await translate(page, 'card.sourceBuiltin'))
     await expect(section.locator('[data-card-fallback]')).toBeVisible()
+  })
+
+  /**
+   * 票 8e（契约 `.team/test/2026-09-29/契约-8e.md` §2 的 `E1`）· **新建一枝** —— 六选一长出枝、
+   * 当场说清「这枝还没有动作写它」，以及那句话**是真的**（保存被引擎按它自己的原话拦下）。
+   *
+   * ⚠️ **乙案**（S0 §三）：本票不建配套动作 ⇒ 新枝今天**存不进卡** —— 引擎的 `checkBranchKeepers`
+   *    （`src/game/card.ts:430`）拒它。所以这一条断的**不是**"存得回去"，而是
+   *    「**界面说的和引擎做的是同一件事**」。引擎那句话只能照抄（本文件不 import 应用模块）；
+   *    它哪天改了口径，这一条会红 —— 那是**对的**反馈。
+   *    🔴 **甲案（建枝顺带建动作）落地的那天，这一条要连编号一起翻面。**
+   * ⚠️ 24×24 / 字号三档 / 横向溢出走 `PROBE`（与上面那条「左栏是枝的导航树」同一套判据）。
+   */
+  test('新建一枝：六选一长出枝、说清它还没有动作写它、保存被引擎按原话拦下', async ({ page }) => {
+    const NEW_BRANCH = 'probe_branch'
+    const editor = await openCardEditor(page)
+    expect(
+      await page.evaluate((key) => localStorage.getItem(key), CARD_KEY),
+      'premise: nothing is stored yet, the editor runs on the builtin card',
+    ).toBeNull()
+
+    // G1/G2：左栏那颗按钮 ⇒ 六选一，六个名字就是卡格式认的那六个类型
+    await editor.locator('[data-branch-add]').click()
+    await expect(editor.locator('[data-branch-create]')).toBeVisible()
+    await expect(editor.locator('[data-branch-shape]')).toHaveCount(6)
+    await editor.locator('[data-branch-shape="string"]').click()
+    await editor.locator('[data-branch-name]').fill(NEW_BRANCH)
+    await editor.locator('[data-branch-make]').click()
+
+    // G4：建出来的枝立刻在树上（第 1 层）；树行的数目 = 卡里那几行 + 这一行
+    const row = editor.locator('[data-branch-node="' + NEW_BRANCH + '"]')
+    await expect(row).toHaveCount(1)
+    await expect(row).toHaveAttribute('data-branch-depth', '1')
+    await expect(editor.locator('[data-branch-node]')).toHaveCount(TREE_ROWS.length + 1)
+
+    // G6 前半：那句提示在屏上，而且**不在任何一行里**
+    await expect(editor.locator('[data-branch-unwritten]').first()).toBeVisible()
+    expect(
+      await editor.evaluate(
+        (root) => root.querySelectorAll('[data-branch-node] [data-branch-unwritten]').length,
+      ),
+      'the notice must not grow inside a tree row',
+    ).toBe(0)
+
+    // G6 后半 + G7：保存被引擎按**它自己的原话**拦下 ⇒ 卡一个字节都不动、也不重载
+    await editor.locator('[data-top] [data-card-save]').click()
+    const problem = editor.locator('[data-card-error]')
+    await expect(problem).toContainText('no action maintains this branch')
+    await expect(problem).toContainText(NEW_BRANCH)
+    expect(
+      await page.evaluate((key) => localStorage.getItem(key), CARD_KEY),
+      'a refused save must write nothing at all',
+    ).toBeNull()
+    await expect(editor, 'a refused save must not reload the page').toBeVisible()
+    await expect(row, 'the refusal must not throw the draft away').toHaveCount(1)
+
+    expectClean((await page.evaluate(PROBE)) as Probe)
   })
 })
 
