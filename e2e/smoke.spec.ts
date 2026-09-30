@@ -10,6 +10,7 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
+  APP_PATH,
   CARD_KEY,
   CONFIG,
   DEBUG_KEY,
@@ -20,11 +21,13 @@ import {
   NARRATION,
   OPENING_PLACE,
   PLACE_FIELDS,
+  THEME_KEY,
   TIME_NODE,
   WHERE_PATH,
   WHO_KEY,
   openApp,
   saveWith,
+  seedStorage,
   translate,
   watchErrors,
 } from './fixtures'
@@ -923,6 +926,68 @@ test.describe('坏存档', () => {
       Object.keys(localStorage).filter((key) => key.includes('.broken-')),
     )
     expect(backups).toHaveLength(1)
+  })
+})
+
+/**
+ * 第一帧的底色：**只放行文档本身**（样式表 / 脚本 / 字体一律掐掉），
+ * 于是页面停在「HTML 画出来了、main.css 与 Vue 都还没到」那一瞬 —— 白闪就发生在这一瞬。
+ * 写法按 `resourceType` 认，不猜后缀：除 `document` 之外全 abort。
+ * 🔴 「这一瞬真被冻住了」由 `blocked` 当场断言（`requestfailed` ≥ 1）——
+ *    abort 一旦失效，读到的就是挂载之后的页面，而 `<html>` 的底色不受影响、那条相等断言照样绿。
+ */
+async function firstFrameBg(page: Page, theme: string): Promise<string> {
+  await seedStorage(page, { [THEME_KEY]: theme })
+  /** 被 abort 掉的请求数：冻结没生效时它会停在 0 */
+  let blocked = 0
+  page.on('requestfailed', () => (blocked += 1))
+  await page.route('**/*', (route) =>
+    route.request().resourceType() === 'document' ? route.continue() : route.abort(),
+  )
+  await page.goto(APP_PATH, { waitUntil: 'commit' })
+  // 深色那个 `.dark` 是挂载前那段内联脚本加的；被掐掉的样式表会把它挡在后面，得等它落上
+  if (theme === 'dark') await expect(page.locator('html')).toHaveClass(/dark/)
+  // 能说不的一条：样式表 / 脚本至少有一条真被掐掉，这一趟读的才是「什么都没到」的那一瞬
+  await expect
+    .poll(() => blocked, { message: 'the freeze must really cut the stylesheet and the script' })
+    .toBeGreaterThan(0)
+  const bg = await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)
+  await page.unroute('**/*')
+  return bg
+}
+
+/** 挂载之后的底色：正常加载，读 `<body>`（main.css 的 `bg-page` 落在它身上） */
+async function mountedBg(page: Page, theme: string): Promise<string> {
+  await seedStorage(page, { [THEME_KEY]: theme })
+  await page.goto(APP_PATH)
+  await expect(page.locator('#app > *')).toHaveCount(1)
+  return page.evaluate(() => getComputedStyle(document.body).backgroundColor)
+}
+
+/**
+ * 防白闪：**样式到达之前**，文档自己就得先铺上页面底色。
+ *
+ * 白闪发生在「HTML 已经画出来、main.css 还没到」那一瞬 —— 组件层看不见它（jsdom 没有真首屏），
+ * 所以这一条只能落在真浏览器上，量的是**计算样式**，同一个页面走两趟：
+ *   · 第一趟（`firstFrameBg`）页面上只有 `index.html` 里那段内联样式，根元素的背景会传播到
+ *     画布 ⇒ 读 `<html>` 的底色就是那一瞬铺满屏幕的颜色；
+ *   · 第二趟（`mountedBg`）正常加载，读 `<body>` 的底色 —— 玩家最终看到的就是它。
+ * 两边**逐字相等**才算不闪：颜色从第一帧到挂载一次都没变过。
+ *
+ * ⚠️ 断的是**相等**，不是"不是白的"：先铺一层别的颜色、挂载时跳成页面色，照样是闪。
+ * ⚠️ 内联那两行是字面量（那时 `var(--color-page)` 还没定义）⇒ 它与 main.css 的 token 是同
+ *    一件事的两份写法，靠 `tests/first-paint-bg.test.ts` 钉住不许各走各的。
+ */
+test.describe('防白闪', () => {
+  test('浅色：样式到达之前那一帧就是页面底色，与挂载之后逐字相同', async ({ page }) => {
+    expect(await firstFrameBg(page, 'light')).toBe(LIGHT_BG)
+    expect(await mountedBg(page, 'light')).toBe(LIGHT_BG)
+  })
+
+  test('深色：同上（`.dark` 由挂载前那段内联脚本加上）', async ({ page }) => {
+    const first = await firstFrameBg(page, 'dark')
+    expect(first, '深色的第一帧不该是浅色底').not.toBe(LIGHT_BG)
+    expect(first, '第一帧与挂载之后必须是同一个颜色').toBe(await mountedBg(page, 'dark'))
   })
 })
 
