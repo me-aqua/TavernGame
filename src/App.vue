@@ -24,7 +24,9 @@ import SettingsDrawer from './components/SettingsDrawer.vue'
 import CardEditor from './components/CardEditor.vue'
 import WorldPanel from './components/WorldPanel.vue'
 import DebugPanel from './components/DebugPanel.vue'
+import StoryCover from './components/StoryCover.vue'
 import { blocksOfSide, topbar, world } from './components/display-blocks'
+import { atPath } from './game/display'
 import { storeDebug, useGame } from './stores/game'
 import { useTheme } from './composables/useTheme'
 import { useLanguage } from './composables/useLanguage'
@@ -83,13 +85,39 @@ const rightBlocks = blocksOfSide(world, 'right')
 const hasSides = world.length > 0
 
 /**
+ * 右栏那两件装饰（主控徽记 + 地标剪影）吃的两个字符串 —— 都从**卡声明的那条指路**现读。
+ *
+ * `display.scene` 是卡说一次的「谁在哪」来源：`who` 指向主控名字那一格。🔴 名字只能这么取：
+ * 位置那一串的第一个值是**区域名**（不是人名），从块数据里猜"唯一的字符串栏"在真卡上会猜出种族。
+ * 卡没声明 / 那一格读不到 / 不是非空串 ⇒ 空串 ⇒ 那两件整件不画（不画一枚无名圆章）。
+ */
+const sceneDecl = currentCard.display.scene
+const leadName = computed(() => {
+  if (sceneDecl === undefined) return ''
+  const name = atPath(stateTree.value, sceneDecl.who)
+  return typeof name === 'string' ? name : ''
+})
+
+/**
+ * 剪影的种子：册子里主控那一条的字面串，用分隔点点开 —— 与侧栏 `.scene-name` **同一份口径**。
+ *
+ * ⚠️ 空串要在这里先滤掉：`sceneValues` 是按字段顺序给的那一串，册子某一格没写就是空串，
+ *    而侧栏那边（`AppSidebar.vue` 的 `sceneLabel`）**也滤**。两边都不滤会让同一个种子在
+ *    "显示的这一串"与"算剪影的那一串"上分叉（今天恰好不分叉，将来会红得看不懂）。
+ */
+const sceneSeed = computed(() => scene.value.filter((value) => value.length > 0).join(t('sidebar.separator')))
+
+/**
  * 卡图是**模态浮层**：它开着的时候，遮罩底下**每一层**（顶栏 / 两条栏 / 输入区 / 设置抽屉 /
- * 调试面板）一起挂 `inert` —— 模态之下的东西不许被聚焦、也不许被点到；关掉就摘干净。
+ * 调试面板 / **开场封面**）一起挂 `inert` —— 模态之下的东西不许被聚焦、也不许被点到；关掉就摘干净。
  *
  * 这几层绑同一个名字，因为它们是一件事。⚠️ `inert` 落在这几个兄弟层上、**不落根节点**：
  * 落根上会把卡图自己一起罩进去，那就得再写一条规则把它撤销回来。
  * ⚠️ 也不许换成 `pointer-events: none`（只管鼠标）/ `disabled` / `tabindex="-1"`（一颗一颗糊）：
  * 它们都拦不住 Tab 走到这一层。
+ * 🔴 **封面是这一套里最容易漏的一处**：它与 `.player-grid` 互斥，所以卡图开着时它多半**不在屏上**，
+ *    于是只有"卡图开着 **且** 还没有故事"那一档才照得到它 —— 而那一档真实存在
+ *    （`e2e/smoke.spec.ts` 的卡图用例就不种存档）⇒ 漏了它，那颗「开始这一局」照样能被 `focus()` 拿到。
  */
 const belowCardModalInert = computed(() => cardOpen.value)
 /** 调试面板开着没有 —— 只在调试模式里有这一层（入口就在调试开关旁边） */
@@ -164,6 +192,27 @@ async function startNewGame() {
   }
 }
 
+/**
+ * 玩家在封面上点过「开始这一局」没有 —— **这一次会话里**的一次性事实，不落盘、不进存档。
+ *
+ * 🔴 它是「开机要不要自己把开场跑掉」那把闸的**正向**那一半：极性只能是"点过才跑"，
+ *    **不能**反着写成"没点过就不许自己跑"再靠一个初始为假的标记去拦 ——
+ *    那样初始状态本身就在放行（实测：那样写，挂载后 **95ms** 照样发出第一次请求）。
+ * ⇒ 于是"配好 API 的全新一局"不再自动开场：玩家看到的是封面，点了才开始。
+ */
+const startedByPlayer = ref(false)
+
+/**
+ * 封面那颗「开始这一局」：玩家自己按的，记下来再跑。
+ *
+ * ⚠️ 与 `resetAll` 那条路分开写：那条是"重来 ⇒ 立刻跑新的一局"（玩家自己按的重来），
+ *    它不走这里、也不看这根标记 —— 两条路一件事只在一个地方说。
+ */
+function startFromCover() {
+  startedByPlayer.value = true
+  void startNewGame()
+}
+
 /** 导出存档为文件 */
 function doExport() {
   const date = new Date().toISOString().slice(0, 10)
@@ -184,7 +233,8 @@ async function doImport() {
   }
 }
 
-/** 重来（先确认），然后直接跑开场 */
+/** 重来（先确认），然后直接跑开场 —— 🔴 这一处的自动开场与「启动 / 存配置」那两处**不同向**：
+ *  「重来」就是玩家自己按下的"再开一局"，这里必须自动跑（封面会在重来之后闪一下，那是对的） */
 function resetAll() {
   if (!confirm(t('app.confirmReset'))) return
   resetGame()
@@ -263,7 +313,9 @@ function onDrawerAction(
 function onSettingsSaved() {
   refreshConfigStatus()
   notify(t('app.settingsSaved'))
-  if (turn.value === 0 && !hasStory.value && !busy.value) void startNewGame()
+  // 🔴 首局顺手跑开场，闸是"**玩家点过开始**"（`startedByPlayer`）：
+  //    从封面的「填入 API Key」进设置、填完保存 —— 那时玩家只是去填 key，不是按了开始。
+  if (turn.value === 0 && !hasStory.value && !busy.value && startedByPlayer.value) void startNewGame()
 }
 
 // ---------- 启动 ----------
@@ -279,12 +331,10 @@ onMounted(() => {
   }
 
   // 故事不用「恢复」：渲染的就是事件流本身。
-  // 启动时只剩两件事要说：配好了就开场，没配就先告诉玩家去哪儿配。
-  if (isConfigured()) {
-    if (turn.value === 0) void startNewGame()
-  } else {
-    notify(t('app.welcome'))
-  }
+  // 🔴 启动时**不自动开场**：开场这件事属于封面那颗「开始这一局」（`startFromCover`）——
+  //    少了这条闸，全新一局会"封面在屏上、开场在背后自己跑"（实测：挂载后 **95ms** 就发出第一次请求）。
+  //    这里只剩一件事要说：没配 API 就先告诉玩家去哪儿配（那句话住封面的状态行里）。
+  if (!isConfigured()) notify(t('app.welcome'))
 
   // 存着的卡用不了、退回了内置示例：这件事比欢迎语重要（它决定玩家看到的世界），
   // 所以放在最后播报 —— 设置面板的「卡」一节里也留了一行（进行中状态会顶掉通知）。
@@ -365,8 +415,27 @@ onMounted(() => {
       <p class="text-[12.5px] leading-relaxed" v-text="t('play.rotateBody')" />
     </section>
 
+    <!--
+      还没开始那一局：一张开场封面（卡的脸 + 一颗「开始这一局」）。
+      🔴 它与下面那一屏是**互斥的两个兄弟**（`v-if` / `v-else`），不是"盖上去"——
+         盖上会让屏上出现两个 `[data-status]`，`smoke.spec.ts` 那种 `toHaveText` 会撞严格模式。
+      🔴 它挂的是**「还没有故事」这个事实**（`hasStory`），不是"进游戏"这个动作：
+         玩到第 30 回合按一下刷新，`hasStory` 还是真 ⇒ 直接回到那一局，不给玩家再点一次开始。
+    -->
+    <StoryCover
+      v-if="!hasStory"
+      :name="currentCard.card.name"
+      :summary="currentCard.card.summary"
+      :configured="configured"
+      :busy="busy"
+      :status="status"
+      :inert="belowCardModalInert"
+      @configure="settingsOpen = true"
+      @start="startFromCover"
+    />
+
     <!-- 左栏 | 正文 | 右栏：三档共用这一份 DOM，六块每块只出现一次（见 <style> 那三档） -->
-    <div class="player-grid">
+    <div v-else class="player-grid">
       <WorldPanel
         v-if="hasSides"
         side="left"
@@ -383,6 +452,8 @@ onMounted(() => {
         side="right"
         :blocks="rightBlocks"
         :state="stateTree"
+        :lead-name="leadName"
+        :scene-seed="sceneSeed"
         :inert="belowCardModalInert"
       />
     </div>
@@ -403,8 +474,9 @@ onMounted(() => {
       @close="debugOpen = false"
     />
 
-    <!-- 下带：输入卡片（在流里，但视觉上浮起） -->
+    <!-- 下带：输入卡片（在流里，但视觉上浮起）—— 与正文同生共死：封面在屏上时不给输入框 -->
     <GameComposer
+      v-if="hasStory"
       class="player-composer"
       :disabled="busy"
       :configured="configured"
