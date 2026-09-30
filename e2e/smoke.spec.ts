@@ -40,7 +40,7 @@ import cardJson from '../cards/morningwind.json' with { type: 'json' }
 const CARD = cardJson as unknown as Record<string, any>
 
 /** 浅色主题的页面底色（与 src/styles/main.css 的 token 对应） */
-const LIGHT_BG = 'rgb(242, 244, 247)'
+const LIGHT_BG = 'rgb(237, 228, 211)'
 /** 时间标签的形状由历法决定，这里只看形状，不写死具体日期 */
 const TIME_PATTERN = /^\d{4} 年 \d+ 月 \d+ 日 · 星期[日一二三四五六] · (上午|下午|晚上)$/
 /** 一轮跑完要十来次模型调用 —— 等它跑完得给足时间 */

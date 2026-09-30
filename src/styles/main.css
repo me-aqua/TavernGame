@@ -19,43 +19,43 @@
 /* ---------- 浅色（默认）---------- */
 :root {
   /* 层次：page（正文区底色）< surface（顶栏/侧栏/输入区）< surface-2（卡片/输入框） */
-  --color-page: #f2f4f7;
-  --color-surface: #ffffff;
-  --color-surface-2: #f6f8fa;
-  --color-line: #e0e4ea;
-  --color-text: #1c2128;
-  --color-muted: #5c6674;
-  --color-faint: #8a94a3;
+  --color-page: #ede4d3;
+  --color-surface: #f7f1e5;
+  --color-surface-2: #e7dcc7;
+  --color-line: #d2c3a8;
+  --color-text: #2e2921;
+  --color-muted: #5f5647;
+  --color-faint: #6f6452;
 
-  --color-accent: #0d8a67;
-  --color-accent-soft: #e3f5ef;
-  --color-accent-line: #a7ddcb;
-  --color-info: #1d6fb8;
-  --color-warn: #a16207;
-  --color-warn-soft: #fef6e3;
-  --color-danger: #c0392b;
-  --color-danger-soft: #fdeceb;
+  --color-accent: #8f4e22;
+  --color-accent-soft: #f1ddc2;
+  --color-accent-line: #cfa878;
+  --color-info: #3d6472;
+  --color-warn: #8a5a12;
+  --color-warn-soft: #f6e6c8;
+  --color-danger: #a33b2f;
+  --color-danger-soft: #f6dcd6;
 }
 
 /* ---------- 深色 ---------- */
 .dark {
   /* 层次：page（正文区，最暗）< surface（顶栏/侧栏/输入区）< surface-2（卡片/输入框） */
-  --color-page: #0b0d11;
-  --color-surface: #14171d;
-  --color-surface-2: #1e232c;
-  --color-line: #2e3541;
-  --color-text: #e6e9ef;
-  --color-muted: #9aa4b2;
-  --color-faint: #6b7482;
+  --color-page: #100e0b;
+  --color-surface: #1a1611;
+  --color-surface-2: #241f18;
+  --color-line: #3a3226;
+  --color-text: #eae0cf;
+  --color-muted: #b0a48f;
+  --color-faint: #8a7f6b;
 
-  --color-accent: #4ade9b;
-  --color-accent-soft: #123027;
-  --color-accent-line: #2b6b55;
-  --color-info: #7cc4ff;
-  --color-warn: #fbbf24;
+  --color-accent: #e2a55c;
+  --color-accent-soft: #2c2215;
+  --color-accent-line: #6b4c26;
+  --color-info: #90b8c8;
+  --color-warn: #e5b85f;
   --color-warn-soft: #2c2410;
-  --color-danger: #f87171;
-  --color-danger-soft: #2d1a1a;
+  --color-danger: #e87c6c;
+  --color-danger-soft: #2d1a17;
 }
 
 /* ---------- 交给 Tailwind 的 token ---------- */
