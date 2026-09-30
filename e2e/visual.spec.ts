@@ -179,7 +179,18 @@ const EN_STORY = [
 
 const STATES: State[] = [
   { name: 'unconfigured', seed: {} },
-  { name: 'opening-busy', seed: { config: CONFIG, fake: 'slow' }, fake: 'slow', waitMs: 900 },
+  // 🔴 接线票（2026-09-30）：**"配好 key 就自动开局"那条老行为收掉了** ⇒ 这一屏要拍到
+  //    "正在跑"必须**由玩家点那一下**（与 `wiring-mark-cover.spec.ts` 的 C3 同一条路）。
+  //    ⚠️ 不改这一行的话，它拍到的其实是**静止的封面** —— 名字说着"busy"、画面上没有那回事
+  //    （评审 S4 的 O3；同一个文件里 `world-open` 那条注释早就警告过这个形状）。
+  {
+    name: 'opening-busy',
+    seed: { config: CONFIG, fake: 'slow' },
+    fake: 'slow',
+    waitMs: 900,
+    interact: "document.querySelector('[data-cover-start]')?.click()",
+    waitAfterMs: 900,
+  },
   { name: 'playing-zh', seed: { config: CONFIG, save: saveWith({ events: STORY }) } },
   {
     name: 'playing-en',

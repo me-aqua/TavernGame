@@ -45,6 +45,8 @@ interface StoryEntry {
   title: string
   name: string
   type: string
+  /** Storybook 写在清单里的标签（`dev`/`test`/`manifest` 是默认那几个；自定义的也在这儿） */
+  tags?: string[]
 }
 
 /** Storybook 构建时写下的清单：故事列表以它为准，不在测试里再抄一份 */
@@ -167,8 +169,21 @@ test.describe('组件故事', () => {
  * ⚠️ 动效不吃语言 ⇒ 这一层只跑一种语言（省一半）；浅深两档照跑（它是 CSS 级联的一部分）。
  */
 test.describe('剪影在 reduced motion 下静止', () => {
-  /** 剪影那四个故事（按故事标题认，不去拼 id） */
-  const sigilStories = stories.filter((entry) => entry.title === '组件/SceneSigil')
+  /**
+   * 剪影那一族的故事 = **两个来源**：
+   *   · `组件/SceneSigil` 那四篇 —— 那一件**自己**长什么样（塔 / 拱门 / 林 / 山）；
+   *   · **带 `sigil` 标签**的故事 —— **消费**那一件的地方（接线票之后是 `组件/WorldPanel` 的**右栏**那篇）。
+   *
+   * 🔴 **为什么不按标题收整个 `组件/WorldPanel`**（评审 S4 的 O2，接线票 2026-09-30）：
+   *    那三篇是**左栏**故事，而剪影按方案**只在右栏画** ⇒ 它们**结构上照不到** ——
+   *    收进来就是 6 条"永远绿"的假判据（而"照不到"既不是红也不是绿）。
+   *    ⇒ 改成**故事自己声明**（`tags: ['sigil']`）：改名 / 换文件都不会让这一层悄悄失效，
+   *      而"标签一个都没收到"会被下面那条 `length > 0` **当场拦下**（不是静默空转）。
+   */
+  const SIGIL_TITLE = '组件/SceneSigil'
+  const sigilStories = stories.filter(
+    (entry) => entry.title === SIGIL_TITLE || (entry.tags ?? []).includes('sigil'),
+  )
   /** 照到过剪影的屏数（收尾要断它 —— 一条都没照到就是空转） */
   let seen = 0
 
@@ -195,7 +210,16 @@ test.describe('剪影在 reduced motion 下静止', () => {
           await context.close()
           return census
         }
-        if (expectSigilStill(await censusIn('reduce'), await censusIn('no-preference'), story.id)) {
+        const reduce = await censusIn('reduce')
+        const animated = await censusIn('no-preference')
+        // 🔴 **每一篇都硬断"真的照到了"**：`expectSigilStill` 自己在 `sigils === 0` 时
+        //    返回 `false` **不抛**（`probe.ts:239`）—— 只靠收尾那个累计 `seen > 0` 撑着的话，
+        //    **某一篇悄悄照不到是看不出来的**（那正是评审 S4 点出来的形状：8 条假绿）。
+        expect(
+          reduce.sigils,
+          story.id + '：这一篇一个剪影都没照到 —— 那不是通过，是没照到（收了它就得让它有东西可照）',
+        ).toBeGreaterThan(0)
+        if (expectSigilStill(reduce, animated, story.id)) {
           seen += 1
         }
       })

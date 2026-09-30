@@ -26,13 +26,23 @@ import WorldPanel from '../src/components/WorldPanel.vue'
 import { world } from '../src/components/display-blocks'
 import { instantiate } from '../src/game/card-state'
 import { currentCard } from '../src/game/current-card'
+import { initialState } from '../src/game/state'
 import { i18n } from '../src/i18n'
+import { useGame } from '../src/stores/game'
 import { LONG_NIGHT_CARD, NIGHT_WATCH_CARD } from './support/card-fixtures'
 
 /** 内置示例卡（morningwind）：六块、左三右三 —— 期望值全部从卡现取，不抄一份内容 */
 const card = currentCard
 const state = instantiate(card)
 const declared = JSON.parse(JSON.stringify(card.display.sidebar)) as Array<Record<string, any>>
+
+/** 一份**带故事**的存档文本 —— 这一件量的那一屏是「已经在玩的那一局」（理由见 `openPlayer`） */
+function storySave(): string {
+  const data = initialState().data
+  // ⚠️ 一条 `narration` 就够：`hasStory` 判的是**种类**（`isStoryKind`），不判条数
+  data.events.push({ kind: 'narration', text: 'seeded story line', at: '2026-09-14T10:00:00.000Z' })
+  return JSON.stringify(data)
+}
 
 /** 这一件里当前挂着的那一版 `App`（挂在 `document.body` 上，收尾要 `unmount`） */
 let mounted: VueWrapper | null = null
@@ -43,8 +53,23 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-/** 挂上真 `App`（玩家屏那一屏就是它） */
+/**
+ * 挂上真 `App`（玩家屏那一屏就是它）。
+ *
+ * 🔴 **为什么这里必须先"导入一份存档"，而不是往 `localStorage` 里写**（接线票 2026-09-30）：
+ *    `App` 现在按「事件流里有没有故事」（`stores/game.ts` 的 `hasStory`）决定屏上是
+ *    **开场封面**还是玩家屏。而 store 读存档**只在模块求值那一刻发生一次**
+ *    （`stores/game.ts:235-236`：`reactive(initialState())` + `hydrateFromSave`），
+ *    本文件又在**顶层**静态 `import App` ⇒ 那条链在本行之前就跑完了。
+ *    ⇒ 用例体里再 `localStorage.setItem(SAVE_KEY, …)` **只是写了一份没人再读的存档**：
+ *    实测两条读数（`.team/test/2026-09-30/zz3.log`）——
+ *    **写完 `hasStory` 仍是 `false`**；而走**产品自己那条导入路径**（`useGame().importSave`，
+ *    玩家在设置面板里"导入存档"点的那一条）⇒ **`hasStory` = true、屏上 `cover=0 sides=2`**。
+ *    ⚠️ 顺带一条：那两条读数也否掉了"把种的动作提到**模块顶层**"这个改法 ——
+ *    `import` 是**先于**本文件自己的顶层代码求值的（`tests/setup.ts` 的 `beforeEach` 还会清存储）。
+ */
 function openPlayer(): void {
+  useGame().importSave(storySave())
   mounted = mount(App, { global: { plugins: [i18n] }, attachTo: document.body }) as VueWrapper
 }
 
@@ -278,6 +303,12 @@ function cardFileOf(path: string): { id: string; sidebar: Array<Record<string, s
  * ⚠️ 选卡发生在**模块加载期**（`current-card.ts` 的 `activate()` 读存储）⇒ 换了存储之后必须拿
  *    一份全新的模块图：`vi.resetModules()` + 动态 `import()`（与 `current-card.test.ts` 的
  *    `freshCard` / `components.test.ts` 的 `freshGame` 同一套做法）。
+ * 🔴 **存档要种在"新图自己的" store 上**（2026-09-30）：换卡之后这份新图有**它自己的**
+ *    `useGame()` 单例，而它读存档同样只在**模块求值那一刻**。⇒ 两份都对不上：
+ *    往 `localStorage` 写（早于导入）会被新图的 `currentCard` 判成**别人的存档**（身份不过 ⇒
+ *    退回坏存档路径），而写晚了更没人读 ⇒ 屏上都是开场封面、`[data-story]` 一个都没有。
+ *    ⇒ 正解：**动态导入新图之后，用新图自己的 `useGame().importSave()` 种进去**（产品那条导入路径，
+ *    与上面 `openPlayer()` 同一条）。实测读数见 `.team/test/2026-09-30/zz4.log`。
  * ⚠️ 挂载**不显式传 plugin**：`tests/setup.ts` 已经把那份 zh-CN 的 i18n 装在全局配置里，
  *    而这一件上半个 `describe` 的期望值也正是从同一个实例现取的（`i18n.global.t`）。
  */
@@ -285,11 +316,19 @@ async function withCard(path: string): Promise<{ id: string; sidebar: Array<Reco
   const card = cardFileOf(path)
   localStorage.setItem(CARD_KEY, readFileSync(path, 'utf8'))
   vi.resetModules()
-  const [app, current] = await Promise.all([import('../src/App.vue'), import('../src/game/current-card')])
+  const [app, current, stateMod, gameMod] = await Promise.all([
+    import('../src/App.vue'),
+    import('../src/game/current-card'),
+    import('../src/game/state'),
+    import('../src/stores/game'),
+  ])
   expect(
     current.currentCard.card.id,
     'the stored card did not take effect: the readings below would be about another card',
   ).toBe(card.id)
+  const data = stateMod.initialState().data
+  data.events.push({ kind: 'narration', text: 'seeded story line', at: '2026-09-14T10:00:00.000Z' })
+  gameMod.useGame().importSave(JSON.stringify(data))
   mounted = mount(app.default, { attachTo: document.body }) as VueWrapper
   return card
 }

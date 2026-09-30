@@ -28,7 +28,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import App from '../src/App.vue'
+import { initialState } from '../src/game/state'
 import { i18n } from '../src/i18n'
+import { useGame } from '../src/stores/game'
 
 /** 票 81 点名的那三颗抽屉入口（判据要证明它们真的在这一层里，不是"没渲染"） */
 const GATED_ENTRIES = ['data-card-view', 'data-card-import', 'data-card-reset']
@@ -95,8 +97,22 @@ function inertTrue(): Element[] {
  *
  * ⚠️ 必须挂**真 `App`**：`inert` 那条接线住在它里面（`cardOpen` 是它自己的状态），
  *    拿一个替身来挂就读不到这条判据要断的东西。
+ * 🔴 **先种一份带故事的存档**（接线票 2026-09-30）：`App` 现在按 `hasStory` 决定屏上是
+ *    **开场封面**还是玩家屏；不种的话遮罩底下那一层换成封面，而封面那颗「开始这一局」
+ *    **在卡图浮层之外、没有 `inert` 祖先** ⇒ `C1a` 抓到一个"漏在外面的可聚焦物"。
+ *    **那是本票要的行为，不是回归** —— 夹具要的是"已经在玩"那一屏，就得把开局种进去。
+ * ⚠️ 事件写一条 `narration` 就够（`hasStory` 判**种类**，不判条数）。
+ * 🔴 **种它走 `useGame().importSave()`，不是往 `localStorage` 写**：store 读存档**只在模块求值
+ *    那一刻发生一次**（`stores/game.ts:235-236`），而本文件在顶层静态 `import App` ⇒
+ *    用例体里再 `setItem` 只是写了一份**没人再读的**存档（实测两条读数在
+ *    `.team/test/2026-09-30/zz3.log`：写完 `hasStory` 仍是 `false`；走产品那条导入路径 ⇒
+ *    `hasStory` 真、屏上 `cover=0 sides=2`）。
  */
 async function openDrawerUnderEditor(): Promise<void> {
+  const data = initialState().data
+  data.events.push({ kind: 'narration', text: 'seeded story line', at: '2026-09-14T10:00:00.000Z' })
+  useGame().importSave(JSON.stringify(data))
+
   mounted = mount(App, { global: { plugins: [i18n] }, attachTo: document.body }) as VueWrapper
 
   const settings = document.querySelector('button[data-settings]') as HTMLButtonElement | null

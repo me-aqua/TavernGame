@@ -1025,8 +1025,19 @@ test.describe('语言', () => {
 })
 
 test.describe('新游戏', () => {
-  test('配好 key 就自动跑开场：故事区出一条正文，还没有玩家行动行', async ({ page }) => {
+  test('点「开始这一局」就跑开场：故事区出一条正文，还没有玩家行动行', async ({ page }) => {
     await openApp(page, { config: CONFIG, fake: 'narration' })
+
+    // 🔴 **触发换成了玩家真走的那条路**（接线票 2026-09-30：「配好 key 就自动开局」那条老行为
+    //    已经收掉了 —— 那一趟的目的不是"别开局"，是"把开始这件事交给玩家点"）。
+    //    ⚠️ 这一条**不是过时用例**：接线票之后「开场跑完 ⇒ 进正文 ⇒ 回合 = 1」这一整条链
+    //    **只剩它一个家**（`wiring-mark-cover.spec.ts` 的 C3 只断到"封面进正在跑那一档"）——
+    //    所以下面四句**一句都没动**，换的只是入口。
+    await expect(
+      page.locator('[data-cover]'),
+      'no cover on a fresh game: the start button is the way in',
+    ).toHaveCount(1)
+    await page.locator('[data-cover-start]').click()
 
     // 开场 = 卡里九个节点跑一遍，正文来自声明了 role: story 的那个节点
     await expect(page.locator('.line.narration')).toHaveCount(1, { timeout: TURN_TIMEOUT })
