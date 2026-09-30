@@ -50,6 +50,13 @@
     "hintBefore": "还没配置 API key —— 点右上角",
     "hintAfter": "填一下就能开始"
   },
+  "cover": {
+    "kicker": "文字冒险 · 角色扮演",
+    "gm": "AI 主持",
+    "unconfigured": "还没有接上模型。填入 API key 之后，故事才会开始。",
+    "configure": "填入 API Key",
+    "start": "开始这一局"
+  },
   "sidebar": {
     "time": "时间",
     "place": "地点",

@@ -50,6 +50,13 @@
     "hintBefore": "No API key yet — open",
     "hintAfter": "in the top right to get started"
   },
+  "cover": {
+    "kicker": "Text adventure · role-play",
+    "gm": "AI game master",
+    "unconfigured": "Not connected to a model yet. Add your API key and the story can begin.",
+    "configure": "Add API Key",
+    "start": "Begin this game"
+  },
   "sidebar": {
     "time": "Time",
     "place": "Place",
