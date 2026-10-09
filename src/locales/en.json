@@ -171,6 +171,10 @@
     "branchOfMissing": "A list or a map must say what its elements look like: pick text or number first",
     "branchFieldsEmpty": "An object needs at least one field: the first field cannot be unnamed",
     "branchUnwritten": "Nothing writes the new branch {name} yet: the engine refuses this card on save (every branch needs an action that maintains it)",
+    "branchAction": "Also create the action that writes it",
+    "branchActionWhen": "When the branch {name} needs to be written",
+    "branchActionWhat": "Write the branch {name}",
+    "branchActionPrinciples": "Write nothing but this branch, and keep the value inside the shape it declares",
     "kind": {
       "string": "text",
       "integer": "number",

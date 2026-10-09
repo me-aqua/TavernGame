@@ -171,6 +171,10 @@
     "branchOfMissing": "「数组」/「字典」得说清元素是什么形状：先选文字或数字",
     "branchFieldsEmpty": "「结构体」至少得有一个字段：第一个字段的名字不能空着",
     "branchUnwritten": "新建的「{name}」还没有动作写它：这张卡现在保存会被引擎拦下（每一枝都要有一个维护它的动作）",
+    "branchAction": "顺带建一条写它的动作",
+    "branchActionWhen": "当「{name}」这一枝需要被写的时候",
+    "branchActionWhat": "改写「{name}」这一枝",
+    "branchActionPrinciples": "一次只写这一枝，值要符合它声明的形状",
     "kind": {
       "string": "文字",
       "integer": "数字",

@@ -172,6 +172,15 @@ export function fontCensus(): FontCensus {
       sizes.push(size)
       if (el.tagName === 'OPTION') optionSizes.push(size)
     }
+    // 🔴 控件那一半：`<textarea>` / `<input>` / `<select>` 渲染出来的字**不在 `textContent` 里**
+    //    （文本挂在 `.value` 上）⇒ 上面那条"有文字、没有子节点"的规则**结构上照不到它们**。
+    //    实测第四个根里 `leaves = 2`（只有表头那两个 `<span>`），而正文框 `[data-prompt-text]`
+    //    的字号捅成 `15px` 时这一层照样全绿 —— 与 `<option>` 那一档同一条道理：
+    //    **"照不到"既不是红也不是绿**，所以这里按同一把尺补上，而不是另立一条判据。
+    for (const el of scope.querySelectorAll('textarea, input, select')) {
+      leaves += 1
+      sizes.push(getComputedStyle(el).fontSize)
+    }
   }
   return {
     sizes: [...new Set(sizes)].sort(),

@@ -148,8 +148,10 @@ const promptError = computed(() => (promptAt.value === null ? '' : promptProblem
  *
  * ⚠️ 它与另外四族**同一个形状**：值只活在内存里、落卡只走 `save()` 那一条路 —— 脏并进下面那条
  *    并集、`applyTo` 写进**同一份**深拷卡。⚠️ 面板**不长在树行里**，也不占中栏那条轴。
- * ⚠️ 🔴 **今天建出来的枝存不进卡**（S0 §三 选的乙案：本票不建配套动作）⇒ 屏上当场说清
- *    （`data-branch-unwritten` 那句），保存会被引擎按它自己的原话拦下 —— 那句话**是真的**。
+ * ⚠️ 🔴 **甲案（票 8f）：那个勾默认勾着** ⇒ 建出来的枝顺带配一条写它的动作，屏上**没有**任何提示、
+ *    保存**真的落盘**（引擎那条"每一枝都要有维护器"由那条动作满足）。
+ *    摘掉那个勾就是乙案那条路：屏上当场说清（`createUnwritten` 那几行 `data-branch-unwritten` 说的
+ *    就是草稿里**还没有动作写它**的那几枝），保存会被引擎按它自己的原话拦下 —— 那句话**是真的**。
  * ⚠️ **外壳那颗 `[data-add="branch"]` 也走这里**：它抛的 `add-branch` 原来一路抛到 `App.vue`
  *    就断了（那边没有那个监听）⇒ 按组长 2026-09-29 的裁决，这一层直接接管它、开**同一张**面板
  *    （`EditorShell.vue` 一个字节没动，它照旧只抛自己的事件）。
@@ -157,6 +159,7 @@ const promptError = computed(() => (promptAt.value === null ? '' : promptProblem
 const {
   rows: createRows,
   taken: createTaken,
+  unwritten: createUnwritten,
   dirty: createDirty,
   applyTo: applyCreated,
   markSaved: markCreatedSaved,
@@ -177,9 +180,9 @@ function addFromShell(): void {
   emit('add-branch')
 }
 
-/** 面板里建出来的一枝：进草稿、面板收起来（树上多出那一行，中栏同时挂出"没有动作写它"那句） */
-function makeBranch(name: string, schema: Schema): void {
-  addBranch(name, schema)
+/** 面板里建出来的一枝：进草稿（勾着配套动作就顺带把那条动作也建出来）、面板收起来 */
+function makeBranch(name: string, schema: Schema, withAction: boolean): void {
+  addBranch(name, schema, withAction)
   createOpen.value = false
 }
 
@@ -331,13 +334,13 @@ function saveAll(): void {
         <template #mid>
           <!-- 整次保存的那个原因（哪一行出事由行上的 `data-row-bad` 指） -->
           <p v-if="failure" data-card-error class="failure" v-text="failure" />
-          <!-- 新建的那几枝还没有动作写它（S0 §三 的乙案）：这句提示说的是真的 —— 保存会被引擎拦下 -->
+          <!-- 新建的那几枝里**还没有动作写它**的那几枝（乙案那条路）：这句提示说的是真的 —— 保存会被引擎拦下 -->
           <p
-            v-for="row in createRows"
-            :key="row.path"
+            v-for="path in createUnwritten"
+            :key="path"
             data-branch-unwritten
             class="failure"
-            v-text="t('card.branchUnwritten', { name: row.path })"
+            v-text="t('card.branchUnwritten', { name: path })"
           />
           <StepForm
             v-if="stepValues"

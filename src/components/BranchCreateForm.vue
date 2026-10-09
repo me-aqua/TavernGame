@@ -11,6 +11,8 @@
  * ⚠️ 控件折行排（左栏只有 300px）：面板自己的 `flex-wrap` 兜住，不给整页加横向溢出。
  * ⚠️ 六种形状的**显示名复用 `card.kind.*`**（票 70 落的：文字 / 数字 / 下拉 / 数组 / 字典 / 结构体）——
  *    同一件事不开第二族 locale 键。
+ * ⚠️ 票 8f 多了一段「配套动作」那个勾（**默认勾着**）：勾着建 ⇒ 那一枝顺带配一条写它的动作，
+ *    摘掉 ⇒ 走乙案那条路。这一层只把"勾没勾"一起抛出去，那条动作怎么拼是 `useBranchCreate.ts` 的事。
  */
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -25,8 +27,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  /** 建出来的一枝：名字 + 拼好的 schema（`CardEditor` 把它收进草稿） */
-  make: [name: string, schema: Schema]
+  /** 建出来的一枝：名字 + 拼好的 schema + 要不要顺带建配套动作（`CardEditor` 把它收进草稿） */
+  make: [name: string, schema: Schema, withAction: boolean]
 }>()
 
 /** 面板那几格（`shape` 空串 = 还没六选一：那时「建出来」按不动） */
@@ -40,6 +42,12 @@ const form = ref<Omit<CreateInput, 'shape'> & { shape: Shape | '' }>({
 })
 /** 上一次「建出来」被拒的那句人话（空串 = 没有） */
 const problem = ref('')
+/**
+ * 「配套动作」那一段那个勾：**默认勾着**（S1 §二.1 —— 甲案要消掉的就是"再自己建一条动作"那一步）。
+ *
+ * ⚠️ 摘掉它不是禁用功能，是走乙案那条路：这枝还没有人写，界面当场说清（那句提示住在 `CardEditor`）。
+ */
+const withAction = ref(true)
 
 /** 「建出来」：先问规矩，过了才抛给外面；没过就把那句话摆出来（表单一个字都不动） */
 function make(): void {
@@ -51,7 +59,7 @@ function make(): void {
     return
   }
   problem.value = ''
-  emit('make', form.value.name.trim(), verdict.schema)
+  emit('make', form.value.name.trim(), verdict.schema, withAction.value)
 }
 </script>
 
@@ -99,6 +107,11 @@ function make(): void {
       />
     </template>
     <p v-if="problem" data-branch-problem class="create-problem" v-text="problem" />
+    <!-- 配套动作那一段：默认勾着（摘掉就走乙案那条路，界面当场说清这一枝还没有人写） -->
+    <label class="create-pair">
+      <input v-model="withAction" data-branch-action type="checkbox" />
+      <span v-text="t('card.branchAction')" />
+    </label>
     <button
       type="button"
       data-branch-make
@@ -165,5 +178,25 @@ function make(): void {
 .create-problem {
   color: var(--color-danger);
   line-height: 1.5;
+}
+/* 「配套动作」那一段：勾 + 一句人话，自己占一行（它说的是这一枝归谁写，不跟别的控件挤） */
+.create-pair {
+  display: flex;
+  flex: 1 0 100%;
+  align-items: center;
+  gap: var(--s1);
+  min-height: 24px;
+  cursor: pointer;
+}
+/* 那个勾本身：按原生大小画（上面 `.create input` 那条给输入框的宽与内边距对它不适用） */
+.create-pair input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
 }
 </style>
