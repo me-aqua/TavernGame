@@ -563,6 +563,27 @@ test.describe('卡', () => {
   }
 
   /**
+   * 打开编辑器，**不播种存储**（票 8f）。
+   *
+   * 🔴 为什么另开一个入口：`openApp` 的种子脚本走 `addInitScript`（`e2e/fixtures.ts:282`），
+   *    而**每一次导航都会重播** —— 实测（`.team/test/2026-10-09/probe-reseed-8f.log`，两条对撞）：
+   *    存了卡再导航一次，`CARD_KEY` 变回 `null`（种子脚本读的是"不传 = 没存过卡"）。
+   *    ⇒ 「**保存 ⇒ 重载 ⇒ 那一枝与那条动作都还在**」这条链**不能挂 `openApp`**：
+   *      它读到的是**被夹具自己抹掉**的存储 —— 红在一个与产品无关的地方（假红）。
+   *    ⚠️ 每个用例本来就是一个空 context ⇒ 直接 `goto` 就是"没存过卡"，与产品行为一致。
+   *    ⚠️ 别的用例照旧用 `openCardEditor`（它们不跨导航读存储），这一条不影响它们。
+   */
+  async function openEditorFresh(page: Page): Promise<Locator> {
+    await page.goto(APP_PATH)
+    await expect(page.locator('#app > *')).toHaveCount(1)
+    await page.locator('button[data-settings]').click()
+    await page.locator('[data-card-section] button[data-card-view]').click()
+    const editor = page.locator('[data-card-editor]')
+    await expect(editor).toBeVisible()
+    return editor
+  }
+
+  /**
    * 造一份脏草稿：细条上点一步、改那一行的「名」。
    *
    * 这一族草稿与「顶栏保存」那条唯一写路径是一体的（8d-② 之后没有第二条写路径了）。
@@ -857,19 +878,22 @@ test.describe('卡', () => {
   })
 
   /**
-   * 票 8e（契约 `.team/test/2026-09-29/契约-8e.md` §2 的 `E1`）· **新建一枝** —— 六选一长出枝、
-   * 当场说清「这枝还没有动作写它」，以及那句话**是真的**（保存被引擎按它自己的原话拦下）。
+   * 票 8f（契约 `.team/test/2026-10-09/contract-8f.md`）· **甲案**：建枝时顺带把配套动作也建了。
    *
-   * ⚠️ **乙案**（S0 §三）：本票不建配套动作 ⇒ 新枝今天**存不进卡** —— 引擎的 `checkBranchKeepers`
-   *    （`src/game/card.ts:430`）拒它。所以这一条断的**不是**"存得回去"，而是
-   *    「**界面说的和引擎做的是同一件事**」。引擎那句话只能照抄（本文件不 import 应用模块）；
-   *    它哪天改了口径，这一条会红 —— 那是**对的**反馈。
-   *    🔴 **甲案（建枝顺带建动作）落地的那天，这一条要连编号一起翻面。**
-   * ⚠️ 24×24 / 字号三档 / 横向溢出走 `PROBE`（与上面那条「左栏是枝的导航树」同一套判据）。
+   * 🔴 **这一条是 8e 的 `E1` 翻面来的**（台账见契约 §4 已知项 ②）。
+   * **原来断什么**：六选一长出枝、当场说清「这枝还没有动作写它」、保存被引擎按它自己的原话拦下（乙案）。
+   * **现在断什么**：勾着配套动作（**默认勾着**）建 ⇒ 保存**真的落盘** ⇒ **整页重载之后那一枝与那条动作都还在**
+   * —— 这就是 S1 §六 的 GUI 那一行，一个字不多、一个字不少。
+   * ⚠️ 断言没有删、也没有改弱：这一条比原来多了"保存真落 + 重载还在"这两格（原来那两格断的是"被拒"）。
+   * ⚠️ 乙案那条路一个字没丢，就在下面 `E2`。
+   *
+   * ⚠️ 这一条用的是 `object` 那一枝（不是 `string`）：树上是"能编的容器"，`string` 那一枝重载之后
+   *    本来就不该上树（`TREE_ROWS` 就是这么算的）—— 拿它断"重载后还在"会红在一个与本票无关的地方。
    */
-  test('新建一枝：六选一长出枝、说清它还没有动作写它、保存被引擎按原话拦下', async ({ page }) => {
+  test('建枝带配套动作：保存真的落盘、整页重载之后那一枝与那条动作都还在', async ({ page }) => {
     const NEW_BRANCH = 'probe_branch'
-    const editor = await openCardEditor(page)
+    const NEW_FIELD = 'probe_field'
+    const editor = await openEditorFresh(page)
     expect(
       await page.evaluate((key) => localStorage.getItem(key), CARD_KEY),
       'premise: nothing is stored yet, the editor runs on the builtin card',
@@ -879,17 +903,99 @@ test.describe('卡', () => {
     await editor.locator('[data-branch-add]').click()
     await expect(editor.locator('[data-branch-create]')).toBeVisible()
     await expect(editor.locator('[data-branch-shape]')).toHaveCount(6)
-    await editor.locator('[data-branch-shape="string"]').click()
+    // 🔴 甲案与乙案的那条分界线：这一段默认就勾着（S1 §二.1）
+    await expect(
+      editor.locator('[data-branch-action]'),
+      'the paired action must be on by default: that is the step this ticket removes',
+    ).toBeChecked()
+    await editor.locator('[data-branch-shape="object"]').click()
     await editor.locator('[data-branch-name]').fill(NEW_BRANCH)
+    await editor.locator('[data-branch-field-key]').fill(NEW_FIELD)
+    await editor.locator('[data-branch-field-shape="string"]').click()
     await editor.locator('[data-branch-make]').click()
 
-    // G4：建出来的枝立刻在树上（第 1 层）；树行的数目 = 卡里那几行 + 这一行
+    // 建出来的枝立刻在树上，而且**没有**那句"还没有动作写它"
     const row = editor.locator('[data-branch-node="' + NEW_BRANCH + '"]')
     await expect(row).toHaveCount(1)
     await expect(row).toHaveAttribute('data-branch-depth', '1')
     await expect(editor.locator('[data-branch-node]')).toHaveCount(TREE_ROWS.length + 1)
+    await expect(
+      editor.locator('[data-branch-unwritten]'),
+      'an action writes this branch now, so that notice would be a lie',
+    ).toHaveCount(0)
 
-    // G6 前半：那句提示在屏上，而且**不在任何一行里**
+    // 保存 ⇒ 整页重载（与上面那条「顶栏保存」同一个后果）
+    await editor.locator('[data-top] [data-card-save]').click()
+    await expect(page.locator('[data-card-editor]'), 'the editor own save must reload the page').toHaveCount(
+      0,
+    )
+    await expect(editor.locator('[data-card-error]'), 'nothing may have been refused').toHaveCount(0)
+
+    // 落盘那份卡：那一枝在、而且**恰好一条动作指着它**
+    const saved = (await page.evaluate(
+      (key) => JSON.parse(localStorage.getItem(key) ?? 'null'),
+      CARD_KEY,
+    )) as Record<string, any> | null
+    expect(saved?.state?.[NEW_BRANCH], 'the branch must be in the stored card').toEqual({
+      type: 'object',
+      fields: { [NEW_FIELD]: { type: 'string' } },
+    })
+    const writers = Object.entries((saved?.actions ?? {}) as Record<string, any>).filter(
+      ([, action]) => String(action.path ?? '').split('.')[0] === NEW_BRANCH,
+    )
+    expect(writers, 'exactly one action must write that branch').toHaveLength(1)
+    expect(
+      String(writers[0][1].whenToUse ?? '').length,
+      'the paired action must carry the three segments the model reads',
+    ).toBeGreaterThan(0)
+
+    // 重载之后它还在：重新加载整页、再开一次编辑器，树上那一行还在、那句提示不在
+    // ⚠️ 这里走 `openEditorFresh`（不是 `openApp`）：种子脚本会把刚存的卡抹掉（见那个函数的注释）
+    const again = await openEditorFresh(page)
+    await expect(again.locator('[data-branch-node="' + NEW_BRANCH + '"]')).toHaveCount(1)
+    await expect(again.locator('[data-branch-node="' + NEW_BRANCH + '"]')).toHaveAttribute(
+      'data-branch-depth',
+      '1',
+    )
+    await expect(again.locator('[data-branch-unwritten]'), 'the reloaded card needs no notice').toHaveCount(0)
+
+    expectClean((await page.evaluate(PROBE)) as Probe)
+  })
+
+  /**
+   * 票 8f · **乙案那条回归线**（S1 §六 ②：**不勾 ⇒ 产物与今天逐字相同**）。
+   *
+   * 这一条就是 8e 的 `E1` 原样搬过来，只多了一步"把配套动作那个勾摘掉"。
+   * ⚠️ 它同时是"甲案没有偷偷替作者建动作"的哨兵：真建了的话保存会**成功**，
+   *    下面那句"被引擎按原话拦下"当场红。
+   * ⚠️ 引擎那句话只能照抄（本文件不 import 应用模块）；它哪天改了口径，这一条会红 —— 那是对的反馈。
+   */
+  test('建枝不勾配套动作：当场说清它还没有动作写它、保存被引擎按原话拦下', async ({ page }) => {
+    const NEW_BRANCH = 'probe_branch'
+    const editor = await openEditorFresh(page)
+    expect(
+      await page.evaluate((key) => localStorage.getItem(key), CARD_KEY),
+      'premise: nothing is stored yet, the editor runs on the builtin card',
+    ).toBeNull()
+
+    await editor.locator('[data-branch-add]').click()
+    await expect(editor.locator('[data-branch-create]')).toBeVisible()
+    await editor.locator('[data-branch-shape="string"]').click()
+    await editor.locator('[data-branch-name]').fill(NEW_BRANCH)
+    // 摘掉那个勾 —— 走的就是 8e 那条路
+    // ⚠️ 功能没做时**红的就是这一句**（那一段控件不在）—— 那是"功能没做"那一种红，不是超时
+    await expect(
+      editor.locator('[data-branch-action]'),
+      'the panel hands out no paired-action segment ([data-branch-action])',
+    ).toHaveCount(1)
+    await editor.locator('[data-branch-action]').uncheck()
+    await expect(editor.locator('[data-branch-action]')).not.toBeChecked()
+    await editor.locator('[data-branch-make]').click()
+
+    const row = editor.locator('[data-branch-node="' + NEW_BRANCH + '"]')
+    await expect(row).toHaveCount(1)
+    await expect(editor.locator('[data-branch-node]')).toHaveCount(TREE_ROWS.length + 1)
+
     await expect(editor.locator('[data-branch-unwritten]').first()).toBeVisible()
     expect(
       await editor.evaluate(
@@ -898,7 +1004,6 @@ test.describe('卡', () => {
       'the notice must not grow inside a tree row',
     ).toBe(0)
 
-    // G6 后半 + G7：保存被引擎按**它自己的原话**拦下 ⇒ 卡一个字节都不动、也不重载
     await editor.locator('[data-top] [data-card-save]').click()
     const problem = editor.locator('[data-card-error]')
     await expect(problem).toContainText('no action maintains this branch')
