@@ -27,14 +27,24 @@ import {
   checkOptionalKeys,
   fail,
   isRecord,
+  readText,
   readTextList,
   requireRecord,
   requireText,
   requireTextList,
 } from './card-read'
 import { type Calendar } from './card-calendar'
+import { NO_CHANGE } from './card-actions'
 import { CLOCK_STATE_PATH, checkTimeBlock } from './card-time'
-import { checkSchema, schemaAt, schemaElement, schemaType, type StateSchema, type Schema } from './card-state'
+import {
+  checkSchema,
+  protectedSetOwner,
+  schemaAt,
+  schemaElement,
+  schemaType,
+  type StateSchema,
+  type Schema,
+} from './card-state'
 import { checkDisplayBlock, type DisplayDecl } from './display'
 
 // ---------- 通过校验的卡的形状 ----------
@@ -237,6 +247,9 @@ function checkActions(card: Record<string, unknown>): void {
   const state = requireRecord(card, 'state', '') as StateSchema
   for (const [name, value] of Object.entries(actions)) {
     const where = at('actions', name)
+    // 引擎内置的动作名归引擎：卡里再声明一条同名的，引擎就会替作者换成另一条 ——
+    // 那种"卡看起来是好的、行为却是别的"最坏，所以在这里拒（不是静默遮蔽）
+    if (name === NO_CHANGE) fail(where, 'is a name reserved by the engine (the built-in report action)')
     if (!ACTION_NAME.test(name)) {
       fail(where, 'must be a tool name (letters, digits, dashes, underscores; up to 64)')
     }
@@ -265,6 +278,7 @@ function checkActions(card: Record<string, unknown>): void {
     if (target === undefined) fail(at(where, 'path'), 'does not exist in state')
     checkMode(value, where, target)
     checkKey(value, where, target)
+    checkProtectedSet(value, where, state, path)
   }
 }
 
@@ -295,6 +309,30 @@ function checkKey(action: Record<string, unknown>, where: string, target: Schema
     return
   }
   if (Object.hasOwn(action, 'key')) fail(at(where, 'key'), 'is only for a map in state (got ' + type + ')')
+}
+
+/**
+ * 受保护那一档：受保护的**容器**不许被 `set` 整枝替换（一次调用换掉整个容器）——
+ * 逐字段写（`merge` / 标量落点）照旧。
+ *
+ * ⚠️ 不写 `mode` 就是 `set`（`card-actions.ts` 那句 `action.mode ?? 'set'` 的运行时口径）：
+ *    只认显式写了 `mode: "set"` 的会漏掉一整批动作。
+ * ⚠️ 判定住在 `card-state.ts`（schema 归它管）—— 这里只叫它一声，规矩不写第二份。
+ */
+function checkProtectedSet(
+  action: Record<string, unknown>,
+  where: string,
+  state: StateSchema,
+  path: string,
+): void {
+  if ((action.mode ?? 'set') !== 'set') return
+  const owner = protectedSetOwner(state, path, readText(action, 'key', where))
+  if (owner === undefined) return
+  fail(
+    at(where, 'path'),
+    owner +
+      ' is protected; a set write replaces the whole container (use merge, or write one field at a time)',
+  )
 }
 
 /** 图：拓扑与节点一一对应、节点键集严判、恰好一个 role: "story"、白名单引用都存在 */

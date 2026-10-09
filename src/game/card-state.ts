@@ -35,6 +35,12 @@ export interface SchemaNode {
   of?: Schema
   /** object 的固定字段 */
   fields?: Record<string, Schema>
+  /**
+   * 这一格是**受保护的容器**：卡里不许有动作对它 `set` 整枝（那一次写入会把整个容器换成另一套），
+   * 只许 `merge` 或逐字段写。只许写在 object / map / list 上、只许写 `true`
+   * （写 `false` 是一句什么都没说的话）；**不写这个键 = 不受保护** —— 旧卡逐字照旧。
+   */
+  protected?: true
 }
 
 /** schema：完整对象，或标量类型的字符串缩写 */
@@ -52,6 +58,9 @@ const SCHEMA_TYPES: SchemaType[] = ['string', 'integer', 'enum', 'list', 'map', 
 /** 允许写成裸字符串的类型 —— enum / list / map / object 还需要别的字段，缩写不了 */
 const SHORTHAND = ['string', 'integer']
 
+/** 容器类型 —— 「受保护」只许写在它们上面（「整枝替换」说的就是这三样） */
+const CONTAINER_TYPES: SchemaType[] = ['object', 'map', 'list']
+
 /** 每个类型额外的键（键集严判：range 写在 string 上会被当成未知键拦下） */
 const TYPE_KEYS: Record<SchemaType, string[]> = {
   string: [],
@@ -62,8 +71,13 @@ const TYPE_KEYS: Record<SchemaType, string[]> = {
   object: ['fields'],
 }
 
-/** 所有类型都认识的键 */
-const SHARED_KEYS = ['type', 'initial', 'note']
+/**
+ * 所有类型都认识的键。
+ *
+ * ⚠️ `protected` 进这个名单只是为了让**键集**放行它 —— 「只许写在容器上」那一条报在
+ *    `checkProtected` 里：写错了要听见「只能保护容器」，而不是「未知键」（两者都被拒，但差着一条线索）。
+ */
+const SHARED_KEYS = ['type', 'initial', 'note', 'protected']
 
 /** 一个 schema 的类型（字符串缩写就是它自己） */
 export function schemaType(schema: Schema): SchemaType {
@@ -109,6 +123,7 @@ export function checkSchema(value: unknown, where: string): Schema {
   }
   const kind = type as SchemaType
   checkOptionalKeys(value, [...SHARED_KEYS, ...TYPE_KEYS[kind]], ['type'], where)
+  checkProtected(value, kind, where)
 
   if (Object.hasOwn(value, 'note')) requireText(value, 'note', where)
   if (kind === 'integer') checkRange(value, where)
@@ -147,6 +162,61 @@ function checkValues(value: Record<string, unknown>, where: string): void {
     fail(at(where, 'values'), 'must be an array of non-empty strings')
   }
   if (new Set(values).size !== values.length) fail(at(where, 'values'), 'must not repeat a value')
+}
+
+// ---------- 受保护那一档：那一格只许逐字段写 ----------
+
+/** `protected` 只许写在容器上、只许写 `true`；不写这个键 = 不受保护 */
+function checkProtected(value: Record<string, unknown>, kind: SchemaType, where: string): void {
+  if (!Object.hasOwn(value, 'protected')) return
+  if (value.protected !== true) {
+    fail(at(where, 'protected'), 'must be true (leave the key out for an unprotected node)')
+  }
+  if (!CONTAINER_TYPES.includes(kind)) {
+    fail(
+      at(where, 'protected'),
+      'only a container (' + CONTAINER_TYPES.join(' / ') + ') can be protected (got ' + kind + ')',
+    )
+  }
+}
+
+/** 一格 schema 被声明成受保护了吗（取值那一半已经在 `checkProtected` 里收成 `true`） */
+function isProtected(schema: Schema | undefined): boolean {
+  return schema !== undefined && typeof schema !== 'string' && schema.protected === true
+}
+
+/** 落点自己、或它任一级真祖（按 `.` 切的前缀）受保护 ⇒ 返回**最靠里**的那一格 */
+function protectedOwnerOf(root: StateSchema, path: string): string | undefined {
+  let owner: string | undefined
+  const segments = path.split('.')
+  for (let depth = 1; depth <= segments.length; depth += 1) {
+    const prefix = segments.slice(0, depth).join('.')
+    if (isProtected(schemaAt(root, prefix))) owner = prefix
+  }
+  return owner
+}
+
+/**
+ * 「受保护」那一档：这次写入的落点**是容器**、而它自己或它的某一级真祖受保护 ⇒ 返回那一格的路径；
+ * 不受管辖时返回 `undefined`（照旧放行）。
+ *
+ * ⚠️ **落点**：`path` 指向 map 时是它的一条条目（`path` + `.` + `key`），其余就是 `path` 自己 ——
+ *    条目是 object 时 `set` 一次换掉整条记录，那是同一个洞差一级。
+ * ⚠️ **只管 `set`**（整枝替换）：落点是标量时 `set` 写的就是那一个字段 —— 那正是「逐字段写」；
+ *    `merge` / `push` 由调用方按契约放行。这条规矩只写这一份（`card.ts` 是唯一的调用点）。
+ */
+export function protectedSetOwner(
+  root: StateSchema,
+  path: string,
+  key: string | undefined,
+): string | undefined {
+  const target = schemaAt(root, path)
+  if (target === undefined) return undefined
+  const entry = schemaType(target) === 'map'
+  const landingSchema = entry ? schemaElement(target) : target
+  if (landingSchema === undefined) return undefined
+  if (!CONTAINER_TYPES.includes(schemaType(landingSchema))) return undefined
+  return protectedOwnerOf(root, entry && key !== undefined ? at(path, key) : path)
 }
 
 /** JSON 值的深拷贝 —— 初值要被每一局各拿一份（共享数组会让两局互相串） */

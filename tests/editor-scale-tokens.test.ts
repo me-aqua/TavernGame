@@ -69,6 +69,9 @@ const GAP = 1.5
  *    那颗「世界」按钮的一处 11px）· `src/components/WorldPanel.vue` **8 → 7**
  *    （抽屉的头与收起按钮撤了 = 少两处 12px，换成空栏那一句 = 多一处 11px）。
  *    值由 `.tools/marta68-repin.mjs` 现算，与盘上文件逐字相同。
+ * ⚠️ **票「模型没调工具」（2026-10-09）同票重钉一条**：`src/components/StoryPanel.vue` **16 → 17**
+ *    （`debugStyles` 多了一行 `unchanged` —— 「这一轮不改状态」是合法决定，不走 warn 那种暖色）。
+ *    新那一行用的是**已有的** `text-[12.5px]` ⇒ **尺寸集合逐字不变**，只有处数变。旧值：16。
  */
 const PLAYER_CENSUS: Record<string, { count: number; sizes: string[] }> = {
   'src/App.vue': { count: 5, sizes: ['11', '12.5', '14'] },
@@ -78,7 +81,7 @@ const PLAYER_CENSUS: Record<string, { count: number; sizes: string[] }> = {
   'src/components/DebugPanel.vue': { count: 22, sizes: ['11', '11.5', '12', '13'] },
   'src/components/GameComposer.vue': { count: 3, sizes: ['11', '14'] },
   'src/components/SettingsDrawer.vue': { count: 16, sizes: ['11.5', '12.5', '13', '13.5', '17'] },
-  'src/components/StoryPanel.vue': { count: 16, sizes: ['12', '12.5', '13', '15'] },
+  'src/components/StoryPanel.vue': { count: 17, sizes: ['12', '12.5', '13', '15'] },
   'src/components/WorldPanel.vue': { count: 7, sizes: ['11', '12'] },
 }
 
@@ -158,20 +161,36 @@ const GRAPH_HASH = 'efdd93c79f034529f1807b9ac0f162e388a8f553ebfa339578d1ae403981
  *    键集多一样、取值只有 left / right，契约 §一/§二）。契约 §八.1 那份"要动的面"清单**漏了本组**
  *    （只列了 `CARD_HASHES` / `PLAYER_CENSUS`）⇒ 按 §九 `T12` 的同一套先例由 S2 重钉。
  *    值由 `.tools/zof68-gamehashes.mjs` 现算：13 个文件里**只有上面那两个变了**、其余逐字不变。
+ * ⚠️ **票「模型没调工具」（2026-10-09）同票重钉三条**：那一票加的是引擎内置的报账动作 `no_change`
+ *    —— `card-actions.ts`（常量 / schema / `toolSchemas` / `runAction`）· `card.ts`（卡里声明这个名字
+ *    ⇒ 加载期拒绝）· `save.ts`（`EVENT_KINDS` 多一种 `unchanged`）⇒ **只换值 + 留痕，`checkB3`
+ *    一个字没删**；**文件集合不变（还是这 13 个）**，其余 10 条值逐字不变。旧值：
+ *    `card-actions.ts` `54bce7b568df843939965bce6e3422553f1be05bbd44e5d3f4a68c5c11a39fd5` ·
+ *    `card.ts` `e1c4acb65f82ff10f66027f5c8b93eed43259bc268e9123e82e4072d5fca72f6` ·
+ *    `save.ts` `e6076882cc49df1cccb78e596717449f7f1daa3d28b76db9cd138dccf07f32ce`。
+ *    🔴 **`card.ts` 那一条是临时的**：票「受保护容器」也要动它，它落地时会把自己的那份钉成最终值。
+ * 🔴 **票「受保护容器」（2026-10-09）同票重钉两条**：`card-state.ts`（schema 节点上多一个可选键
+ *    `protected` + 那条判据函数）· `card.ts`（`checkActions` 叫它一声）⇒ **只换值 + 留痕，
+ *    `checkB3` 一个字没删**；**文件集合不变（还是这 13 个）**，其余 **11** 条值逐字不变
+ *    （`.team/dev/2026-10-09/zof-prot-gamehashes-{before,after}.log` 两份逐条对账）。旧值：
+ *    `card-state.ts` `7bcb8708ed898a469de09b71e9f7f22d75396099af7daa0d88d3378142b22cae` ·
+ *    `card.ts` `9e993bb01d02f5d6c0db4b3f22117cc4072b8ae4669ed773ee6720345ba87086`
+ *    （**后者是上一票钉的临时值** —— 本票落地把它与 `card-state.ts` 一起钉成最终值；
+ *    同一张表头一天两趟重钉都留痕，先例 = 票 68b）。
  */
 const GAME_HASHES: Record<string, string> = {
-  'src/game/card-actions.ts': '54bce7b568df843939965bce6e3422553f1be05bbd44e5d3f4a68c5c11a39fd5',
+  'src/game/card-actions.ts': '755687f37e48b5f87a2fef459ae07bff08e39fb280d8d362ab263a31a41fc160',
   'src/game/card-calendar.ts': 'de98d44898a36c8eccecf55ef87cf14f69c6b1d5f712c4b60120b5689159b295',
   'src/game/card-layout.ts': '6917106ee0a0fad518a45e5c8650337124b1aca7534f6dfac2801f84d4c55477',
   'src/game/card-read.ts': 'f3db497988950f77ab21024835ae545908cc2ae0271e81b18f714a97c17f59f8',
-  'src/game/card-state.ts': '7bcb8708ed898a469de09b71e9f7f22d75396099af7daa0d88d3378142b22cae',
+  'src/game/card-state.ts': '46a3536dc26373d55b36c6b65a89ebe0601f380222addd087b332eb0e71a1727',
   'src/game/card-time.ts': '3eac6324b039c5ff5bd1488c12d3d18981d29b48055aff123d678bb558829343',
-  'src/game/card.ts': 'e1c4acb65f82ff10f66027f5c8b93eed43259bc268e9123e82e4072d5fca72f6',
+  'src/game/card.ts': 'aab224f0e4f1c3b1fb2fd509191933839f0eee213cbbf45550a04a13a1fde450',
   'src/game/current-card.ts': '4e646b7377b3d40e84ead0a3d401f6bb039d04b43e2dbd34c137aa168eb470ab',
   'src/game/display.ts': '11fa026e1daaaf63bf9de3d32eeda14320fbd44e3feed520e7c193a810b0a0d0',
   'src/game/lifecycle.ts': 'daf929e362f421ce332dc9ffbb2514c732121bc9449f34dbc5bc2191053590d4',
   'src/game/opening.ts': '9676f5676449f75f2b0fb7cc33799d2978875bf4dd3d6770249a8d0078e1b6f2',
-  'src/game/save.ts': 'e6076882cc49df1cccb78e596717449f7f1daa3d28b76db9cd138dccf07f32ce',
+  'src/game/save.ts': '7b61de0429d4eaf00292e3d508a005e085080d01d3c6da0147e4297e75c13ff0',
   'src/game/state.ts': 'bf83f43a6dd3b05d1a0f7d5232ec6c25c2ee56638017c58fe37c8a85c708ac1f',
 }
 
