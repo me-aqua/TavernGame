@@ -103,8 +103,13 @@ export async function runTurnWithArgs(args: string): Promise<TraceRows> {
   }
 
   const debug = game.rows.value.filter((row): row is DebugRow => row.debug)
-  const tool = debug.find((row) => row.kind === 'tool')
-  const result = debug.find((row) => row.kind === 'toolResult')
-  if (!tool || !result) throw new Error('the turn wrote no tool / toolResult trace')
+  // ⚠️ 认**这一次调用**：有牌可打的节点这一轮都会各调一次工具（`no_change` 报账），
+  //    "第一条 tool 行"已经不是 `update_role` 那一行了。这一次的调用行 = `detail` 逐字等于
+  //    测试给进去的那串协议参数（`detail` 就是协议原样那份），结果行 = 它后面第一条 `toolResult`
+  const callIndex = debug.findIndex((row) => row.kind === 'tool' && row.detail === args)
+  if (callIndex < 0) throw new Error('the turn wrote no tool trace carrying those arguments')
+  const tool = debug[callIndex]
+  const result = debug.slice(callIndex + 1).find((row) => row.kind === 'toolResult')
+  if (!result) throw new Error('the turn wrote no toolResult trace for that call')
   return { tool, result }
 }

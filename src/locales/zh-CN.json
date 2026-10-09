@@ -82,6 +82,7 @@
     "toolResultLine": "   → {result}",
     "warnLine": "⚠ {message}",
     "stateChangeLine": "✎ 写入 {path}",
+    "unchangedLine": "≡ {node} 这一轮不改状态",
     "redoLine": "↩ 退回「{node}」重跑：{why}"
   },
   "settings": {
@@ -318,7 +319,9 @@
     "noNarration": "节点「{node}」一个字都没写出来 —— 这一轮没有正文",
     "redoLimit": "「{node}」再次要求退回重来（一轮上限 {max} 次）—— 这一轮作废",
     "redoAccepted": "已退回「{node}」重跑：{why}",
-    "redoHint": "「{node}」发现前面这一步有问题，要求退回重跑：{why}"
+    "redoHint": "「{node}」发现前面这一步有问题，要求退回重跑：{why}",
+    "nodeNoToolCall": "节点「{node}」整轮没有调用任何工具，也没有报「不改状态」的理由（忘了调，还是那些调用全被打回了？）",
+    "noChangeAck": "记下了：这一轮不改状态"
   },
   "story": {
     "nodeRunning": "正在跑「{node}」…",

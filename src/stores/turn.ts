@@ -216,6 +216,23 @@ export function createTurnRunner(deps: TurnDeps): TurnRunner {
       case 'warn':
         trace('warn', t('store.warnLine', { message: evt.message }))
         break
+      case 'unchanged':
+        // 「这一轮不改状态」那一行：**合法的决定**，不是警告 ⇒ 走自己的中性 kind（不是 warn）。
+        // 理由逐字进 detail（它是模型写的一句话，故与工具结果同类：不是 JSON）
+        trace('unchanged', t('store.unchangedLine', { node: nodeLabel(card, evt.node) }), {
+          node: evt.node,
+          detail: evt.reason,
+        })
+        break
+      case 'noToolCall':
+        // 有牌可打却一张都没打、也没报账（忘了调 / 调了全失败）—— 这**确实**是出问题了，
+        // 所以复用 warn 那条现成的样式与投影，文案点名是哪个节点
+        trace(
+          'warn',
+          t('store.warnLine', { message: t('agent.nodeNoToolCall', { node: nodeLabel(card, evt.node) }) }),
+          { node: evt.node },
+        )
+        break
       default:
         break
     }

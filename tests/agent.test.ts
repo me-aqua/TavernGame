@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runTurn, type AgentEvent } from '../src/agent/agent'
 import { MAX_REDO, MAX_TOOL_ROUNDS } from '../src/agent/card-graph'
 import { openingInstruction } from '../src/agent/prompts'
-import { availableActions } from '../src/game/card-actions'
+import { availableActions, NO_CHANGE } from '../src/game/card-actions'
 import { advance } from '../src/game/card-calendar'
 import { clockIn } from '../src/game/card-time'
 import { currentCard } from '../src/game/current-card'
@@ -148,7 +148,9 @@ describe('one turn = the card graph, one model call per node', () => {
     await runTurn(ctx, { action: PLAYER_ACTION })
 
     CARD_TOPOLOGY.forEach((id, index) => {
-      expect(toolNamesOf(index), id).toEqual(availableActions(currentCard, id))
+      const own = availableActions(currentCard, id)
+      // 有牌可打的节点额外拿到引擎内置的报账那一张（`no_change`）；一张牌都没有的节点不发它
+      expect(toolNamesOf(index), id).toEqual(own.length > 0 ? [...own, NO_CHANGE] : own)
     })
     // 一个工具都不给它的节点（story）连 tools 字段都不发
     const storyIndex = CARD_TOPOLOGY.indexOf(STORY)

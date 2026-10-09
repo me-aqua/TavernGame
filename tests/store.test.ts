@@ -15,7 +15,7 @@ import { nodeLabel } from '../src/game/display'
 import { SAVE_KEY } from '../src/utils/storage'
 import { t } from '../src/i18n'
 import { configureFakeProvider } from './support/game-fixtures'
-import { cardTurnReplies, CARD_TOPOLOGY } from './support/card-replies'
+import { cardTurnReplies, CARD_TOPOLOGY, traceCycle } from './support/card-replies'
 import { installFakeLlm, type FakeLlm } from './support/fakeLlm'
 
 /* ---- 测试自己编的 fixture（模型回复与玩家行动），不是产品文案 ---- */
@@ -37,8 +37,8 @@ const LOOK_ACTION = 'look around'
 const TIME_MINUTES = 120
 /** 跨过时段边界的一次推进：时间标签必须跟着变（19:30 之后再 5 小时就是次日上午） */
 const CLOCK_MINUTES = 300
-/** 一条普通回合的调试痕迹：每个节点一行 node + 一对请求/响应 */
-const TRACE_CYCLE = CARD_TOPOLOGY.flatMap(() => ['node', 'request', 'model'])
+/** 一条普通回合的调试痕迹 —— 形状只有一处定义（夹具的 `traceCycle`），这里不再抄第二份 */
+const TRACE_CYCLE = traceCycle()
 
 let fake: FakeLlm | null = null
 
@@ -217,7 +217,9 @@ describe('debugMode', () => {
     fake.restore()
     fake = null
 
-    const payloads = debugRows(g).filter((row) => row.detail !== undefined)
+    // 只取模型 I/O 那两类行：工具调用 / 工具结果 / 「这一轮不改状态」也带 detail，
+    // 但它们不是模型输入输出（判据要的是"每个节点两条：先请求体，再响应体"）
+    const payloads = debugRows(g).filter((row) => row.kind === 'request' || row.kind === 'model')
     // 每个节点两条：先请求体（模型输入），再响应体
     expect(payloads.map((row) => row.kind)).toEqual(CARD_TOPOLOGY.flatMap(() => ['request', 'model']))
     expect(payloads[0].detail).toContain('"messages"')
@@ -253,14 +255,13 @@ describe('debugMode', () => {
     fake.restore()
     fake = null
 
-    // 每个节点进一次（决定 #38）：node 行 + 它的请求/响应，顺序就是拓扑顺序
+    // 每个节点进一次（决定 #38）：node 行 + 它的请求/响应（有牌可打的节点后面还跟着它那次报账），
+    // 顺序就是拓扑顺序 —— 按「node 行」本身对，不靠"每节点固定几行"去数下标
     const traces = debugRows(g)
     expect(traces.map((row) => row.kind)).toEqual(TRACE_CYCLE)
-    traces.forEach((row, index) => {
-      const node = CARD_TOPOLOGY[Math.floor(index / 3)]
-      if (row.kind === 'node')
-        expect(row.text).toBe(t('store.nodeLine', { node: nodeLabel(currentCard, node) }))
-    })
+    expect(traces.filter((row) => row.kind === 'node').map((row) => row.text)).toEqual(
+      CARD_TOPOLOGY.map((node) => t('store.nodeLine', { node: nodeLabel(currentCard, node) })),
+    )
     // 玩家看到的仍然只有故事
     expect(storyRows(g).map((row) => row.text)).not.toContain(traces[0].text)
     g.debugMode.value = false

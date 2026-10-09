@@ -170,7 +170,9 @@ describe('the debug events carry the raw material the panel needs', () => {
       expect(kinds, kind).toContain(kind)
     }
     // tool 带协议原样的参数 JSON；toolResult 带回传的结果；stateChange 带路径与值
-    const tool = events.find((event) => event.type === 'tool')
+    // ⚠️ 认**那一次写状态**的调用（有牌可打的别的节点这一轮也会调一次 `no_change` 报账 ——
+    //    它也是一条 tool 事件，先撞上它就会拿到另一份 args）
+    const tool = events.find((event) => event.type === 'tool' && event.tool === 'update_role')
     expect(tool?.args).toBe(JSON.stringify({ [ROLE_KEY]: LOG_NAME }))
     const toolResult = events.find((event) => event.type === 'toolResult')
     expect(String(toolResult?.result).length).toBeGreaterThan(0)

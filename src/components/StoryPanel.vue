@@ -39,6 +39,8 @@ const debugStyles: Record<DebugRowKind, string> = {
   tool: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
   toolResult: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
   stateChange: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 font-mono text-[12.5px] text-muted',
+  // 「这一轮不改状态」是**合法的决定**，不是警告 ⇒ 中性色（暖色留给 warn）
+  unchanged: 'rounded-lg border border-line bg-surface-2/60 px-3.5 py-2 text-[12.5px] text-muted',
   warn: 'rounded-lg border border-warn/40 bg-warn-soft px-3.5 py-2 text-[12.5px] text-warn',
 }
 

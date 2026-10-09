@@ -11,6 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useGame } from '../src/stores/game'
 import { advance } from '../src/game/card-calendar'
+import { availableActions, NO_CHANGE } from '../src/game/card-actions'
 import { clockIn } from '../src/game/card-time'
 import { initialState } from '../src/game/state'
 import { t } from '../src/i18n'
@@ -127,12 +128,13 @@ describe('handleEvent - each trace branch (debug only)', () => {
 
     const rawRows = debugRows(g).filter((row) => row.detail !== undefined)
     // 每次调用两条请求体/响应体 + 工具参数（协议原样的 JSON）+ 状态写入值（JSON）；
-    // 工具结果是回传给模型的**文字**（可能是一句人话），所以它不是 JSON
+    // 工具结果是回传给模型的**文字**（可能是一句人话），「这一轮不改状态」的理由也一样
+    // （那是模型写的一句话）⇒ 这两种不是 JSON
     expect(rawRows.map((row) => row.kind)).toEqual(
       traceCycle(true).filter((kind) => kind !== 'node' && kind !== 'warn'),
     )
     for (const row of rawRows) {
-      if (row.kind === 'toolResult') continue
+      if (row.kind === 'toolResult' || row.kind === 'unchanged') continue
       expect(() => JSON.parse(row.detail ?? ''), row.kind).not.toThrow()
     }
     g.debugMode.value = false
@@ -187,17 +189,26 @@ describe('handleEvent - each trace branch (debug only)', () => {
     fake.restore()
     fake = null
 
-    // 面板读的就是结构化字段：哪个节点、什么工具、写了哪条路径
+    // 面板读的就是结构化字段：哪个节点、什么工具、写了哪条路径。
+    // 默认回合里**每个有牌可打的节点都调了一次工具**：时间节点推时间，其余报账（`no_change`
+    // —— 报账也是一次真的工具调用，它照样进这张清单）
     const timeNode = timeNodeOf()
+    const callsOfRound = CARD_TOPOLOGY.filter((id) => availableActions(currentCard, id).length > 0).map(
+      (id) => [id, id === timeNode ? 'advance_time' : NO_CHANGE],
+    )
+    /** 那次推时间的调用写下的东西（默认回合里只有它写状态） */
+    const writesOfTimeCall = () =>
+      g.debugTools.value.filter((call) => call.tool === 'advance_time').flatMap((call) => call.writes)
+
     const before = g.exportSave()
-    expect(g.debugTools.value.map((call) => [call.node, call.tool])).toEqual([[timeNode, 'advance_time']])
-    expect(g.debugTools.value[0].writes.map((write) => write.path)).toEqual(['world.time'])
+    expect(g.debugTools.value.map((call) => [call.node, call.tool])).toEqual(callsOfRound)
+    expect(writesOfTimeCall().map((write) => write.path)).toEqual(['world.time'])
 
     // 落盘再读回来：这三个字段必须一起回来（save.ts 的清洗不许丢）
     g.importSave(before)
-    expect(g.debugTools.value.map((call) => [call.node, call.tool])).toEqual([[timeNode, 'advance_time']])
-    expect(g.debugTools.value[0].writes.map((write) => write.path)).toEqual(['world.time'])
-    expect(g.debugTools.value[0].writes[0].value).toEqual(
+    expect(g.debugTools.value.map((call) => [call.node, call.tool])).toEqual(callsOfRound)
+    expect(writesOfTimeCall().map((write) => write.path)).toEqual(['world.time'])
+    expect(writesOfTimeCall()[0].value).toEqual(
       advance(currentCard.time.calendar, clockIn(initialState().data.state), TIME_MINUTES),
     )
 

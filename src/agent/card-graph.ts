@@ -25,7 +25,7 @@
 
 import { chat } from './llm'
 import { buildNodeMessages, type UpstreamOutput } from './prompts'
-import { runAction, toolSchemas } from '../game/card-actions'
+import { NO_CHANGE, runAction, toolSchemas } from '../game/card-actions'
 import { CLOCK_STATE_PATH, clockIn } from '../game/card-time'
 import { advanceTime } from '../game/state'
 import { t } from '../i18n'
@@ -142,6 +142,30 @@ async function runNode(
     hint,
   })
 
+  /** 第一笔台账：这个节点这一轮**落过一笔状态**（state / time 都算） */
+  let wrote = false
+  /** 第二笔台账：这个节点这一轮**报过账**（`no_change` 的理由，取最后一次） */
+  let declared: string | null = null
+
+  /**
+   * 出口分三态：模型不调工具是合法的，但"这一轮不改"要报出来、"该调没调"要看得出来。
+   *
+   *   ① 落过状态 ⇒ updated（不用报：stateChange 事件已经在流里说了）
+   *   ② 报过账   ⇒ unchanged（发一条事件，把"谁没动、为什么"交给调试面）
+   *   ③ 都没有   ⇒ error（发一条 noToolCall）—— 但**只对"有牌可打"的节点**：卡里 `tools: []`
+   *      的节点本来就没有选择，要它报一句"我不改"是引擎替卡做主。
+   *
+   * ⚠️ `wrote` 压过 `declared`：既写了状态又报"不改"是自相矛盾的，事实以写为准。
+   */
+  function settle(text: string): NodeOutcome {
+    if (!wrote && declared !== null) {
+      input.onEvent?.({ type: 'unchanged', node: id, reason: declared })
+    } else if (!wrote && toolSchemas(card, id).length > 0) {
+      input.onEvent?.({ type: 'noToolCall', node: id })
+    }
+    return { kind: 'text', text }
+  }
+
   for (let round = 1; round <= MAX_TOOL_ROUNDS; round += 1) {
     if (input.signal?.aborted) throw new DOMException('aborted', 'AbortError')
     run.calls += 1
@@ -157,10 +181,14 @@ async function runNode(
     input.onEvent?.({ type: 'model', step, reply })
 
     // 没有工具调用 = 这个节点说完了：它的文字就是产出（不解析、不改写）
-    if (!reply.toolCalls.length) return { kind: 'text', text: reply.content.trim() }
+    if (!reply.toolCalls.length) return settle(reply.content.trim())
 
-    // 只调工具、一个字都没写：提示一句，继续问（模型有时会偷懒）
-    if (!reply.content.trim()) {
+    /** 这一条回复报了账（照旧要执行它，由下面那一圈走校验）—— 报账那一步就是这个节点的终点 */
+    const declares = reply.toolCalls.some((call) => call.name === NO_CHANGE)
+
+    // 只调工具、一个字都没写：提示一句，继续问（模型有时会偷懒）。
+    // ⚠️ 报账那一步不在此列：它不是偷懒，它是在报"这一轮不改"。
+    if (!reply.content.trim() && !declares) {
       input.onEvent?.({ type: 'warn', message: t('agent.toolsOnly', { step }) })
     }
 
@@ -215,9 +243,20 @@ async function runNode(
         return { kind: 'redo', from: outcome.from, why: outcome.why }
       }
 
+      if (outcome.kind === 'no_change') {
+        // 报账：**只记台账**，一个字节都不写状态。协议要求每次调用都得有一条 role:'tool'
+        // 的回复 ⇒ 回一句定死的确认（不回显理由：它就在模型上一条 assistant 消息里）
+        declared = outcome.reason
+        const result = t('agent.noChangeAck')
+        input.onEvent?.({ type: 'toolResult', node: id, tool: call.name, result, failed: false })
+        messages.push({ role: 'tool', tool_call_id: call.id, content: result })
+        continue
+      }
+
       if (outcome.kind === 'time') {
         // 时间由引擎按这张卡的历法推进（minutes = 0 合法）；结果文案原样回传给模型。
         // ⚠️ 写的是**状态树里那一格** ⇒ 痕迹里那条 path 是能解析到时刻的状态路径（不再是裸 'time'）
+        wrote = true
         const result = advanceTime(data, card.time.calendar, outcome.minutes, outcome.reason)
         input.onEvent?.({
           type: 'stateChange',
@@ -230,6 +269,8 @@ async function runNode(
         continue
       }
 
+      // 走到这里就是 kind: 'state'（redo / no_change / time 各自在上面收掉了）：真的写了一笔
+      wrote = true
       input.onEvent?.({
         type: 'stateChange',
         node: id,
@@ -245,6 +286,11 @@ async function runNode(
       })
       messages.push({ role: 'tool', tool_call_id: call.id, content: outcome.result })
     }
+
+    // 报过账 = 这个节点到此为止：它同一条回复里的文字就是产出。
+    // ⚠️ 不这么定，每个"没变化"的节点都要再问一轮（只调工具 → 结果回传 → 再问），
+    //    一轮里的模型调用直接翻倍，而信息量为零：报账那一步本身已经是它的结论。
+    if (declares && declared !== null) return settle(reply.content.trim())
   }
 
   // 到顶还在调工具 = 这个节点一个字都没写出来：不静默收场（决定 #27）

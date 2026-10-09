@@ -80,6 +80,20 @@ export type AgentEvent =
   | { type: 'stateChange'; node: string; path: string; value: unknown }
   /** 有节点要求退回重来（引擎已经把工作副本回滚到 from 开跑前，接下来从 from 重跑） */
   | { type: 'redo'; from: string; why: string }
+  /**
+   * 一个节点这一轮**决定不改任何状态**：它调了引擎内置的 `no_change` 并给了理由。
+   *
+   * ⚠️ 这是**合法的决定**，不是警告 —— 它与"没牌可打"（卡里 `tools: []`）不同：那是本来就没有
+   *    选择。理由只给调试面看（决定：模型不该被强制每轮调工具，但不改要报出来）。
+   */
+  | { type: 'unchanged'; node: string; reason: string }
+  /**
+   * 一个有牌可打的节点整轮**既没落下一笔状态、也没报 `no_change`**（忘了调 / 调了全失败）。
+   *
+   * ⚠️ 这是一条**可查的标记**，不是一次回滚：模型忘了调是常见且可自愈的，为它整轮回滚
+   *    与问题的轻重不成比例。值机的是调用方（界面把它写成一条 warn 痕迹）。
+   */
+  | { type: 'noToolCall'; node: string }
   /** 引擎的警告（只调工具没写文字、工具轮次到顶……）—— 给调试痕迹，不是给玩家 */
   | { type: 'warn'; message: string }
   /** 本回合的叙事正文（玩家看到的就是它） */

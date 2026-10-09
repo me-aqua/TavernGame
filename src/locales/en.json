@@ -82,6 +82,7 @@
     "toolResultLine": "   -> {result}",
     "warnLine": "⚠ {message}",
     "stateChangeLine": "✎ wrote {path}",
+    "unchangedLine": "≡ {node} changed nothing this turn",
     "redoLine": "↩ back to \"{node}\": {why}"
   },
   "settings": {
@@ -318,7 +319,9 @@
     "noNarration": "Node \"{node}\" wrote nothing — this round has no narration",
     "redoLimit": "\"{node}\" asked to redo again (limit {max} per round) — this round is discarded",
     "redoAccepted": "Rolled back to \"{node}\" and rerunning: {why}",
-    "redoHint": "\"{node}\" found a problem in this step and asked to rerun it: {why}"
+    "redoHint": "\"{node}\" found a problem in this step and asked to rerun it: {why}",
+    "nodeNoToolCall": "node \"{node}\" called no tool and reported no no-change reason this turn",
+    "noChangeAck": "Noted: no state change this turn"
   },
   "story": {
     "nodeRunning": "Running {node}…",

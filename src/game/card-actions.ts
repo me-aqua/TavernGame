@@ -76,7 +76,49 @@ export type ActionOutcome =
   | { ok: true; kind: 'state'; result: string; change: ActionChange }
   | { ok: true; kind: 'time'; minutes: number; reason: string }
   | { ok: true; kind: 'redo'; from: string; why: string }
+  | { ok: true; kind: 'no_change'; reason: string }
   | { ok: false; error: string }
+
+/**
+ * 引擎内置的报账动作名 —— 模型「这一轮不改任何状态」时调的就是它。
+ *
+ * ⚠️ 它**不占卡的动作名**：卡里声明同名动作 ⇒ 加载期拒绝（`card.ts` 的 checkActions）。
+ *    名字与三态里的 `unchanged` 一一对应（一个词、一件事）：调了它就是"这一轮没动"。
+ */
+export const NO_CHANGE = 'no_change'
+
+/**
+ * 报账那一次调用的说明 —— 三件事：什么时候用它 / 有牌可打的节点必须二选一 / 理由只给调试看。
+ *
+ * ⚠️ 这是**模型面文本**（拼进 tool description）：它受 `tests/card-keys-cn.test.ts` 那张旧键名
+ *    名单的整词扫描管，措辞要避开那张名单里的词（写成 `when` 会当场把那条判据打红）。
+ */
+const NO_CHANGE_DESCRIPTION = [
+  'Call this after you examined this step and decided that nothing should change this turn.',
+  'Every step that has at least one tool must either call one of them or call this one.',
+  'One call ends the step. The reason is for debugging only; the player never reads it.',
+].join('\n')
+
+/** 报账的参数：只有「有这个字段、非空」一条规则（与 `redo.why` 逐字同一条，没有长度上限） */
+const NO_CHANGE_PARAMS = {
+  properties: {
+    reason: {
+      type: 'string',
+      description: 'one line: why you are changing nothing this turn (debug only; the player never reads it)',
+    },
+  },
+  required: ['reason'],
+}
+
+/** 报账那个工具的完整 schema —— 引擎自带，不从卡的 actions 派生 */
+const NO_CHANGE_SCHEMA: ToolSchema = {
+  type: 'function',
+  function: {
+    name: NO_CHANGE,
+    description: NO_CHANGE_DESCRIPTION,
+    parameters: { type: 'object', ...NO_CHANGE_PARAMS },
+  },
+}
 
 /** 写入模式 */
 type Mode = 'set' | 'merge' | 'push'
@@ -255,9 +297,18 @@ function descriptionOf(card: CardData, action: Action): string {
   return lines.join('\n')
 }
 
-/** 某个节点能用的全部工具（不传 nodeId = 卡里全部动作） */
+/**
+ * 某个节点能用的全部工具（不传 nodeId = 卡里全部动作）。
+ *
+ * ⚠️ **有牌可打的节点额外拿到报账那一张**（`no_change`）：它"可以不打牌"，但打了牌的那一轮
+ *    必须报出来。卡里 `tools: []` 的节点**不发**它 —— 那节点压根没有"选择"，给它一个
+ *    「我决定不调工具」的动作等于让它在没有选项的地方做选择（那是假动作）。
+ */
 export function toolSchemas(card: CardData, nodeId?: string): ToolSchema[] {
-  return availableActions(card, nodeId).map((name) => {
+  const own = availableActions(card, nodeId)
+  // ⚠️ 回调的返回类型必须写出来：`type: 'function'` / `type: 'object'` 是**字面量**，
+  //    没有这里给的上下文，TS 会把它们放宽成 `string`（`ToolSchema` 要求的就是那两个字面量）
+  const tools = own.map((name): ToolSchema => {
     const action = card.actions[name]
     const { properties, required } = actionParams(card, action, nodeId)
     return {
@@ -269,6 +320,7 @@ export function toolSchemas(card: CardData, nodeId?: string): ToolSchema[] {
       },
     }
   })
+  return own.length > 0 ? [...tools, NO_CHANGE_SCHEMA] : tools
 }
 
 /** 路径的父级对象；中间缺的字段按需建出来（不写 initial 的字段就是这样出现的） */
@@ -312,10 +364,29 @@ function withoutKey(args: Record<string, unknown>, key: string, element: Schema)
 }
 
 /**
+ * 报账那一次调用的校验：**只有一条规则 —— 有这个字段、非空**。
+ *
+ * ⚠️ 全空白也收（`length > 0`），与 `redo.why` 逐字同一条规则；不加长度上限、
+ *    也不查多余参数、更不要求"解释得让人满意"—— 那是给模型加软要求，不是引擎该管的。
+ */
+function declaredOutcome(name: string, args: unknown): ActionOutcome {
+  if (!isRecord(args)) return { ok: false, error: name + ': arguments must be a JSON object' }
+  const reason = args.reason
+  if (typeof reason !== 'string' || reason.length === 0) {
+    return { ok: false, error: name + ': reason must be a non-empty string' }
+  }
+  return { ok: true, kind: 'no_change', reason }
+}
+
+/**
  * 执行一次工具调用。
  *
  * 校验不过返回 { ok: false, error }（调用方原样当工具结果回传，让模型自己改）；
- * path 型写进 state（工作副本）并返回 { result, change }；time / redo 交回调用方。
+ * path 型写进 state（工作副本）并返回 { result, change }；time / redo 交回调用方；
+ * no_change 是**报账**：一个字节都不写，只把理由交回调用方。
+ *
+ * ⚠️ 报账那一次**先认**（在卡查表与节点的 tools 白名单之前）：那两个说的都是"卡给了它哪些牌"，
+ *    而报账不是一张牌 —— 它是"这一轮不打牌"这件事本身。
  */
 export function runAction(
   card: CardData,
@@ -324,6 +395,7 @@ export function runAction(
   args: unknown,
   nodeId?: string,
 ): ActionOutcome {
+  if (name === NO_CHANGE) return declaredOutcome(name, args)
   if (!Object.hasOwn(card.actions, name)) return { ok: false, error: 'unknown action "' + name + '"' }
   // 节点的 tools 白名单是**机制**，不是给模型看的广告：请求里的 tools 表只说明「有哪些牌」，
   // 而模型的输出是外部输入 —— 它报一个没给它的动作时，在这里挡下，照旧回结构化错误

@@ -17,10 +17,11 @@ const story = (id: number, kind: 'narration' | 'action', text: string): Row => (
   debug: false,
 })
 
-/** 造一行调试数据（节点进度、模型输入输出、工具调用、状态写入、警告） */
+/** 造一行调试数据（节点进度、模型输入输出、工具调用、状态写入、报账、警告） */
 const debugRow = (
   id: number,
-  kind: 'node' | 'thinking' | 'request' | 'model' | 'tool' | 'toolResult' | 'stateChange' | 'warn',
+  kind:
+    'node' | 'thinking' | 'request' | 'model' | 'tool' | 'toolResult' | 'stateChange' | 'unchanged' | 'warn',
   text: string,
   detail?: string,
 ): Row => ({

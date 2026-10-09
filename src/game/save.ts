@@ -52,6 +52,7 @@ const EVENT_KINDS: Record<EventKind, true> = {
   toolResult: true,
   stateChange: true,
   warn: true,
+  unchanged: true,
 }
 
 /**
