@@ -472,8 +472,17 @@ describe('G5 a bad name is refused in the draft layer, and the reason names the 
   })
 })
 
-describe('G6 the engine constraint is said on screen, and the notice tells the truth', () => {
-  it('C6a right after a branch is created the editor says nothing writes it yet', async () => {
+/**
+ * 🔴 **票 8f 把 `C6a` 翻面了**（台账见契约 `.team/test/2026-10-09/contract-8f.md` §4 已知项 ②）。
+ *
+ * **原来断什么**：建完一枝之后屏上**必须**出现"这枝还没有动作写它"那句（乙案：建枝不建动作）。
+ * **现在断什么**：甲案落地之后，**默认勾着配套动作**建出来的那一枝**有**动作写它
+ * ⇒ 那句话**必须一句都不在**（它在就是在说假话）。⚠️ 断言没有删、也没有改弱：
+ * 原来数的是"至少一句、句句非空、不许长在树行里"，现在数的是"零句"——**同一个读法换了朝向**。
+ * 乙案那一半（不勾 ⇒ 那句话回来、而且是真的）搬到 `C6c`，一句话都没丢。
+ */
+describe('G6 a created branch says who writes it: the paired action, or the notice (ticket 8e, flipped by 8f)', () => {
+  it('C6a a branch created with its paired action puts no notice on screen at all', async () => {
     const w = editor()
     try {
       expect(
@@ -486,10 +495,91 @@ describe('G6 the engine constraint is said on screen, and the notice tells the t
       await typeName(w, PROBE)
       await make(w)
 
+      expect(rowOf(w, PROBE).exists(), 'the branch must be on the tree before this line says anything').toBe(
+        true,
+      )
+      expect(
+        w.findAll('[data-branch-unwritten]').map((el) => el.text().trim()),
+        'an action writes this branch: the notice that says otherwise is a lie (ticket 8f pairs one in)',
+      ).toEqual([])
+    } finally {
+      w.unmount()
+    }
+  })
+
+  /**
+   * 🔴 `C6b` · **票 8f 把这一条也翻面了**（同一个台账，见契约 §4 已知项 ②）。
+   *
+   * **原来断什么**：按顶栏那颗保存 ⇒ 引擎**用自己的原话**把它拦下、卡一个字节不动（乙案：新枝没人写）。
+   * **现在断什么**：勾着配套动作建出来的那一枝**真的存得回卡** —— 落盘那份卡过 `parseCard`、
+   * 那条动作的 `path` 指着这一枝、而引擎**一句话都不抱怨**（`[data-card-error]` 不在）。
+   * ⚠️ 断言没有删、也没有改弱：这一条比原来**严**（原来说的是"被拒"，现在说的是"真的落"），
+   * 而"期望值从引擎现取"那条口径照旧。⚠️ 乙案那半边一个字没丢，就在下面 `C6c`。
+   */
+  it('C6b the save lands for real: the engine takes the card, and it carries the action writing that branch', async () => {
+    const w = editor()
+    try {
+      await openCreate(w)
+      await chooseShape(w, 'string')
+      await typeName(w, PROBE)
+      await make(w)
+      expect(rowOf(w, PROBE).exists(), 'the branch must be on the tree before this line says anything').toBe(
+        true,
+      )
+
+      await save(w)
+      expect(
+        w.find('[data-card-error]').exists(),
+        'the engine refused a card whose every top level branch is written by an action',
+      ).toBe(false)
+      const text = storedText()
+      expect(text, 'the screen said created, so the card must really land').not.toBeNull()
+      const saved = JSON.parse(text as string) as Record<string, any>
+      expect(saved.state[PROBE], 'the saved card must carry that branch').toEqual({ type: 'string' })
+      expect(
+        Object.entries(saved.actions as Record<string, any>)
+          .filter(([, action]) => String(action.path ?? '').split('.')[0] === PROBE)
+          .map(([name]) => name),
+        'the saved card must carry exactly one action writing that branch',
+      ).toHaveLength(1)
+      expect(
+        () => parseCard(JSON.stringify(saved)),
+        'what the screen called created must be a card the format accepts',
+      ).not.toThrow()
+      expect(w.emitted('saved'), 'a save that landed must ask the outer layer to reload').toHaveLength(1)
+    } finally {
+      w.unmount()
+    }
+  })
+
+  /**
+   * `C6c` · **乙案那条回归线**（S1 §六 ②：**不勾 ⇒ 产物与今天逐字相同**）。
+   *
+   * 这一条就是 8e 的 `C6a` + `C6b` 原样搬过来，只多了一步"把配套动作那个勾摘掉"。
+   * ⚠️ 它同时是"甲案没有偷偷替作者建动作"的哨兵：真建了的话保存会**成功**，
+   * 下面那句"被引擎拦下"当场红。
+   * ⚠️ 期望值仍旧从引擎现取（把这一枝加进卡里问 `parseCard`），不手抄那句英文。
+   */
+  it('C6c with the paired action switched off the notice is back, and it is still true', async () => {
+    const w = editor()
+    try {
+      expect(
+        w.findAll('[data-branch-unwritten]').length,
+        'nothing was created yet, so no notice may be on screen',
+      ).toBe(0)
+
+      await openCreate(w)
+      await chooseShape(w, 'string')
+      await typeName(w, PROBE)
+      const box = w.find('[data-branch-action]')
+      expect(box.exists(), 'the panel hands out no paired-action segment ([data-branch-action])').toBe(true)
+      await box.setValue(false)
+      await make(w)
+
       const notices = w.findAll('[data-branch-unwritten]')
       expect(
         notices.length,
-        'the branch has no action writing it: the screen must say so (ticket 8e takes option B)',
+        'with the action switched off the branch has nobody writing it: the screen must say so',
       ).toBeGreaterThan(0)
       expect(
         notices.filter((el) => el.element.closest('[data-branch-node]') !== null).length,
@@ -500,26 +590,8 @@ describe('G6 the engine constraint is said on screen, and the notice tells the t
         w.find('[data-card-editor]').text(),
         'the sentence must be the one the locale carries, with the branch named in it',
       ).toContain(t('card.branchUnwritten', { name: PROBE }))
-    } finally {
-      w.unmount()
-    }
-  })
 
-  /**
-   * 🔴 `C6b` · **那句提示得是真的**：按顶栏那颗保存 ⇒ 引擎**用自己的原话**把它拦下，卡一个字节不动。
-   *
-   * 这是 §三 那条约束在组件层的正面：**期望值从引擎现取**（把这一枝加进卡里问 `parseCard`），
-   * 不手抄那句英文。⚠️ 哪一天**甲案**（建枝顺带建一条写它的动作）落地，这一条要**连编号一起翻面** ——
-   * 那时候"保存会被拦"就不再成立了（起点读数 `[P3]`：配一条写它的动作，同一张卡当场通过）。
-   */
-  it('C6b the notice is true: the engine refuses the card in its own words, and nothing is written', async () => {
-    const w = editor()
-    try {
-      await openCreate(w)
-      await chooseShape(w, 'string')
-      await typeName(w, PROBE)
-      await make(w)
-
+      // 那句话是真的：把这一枝加进卡里问引擎（期望值现取，不手抄）
       const next = JSON.parse(JSON.stringify(card)) as Record<string, any>
       next.state[PROBE] = { type: 'string' }
       let engine = ''
