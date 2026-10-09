@@ -18,6 +18,13 @@ export default tseslint.config(
       'test-results/**',
       'storybook-static/**',
       'artifacts/**',
+      // 本机脚手架目录（.gitignore 里已忽略它）。ESLint 不读 .gitignore，
+      // flat config 也不再默认跳过点目录 —— 少了这一行，那堆临时脚本会淹掉
+      // 整个 lint 输出（本机实测 3.6 万条，且全是误报）。
+      '.tools/**',
+      // 队伍的工作区（.gitignore 里已忽略它）。当前里面只有 md，本来就扫不到；
+      // 但组长的草稿脚本按工序要求也放这儿，一放 .mjs 就会被扫到。
+      '.team/**',
     ],
   },
 

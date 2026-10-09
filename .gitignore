@@ -66,3 +66,11 @@ Desktop.ini
 
 # --- 项目所有者的个人档案：不公开 ---
 ME-AQUA.md
+
+# --- 本机 agent 笔记：只对这台机器有意义，不进仓库 ---
+#（Prettier 会跳过 .gitignore 里的文件，所以它也不会被格式检查吵到）
+AGENTS.local.md
+
+# --- 队伍的工作区：交接单、评审与验收记录，不属于项目代码 ---
+#   交付前用 `git status --short` 确认它没被 git 看见。
+.team/

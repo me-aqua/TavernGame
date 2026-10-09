@@ -57,3 +57,30 @@
 - 界面相关另跑：`npm run visual`（整页截图 + 结构检查）、`npm run stories`（组件故事）
 - 跳过（需在提交信息里说明理由）：`SKIP_DISCIPLINE=1 git commit ...`
 - 具体机制见对应实现：`.githooks/`（检查）、`doc/DESIGN.md`（设计）、`.agents/skills/`（上表）
+
+<!-- ⬇️⬇️⬇️  以下「本机补充」不属于上游内容，由本机维护  ⬇️⬇️⬇️
+     上游同步时：这一段可以整块保留，冲突了也可以整块丢弃，不影响上面任何一个字。
+     判据很简单 —— 本标题之前全是他的，本标题之后全是我们的。
+     详细内容不在这里，在 `AGENTS.local.md`（本机覆盖层）。 -->
+
+## 本机补充（Windows · 非上游）
+
+- **本机是 Windows**，重构者的机器是 macOS。`.agents/skills/environment/SKILL.md` 里
+  「本机是 macOS、上游遗留的 Windows 路径已过时」那段讲的是**他那台**；
+  在本机跟它冲突时**以 `AGENTS.local.md` 为准**。
+- **命令要放权才跑得动**：Vitest / e2e / 浏览器都要 spawn 子进程，受限沙箱下会以
+  `EPERM` 或 `signal pipe, Win32 error 5` 失败 —— **那是沙箱，不是代码坏了**。
+- **Windows 上的两处注意**：整页巡检要加 `--ignore-snapshots`（像素基线是 macOS 录的）；
+  `vite preview` 只监听 `[::1]`（显式 `127.0.0.1` 连不上）。
+- **本机对上游文件有六处改动 / 4 个文件**（2026-09-22 复核；**要再加新的先跟老板说**）：
+  `eslint.config.js`（忽略 `.tools/**`、`.team/`）· `.gitignore`（忽略 `AGENTS.local.md`、`.team/`）·
+  `.prettierignore`（忽略 `.team/`）· **本文件末尾这一段**。逐条缘由见 `AGENTS.local.md` §六。
+- ⚠️ **同步时如果 `git pull` 报 "local changes would be overwritten"**：先
+  `git stash push AGENTS.md`（或把本段复制走）→ pull → 再 `git stash pop` 把本段贴回末尾。
+  所以本段要**自成一块、别和上面的正文混着改**。
+- ⚠️ **改完这一段要跑一次 `npx prettier --write AGENTS.md`**：这段也在
+  `npm run format:check` 的管辖范围内，没格式化会把他的整条 `verify` 断掉
+  （真断过一次：`[warn] AGENTS.md` → 覆盖率门禁和 e2e 根本没跑到）。
+- **体检**：`node .tools/check-notes.mjs` —— 把笔记里写下的事实与现状逐条对账。
+
+<!-- ⬆️⬆️⬆️  本机补充结束  ⬆️⬆️⬆️ -->

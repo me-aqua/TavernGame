@@ -211,7 +211,15 @@ for (const file of textFiles.filter((f) => SRC.test(f) && !f.endsWith('.stories.
 // 格式定义劈成两半（还得给拆出来的模块各配一份测试）。turn.ts 的 createTurnRunner 162 行
 // 是那个闭包工厂本身（中止用的 controller + 两个调试投影 + 事件 → 痕迹的 switch）。
 // 下一次再顶到上限时同样先问「是膨胀还是形状」，别默默改数字。
-const SIZE = { file: 550, func: 170, net: 500 }
+// 阈值三校准（2026-10-09，组长自裁 —— 当天问过老板，他答「代码的事是你的事不要问我」）：func 170 → 200。
+// 先答「是膨胀还是形状」：**形状**。票「模型没调工具」让两个函数各长了一截，而长的那截不是逻辑变复杂，
+// 是「一个新状态要在三个地方各留一笔」（出口认它 / 痕迹收它 / 调试面画它）——
+//   · card-graph.ts 的 runNode 174 行（+4）：它要同时攒三笔台账（wrote / declared / offered），出口靠它们分三态；
+//   · stores/turn.ts 的 createTurnRunner 187 行（+17）：那个闭包工厂本身（见上一段），
+//     "事件 → 痕迹"的 switch 多了两条（unchanged 那行 + warn 那条）。
+// 拆开只是把同一件事劈成两半，还得给拆出来的模块各配一份判据。
+// ⚠️ 下次再顶到 200，同样先问「是膨胀还是形状」，别默默改数字。
+const SIZE = { file: 550, func: 200, net: 500 }
 const countLines = (s) => s.split('\n').length
 // 生成物不算「我写的代码」：lockfile
 const generated = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/
