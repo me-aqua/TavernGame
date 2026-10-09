@@ -1,8 +1,12 @@
 /**
  * save 测试 —— 外部数据的**纯校验**：初始帧、卡的身份、字段规范化、状态树与 schema。
  *
+ * 末尾还有一条：**事件 kind 那张表里的每一种都要能存档往返**（表本身从源码现读，见文末）。
+ *
  * localStorage 的读写与坏档备份在 tests/storage.test.ts 与 tests/state.test.ts。
  */
+import { readFileSync } from 'node:fs'
+import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { createInitialState, identityOf, normalize, parseSave } from '../src/game/save'
 import { instantiate } from '../src/game/card-state'
@@ -249,5 +253,112 @@ describe('parseSave (the import-file path)', () => {
 
   it('throws a parse error on broken JSON', () => {
     expect(() => parseSave(TRUNCATED_JSON, currentCard)).toThrow()
+  })
+})
+
+/* ---- 事件 kind 那一张表：**从源码现读**，这里不抄第二份 ---- */
+
+/** 表在哪（`EVENT_KINDS`）：存档清洗按它放行，不在表里的一律丢掉 */
+const SAVE_SOURCE = 'src/game/save.ts'
+/** 类型在哪（`EventKind` 联合）：**该有哪些 kind** 的权威声明 */
+const KINDS_SOURCE = 'src/types/state.ts'
+/** 表里没有、类型里也没有的那种 kind —— 负控用（手改过的存档里什么都可能有） */
+const NOT_A_KIND = 'zzFake'
+
+/**
+ * 把一份源码读成 AST（只解析，不 resolve 任何东西、不起子进程）。
+ *
+ * ⚠️ 不用正则抠那几行：表的写法随排版变（多一个空行、换一种引号），而正则一失配
+ *    就会「什么都没读到 ⇒ 遍历 0 次 ⇒ 绿」—— 静默失效的判据比没有判据更坏，
+ *    所以读不出来一律由调用方抛出来（见下面两个函数）。
+ */
+function sourceFileOf(file: string): ts.SourceFile {
+  return ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.ES2022, true)
+}
+
+/** 在 AST 里找名为 name 的变量声明（找不到返回 null，由调用方喊出来） */
+function variableNamed(node: ts.Node, name: string): ts.VariableDeclaration | null {
+  if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) return node
+  for (const child of node.getChildren()) {
+    const hit = variableNamed(child, name)
+    if (hit !== null) return hit
+  }
+  return null
+}
+
+/** 在 AST 里找名为 name 的 type 别名（找不到返回 null，由调用方喊出来） */
+function typeAliasNamed(node: ts.Node, name: string): ts.TypeAliasDeclaration | null {
+  if (ts.isTypeAliasDeclaration(node) && node.name.text === name) return node
+  for (const child of node.getChildren()) {
+    const hit = typeAliasNamed(child, name)
+    if (hit !== null) return hit
+  }
+  return null
+}
+
+/** 读对象字面量的键（只收 `kind: true` 与 `kind` 两种写法，引号剥掉） */
+function objectKeys(literal: ts.ObjectLiteralExpression): string[] {
+  const keys: string[] = []
+  for (const property of literal.properties) {
+    if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) continue
+    keys.push(property.name.getText().replace(/^['"]|['"]$/g, ''))
+  }
+  return keys
+}
+
+/** 读那张事件 kind 表 —— 名字只在这里出现一次，别处一律用它读出来的结果 */
+function tableKeysOf(tableName: string, file: string): string[] {
+  const initializer = variableNamed(sourceFileOf(file), tableName)?.initializer
+  if (initializer === undefined || !ts.isObjectLiteralExpression(initializer)) {
+    throw new Error('no object literal named ' + tableName + ' in ' + file)
+  }
+  const keys = objectKeys(initializer)
+  if (keys.length === 0) throw new Error(tableName + ' reads as an empty table in ' + file)
+  return keys
+}
+
+/** 读 `EventKind` 联合里声明了哪些 kind */
+function declaredKindsOf(typeName: string, file: string): string[] {
+  const alias = typeAliasNamed(sourceFileOf(file), typeName)
+  if (alias === null || !ts.isUnionTypeNode(alias.type)) {
+    throw new Error('no union type named ' + typeName + ' in ' + file)
+  }
+  return alias.type.types.map((member) => member.getText().replace(/^['"]|['"]$/g, ''))
+}
+
+describe('normalize - every kind in the event table survives a save round trip', () => {
+  it('keeps an event of every kind the table and the type declare, and drops what is not one', () => {
+    // 🔴 两张单子都**从源码现读**（表 + 它该对应的联合类型），这里一个 kind 名字都不写死：
+    //    写死名单的判据，下次谁再加一种就当场失效 —— 而「加了一种、没有任何检查会红」
+    //    正是这条判据要防的形状。
+    const table = tableKeysOf('EVENT_KINDS', SAVE_SOURCE)
+    const declared = declaredKindsOf('EventKind', KINDS_SOURCE)
+    // 守卫：表与类型必须逐个对上 —— 表里少一行，"遍历表"就永远走不到那一种，这条判据会**静默变弱**
+    expect(
+      declared.filter((kind) => !table.includes(kind)),
+      'declared but missing from the table',
+    ).toEqual([])
+    expect(
+      table.filter((kind) => !declared.includes(kind)),
+      'in the table but not declared anywhere',
+    ).toEqual([])
+
+    const save = savedGame()
+    // 输入遍历**两张单子的并集**：表里少一种（漏登记）或多种（登记了类型里没有的）都会在这里露出来。
+    // ➕ 负控两条：一条**根本不是事件**、一条 kind 谁都不认 —— 少了它们，这条判据分不出
+    //    「每一种都留下来了」与「它其实什么都没丢」（清洗整个失效时，上面的断言照样绿）。
+    const raw: unknown[] = [
+      ...[...new Set([...table, ...declared])].map((kind) => ({ kind, text: 'round trip ' + kind, at: '' })),
+      null,
+      { kind: NOT_A_KIND, text: 'not a kind', at: '' },
+    ]
+    save.events = raw as GameData['events']
+
+    // 存下去（写成 JSON）→ 读回来（parseSave 就是导入存档那条路）⇒ 还是那些 kind，一条不多一条不少
+    const reloaded = parseSave(JSON.stringify(normalize(save, currentCard)), currentCard)
+    expect(
+      reloaded.events.map((event) => event.kind).sort(),
+      'every declared kind must survive the round trip, and nothing else may',
+    ).toEqual(declared.slice().sort())
   })
 })
