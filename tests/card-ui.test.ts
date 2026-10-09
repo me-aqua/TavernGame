@@ -18,7 +18,6 @@ import { defineComponent, h } from 'vue'
 import { mount } from '@vue/test-utils'
 import CardEditor from '../src/components/CardEditor.vue'
 import CardGraph from '../src/components/CardGraph.vue'
-import CardNodeForm from '../src/components/CardNodeForm.vue'
 import CardSection from '../src/components/CardSection.vue'
 import DebugPanel from '../src/components/DebugPanel.vue'
 import cardGraphStory, { Failed, Running, Selected } from '../src/components/CardGraph.stories'
@@ -266,98 +265,12 @@ describe('CardGraph', () => {
   })
 })
 
-describe('CardNodeForm', () => {
-  /** 常态 props：三个可改字段 + 三个只读声明 */
-  function formProps(over: Record<string, unknown> = {}) {
-    const id = topology[0]
-    return {
-      id,
-      name: nodes[id].name,
-      duty: nodes[id].duty,
-      prompt: nodes[id].prompt,
-      role: nodes[id].role ?? null,
-      tools: nodes[id].tools ?? null,
-      reads: nodes[id].reads ?? null,
-      ...over,
-    }
-  }
-
-  it('shows the three editable fields, the read-only declarations, and no error by default', () => {
-    const props = formProps()
-    const w = render(CardNodeForm, { props })
-
-    expect((w.find('[data-card-name]').element as HTMLInputElement).value).toBe(props.name)
-    expect((w.find('[data-card-duty]').element as HTMLInputElement).value).toBe(props.duty)
-    expect((w.find('[data-card-prompt]').element as HTMLTextAreaElement).value).toBe(props.prompt.join('\n'))
-    // 声明只读：这一块没有任何可改的输入（两个 input + 一个 textarea 就是全部）
-    expect(w.findAll('input')).toHaveLength(2)
-    expect(w.findAll('textarea')).toHaveLength(1)
-    expect(w.find('[data-card-error]').exists()).toBe(false)
-  })
-
-  it('spells the declarations, saying "all" / "none" where the card wrote nothing', () => {
-    const w = render(CardNodeForm, {
-      props: formProps({ role: null, tools: null, reads: null }),
-    })
-    const text = w.find('[data-card-declarations]').text()
-
-    expect(text).toContain(t('card.declAllTools'))
-    expect(text).toContain(t('card.declAllReads'))
-    expect(text).toContain(t('card.declNone'))
-  })
-
-  it('lists the tools and reads the card declares', () => {
-    const w = render(CardNodeForm, {
-      props: formProps({ tools: ['set_profile'], reads: ['player', 'world'], role: 'story' }),
-    })
-    const text = w.find('[data-card-declarations]').text()
-
-    expect(text).toContain('set_profile')
-    expect(text).toContain('player world')
-    expect(text).toContain('story')
-  })
-
-  it('says "none" for a declaration that is an empty list (judge declares tools: [])', () => {
-    const w = render(CardNodeForm, {
-      props: formProps({ role: 'story', tools: [], reads: [] }),
-    })
-    const rows = w.findAll('[data-card-declarations] > div')
-    /** 取某一行声明的值那一格（dt 是键、dd 是值） */
-    const valueOf = (key: string) =>
-      rows
-        .find((row) => row.text().startsWith(t(key)))
-        ?.find('dd')
-        .text()
-
-    // 空表 = 一个都没有。画成空白会让读卡的人以为这块漏写了
-    expect(valueOf('card.declTools')).toBe(t('card.declNone'))
-    expect(valueOf('card.declReads')).toBe(t('card.declNone'))
-  })
-
-  it('turns the multi-line prompt back into one entry per line on save', async () => {
-    const props = formProps()
-    const w = render(CardNodeForm, { props })
-
-    await w.find('[data-card-name]').setValue('renamed')
-    await w.find('[data-card-prompt]').setValue('first\n\nthird')
-    await w.find('[data-card-save]').trigger('click')
-
-    expect(w.emitted('save')?.[0]).toEqual([
-      { name: 'renamed', duty: props.duty, prompt: ['first', '', 'third'] },
-    ])
-  })
-
-  it('keeps the reason the parent handed back, so a failed save is never silent', () => {
-    const w = render(CardNodeForm, { props: formProps({ error: 'card: duplicate node name' }) })
-    expect(w.find('[data-card-error]').text()).toContain('card: duplicate node name')
-  })
-})
-
 /**
  * 卡图浮层本身。票 69（段 8b-①）之后它里面是**枝树 + 只读字段表** ——
  * 「点节点 → 改提示词 → 保存」那条链路的入口（卡图与节点表单）随本票离开了编辑器：
  * 契约 `.team/test/2026-09-22/contract-69.md` §5 第 2 项，那一组 5 条里 4 条靠点 `[data-node]`
- * 进流程。`CardNodeForm` 自己那一组（上面）照样量表单本身；写回整份卡等 8c 接回来时重写。
+ * 进流程。⚠️ **2026-10-09**：那个「节点表单」（`CardNodeForm.vue`）**已作为孤儿件删掉** ——
+ * 中栏现在走的是 `StepForm` 那一族（`CardEditor.vue` 四选一）。
  */
 describe('CardEditor', () => {
   /** 打开着的卡浮层 */

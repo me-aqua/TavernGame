@@ -1,6 +1,7 @@
 /**
- * 票 73 · 段 8c-②（「编一步 · 写」）的**读盘类判据**：R8 / R9 / R11 / R12 / R13。
+ * 票 73 · 段 8c-②（「编一步 · 写」）的**读盘类判据**：R8 / R11 / R12 / R13。
  * 票 75（判据牙口·第二轮）在这件里加了一条 **B4**：那两个只读标记在真件上是同一个表达式。
+ * ⚠️ **2026-10-09**：原来的 **R9** 已删 —— 它量的是 `CardNodeForm.vue`（那个件已作为孤儿件删掉）。
  *
  * 这一件的判据一条都不挂界面：它们量的是**字、名单与记号**（S0 §五 那五条口径）。
  * 与界面那一族分开住，是因为它们的失败信息说的是"盘上某个文件里还留着旧话"，
@@ -17,11 +18,6 @@ import { describe, expect, it } from 'vitest'
 /** 读一个文件的文本（判据只读盘，不碰网络） */
 function read(file: string): string {
   return readFileSync(file, 'utf8')
-}
-
-/** 一个文件里出现过的 `text-[Npx]` 字号字面量（与 `editor-scale-tokens` 的普查同一套走法） */
-function fontLiterals(file: string): number {
-  return [...read(file).matchAll(/text-\[(\d+(?:\.\d+)?)px\]/g)].length
 }
 
 /** 递归列一个目录下的每一个 `.ts`（相对路径、正斜杠、排序好） */
@@ -262,23 +258,6 @@ describe('B4 the two read-only marks are one and the same expression', () => {
   })
 })
 
-/** R9 · `CardNodeForm` 的字号换 token：文件里 `text-[Npx]` 零命中，并且从 `EDITOR_OWNED` 名单里出来 */
-describe('R9 the old node form uses the scale tiers', () => {
-  const FORM = 'src/components/CardNodeForm.vue'
-
-  it('the form carries no font-size literal any more', () => {
-    expect(fontLiterals(FORM), 'this file still pins px font sizes instead of the --fs1/2/3 tiers').toBe(0)
-  })
-
-  it('and it left the registry of files that are allowed to carry literals', () => {
-    const registry = read('tests/editor-scale-tokens.test.ts')
-    expect(
-      registry.includes("'" + FORM + "'"),
-      'the file is out of the form but still registered as "allowed to carry literals"',
-    ).toBe(false)
-  })
-})
-
 /** R12 · `StepForm` 与 `EditorShell` 各补一个 `.stories.ts`（`pre-commit` 会提醒"巡检覆盖不到"） */
 describe('R12 the two editor components have stories', () => {
   for (const name of ['StepForm', 'EditorShell']) {
@@ -320,18 +299,15 @@ describe('R11 the empty-state line names the strip as well', () => {
 
 /**
  * R8 · 🔴 五处旧语义**连行为一起改**（字与行为必须同时改）—— 这里只判**字**那一半：
- * 旧话族在那四个文件里零命中。行为那一半（`CardNodeForm` 的勾选缺省）归 8c-② 的实现面。
+ * 旧话族在**两个 locale 文件**里零命中。行为那一半（当年的勾选缺省）归 8c-② 的实现面。
+ * ⚠️ **2026-10-09**：这条原来判四个文件，其中两个是 `CardNodeForm.vue` 与它的故事件
+ * —— 那两件已作为孤儿件删掉，现在只剩 locale 这两个。
  */
 describe('R8 the old wording about the absent settings key is gone', () => {
   /** 旧话族：`\u5168\u8bfb` = 全读 · `\u5168\u52fe` = 全勾 · `\u8868\u8fbe\u4e0d\u51fa\u6765` = 表达不出来 */
   const OLD =
     '\\u5168\\u8bfb|\\u5168\\u52fe|\\u8868\\u8fbe\\u4e0d\\u51fa\\u6765|cannot express|is an empty list'
-  const FILES = [
-    'src/components/CardNodeForm.vue',
-    'src/components/CardNodeForm.stories.ts',
-    'src/locales/zh-CN.json',
-    'src/locales/en.json',
-  ]
+  const FILES = ['src/locales/zh-CN.json', 'src/locales/en.json']
 
   for (const file of FILES) {
     it('no stale sentence in ' + file, () => {
