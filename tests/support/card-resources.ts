@@ -10,7 +10,7 @@
  * ⚠️ **票 8d-②（2026-09-26）之后两样起了变化**：`card-resources-dom.test.ts` 与
  * `card-resource-request.test.ts`（原来最大的两个用户）随退休的资源库面板一起删了。
  * `markerOf()`（"从卡正文里取标志行"那条跨层读法）**已经回到盘上**：`prompt-request.test.ts`
- * 那两条引擎侧判据搬到了新形态上、用的还是它；`declaresNothing()` 仍然没有调用者。
+ * 那两条引擎侧判据搬到了新形态上、用的还是它。
  *
  * ⚠️ 资源的**名字**一律从 locale 现取（`prompts.settingBlock.*` 就是调试痕迹里显示的那一套），
  *    本文件与用它的测试文件里都不许出现中文字面量（.githooks/checks/ascii.mjs 连测试也拦）。
@@ -24,11 +24,6 @@ export const CARD_KEY = 'tavernGame.card'
 
 /** 示例卡：九个节点，`settings` 逐节点声明（有的不带 style） */
 export const EXAMPLE = parseCard(readFileSync(EXAMPLE_CARD, 'utf8'))
-
-/** 没写某条声明的节点（`settings` 的语义见票 76：不写 = 一块都不发） */
-export function declaresNothing(card: CardData, node: string, key: string): boolean {
-  return !Object.hasOwn(card.graph.nodes[node], key)
-}
 
 /**
  * 一份「某一步没写 `settings`」的卡 —— **票 76 那一档唯一的造法**。
