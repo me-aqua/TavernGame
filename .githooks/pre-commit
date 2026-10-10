@@ -18,8 +18,13 @@ const git = (cmd) => execSync('git ' + cmd, { encoding: 'utf8', stdio: ['ignore'
 // （曾经放在文件后半段，于是 `SKIP_DISCIPLINE=1 git commit` 直接 ReferenceError）
 /** 整页层面：布局、样式 token、文案（会影响所有组件） */
 const UI_PAGE = /^(src\/App\.vue|src\/styles\/|src\/locales\/)/
-/** 单个组件：src/components/<Name>.vue */
-const UI_COMPONENT = /^src\/components\/([A-Za-z0-9]+)\.vue$/
+/**
+ * 单个组件：src/components/<可以再分目录>/<Name>.vue。
+ *
+ * 捕获的是**相对 `src/components/` 的路径**（可以带目录）—— 提醒里要的是组件名，
+ * 而查故事文件要的是完整路径（故事文件就在组件旁边）。组件在第几层都一样。
+ */
+const UI_COMPONENT = /^src\/components\/(.+)\.vue$/
 
 // 跳过检查时也要提醒视觉检验 —— 它不是检查，是「别忘了看图」
 if (process.env.SKIP_DISCIPLINE === '1') {
@@ -52,7 +57,11 @@ const readOutput = (err) => {
  */
 function remindVisualCheck(files) {
   const pageLevel = files.filter((f) => UI_PAGE.test(f))
-  const components = [...new Set(files.map((f) => UI_COMPONENT.exec(f)?.[1]).filter(Boolean))]
+  // 匹配到的可以是 `world/SceneSigil`：提醒里用**组件名**（`-g` 过滤串要的就是它），
+  // 查故事文件要用**整条路径**（故事文件在组件旁边）—— 所以两条都留着
+  const matched = [...new Set(files.map((f) => UI_COMPONENT.exec(f)?.[1]).filter(Boolean))]
+  const namesOf = (p) => p.split('/').pop()
+  const components = [...new Set(matched.map(namesOf))]
   if (!pageLevel.length && !components.length) return
 
   console.log('')
@@ -68,7 +77,7 @@ function remindVisualCheck(files) {
       `   只看改动的那几个：npx playwright test e2e/stories.spec.ts -g "${components.join('|').toLowerCase()}"`,
     )
     console.log('   截图在 artifacts/stories/index.html（每个故事 × 浅深 × 中英）')
-    const missing = components.filter((name) => !existsSync(`src/components/${name}.stories.ts`))
+    const missing = matched.filter((p) => !existsSync(`src/components/${p}.stories.ts`)).map(namesOf)
     if (missing.length) console.log(`   ⚠️ 这些组件还没有故事文件，巡检覆盖不到：${missing.join(', ')}`)
   }
   console.log('   有意改外观时刷新基线：npx playwright test e2e/visual.spec.ts --update-snapshots')
