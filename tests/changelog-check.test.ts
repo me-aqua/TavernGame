@@ -225,7 +225,6 @@ describe('changelog check: a branch records the entry once, not once per commit 
 
   it('29 falls back to "staged only" when no baseline can be taken', () => {
     const input = noBaseline()
-    expect(input.branchCommits, 'the fixture must really be the empty list').toHaveLength(0)
     // 与「没有本分支信息」时的判定**逐字相同**
     expect(blocked(input)).toBe(blocked(featOnSource()))
     expect(reminderOf(input)).toBe(reminderOf(featOnSource()))

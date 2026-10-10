@@ -135,7 +135,6 @@ function run() {
     staged: git('diff --cached --name-only --diff-filter=ACM'),
     changelogDiff: gitText('diff --cached -- doc/CHANGELOG.md'),
     mergeHead: flags.mergeHead,
-    branchCommits: branchCommits(),
     branchChangelogDiff: branchChangelogDiff(),
   })
 
@@ -196,11 +195,6 @@ function gitText(args) {
       cause: err,
     })
   }
-}
-
-/** 本分支自 merge-base 起改过的文件（含工作区）；取不到基线就是空表 */
-function branchCommits() {
-  return git('diff --name-only ' + base())
 }
 
 /** `git diff <merge-base> -- doc/CHANGELOG.md`：本分支记过没有，只看这里的内容 */

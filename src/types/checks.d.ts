@@ -14,7 +14,6 @@ declare module '*/checks/changelog.mjs' {
     staged: string[]
     changelogDiff: string
     mergeHead?: unknown
-    branchCommits?: string[]
     branchChangelogDiff?: string
   }): { blocked: boolean; reasons: string[]; reminder: string | null }
 }

@@ -13,9 +13,9 @@
 import { readFileSync } from 'node:fs'
 
 /**
- * 一次提交的入参：本次暂存那三份 + 「本分支」那两份（契约 §3.10，组长裁决 09-17）。
+ * 一次提交的入参：本次暂存那三份 + 「本分支」那一份（契约 §3.10，组长裁决 09-17）。
  *
- * ⚠️ 为什么需要本分支那一对：单笔提交**净增上限 500 行** ⇒ 稍大的 feature 必然拆成 2–3 笔
+ * ⚠️ 为什么需要本分支那一份：单笔提交**净增上限 500 行** ⇒ 稍大的 feature 必然拆成 2–3 笔
  * （票 55 / 票 56 各三笔）⇒ 只看**本次暂存**的话，从第 2 笔起必然被拦、每笔都要写一句
  * `CHANGELOG: none —— 已在前一笔`，**纪律当场变仪式**。所以判据要把「本分支自 merge-base
  * 起的改动」算进来：**本分支已经记过一笔，后面的提交就不必再记**。
@@ -25,8 +25,6 @@ export interface CaseInput {
   staged: string[]
   changelogDiff: string
   mergeHead?: unknown
-  /** 本分支自 merge-base 起**改过**的文件（含工作区与暂存区）—— 空表 = 取不到基线 / 直接在 base 上提交 */
-  branchCommits?: string[]
   /** `git diff merge-base` 的文本 —— 「本分支记过没有」只看内容，不看文件名 */
   branchChangelogDiff?: string
 }
@@ -160,12 +158,11 @@ export function docsOnly(): CaseInput {
 /**
  * 用例 26：**同一支上的第 2 笔** —— 第 1 笔已经把 CHANGELOG 记了，这一笔只改代码。
  *
- * 本分支自 merge-base 起改过 `src/app.ts` **与** `doc/CHANGELOG.md`，且那份 diff 里有真文字。
+ * 本分支自 merge-base 起给 `doc/CHANGELOG.md` 记过一笔，且那份 diff 里有真文字。
  */
 export function secondCommitAfterRecorded(): CaseInput {
   return {
     ...featOnSource(),
-    branchCommits: ['src/app.ts', 'doc/CHANGELOG.md'],
     branchChangelogDiff: recorded('- **the first commit recorded it** - and why'),
   }
 }
@@ -174,7 +171,6 @@ export function secondCommitAfterRecorded(): CaseInput {
 export function secondCommitWithoutRecord(): CaseInput {
   return {
     ...featOnSource(),
-    branchCommits: ['src/app.ts', 'src/other.ts'],
     branchChangelogDiff: '',
   }
 }
@@ -183,12 +179,11 @@ export function secondCommitWithoutRecord(): CaseInput {
 export function secondCommitAfterBlankOnly(): CaseInput {
   return {
     ...featOnSource(),
-    branchCommits: ['src/app.ts', 'doc/CHANGELOG.md'],
     branchChangelogDiff: whitespaceOnly(),
   }
 }
 
-/** 用例 29：取不到基线（无 merge-base ⇒ 空分支表）⇒ 退回只看本次暂存 —— 与「现在的行为」逐字相同 */
+/** 用例 29：取不到基线（无 merge-base ⇒ 本分支那一份取不到）⇒ 退回只看本次暂存 —— 与「现在的行为」逐字相同 */
 export function noBaseline(): CaseInput {
-  return { ...featOnSource(), branchCommits: [], branchChangelogDiff: '' }
+  return { ...featOnSource(), branchChangelogDiff: '' }
 }
