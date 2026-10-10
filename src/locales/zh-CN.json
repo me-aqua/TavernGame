@@ -286,6 +286,7 @@
     "missingConfig": "还缺少配置：{items}。\n请点右上角「⚙ 设置」补上。",
     "requestFailed": "请求发不出去。可能原因：\n• 该服务商不允许浏览器直连（CORS 拦截）\n• 接口地址写错了：{url}\n• 网络不通或需要代理",
     "httpError": "接口返回 {status} {statusText}\n{detail}",
+    "tooLong": "这个档的对话太长了——从开局到现在的故事全都发给了模型，已经超过模型一次能吃下的长度。长期的解决办法是把前面压缩成摘要。",
     "badResponse": "回复格式看不懂：{body}",
     "emptyResponse": "回复里没有文字：{body}",
     "field": {

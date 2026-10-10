@@ -286,6 +286,7 @@
     "missingConfig": "Missing configuration: {items}.\nOpen ⚙ Settings (top right) to fill it in.",
     "requestFailed": "The request could not be sent. Likely causes:\n• The provider blocks browser requests (CORS)\n• Wrong base URL: {url}\n• No network, or a proxy is required",
     "httpError": "HTTP {status} {statusText}\n{detail}",
+    "tooLong": "This save is too long - the whole story since the beginning is sent to the model and is now longer than it can take in one go. The long-term fix is to compress the history into a summary.",
     "badResponse": "Unrecognized response shape: {body}",
     "emptyResponse": "The reply contained no text: {body}",
     "field": {

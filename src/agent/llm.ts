@@ -109,6 +109,19 @@ interface ApiErrorBody {
 }
 
 /**
+ * 服务商在说「输入太长 / 超过上下文」时用的那族词 —— **只收这六个短语**（逐字，列表之外一律不认）：
+ * `too long` / `maximum context` / `context length` / `length limit` / `token limit` / `over the limit`。
+ *
+ * ⚠️ `exceed(ed)` 一族**不在**这一族里，哪怕它后面跟着 `limit`：那些句子说的是**别的限额**
+ *    —— `exceeded token rate limit` 是速率配额、`exceeded the monthly spending limit` 是账单额度、
+ *    `exceeds the limit of 128` 是工具个数 —— 而 `exceed` 与 `limit` 之间隔着什么词是任意的：
+ *    按"中间隔几个字"去收，收进来的就是这一族别的限额，于是把另一种错误说成"上下文太长"、指错出路。
+ *    **宁可漏**（漏了照旧报原话，玩家仍能看见服务商写的英文），不可误伤。
+ * ⚠️ 一律大小写不敏感：同一句话各家大小写不一样。
+ */
+const TOO_LONG_TEXT = /too long|maximum context|context length|length limit|token limit|\bover the limit\b/i
+
+/**
  * 解析一次工具调用的参数。
  *
  * ⚠️ 这是**协议字段**，不是模型的散文：解析器给出什么就是什么。
@@ -199,6 +212,18 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
     } catch {
       // 成功路径：网关返回 HTML 错误页（502 等）时本来就不是 JSON
     }
+
+    // 服务商在说「输入太长 / 超上下文」时换成一句人话：那是玩家唯一能动手的一件事
+    // （压缩历史），而原话是英文术语 + token 数字，指不了任何行动。
+    // ⚠️ 判定读 raw 全文：长度那句话可能排在兜底那 300 字符之外（`detail` 为空时更远），
+    //    只看 `detail` 会漏掉整整一类服务商。
+    // ⚠️ 射程只到 4xx（客户端错误）：服务商 5xx 时我们看到的不是它的原话，
+    //    照 4xx 一样认会误伤 —— 漏掉一条比说错一句好。
+    // 状态码只当粗筛，判据是原话本身：同为 413，说「太长」的认、说别的照旧。
+    if (res.status >= 400 && res.status < 500 && TOO_LONG_TEXT.test(raw)) {
+      throw new Error(t('llm.tooLong'))
+    }
+
     throw new Error(
       t('llm.httpError', {
         status: res.status,
