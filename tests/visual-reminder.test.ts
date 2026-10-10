@@ -178,4 +178,24 @@ describe('pre-commit visual reminder: a component is a component at any depth', 
     },
     HOOK_TIMEOUT,
   )
+
+  // 第 6 条钉的是「再深一层」：`world/` 是第二层，匹配若被写成只认某一层，
+  // 这条会红 —— 而「某一层被漏掉」正是这个提醒的原始缺陷，这一条防的是它复发。
+  it(
+    '6 reminds about a component three levels deep under src/components/',
+    () => {
+      const withStory = remindFor('src/components/world/deep/Thing.vue', true)
+      expect(withStory, 'the reminder must fire for src/components/world/deep/').toContain('npm run stories')
+      expect(
+        withStory,
+        'the reminder must name the component itself, not the directory it sits in',
+      ).toContain('Thing')
+      const without = remindFor('src/components/world/deep/Thing.vue', false)
+      expect(
+        without.split('\n').length,
+        'the story file is looked up beside a deep component: ' + without,
+      ).toBeGreaterThan(withStory.split('\n').length)
+    },
+    HOOK_TIMEOUT,
+  )
 })
