@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = join(HERE, '..')
-const PORT = 4177
+const PORT = 4178
 const BASE_URL = `http://localhost:${PORT}`
 
 export default defineConfig({

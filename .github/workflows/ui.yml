@@ -71,6 +71,22 @@ jobs:
       - name: Full page structure check (pixel baselines stay on macOS)
         run: npx playwright test e2e/visual.spec.ts --ignore-snapshots
 
+      # v2 是独立应用：自己的单测 / 类型 / 构建 / 浏览器层
+      - name: v2 unit + typecheck + build
+        run: |
+          npm run v2:test
+          npm run v2:typecheck
+          npm run v2:build
+
+      - name: v2 e2e
+        run: npm run v2:e2e
+
+      - name: v2 component stories
+        run: npm run v2:stories
+
+      - name: v2 full page structure check (pixel baselines stay local)
+        run: npx playwright test --config v2/playwright.visual.config.mjs --ignore-snapshots
+
       # 截图与总览页始终上传：改界面的人要在这里看图，绿了也要看
       - name: Upload screenshots
         if: always()

@@ -287,7 +287,7 @@ export function advanceTime(tree, hours) -> tree                               /
 - `POST ${baseUrl}/chat/completions`，头 `Authorization: Bearer ${apiKey}`、`Content-Type: application/json`；
   body 至少 `{ model, stream: true, messages: [{ role, content }, ...], tools: [...] }`。
 - `apiKey` 为空 ⇒ **不发请求**，直接 `E_PROVIDER`（消息说明「没填 Key」+ 下一步指向设置页）。
-- 4xx/5xx、断网、DNS 失败、超时（阶段 1 不设主动超时，但 fetch 自身失败要归到 `E_PROVIDER`）⇒ `E_PROVIDER`。
+- 4xx/5xx、断网、DNS 失败、超时（阶段 1 有 60 秒主动超时，归到 `E_PROVIDER`；玩家中止仍归 `E_ABORTED`）⇒ `E_PROVIDER`。
 - 上游报文原样塞进 `detail.upstream`；界面**不许**只显示英文原文。
 
 ---
