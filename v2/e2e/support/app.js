@@ -67,13 +67,19 @@ export const promptRead = (promptId) => `[data-prompt-read][data-prompt-id="${pr
 export const upstreamRead = (upstreamId) => `[data-read-upstream][data-upstream-id="${upstreamId}"]`
 
 /**
- * 调试面板里**某个节点**的那一格（CONTRACT §8.3）：`[data-debug-node="<id>"]` 里
- * 各自有 `[data-debug-prompt]` / `[data-debug-response]` —— 面板是按节点分段的，
- * 拿一个全局 `[data-debug-prompt]` 去读会命中多个（strict mode 直接红）。
+ * 故事流里的调试读数（CONTRACT §8.3）：**一个节点一张 trace 卡片**，卡片带节点 id 与回合号。
+ * 提示词 / 预设这类读数都住在卡片里，所以必须带节点那一格 —— 拿全局 `[data-trace-prompt]`
+ * 去读会命中多张（strict mode 直接红）。
  */
-export const nodeDebug = (nodeId) => `[data-debug-node="${nodeId}"]`
-export const debugPrompt = (nodeId) => `${nodeDebug(nodeId)} [data-debug-prompt]`
-export const debugResponse = (nodeId) => `${nodeDebug(nodeId)} [data-debug-response]`
+export const traceCard = (nodeId, turn) =>
+  turn === undefined
+    ? `[data-trace][data-trace-node="${nodeId}"]`
+    : `[data-trace][data-trace-node="${nodeId}"][data-trace-turn="${turn}"]`
+export const tracePrompt = (nodeId) => `${traceCard(nodeId)} [data-trace-prompt]`
+export const tracePreset = (nodeId) => `${traceCard(nodeId)} [data-trace-preset]`
+
+/** 一回合的合计读数行（紧凑一行：回合 / 总 token / 总耗时 / t/s），永远在 */
+export const turnStatsRow = (turn) => `[data-turn-stats][data-turn-stats-turn="${turn}"]`
 
 /**
  * 首次打开会种一张内置示例卡（晨风镇），标记住 `tg2.settings.sampleSeeded`（README/契约 §2.4）。

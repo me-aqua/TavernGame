@@ -3,12 +3,14 @@
  *
  *   ① **没有封面、没有开始按钮**：打开存档直接看见故事流，第一段是「开场」那块提示词的**正文**；
  *   ② 消息里只有输入框 + `[data-send]`；
- *   ③ 右上角 `[data-debug-toggle]` 是**开关**（`?debug=1` 只是初始态）：
- *      开 = 逐节点读数（提示词 / 返回 / token / t/s / 耗时）+ 总耗时；
- *      关 = 只剩最终故事 + 表头一行本回合总耗时 `[data-turn-ms]`。
+ *   ③ 调试读数**内联在故事流里**（右侧面板与 `[data-turn-ms]` 表头都已删除）：
+ *      关 = 只剩故事 + 每回合一行合计 `[data-turn-stats]`（回合 / 总 token / 总耗时 / t/s）；
+ *      开 = 每个节点一张 `[data-trace]` 卡片（提示词 / 思考 / 工具 / 输出 / token / t/s / 耗时 / 预设）。
  *
- * 为什么要单独一份：这三条都是「界面在不在」的事，单测看不见；而调试面板是**唯一**
- * 能看见「这一步到底用了哪个预设 / 拼了什么提示词」的地方，它的开与关都必须能翻面。
+ * 为什么单独一份：这三条都是「界面在不在」的事，单测看不见；而 trace 卡片是**唯一**
+ * 能看见「这一步到底用了哪个预设 / 拼了什么提示词」的地方 —— 它的开、关、以及
+ * **加载旧存档后再打开开关也要补出历史回合**（读数落在 `save.events`，不是内存里那一回合），
+ * 都必须能翻面。
  *
  * 🔴 这一份**不用 `playTurn(page, action, n)`**：`n` 数的是「故事流里正文的条数」，
  *    而「开场」的正文也是 story 里的一条 narration —— 带开场正文的卡跑一回合到底算 2 条还是 3 条，
@@ -27,9 +29,13 @@ import {
   openStory,
   readStorage,
   slowMock,
+  traceCard,
+  turnStatsRow,
 } from './support/app.js'
 
 const CARD_ID = 'c1'
+/** 夹具卡的节点 id（链顺序）：time → check → extra → output */
+const NODE_IDS = ['time', 'check', 'extra', 'output']
 
 /** 一个「真」预设：请求会被 `page.route` 拦掉，不联外网 */
 const REAL_PRESET = {
@@ -112,21 +118,33 @@ test.describe('对话页：没有封面、开场是故事第一段', () => {
   })
 })
 
-test.describe('对话页：调试开关', () => {
-  test('关着：没有面板 / 逐节点行，表头 [data-turn-ms] 是本回合总耗时', async ({ page }) => {
+test.describe('对话页：调试开关（读数内联在故事流里）', () => {
+  test('关着：没有 trace 卡片，每回合一行 [data-turn-stats]（回合 / token / 耗时 / 速率）', async ({
+    page,
+  }) => {
     await boot(page, { storage: seeded() })
     await openStory(page, CARD_ID, 's1')
     const toggle = page.locator('[data-debug-toggle]')
     await expect(toggle).toHaveAttribute('data-on', 'false')
     await playOneTurn(page, { action: 'act one', turn: 1, narrationText: mockNarration(1, 'act one') })
+    await playOneTurn(page, { action: 'act two', turn: 2, narrationText: mockNarration(2, 'act two') })
 
-    await expect(page.locator('[data-debug]')).toHaveCount(0)
-    await expect(page.locator('[data-debug-node]')).toHaveCount(0)
-    const turnMs = page.locator('[data-turn-ms]')
-    await expect(turnMs).toBeVisible()
-    // 「总耗时」：中文标签（本回合）+ 毫秒数 + ms 单位
-    await expect(turnMs).toHaveText(CJK)
-    await expect(turnMs).toHaveText(/\d+\s*ms/)
+    // 旧的调试面板钩子按老板口径整块删除 —— 一个都不许回来
+    await expect(page.locator('[data-trace]')).toHaveCount(0)
+    for (const gone of ['[data-debug]', '[data-debug-node]', '[data-debug-prompt]', '[data-turn-ms]']) {
+      await expect(page.locator(gone), `${gone} 已被删除`).toHaveCount(0)
+    }
+
+    // 合计读数永远在：两回合各一行
+    await expect(page.locator('[data-turn-stats]')).toHaveCount(2)
+    for (const turn of [1, 2]) {
+      const row = page.locator(turnStatsRow(turn))
+      await expect(row.locator('[data-turn-stats-turn]')).toContainText(String(turn))
+      // mock 不给用量 / 速率 ⇒ 说「没有」，不拿 0 冒充（CONTRACT §8.3）
+      await expect(row.locator('[data-turn-stats-tokens]'), '没有用量时不许写 0').toHaveText(CJK)
+      await expect(row.locator('[data-turn-stats-ms]')).toHaveText(/\d+\s*ms/)
+      await expect(row.locator('[data-turn-stats-tps]'), '没有速率时不许写 0').toHaveText(CJK)
+    }
   })
 
   test('关着：故事流只有 output 那条正文 —— 上游节点的返回一个字符都不许漏进去', async ({ page }) => {
@@ -154,58 +172,91 @@ test.describe('对话页：调试开关', () => {
     await expect(narrations).toHaveCount(2) // 开场 + 本回合 output 正文
     await expect(narrations.first()).toHaveText('OPENING_LINE')
     await expect(narrations.last()).toHaveText('OUTPUT_TEXT')
-    // 其余三个节点的返回只许住在调试面板里（现在是关着的 ⇒ 屏上任何地方都不该有）
+    // 其余三个节点的返回只许住在 trace 卡片里（调试关着 ⇒ 屏上任何地方都不该有）
     const screen = (await page.locator('[data-page="play"]').textContent()) ?? ''
     for (const mark of ['TIME_TEXT', 'CHECK_TEXT', 'EXTRA_TEXT']) {
       expect(screen.includes(mark), `${mark} 漏进了故事流（只有 output 能进）`).toBe(false)
     }
   })
 
-  test('打开：逐节点的 提示词 / 返回 / token / t/s / 耗时 + 本回合总耗时都在', async ({ page }) => {
+  test('打开：每个节点一张 trace 卡片，按链顺序；提示词 / 工具 / 输出 / 读数都在', async ({ page }) => {
     await boot(page, { storage: seeded() })
     await openStory(page, CARD_ID, 's1')
     await playOneTurn(page, { action: 'act one', turn: 1, narrationText: mockNarration(1, 'act one') })
     await page.locator('[data-debug-toggle]').click()
 
-    await expect(page.locator('[data-debug]')).toBeVisible()
-    await expect(page.locator('[data-debug-total]')).toHaveText(CJK)
-    await expect(page.locator('[data-debug-total]')).toHaveText(/\d+\s*ms/)
-    // 开着时表头那一行让位给面板（总耗时只报一次）
-    await expect(page.locator('[data-turn-ms]')).toHaveCount(0)
+    const cards = page.locator('[data-trace]')
+    await expect(cards, '四个节点 = 四张卡片').toHaveCount(4)
+    const nodeIds = await cards.evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute('data-trace-node')),
+    )
+    expect(nodeIds, '卡片必须按链顺序排').toEqual(['time', 'check', 'extra', 'output'])
+    const turns = await cards.evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute('data-trace-turn')),
+    )
+    expect(turns).toEqual(['1', '1', '1', '1'])
 
     for (const nodeId of ['time', 'check', 'extra', 'output']) {
-      const row = page.locator(`[data-debug-node="${nodeId}"]`)
-      await expect(row, `调试面板缺 ${nodeId} 这一行`).toHaveCount(1)
-      // 每一行都要有**这一节点**的五样读数
-      await expect(row.locator('[data-debug-duration]')).toHaveText(/\d+\s*ms/)
-      await expect(row.locator('[data-debug-tokens]')).not.toHaveText('')
-      await expect(row.locator('[data-debug-tps]')).not.toHaveText('')
-      await expect(row.locator('[data-debug-prompt]')).not.toHaveText('')
-      await expect(row.locator('[data-debug-response]')).toHaveCount(1)
+      const card = page.locator(traceCard(nodeId))
+      await expect(card, `缺少 ${nodeId} 的 trace 卡片`).toHaveCount(1)
+      // 五样读数一个不少：提示词 / 耗时 / token / t/s / 预设
+      await expect(card.locator('[data-trace-prompt]')).not.toHaveText('')
+      await expect(card.locator('[data-trace-ms]')).toHaveText(/\d+\s*ms/)
+      await expect(card.locator('[data-trace-tokens]')).toHaveText(CJK)
+      await expect(card.locator('[data-trace-tps]')).toHaveText(CJK)
+      await expect(card.locator('[data-trace-preset]')).toContainText(MOCK_PRESET.id)
     }
-    // 输出节点的提示词与返回逐字在；普通节点这一回合没有正文（mock 只回工具调用）⇒ 返回可以为空
-    await expect(page.locator('[data-debug-node="output"] [data-debug-prompt]')).toContainText('NODE_OUT')
-    await expect(page.locator('[data-debug-node="output"] [data-debug-response]')).toHaveText(
-      mockNarration(1, 'act one'),
-    )
-    // mock 不给用量 ⇒ 面板要说「没有用量 / 没有速率」，不是空白、也不是 0
-    await expect(page.locator('[data-debug-node="output"] [data-debug-tokens]')).toHaveText(CJK)
-    await expect(page.locator('[data-debug-node="output"] [data-debug-tps]')).toHaveText(CJK)
-    await expect(page.locator('[data-debug-presets]')).toContainText(MOCK_PRESET.id)
+
+    // 输出节点：提示词与正文逐字在；没有工具调用 / 思考 ⇒ 不画空框
+    const outputCard = page.locator(traceCard('output'))
+    await expect(outputCard.locator('[data-trace-prompt]')).toContainText('NODE_OUT')
+    await expect(outputCard.locator('[data-trace-output]')).toHaveText(mockNarration(1, 'act one'))
+    await expect(outputCard.locator('[data-trace-tools]')).toHaveCount(0)
+    await expect(outputCard.locator('[data-trace-thinking]')).toHaveCount(0)
+
+    // 时间节点：工具调用带着执行结果；这一节点没有正文
+    const timeCard = page.locator(traceCard('time'))
+    await expect(timeCard.locator('[data-trace-tool]')).toHaveCount(1)
+    await expect(timeCard.locator('[data-trace-tool-result]')).toContainText('day 1 hour 9')
+    await expect(timeCard.locator('[data-trace-output]')).toHaveCount(0)
+
+    // 开关开着时合计行照样在（不是「表头让位给面板」那套旧口径）
+    await expect(page.locator(turnStatsRow(1))).toBeVisible()
   })
 
-  test('没有 ?debug 时打开开关：跑下一回合仍然保持（开关是页面里的状态）', async ({ page }) => {
+  test('加载后打开开关 / 刷新：历史回合的 trace 全在，且按链顺序', async ({ page }) => {
     await boot(page, { storage: seeded() })
     await openStory(page, CARD_ID, 's1')
-    const toggle = page.locator('[data-debug-toggle]')
-    await toggle.click()
-    await expect(toggle).toHaveAttribute('data-on', 'true')
-
     await playOneTurn(page, { action: 'act one', turn: 1, narrationText: mockNarration(1, 'act one') })
     await playOneTurn(page, { action: 'act two', turn: 2, narrationText: mockNarration(2, 'act two') })
-    await expect(toggle).toHaveAttribute('data-on', 'true')
-    await expect(page.locator('[data-debug]')).toBeVisible()
-    await expect(page.locator('[data-debug-node="output"]')).toHaveCount(1)
+    await expect(page.locator('[data-trace]'), '关着时一张卡片都不该有').toHaveCount(0)
+
+    await page.locator('[data-debug-toggle]').click()
+
+    const cards = page.locator('[data-trace]')
+    await expect(cards, '两回合 × 四节点 = 八张卡片').toHaveCount(8)
+    await expect(cards.first()).toHaveAttribute('data-trace-node', 'time')
+    await expect(cards.first()).toHaveAttribute('data-trace-turn', '1')
+    await expect(cards.last()).toHaveAttribute('data-trace-node', 'output')
+    await expect(cards.last()).toHaveAttribute('data-trace-turn', '2')
+    await expect(page.locator('[data-turn-stats]')).toHaveCount(2)
+    // 历史回合不是空壳：第一回合的提示词里还是当时的行动
+    await expect(page.locator(traceCard('output', 1)).locator('[data-trace-prompt]')).toContainText('act one')
+    await expect(page.locator(traceCard('output', 2)).locator('[data-trace-prompt]')).toContainText('act two')
+
+    // 刷新（`?debug=1`）：读数来自存档 ⇒ 历史两回合的每一步都还在，顺序仍是链顺序
+    await openStory(page, CARD_ID, 's1', { debug: true })
+    const afterReload = page.locator('[data-trace]')
+    await expect(afterReload, '刷新后历史回合的 trace 不许丢').toHaveCount(8)
+    const nodeIds = await afterReload.evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute('data-trace-node')),
+    )
+    expect(nodeIds).toEqual([...NODE_IDS, ...NODE_IDS])
+    const turns = await afterReload.evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute('data-trace-turn')),
+    )
+    expect(turns).toEqual(['1', '1', '1', '1', '2', '2', '2', '2'])
+    await expect(page.locator('[data-turn-stats]')).toHaveCount(2)
   })
 
   test('?debug=1 只是初始态：关掉之后跑一回合仍关，刷新才回到开', async ({ page }) => {
@@ -218,12 +269,15 @@ test.describe('对话页：调试开关', () => {
     await expect(toggle).toHaveAttribute('data-on', 'false')
     await playOneTurn(page, { action: 'act one', turn: 1, narrationText: mockNarration(1, 'act one') })
     await expect(toggle).toHaveAttribute('data-on', 'false')
-    await expect(page.locator('[data-debug]')).toHaveCount(0)
+    await expect(page.locator('[data-trace]')).toHaveCount(0)
+    // 关着也有合计行 —— 它不是调试面板的一部分
+    await expect(page.locator('[data-turn-stats]')).toHaveCount(1)
 
-    // 刷新：重新读 URL 的初始态 ⇒ 又开了（`?debug=1` 只是初始值，不是持久状态）
+    // 刷新：重新读 URL 的初始态 ⇒ 又开了，而且历史回合的 trace 从存档里补出来
     await page.reload()
     await expect(page.locator('[data-debug-toggle]')).toHaveAttribute('data-on', 'true')
-    await expect(page.locator('[data-debug]')).toBeVisible()
+    await expect(page.locator('[data-trace]')).toHaveCount(4)
+    await expect(page.locator('[data-trace]').first()).toHaveAttribute('data-trace-turn', '1')
   })
 
   test('开关状态不写盘（它是看板，不是设置）', async ({ page }) => {

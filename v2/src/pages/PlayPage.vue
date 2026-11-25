@@ -9,8 +9,12 @@
  *   · **没有封面 / 开始按钮**：打开存档直接看到「开场」这一块提示词的正文（故事的第一段），
  *     下面是故事流与输入区。
  *
- * 右上角 `[data-debug-toggle]` 决定调试面板看不看：开着是逐节点读数（提示词 / 返回 / token /
- * t/s / 耗时），关着时页面上只剩最终故事与本回合总耗时。`?debug=1` 只是它的初始状态。
+ * 右上角 `[data-debug-toggle]` 决定**故事流里看不看逐节点读数**：开着时每个节点一张卡片
+ * （提示词组装 / 思考 / 工具调用 / 输出 / 用量与耗时），关着时只剩故事与每回合一行合计读数。
+ * `?debug=1` 只是它的初始状态。
+ *
+ * 🔴 **读数来自存档**：每个节点的 trace 与每回合的 turnStats 都落在 `save.events` 里 ——
+ * 所以打开一份旧存档再点开调试，也能看见当时每一步（不用重跑模型）。
  *
  * 🔴 **读盘失败时只留表头 + 错误面板**（`loadFailed`）：存档 / 卡快照读不进来时，
  * 页面上的故事流与输入区一律不渲染 —— 那两者后面挂着「写回整份存档」，坏数据一被写回
@@ -18,16 +22,14 @@
  * 那种失败之后故事与输入框必须还在。
  */
 import { computed, onMounted, ref } from 'vue'
-import DebugPanel from '../components/DebugPanel.vue'
 import ErrorPanel from '../components/ErrorPanel.vue'
 import StoryView from '../components/StoryView.vue'
-import type { StoryLine } from '../components/types'
+import type { StoryItem } from '../components/types'
 import { asAppError, storage } from '../app-context'
 import { AppError } from '../core/errors'
-import type { DebugPayload } from '../core/engine'
 import { runTurn } from '../core/engine'
 import { OPENING_PROMPT_ID, validateCard, validateSave } from '../core/schema'
-import type { Preset, Save } from '../core/types'
+import type { Preset, Save, SaveEvent, TraceDetail, TurnStatsDetail } from '../core/types'
 import { t } from '../i18n'
 import { routeHash } from '../router'
 
@@ -37,14 +39,15 @@ const save = ref<Save | null>(null)
 const presets = ref<Preset[]>([])
 const nodePresets = ref<Record<string, string>>({})
 const error = ref<AppError | null>(null)
-/** 读盘失败：故事流 / 输入框 / 发送 / 调试面板都不许出现（一写盘就会覆盖盘上那份坏存档） */
+/** 读盘失败：故事流 / 输入框 / 发送 / 调试开关都不许出现（一写盘就会覆盖盘上那份坏存档） */
 const loadFailed = ref(false)
 const running = ref(false)
 const streaming = ref('')
 const draft = ref('')
 const status = ref('')
-const debug = ref<DebugPayload | null>(null)
 const debugEnabled = ref(new URLSearchParams(location.search).get('debug') === '1')
+/** 本轮**还没落盘**的 trace / turnStats：边跑边显示，回合结束就并进 `save.events` */
+const liveEvents = ref<SaveEvent[]>([])
 let controller: AbortController | null = null
 
 /** 故事的第一段：「开场」那块公共提示词的正文（空则不放） */
@@ -52,13 +55,25 @@ const openingBody = computed(
   () => save.value?.cardSnapshot.prompts.find((prompt) => prompt.id === OPENING_PROMPT_ID)?.body ?? '',
 )
 
-const lines = computed<StoryLine[]>(() => {
-  const events = save.value?.events ?? []
-  const story: StoryLine[] = events
-    .filter((event) => event.type === 'action' || event.type === 'narration')
-    .map((event) => ({ type: event.type as StoryLine['type'], text: event.text }))
-  if (openingBody.value !== '') story.unshift({ type: 'narration', text: openingBody.value })
-  return story
+/**
+ * 故事流时间轴：按 `save.events` 的顺序排，再拼上本轮还在路上的那几条。
+ *   · action / narration：永远在；
+ *   · trace：只在调试开着时放进来（历史回合的 trace 也在存档里，所以加载旧存档也看得见）；
+ *   · turnStats：永远在（紧凑一行合计读数）。
+ */
+const items = computed<StoryItem[]>(() => {
+  const timeline: StoryItem[] = []
+  for (const event of [...(save.value?.events ?? []), ...liveEvents.value]) {
+    if (event.type === 'action' || event.type === 'narration') {
+      timeline.push({ type: event.type, text: event.text })
+    } else if (event.type === 'trace' && debugEnabled.value) {
+      timeline.push({ type: 'trace', trace: event.detail as TraceDetail })
+    } else if (event.type === 'turnStats') {
+      timeline.push({ type: 'turnStats', stats: event.detail as TurnStatsDetail })
+    }
+  }
+  if (openingBody.value !== '') timeline.unshift({ type: 'narration', text: openingBody.value })
+  return timeline
 })
 
 onMounted(() => {
@@ -96,6 +111,7 @@ async function send(): Promise<void> {
   running.value = true
   streaming.value = ''
   error.value = null
+  liveEvents.value = []
   controller = new AbortController()
   try {
     const result = await runTurn({
@@ -105,13 +121,16 @@ async function send(): Promise<void> {
       nodePresets: nodePresets.value,
       action,
       signal: controller.signal,
+      // 实时事件：正文增量拼进 streaming；trace / turnStats 先驻在 liveEvents 里
       onEvent: (event) => {
         if (event.type === 'chunk') streaming.value += event.text
+        // trace / turnStats 也实时发出来：调试开着时，卡片在这一回合跑完之前就逐张出现
+        else if (event.type === 'trace' || event.type === 'turnStats') liveEvents.value.push(event)
       },
     })
     save.value = result.save
+    liveEvents.value = []
     persistSave(result.save)
-    debug.value = result.debug
     draft.value = ''
     status.value = t('play.status', { turn: result.save.turn })
   } catch (cause) {
@@ -121,6 +140,8 @@ async function send(): Promise<void> {
   } finally {
     running.value = false
     streaming.value = ''
+    // 中止 / 出错时这一回合的存档没写：刚收到的 trace 也不能留在屏幕上
+    liveEvents.value = []
     controller = null
   }
 }
@@ -141,9 +162,6 @@ function goBack(): void {
       <span class="page-title ellipsis">{{ save ? save.cardSnapshot.name : cardId }}</span>
       <span class="muted">{{ save ? save.name : saveId }}</span>
       <span class="spacer"></span>
-      <span v-if="!debugEnabled && debug" class="muted" data-turn-ms>
-        {{ t('play.turnMs', { ms: Math.round(debug.totalMs) }) }}
-      </span>
       <span class="turn" data-turn>{{ save ? save.turn : 0 }}</span>
       <span class="muted status ellipsis" data-status>{{ status }}</span>
       <button
@@ -160,7 +178,7 @@ function goBack(): void {
 
     <div v-if="!loadFailed" class="page-body">
       <div class="play-main">
-        <StoryView :lines="lines" :streaming="streaming" />
+        <StoryView :items="items" :streaming="streaming" />
 
         <div class="composer">
           <textarea
@@ -177,8 +195,6 @@ function goBack(): void {
           <button v-if="running" type="button" data-stop @click="stop">{{ t('play.stop') }}</button>
         </div>
       </div>
-
-      <DebugPanel v-if="debugEnabled" :debug="debug" />
     </div>
   </div>
 </template>

@@ -6,6 +6,8 @@
 > **与 SPEC 冲突时以 SPEC 为准**，并把冲突报给组长 —— 本文不擅自改需求。
 > 例外：老板 2026-11-25 的六条变更（上游按节点读 / 读眼睛回右栏 / 写权限 / 删校对 / 调试开关 / 去封面）
 > 已落进本文 §2.1 · §4.1 · §5 · §6.1 · §8.2 · §8.3 · §9.5 #13；这几处以本文为准，SPEC 的旧段待同步。
+> 追加（老板 2026-11-25 晚）：**读/写按钮改成看得见的 chip**（§8.2）· **调试读数内联进故事流并落盘**
+> （§2.2 / §4.1–§4.3 / §8.3）· **provider 捕获思考**（§4.5）—— 以本文为准，SPEC 的旧段待同步。
 
 ## 0. 四条总则
 
@@ -149,8 +151,16 @@ v2/
 
 - `tree` 新建时由 `cardSnapshot.state[].initial` 逐个拷贝（深拷贝，不许引用同一对象）。
 - `tree['0']` 恒为 `{ day: number, hour: number }`，其余键恒为字符串。
-- `Event = { type, text, detail?, at }`，`type ∈ 'action' | 'narration' | 'node' | 'request' | 'tool' | 'write' | 'toolResult' | 'error'`。
+- `Event = { type, text, detail?, at }`，
+  `type ∈ 'action' | 'narration' | 'node' | 'request' | 'tool' | 'write' | 'toolResult' | 'error' | 'trace' | 'turnStats'`。
   **`chunk` 不是持久事件**（流式增量只走 `onEvent`，不落盘）。
+- `trace` / `turnStats` 是**调试读数，落盘**（老板 2026-11-25：重开旧存档也要能看见每一步）：
+  - `trace`（每个节点一条，按链顺序）：`detail = { nodeId, nodeName, nodeType, presetId, prompt,
+thinking, toolCalls: [{ name, args, result? }], output, usage: { inputTokens, outputTokens,
+totalTokens } | null, durationMs, tps: number | null, turn }`；`text = node.name`。
+    `result` 是引擎执行这次工具调用后的可读结果（推进后的时间 / 写入的值）。
+  - `turnStats`（每回合一条，回合末尾）：`detail = { turn, totalMs, usage, tps }`；`text = 'turn <n>'`。
+    `usage` 是本回合各节点用量之和，`tps` 是本回合整体吞吐（量不出为 `null`）。
 - 改卡不影响旧存档：引擎**一律读 `save.cardSnapshot`**，不读 `tg2.cards`。判据：`v2/e2e/snapshot.spec.js`。
 
 ### 2.3 Preset
@@ -246,7 +256,7 @@ export function createStorage(backend = globalThis.localStorage) -> Storage
 ### 4.1 公共 API
 
 ```js
-export async function runTurn({ card, save, presets, nodePresets, action, onEvent, signal }) -> { save, events, debug }
+export async function runTurn({ card, save, presets, nodePresets, action, onEvent, signal }) -> { save, events }
 export function resolveNodePreset({ presets, nodePresets, nodeId }) -> Preset   // 纯函数：单个节点的模型解析
 export function applyWrite({ card, node, tree, path, value }) -> tree           // 纯函数，返回新 tree
 export function advanceTime(tree, hours) -> tree                               // 纯函数
@@ -262,14 +272,11 @@ export function advanceTime(tree, hours) -> tree                               /
   3. 找不到（池子空、或映射指向一个已被删掉的预设）⇒ `E_VALIDATION`
      （消息说「这个节点的模型预设没了 / 还没有模型预设」，下一步指向设置页）。
      **卡里没有、也不许有模型绑定**：卡上残留的 `presetId` 一律忽略。
-- `debug`（`?debug=1` 要用）：
-  `{ prompts: { [nodeId]: string }, responses: { [nodeId]: string }, tools: [{ nodeId, name, args }],
-usage: object|null, presets: { [nodeId]: presetId }, nodes: { [nodeId]: { durationMs, usage, tps } },
-totalMs: number }`
-  —— `debug.presets` 是**解析结果**（哪一步用了哪个预设），排障就靠它；
-  `debug.nodes` 是**逐节点实测读数**：`durationMs` 只包住那一次 provider / mock 调用，
-  `usage` 是这一次调用的用量（mock 为 `null`），`tps` = 每秒输出 token（没有用量 / 耗时为 0 ⇒ `null`）；
-  `debug.totalMs` 是本回合从头到尾的墙钟耗时。
+- `debug` 不再有独立载荷（老板 2026-11-25）：**逐节点读数就是 `trace` 事件**，
+  **合计读数就是 `turnStats` 事件**（§2.2）。两者都进 `save.events`，同时经 `onEvent` 实时发出去；
+  对话页只从事件流重建时间轴，因此**重新打开旧存档也能看见历史回合的每一步**。
+  每个 `trace` 的 `prompt` 是这一节点拼出的提示词，`presetId` 是**解析结果**（哪一步用了哪个预设），
+  `usage` / `tps` / `durationMs` 是这一次调用的实测读数（mock 的 `usage` / `tps` 为 `null`）。
 
 ### 4.2 一回合的执行
 
@@ -279,8 +286,9 @@ totalMs: number }`
    （调用方通常直接传 `save.cardSnapshot` 当 `card`，但两者不一致时以参数为准并校验同 id。）
 2. 追加一条 `action` 事件（`text = action`）。
 3. 按 `chain` 顺序逐节点执行（§4.3）。每节点**恰好一次** provider 调用（阶段 1 不做多步工具循环）。
-   每节点开头追加一条 `node` 事件：`{ type:'node', text: <node.name>, detail: { id, type } }`。
-4. 回合收尾：`turn += 1`、`updatedAt` 刷新、返回 `{ save, events, debug }`。
+   每节点开头追加一条 `node` 事件：`{ type:'node', text: <node.name>, detail: { id, type } }`；
+   节点跑完（模型返回 + 工具执行完）追加一条 `trace` 事件（§2.2）。
+4. 回合收尾：追加一条 `turnStats` 事件、`turn += 1`、`updatedAt` 刷新、返回 `{ save, events }`。
    `save.events` = 旧事件 + 本回合新事件；返回的 `events` = **只有本回合新事件**（同一批对象）。
 
 ### 4.3 节点类型语义
@@ -296,9 +304,10 @@ totalMs: number }`
 - `applyWrite`：`path` 不在 `node.writable` ⇒ `E_CHAIN`（`detail = { path, writable }`）；
   `path` 不在 `card.state` ⇒ `E_CHAIN`（`detail = { path }`）；`value` 不是字符串 ⇒ `E_VALIDATION`。
   合法则返回**新** tree（浅拷贝改一个键，入参 tree 一个字都不改）。
-- 工具调用被引擎执行时各记两条事件：`tool`（`detail = { name, args }`）与 `write`（`detail = { path, value }`）。
+- 工具调用被引擎执行时各记两条事件：`tool`（`detail = { name, args }`）与 `write`（`detail = { path, value }`）；
+  同一次调用还进该节点的 `trace.toolCalls`（带 `result`）。
   模型回文本里的工具调用（非原生 `tool_calls`）**一律不认**。
-- 节点文本：`output` 节点的文本 → `narration` 事件（`text` 为整段）；其余节点的文本只进 `debug.responses`。
+- 节点文本：`output` 节点的文本 → `narration` 事件（`text` 为整段）；所有节点的文本都进自己的 `trace.output`。
 
 ### 4.4 流式与中止
 
@@ -316,6 +325,9 @@ totalMs: number }`
 - `apiKey` 为空 ⇒ **不发请求**，直接 `E_PROVIDER`（消息说明「没填 Key」+ 下一步指向设置页）。
 - 4xx/5xx、断网、DNS 失败、超时（阶段 1 有 60 秒主动超时，归到 `E_PROVIDER`；玩家中止仍归 `E_ABORTED`）⇒ `E_PROVIDER`。
 - 上游报文原样塞进 `detail.upstream`；界面**不许**只显示英文原文。
+- **思考增量**：AI SDK 的 `fullStream` 若发 `reasoning-delta`，把增量拼进 `ProviderReply.reasoning`，
+  再进该节点 `trace.thinking`；没有就**是空串**（不补、不猜、不用别的东西冒充）。
+  mock 提供方一律返回空串（§7）。
 
 ---
 
@@ -483,6 +495,9 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
     `output` 一只都没有，`normal` 每一行都有；
   - **S2**（选中元素）：栏顶出现 `[data-add-state]`（裸 `+`），**每一行**出现 `[data-delete-state]`
     （裸 `×`；`'0'` 这一行永远没有它）。眼睛在 S2 不出现。
+- **读 / 写是看得见的 chip**（老板 2026-11-25）：所有读/写按钮共用全局 `.chip`
+  —— 关着时也有底色与边框（不是幽灵按钮），**开着 = `--accent` 实心 + `--accent-ink` 文字**；
+  比旧的 24px 高（26×30 起），文字标签「读 / 写」保留。三处：状态树读/写、细条上游读、右栏提示词读。
 - 状态树 `[data-state-tree]`：每行 `[data-state-item="<code>"]`，行内 `[data-state-code]`（显示编码）、
   `[data-state-name]`。
 - 中栏四形态（互斥，按选中对象切换）：
@@ -524,7 +539,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   它后面才是历史回合与正在流的正文。
 - **跑的一律是 `save.cardSnapshot`**（不是 `tg2.cards` 里那张现卡）：改卡 —— 含改提示词、改眼睛、
   改初值 —— **只影响之后新建的存档**。旧存档按它冻结时的那张卡跑（SPEC §2 / §9.4）。
-  ⇒ 「关掉眼睛看 prompt 变化」的验收流程是：改眼睛 → **新建存档** → 跑一回合 → 看调试面板。
+  ⇒ 「关掉眼睛看 prompt 变化」的验收流程是：改眼睛 → **新建存档** → 跑一回合 → 看故事流里的 trace 卡片。
 - 故事流：每条 `action` 一个 `[data-line="action"]`，每条 `narration` 一个 `[data-line="narration"]`。
   **只有 `output` 节点的文本进故事流**（`opening` 是卡上的静态正文，不是引擎事件）。
 - 顶部：`[data-turn]`（`textContent` **恰好是回合数**，纯阿拉伯数字）、`[data-status]`（保存状态，完成一回合后非空）、
@@ -535,16 +550,23 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   输入框恢复、`[data-action-input]` 保留刚才写的行动、存档不变。
 - 出错：`[data-error]` 出现，其中 `[data-error-code]` = 错误码字符串、`[data-error-next]` = 下一步中文；
   界面不白屏、不丢卡（判据：`v2/e2e/errors.spec.js`）。
-- **调试开关**：右上角 `[data-debug-toggle]`（带 `data-on`），`?debug=1` 只是它的**初始状态**，
-  点它随时开 / 关。开着时 `[data-debug]` 面板可见，里面有：
-  - `[data-debug-total]`：本回合总耗时（毫秒）；
-  - 每个节点一行 `[data-debug-node="<id>"]`，行内 `[data-debug-duration]`（毫秒）、
-    `[data-debug-tokens]`（这一次调用的 token 用量，没有就写「没有用量」）、
-    `[data-debug-tps]`（每秒输出 token，量不出就写「没有速率」）、
-    `[data-debug-prompt]`（这一节点拼出的提示词）、`[data-debug-response]`（这一节点的返回）；
-  - `[data-debug-tools]`、`[data-debug-usage]`（本回合合计）、`[data-debug-presets]`
-    （每个节点**实际用了哪个预设** —— 模型是本地映射，这一格是排障时唯一看得见它的地方，§2.5）。
-    关着时面板整个不出现，页面上只剩最终故事与本回合总耗时 `[data-turn-ms]`。
+- **调试读数内联进故事流**（老板 2026-11-25；**没有右侧调试面板**，`[data-debug]` 不存在）：
+  故事流按 `save.events` 的顺序排成一条时间轴 —— `action` / `narration` **永远在**；
+  `trace` 卡片**只在调试开着时**出现（一节点一张，段落顺序：提示词组装 → 思考 → 工具调用 → 输出 →
+  tokens / t-s / ms / preset）；`turnStats` **永远在**（紧凑一行：回合 / 总 token / 总耗时 / t/s）。
+  - 开关：右上角 `[data-debug-toggle]`（带 `data-on`），`?debug=1` 只是它的**初始状态**，点它随时开 / 关。
+    **加载旧存档后打开开关，也要显示历史回合的 trace**（读数来自 `save.events`，不是内存里那一回合）。
+  - trace 卡片：`[data-trace][data-trace-node="<id>"][data-trace-turn="<n>"]`，内含
+    `[data-trace-name]`、`[data-trace-type]`、`[data-trace-prompt]`；
+    有思考时 `[data-trace-thinking]`；有工具调用时 `[data-trace-tools]`（每条 `[data-trace-tool]`，
+    带执行结果的那条还有 `[data-trace-tool-result]`）；有正文时 `[data-trace-output]`；
+    脚注 `[data-trace-tokens]` / `[data-trace-tps]` / `[data-trace-ms]` / `[data-trace-preset]`。
+    **空段不画空框**（没有思考 / 没有工具调用 / 没有正文就不出现对应元素）。
+  - 合计行：`[data-turn-stats][data-turn-stats-turn="<n>"]`，内含 `[data-turn-stats-turn]` /
+    `[data-turn-stats-tokens]` / `[data-turn-stats-ms]` / `[data-turn-stats-tps]`。
+    没有用量 / 速率时写「没有用量 / 没有速率」，**不拿 0 冒充**。
+  - 旧的表头 `[data-turn-ms]`、面板 `[data-debug]` / `[data-debug-node]` / `[data-debug-prompt]` 等**都已删除**
+    （读数改在时间轴里）。
 
 ### 8.4 设置
 
@@ -644,6 +666,7 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
 | 存储五键 / 无种子 / 删空 / 坏 JSON / 坏映射                                                   | `v2/tests/storage.test.js`                               |
 | 模块边界（无旧站 / core 不碰 DOM 与 Vue）                                                     | `v2/tests/boundaries.test.js`                            |
 | 引擎语义（顺序、写入、流式、中止、快照）                                                      | `v2/tests/engine.test.js`                                |
+| 调试内联：trace / turnStats 落盘、开关翻面、加载旧存档后仍能回看                              | `v2/e2e/play.spec.js` + `v2/tests/engine.test.js`        |
 | 模型不进卡 / 逐节点解析 / 缺预设即报错 / 删卡清映射                                           | `v2/tests/engine.test.js` + `v2/e2e/node-models.spec.js` |
 | 夹具自身合法性（正控：夹具坏了下面每条红都不可信）                                            | `v2/tests/fixtures.selfcheck.test.js`                    |
 
@@ -657,7 +680,7 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
 5. 栏宽只存 `{left, right}`（中栏 = 余量），默认 280 / 320。
 6. 编辑器**无保存按钮**，改动即时落盘。
 7. mock 提供方的输出文本格式（§7）——只给测试用，玩家看不到。
-8. `runTurn` 多返回一个 `debug` 字段（`?debug=1` 需要它，SPEC 只写了 `{save, events}`）。
+8. `runTurn` 返回 `{ save, events }`；调试读数**不另开载荷**，走 `trace` / `turnStats` 事件（§2.2 / §9.5 #14）。
 9. **不引入 vue-router / pinia**（原生 hashchange）；`v2/tsconfig.json` 是必需文件（§1.1）。
 10. 单测文件是 `.js`、不进类型检查；组件故事与组件级单测留到 stories 那一票。
 11. 🔴 **模型绑定不进卡**（组长 2026-11-25 决定，**覆盖 SPEC §2**）：SPEC 里 `chain[]` 带 `presetId`、
@@ -679,6 +702,13 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
     `readsUpstream` 从 `boolean` 改成 `string[]`（id 必须排在它前面）；写权限按类型收窄（§6.1）。
     老卡 / 老存档**不迁移**：缺新字段、带 `proof`、`readsUpstream` 是布尔值的，都直接报错（§2.1）。
     界面不再有「读上游输出」「读公共提示词」两节：上游读眼睛在细条上、公共提示词读眼睛在右栏（§8.2）。
+14. 🔴 **调试内联 + 落盘 + 读/写 chip**（老板 2026-11-25，覆盖 §4.1 / §8.2 / §8.3 的旧口径）：
+    - 右侧调试面板（`DebugPanel`）**整块删除**；逐节点读数改成故事流里的 trace 卡片、回合合计改成
+      turnStats 行（§8.3）。`DebugPayload` 一并删除 —— 同一批读数**只有一份真源**（`save.events`）。
+    - trace / turnStats 是**持久事件**，所以加载旧存档再打开调试也能看见历史每一步；中止的回合一条不写。
+    - provider 若发 `reasoning-delta` 就记进 trace 的 `thinking`；没有就是空串，**不造假**。
+    - 读/写按钮统一成 `.chip`（关着有底色边框、开着 accent 实心），三处共用一份样式（§8.2）。
+      ⇒ SPEC.md §5 里「调试面板」那段与 §9 的 `[data-debug-*]` 钩子已过时，待组长同步。
 
 ### 9.6 本关不做（别在阶段 1 拿它们当判据）
 

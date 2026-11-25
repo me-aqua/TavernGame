@@ -7,9 +7,14 @@
  *
  * 四条不许破的：
  *   · **不修改入参**：`save` / `card` / `presets` / `nodePresets` 只读，返回新的 save；
- *   · **只有 output 节点的文本进故事流**（narration），其余节点只进 `debug.responses`；
+ *   · **只有 output 节点的文本进故事流**（narration），其余节点只进 `trace` 事件；
  *   · **模型从本地映射解析**（`tg2.nodeModels` 那一片），卡里没有、也不许有模型绑定；
  *   · **中止 = 什么都不写**：`E_ABORTED` 抛出时调用方拿回的还是原存档。
+ *
+ * 调试读数**落盘**：每跑完一个节点追加一条 `trace`（提示词 / 思考 / 工具调用 / 返回 /
+ * 用量 / 耗时 / 预设），回合末尾追加一条 `turnStats`（总耗时 / 总用量 / 吞吐）。
+ * 两者既进 `save.events`，也经 `onEvent` 实时发出去 —— 对话页重开旧存档时不用再跑模型
+ * 就能看见当时每一步（老板 2026-11-25 的口径：调试内联进故事流）。
  */
 import { t } from '../i18n'
 import { PROVIDER_TIMEOUT_MS, startDeadline } from './deadline'
@@ -26,6 +31,8 @@ import type {
   SaveEvent,
   TimeValue,
   TokenUsage,
+  TraceDetail,
+  TraceToolCall,
   Tree,
 } from './types'
 
@@ -43,26 +50,6 @@ const TOOLS_FOR_NODE: Record<ChainNode['type'], string[]> = {
 /** 流式回调看到的事件：落盘事件 + 只在内存里过的 `chunk` */
 export type StreamEvent = SaveEvent | { type: 'chunk'; text: string }
 
-/** 一个节点的实测读数（调试面板按节点显示） */
-export interface NodeDebug {
-  /** 这一次 provider / mock 调用的墙钟耗时 */
-  durationMs: number
-  usage: TokenUsage | null
-  /** 每秒输出多少 token；没有用量、或没量到时间时为 `null` */
-  tps: number | null
-}
-
-export interface DebugPayload {
-  prompts: Record<string, string>
-  responses: Record<string, string>
-  tools: { nodeId: string; name: string; args: Record<string, unknown> }[]
-  usage: TokenUsage | null
-  presets: Record<string, string>
-  nodes: Record<string, NodeDebug>
-  /** 本回合从头到尾的墙钟耗时 */
-  totalMs: number
-}
-
 export interface RunTurnArgs {
   card: Card
   save: Save
@@ -78,7 +65,6 @@ export interface RunTurnArgs {
 export interface RunTurnResult {
   save: Save
   events: SaveEvent[]
-  debug: DebugPayload
 }
 
 const now = () => new Date().toISOString()
@@ -189,7 +175,10 @@ export function resolveNodePreset({
   return first
 }
 
-/** 执行一个被允许的工具调用，返回新 tree 与两条事件（`tool` + `write`） */
+/**
+ * 执行一个被允许的工具调用，返回新 tree、两条事件（`tool` + `write`）与一句执行结果。
+ * `result` 只进 trace 的「工具调用」那一格（给人看），不参与任何状态。
+ */
 function runTool({
   card,
   node,
@@ -202,7 +191,7 @@ function runTool({
   tree: Tree
   name: string
   args: Record<string, unknown>
-}): { tree: Tree; events: SaveEvent[] } {
+}): { tree: Tree; events: SaveEvent[]; result: string } {
   if (!TOOLS_FOR_NODE[node.type].includes(name)) {
     throw new AppError('E_CHAIN', {
       message: t('error.toolNotAllowed', { node: node.id, tool: name }),
@@ -219,6 +208,7 @@ function runTool({
         { type: 'tool', text: name, detail: { name, args }, at },
         { type: 'write', text: '0', detail: { path: '0', value: next }, at },
       ],
+      result: `day ${next.day} hour ${next.hour}`,
     }
   }
   const path = args.path
@@ -235,6 +225,7 @@ function runTool({
       { type: 'tool', text: name, detail: { name, args }, at },
       { type: 'write', text: path, detail: { path, value: args.value }, at },
     ],
+    result: String(args.value),
   }
 }
 
@@ -271,15 +262,8 @@ export async function runTurn({
   const turnStartedAt = Date.now()
   const turn = save.turn + 1
   const events: SaveEvent[] = []
-  const debug: DebugPayload = {
-    prompts: {},
-    responses: {},
-    tools: [],
-    usage: null,
-    presets: {},
-    nodes: {},
-    totalMs: 0,
-  }
+  /** 本回合所有节点的用量之和（turnStats 用） */
+  let totalUsage: TokenUsage | null = null
 
   /** 落盘事件（同时转发给 onEvent） */
   const push = (event: SaveEvent) => {
@@ -298,12 +282,10 @@ export async function runTurn({
     push({ type: 'node', text: node.name, detail: { id: node.id, type: node.type }, at: now() })
 
     const preset = resolveNodePreset({ presets, nodePresets, nodeId: node.id })
-    debug.presets[node.id] = preset.id
 
     // 提示词里的状态值读的是**本回合此刻**的 tree：前面的节点写进去的东西，后面节点看得见
     // （写入同时累积进本回合的 tree，回合收尾与叙事一起提交进新 save）。
     const prompt = buildPrompt({ card, save: { ...save, tree }, node, action, outputs })
-    debug.prompts[node.id] = prompt
 
     const onChunk = node.type === 'output' ? (text: string) => onEvent?.({ type: 'chunk', text }) : undefined
 
@@ -341,20 +323,43 @@ export async function runTurn({
     const durationMs = Date.now() - startedAt
 
     if (signal?.aborted) throw aborted()
-    debug.responses[node.id] = reply.text
-    debug.usage = sumUsage(debug.usage, reply)
-    debug.nodes[node.id] = { durationMs, usage: reply.usage, tps: tpsOf(reply.usage, durationMs) }
+    totalUsage = sumUsage(totalUsage, reply)
 
+    const toolCalls: TraceToolCall[] = []
     for (const call of reply.toolCalls) {
-      debug.tools.push({ nodeId: node.id, name: call.name, args: call.args })
       const executed = runTool({ card, node, tree, name: call.name, args: call.args })
+      toolCalls.push({ name: call.name, args: call.args, result: executed.result })
       tree = executed.tree
       for (const event of executed.events) push(event)
     }
 
+    const trace: TraceDetail = {
+      nodeId: node.id,
+      nodeName: node.name,
+      nodeType: node.type,
+      presetId: preset.id,
+      prompt,
+      thinking: reply.reasoning,
+      toolCalls,
+      output: reply.text,
+      usage: reply.usage,
+      durationMs,
+      tps: tpsOf(reply.usage, durationMs),
+      turn,
+    }
+    push({ type: 'trace', text: node.name, detail: trace, at: now() })
+
     if (node.type === 'output') push({ type: 'narration', text: reply.text, at: now() })
     outputs[node.id] = reply.text
   }
+
+  const totalMs = Date.now() - turnStartedAt
+  push({
+    type: 'turnStats',
+    text: `turn ${turn}`,
+    detail: { turn, totalMs, usage: totalUsage, tps: tpsOf(totalUsage, totalMs) },
+    at: now(),
+  })
 
   const nextSave: Save = {
     ...save,
@@ -363,6 +368,5 @@ export async function runTurn({
     turn,
     updatedAt: now(),
   }
-  debug.totalMs = Date.now() - turnStartedAt
-  return { save: nextSave, events, debug }
+  return { save: nextSave, events }
 }

@@ -48,9 +48,24 @@ export interface Card {
   prompts: PromptBlock[]
 }
 
-/** 存档里的事件类型；`chunk` 只走流式回调，不落盘（§2.2） */
+/**
+ * 存档里的事件类型；`chunk` 只走流式回调，不落盘（§2.2）。
+ *
+ * `trace` / `turnStats` 是**调试读数**：每跑完一个节点落一条 trace、回合末尾落一条 turnStats。
+ * 它们的 `detail` 形状见下面的 `TraceDetail` / `TurnStatsDetail` —— 对话页的历史调试卡片
+ * 全靠它们（重新打开旧存档也能看见当时每一步）。
+ */
 export type EventType =
-  'action' | 'narration' | 'node' | 'request' | 'tool' | 'write' | 'toolResult' | 'error'
+  | 'action'
+  | 'narration'
+  | 'node'
+  | 'request'
+  | 'tool'
+  | 'write'
+  | 'toolResult'
+  | 'error'
+  | 'trace'
+  | 'turnStats'
 
 export interface SaveEvent {
   type: EventType
@@ -103,6 +118,12 @@ export interface ProviderToolCall {
   args: Record<string, unknown>
 }
 
+/** 落进 trace 的工具调用：多一个 `result`（引擎执行完之后的读数） */
+export interface TraceToolCall extends ProviderToolCall {
+  /** 执行结果的可读文本（推进后的时间 / 写入的值）；没执行成功就不会有这条 trace */
+  result?: string
+}
+
 /** token 用量（各家字段名不同，这里统一成三个数） */
 export interface TokenUsage {
   inputTokens: number
@@ -113,6 +134,41 @@ export interface TokenUsage {
 /** 一次 provider 调用的结果 */
 export interface ProviderReply {
   text: string
+  /** 模型返回的思考增量（AI SDK 的 `reasoning-delta`）；没有就是空串，**不许编** */
+  reasoning: string
   toolCalls: ProviderToolCall[]
   usage: TokenUsage | null
+}
+
+/** `trace` 事件的 `detail`：某一个节点这一次执行的全部读数（§4.3） */
+export interface TraceDetail {
+  nodeId: string
+  nodeName: string
+  nodeType: NodeType
+  /** 这一步实际解析出的预设 id（模型住在本机映射里，排障就靠它） */
+  presetId: string
+  /** 这一节点拼出来的提示词（逐字） */
+  prompt: string
+  /** provider 返回的思考正文；没有就是空串 */
+  thinking: string
+  toolCalls: TraceToolCall[]
+  /** 这一节点的返回正文（只有 output 节点会同时进叙事） */
+  output: string
+  usage: TokenUsage | null
+  /** 这一次 provider / mock 调用的墙钟耗时 */
+  durationMs: number
+  /** 每秒输出 token；没有用量或耗时为 0 时为 `null` */
+  tps: number | null
+  turn: number
+}
+
+/** `turnStats` 事件的 `detail`：一回合的合计读数（§4.3） */
+export interface TurnStatsDetail {
+  turn: number
+  /** 本回合从头到尾的墙钟耗时 */
+  totalMs: number
+  /** 本回合所有节点用量之和；一次都没报就是 `null` */
+  usage: TokenUsage | null
+  /** 本回合整体吞吐（总输出 token / 总耗时）；量不出为 `null` */
+  tps: number | null
 }

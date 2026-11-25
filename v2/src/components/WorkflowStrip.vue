@@ -37,7 +37,7 @@ const isUpstream = (index: number): boolean => selectedIndex.value >= 0 && index
       <button
         v-if="isUpstream(index)"
         type="button"
-        class="read"
+        class="chip"
         data-read-upstream
         :data-upstream-id="node.id"
         :data-on="readsUpstream.includes(node.id) ? 'true' : 'false'"
@@ -86,21 +86,6 @@ const isUpstream = (index: number): boolean => selectedIndex.value >= 0 && index
   border-color: var(--accent);
   background: var(--accent);
   color: var(--accent-ink);
-  font-weight: 600;
-}
-
-.read {
-  flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  font-size: var(--fs3);
-  color: var(--ink-soft);
-}
-
-.read[data-on='true'] {
-  border-color: var(--accent);
-  color: var(--accent);
   font-weight: 600;
 }
 </style>

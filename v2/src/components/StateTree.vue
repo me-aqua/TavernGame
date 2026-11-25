@@ -68,7 +68,7 @@ function showsWrite(code: string): boolean {
         <template v-if="node">
           <button
             type="button"
-            class="eye"
+            class="chip"
             data-eyes="read"
             :data-on="node.reads.includes(element.code) ? 'true' : 'false'"
             :title="t('editor.readEye')"
@@ -79,7 +79,7 @@ function showsWrite(code: string): boolean {
           <button
             v-if="showsWrite(element.code)"
             type="button"
-            class="eye"
+            class="chip"
             data-eyes="write"
             :data-on="node.writable.includes(element.code) ? 'true' : 'false'"
             :title="t('editor.writeEye')"
@@ -149,20 +149,5 @@ function showsWrite(code: string): boolean {
 .state-name {
   flex: 1 1 auto;
   font-size: var(--fs2);
-}
-
-.eye {
-  flex: 0 0 auto;
-  width: 26px;
-  height: 24px;
-  padding: 0;
-  font-size: var(--fs3);
-  color: var(--ink-soft);
-}
-
-.eye[data-on='true'] {
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 600;
 }
 </style>

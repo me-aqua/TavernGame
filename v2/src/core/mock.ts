@@ -47,23 +47,24 @@ export async function mockReply({
   delayMs = 0,
 }: MockArgs): Promise<ProviderReply> {
   if (node.type === 'time') {
-    return { text: '', toolCalls: [{ name: 'advance_time', args: { hours: 1 } }], usage: null }
+    return { text: '', reasoning: '', toolCalls: [{ name: 'advance_time', args: { hours: 1 } }], usage: null }
   }
   if (node.type === 'normal') {
-    if (node.writable.length === 0) return { text: '', toolCalls: [], usage: null }
+    if (node.writable.length === 0) return { text: '', reasoning: '', toolCalls: [], usage: null }
     return {
       text: '',
+      reasoning: '',
       toolCalls: [{ name: 'write_state', args: { path: node.writable[0], value: `mock-t${turn}` } }],
       usage: null,
     }
   }
 
   const text = `[mock] turn ${turn}: ${action}`
-  if (!onChunk) return { text, toolCalls: [], usage: null }
+  if (!onChunk) return { text, reasoning: '', toolCalls: [], usage: null }
   for (const [index, chunk] of chunksOf(text).entries()) {
     if (index > 0 && delayMs > 0) await sleep(delayMs)
     if (signal?.aborted) break
     onChunk(chunk)
   }
-  return { text, toolCalls: [], usage: null }
+  return { text, reasoning: '', toolCalls: [], usage: null }
 }

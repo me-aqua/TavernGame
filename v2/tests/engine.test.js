@@ -27,6 +27,34 @@ const loadEngine = () => loadModule('core/engine.ts', () => import('../src/core/
 const NODE_IDS = ['time', 'check', 'extra', 'output']
 
 /**
+ * 调试读数只有一份真源：`result.events` 里的 `trace`（逐节点）与 `turnStats`（逐回合）。
+ * 下面几个小助手只是把它按节点挑出来 —— 判据不另算一份，避免和引擎各读一处。
+ */
+function tracesOf(result) {
+  return result.events.filter((event) => event.type === 'trace')
+}
+
+function traceOf(result, nodeId) {
+  const found = tracesOf(result).find((event) => event.detail.nodeId === nodeId)
+  if (!found) throw new Error(`没有 ${nodeId} 的 trace 事件`)
+  return found.detail
+}
+
+function promptsOf(result) {
+  return Object.fromEntries(tracesOf(result).map((event) => [event.detail.nodeId, event.detail.prompt]))
+}
+
+function presetsOf(result) {
+  return Object.fromEntries(tracesOf(result).map((event) => [event.detail.nodeId, event.detail.presetId]))
+}
+
+function turnStatsOf(result) {
+  const event = result.events.find((item) => item.type === 'turnStats')
+  if (!event) throw new Error('没有 turnStats 事件')
+  return event.detail
+}
+
+/**
  * 跑一回合。
  * 模型的给法照契约 §4.1：`presets` 是池子、`nodePresets` 是这张卡那一片映射。
  * 默认 = 只有一个 mock 预设 + 每个节点都指向它。
@@ -225,32 +253,95 @@ describe('引擎：写入与工具', () => {
   })
 })
 
-describe('引擎：调试载荷（?debug=1 要用）', () => {
-  it('debug 里有每个节点的提示词、输出、工具清单', async () => {
+describe('引擎：调试读数落盘（trace / turnStats）', () => {
+  it('每个节点一条 trace，按链顺序；字段齐全，且同一批事件也在 save.events 里', async () => {
     const card = makeCard()
     const result = await turn({ card, save: makeSave(card), action: 'act one' })
-    expect(Object.keys(result.debug.prompts).sort()).toEqual([...NODE_IDS].sort())
-    expect(result.debug.prompts.output).toContain('NODE_OUT')
-    expect(result.debug.prompts.output).toContain('act one')
-    expect(result.debug.responses.output).toBe('[mock] turn 1: act one')
-    expect(result.debug.tools.map((item) => item.name)).toContain('advance_time')
-    expect(result.debug).toHaveProperty('usage')
+
+    const traces = tracesOf(result)
+    expect(traces.map((event) => event.detail.nodeId)).toEqual(NODE_IDS)
+    expect(traces.map((event) => event.detail.turn)).toEqual(Array(NODE_IDS.length).fill(1))
+    // 一个节点一条，文本用节点名（给人看的那一列）
+    expect(traces.map((event) => event.text)).toEqual(NODE_IDS)
+
+    // 时间节点：提示词 / 思考（空）/ 工具调用（带执行结果）/ 没有正文 / 没有用量
+    const time = traceOf(result, 'time')
+    expect(time.nodeName).toBe('time')
+    expect(time.nodeType).toBe('time')
+    expect(time.presetId).toBe(MOCK_PRESET.id)
+    expect(time.prompt).toContain('NODE_TIME')
+    expect(time.thinking, 'mock 不吐思考，也不许编一个').toBe('')
+    expect(time.toolCalls).toEqual([{ name: 'advance_time', args: { hours: 1 }, result: 'day 1 hour 9' }])
+    expect(time.output).toBe('')
+    expect(time.usage).toBeNull()
+    expect(time.tps).toBeNull()
+    expect(typeof time.durationMs).toBe('number')
+    expect(time.durationMs).toBeGreaterThanOrEqual(0)
+
+    // 输出节点：提示词与正文都在；正文先落 trace、再落 narration
+    const output = traceOf(result, 'output')
+    expect(output.prompt).toContain('NODE_OUT')
+    expect(output.output).toBe('[mock] turn 1: act one')
+    expect(output.toolCalls).toEqual([])
+    expect(
+      result.events.findIndex((event) => event.type === 'trace' && event.detail.nodeId === 'output'),
+    ).toBeLessThan(result.events.findIndex((event) => event.type === 'narration'))
+
+    // 落盘：返回的事件是 save.events 的尾部（同一批对象，不是另拷一份）
+    expect(result.save.events.slice(-result.events.length)).toEqual(result.events)
+    expect(result.save.events.filter((event) => event.type === 'trace')).toHaveLength(NODE_IDS.length)
   })
 
-  it('逐节点读数：每个节点都有 durationMs / usage / tps，且本回合有 totalMs', async () => {
+  it('turnStats 是回合最后一条：总耗时 / 总用量 / 吞吐都在（mock 量不出就 null）', async () => {
     const card = makeCard()
     const result = await turn({ card, save: makeSave(card), action: 'act one' })
-    expect(Object.keys(result.debug.nodes).sort()).toEqual([...NODE_IDS].sort())
-    for (const id of NODE_IDS) {
-      const node = result.debug.nodes[id]
-      expect(typeof node.durationMs, `${id} 没有耗时读数`).toBe('number')
-      expect(node.durationMs).toBeGreaterThanOrEqual(0)
-      // mock 不给用量 ⇒ usage 为 null、tps 也量不出（不是 0，是 null）
-      expect(node.usage).toBeNull()
-      expect(node.tps).toBeNull()
+
+    const last = result.events.at(-1)
+    expect(last.type).toBe('turnStats')
+    expect(last.text).toBe('turn 1')
+
+    const stats = turnStatsOf(result)
+    expect(stats.turn).toBe(1)
+    expect(typeof stats.totalMs).toBe('number')
+    // 回合总耗时包住每个节点的耗时
+    expect(stats.totalMs).toBeGreaterThanOrEqual(
+      Math.max(...tracesOf(result).map((event) => event.detail.durationMs)),
+    )
+    // mock 不给用量 ⇒ 合计也是 null（不是 0），吞吐量不出
+    expect(stats.usage).toBeNull()
+    expect(stats.tps).toBeNull()
+    expect(result.save.events.some((event) => event.type === 'turnStats')).toBe(true)
+  })
+
+  it('onEvent 实时转发：trace / turnStats 与返回值是同一条事件对象', async () => {
+    const card = makeCard()
+    const sink = collect()
+    const result = await turn({ card, save: makeSave(card), action: 'act one', onEvent: sink.onEvent })
+
+    const forwarded = sink.events.filter((event) => event.type === 'trace' || event.type === 'turnStats')
+    const returned = result.events.filter((event) => event.type === 'trace' || event.type === 'turnStats')
+    expect(forwarded.map((event) => event.type)).toEqual(returned.map((event) => event.type))
+    forwarded.forEach((event, index) => expect(event).toBe(returned[index]))
+  })
+
+  it('两回合：旧回合的 trace / turnStats 留在存档里，每回合的合计排在它自己的 trace 之后', async () => {
+    const { save } = await runTurns(2)
+    const traces = save.events.filter((event) => event.type === 'trace')
+    expect(traces).toHaveLength(NODE_IDS.length * 2)
+    expect(traces.map((event) => event.detail.turn)).toEqual([
+      ...Array(NODE_IDS.length).fill(1),
+      ...Array(NODE_IDS.length).fill(2),
+    ])
+
+    const stats = save.events.filter((event) => event.type === 'turnStats')
+    expect(stats.map((event) => event.detail.turn)).toEqual([1, 2])
+    for (const turnNumber of [1, 2]) {
+      const statsAt = save.events.indexOf(stats[turnNumber - 1])
+      const lastTraceAt = save.events.findLastIndex(
+        (event) => event.type === 'trace' && event.detail.turn === turnNumber,
+      )
+      expect(statsAt, `第 ${turnNumber} 回合的合计排在自己的 trace 之后`).toBeGreaterThan(lastTraceAt)
     }
-    expect(typeof result.debug.totalMs).toBe('number')
-    expect(result.debug.totalMs).toBeGreaterThanOrEqual(0)
   })
 })
 
@@ -266,7 +357,7 @@ describe('引擎：同一回合内的写入立刻可见（P2）', () => {
     const card = { ...base, chain }
 
     const result = await turn({ card, save: makeSave(card), action: 'act one' })
-    const prompt = result.debug.prompts.output
+    const prompt = traceOf(result, 'output').prompt
 
     // 时间节点先跑：8 点 → 9 点，输出节点读到的必须是 9 点
     expect(prompt, '时间节点推进后的钟要进输出节点的提示词').toContain('0 time = day 1 hour 9')
@@ -278,7 +369,7 @@ describe('引擎：同一回合内的写入立刻可见（P2）', () => {
 
     // 正向控制：判定节点自己（链上第 2 个）看到的还是**它写之前**的值 ——
     // 说明这确实是「同一回合、逐节点」的时序，而不是「全部节点都用回合末的 tree」
-    expect(result.debug.prompts.check, '判定节点在写入之前拼提示词').toContain('1 place = VAL_PLACE_A1')
+    expect(traceOf(result, 'check').prompt, '判定节点在写入之前拼提示词').toContain('1 place = VAL_PLACE_A1')
     expect(result.save.tree['1']).toBe('mock-t1')
   })
 
@@ -290,7 +381,7 @@ describe('引擎：同一回合内的写入立刻可见（P2）', () => {
     // 把判定节点挪到输出节点后面：于是输出节点看到的是**初值**（还没人写）
     const card = { ...base, chain: [chain[0], chain[2], chain[3], chain[1]] }
     const result = await turn({ card, save: makeSave(card), action: 'act one' })
-    expect(result.debug.prompts.output).toContain('1 place = VAL_PLACE_A1')
+    expect(traceOf(result, 'output').prompt).toContain('1 place = VAL_PLACE_A1')
     expect(result.save.tree['1']).toBe('mock-t1')
   })
 })
@@ -305,8 +396,8 @@ describe('引擎：上游输出按节点名单取', () => {
     }
     const card = { ...base, chain: [output, reader] }
     const result = await turn({ card, save: makeSave(card), action: 'act one' })
-    expect(result.debug.prompts.reader).toContain('[mock] turn 1: act one')
-    expect(result.debug.prompts.reader).toContain('NODE_READER')
+    expect(traceOf(result, 'reader').prompt).toContain('[mock] turn 1: act one')
+    expect(traceOf(result, 'reader').prompt).toContain('NODE_READER')
   })
 
   it('没点名上游的节点：即使前面节点有输出，提示词里也一个字都没有', async () => {
@@ -315,7 +406,7 @@ describe('引擎：上游输出按节点名单取', () => {
     const reader = { ...makeNode('reader', 'normal', { readsUpstream: [], prompt: 'NODE_READER' }) }
     const card = { ...base, chain: [output, reader] }
     const result = await turn({ card, save: makeSave(card), action: 'act one' })
-    expect(result.debug.prompts.reader).not.toContain('[mock] turn 1')
+    expect(traceOf(result, 'reader').prompt).not.toContain('[mock] turn 1')
   })
 })
 
@@ -329,9 +420,9 @@ describe('引擎：快照（改卡之后旧存档还能跑）', () => {
     const result = await turn({ card: save.cardSnapshot, save, action: 'act one' })
     // ⚠️ 不能拿元素 1 的值当证据：判定节点这一回合会先把它写掉（mock 写 writable[0]）。
     //    能证明「读的是快照」的是**没被写过的元素 2** 与提示词块的正文。
-    expect(result.debug.prompts.output).toContain('VAL_MOOD_B2')
-    expect(result.debug.prompts.output).toContain('BODY_ONE')
-    expect(JSON.stringify(result.debug.prompts)).not.toContain('MUTATED')
+    expect(traceOf(result, 'output').prompt).toContain('VAL_MOOD_B2')
+    expect(traceOf(result, 'output').prompt).toContain('BODY_ONE')
+    expect(JSON.stringify(promptsOf(result))).not.toContain('MUTATED')
   })
 
   it('卡与存档的 id 对不上 ⇒ E_VALIDATION（不会把两局的进度串起来）', async () => {
@@ -351,7 +442,7 @@ describe('引擎：模型从哪来（本地映射，卡里没有）', () => {
       nodePresets: nodeModelsFor(card, MOCK_PRESET_B.id),
       action: 'act one',
     })
-    expect(result.debug.presets).toEqual(Object.fromEntries(NODE_IDS.map((id) => [id, MOCK_PRESET_B.id])))
+    expect(presetsOf(result)).toEqual(Object.fromEntries(NODE_IDS.map((id) => [id, MOCK_PRESET_B.id])))
   })
 
   it('映射里缺的节点 ⇒ 默认用池子里的第一个（`presets[0]`）', async () => {
@@ -363,7 +454,7 @@ describe('引擎：模型从哪来（本地映射，卡里没有）', () => {
       nodePresets: { output: MOCK_PRESET_B.id },
       action: 'act one',
     })
-    expect(result.debug.presets).toEqual({
+    expect(presetsOf(result)).toEqual({
       time: MOCK_PRESET.id,
       check: MOCK_PRESET.id,
       extra: MOCK_PRESET.id,
@@ -381,7 +472,7 @@ describe('引擎：模型从哪来（本地映射，卡里没有）', () => {
       nodePresets: {},
       action: 'act one',
     })
-    expect(Object.values(result.debug.presets)).toEqual(Array(NODE_IDS.length).fill(MOCK_PRESET.id))
+    expect(Object.values(presetsOf(result))).toEqual(Array(NODE_IDS.length).fill(MOCK_PRESET.id))
   })
 
   it('卡上残留的 presetId 一个字节都不看（模型只在映射里）', async () => {
@@ -395,7 +486,7 @@ describe('引擎：模型从哪来（本地映射，卡里没有）', () => {
       nodePresets: nodeModelsFor(card),
       action: 'act one',
     })
-    expect(Object.values(result.debug.presets)).toEqual(Array(NODE_IDS.length).fill(MOCK_PRESET.id))
+    expect(Object.values(presetsOf(result))).toEqual(Array(NODE_IDS.length).fill(MOCK_PRESET.id))
     expect(result.save.cardSnapshot.chain.every((node) => node.presetId === 'p-ghost')).toBe(true)
   })
 

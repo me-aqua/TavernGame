@@ -4,7 +4,7 @@
  * 为什么单开一份：几个故事要的是同一张卡 / 同一个节点 / 同一批预设 —— 各写一份迟早不一致，
  * 而不一致的样例会让「结构检查通过」这件事变得没意义。
  */
-import type { DebugPayload } from '../../src/core/engine'
+import type { TraceDetail, TurnStatsDetail } from '../../src/core/types'
 import type { ChainNode, Preset, StateElement } from '../../src/core/types'
 
 export const ELEMENTS: StateElement[] = [
@@ -66,31 +66,42 @@ export const PRESETS: Preset[] = [
   },
 ]
 
-export const DEBUG: DebugPayload = {
-  prompts: {
-    time: '> act one\n\nNODE_TIME',
-    check: '[node:check] > act one',
-    output: 'BODY_ONE\n\n1 place = VAL_PLACE_A1\n\n> act one\n\nNODE_OUT',
-  },
-  responses: { time: '', check: '', output: '[mock] turn 1: act one' },
-  tools: [
-    { nodeId: 'time', name: 'advance_time', args: { hours: 1 } },
-    { nodeId: 'check', name: 'write_state', args: { path: '1', value: 'mock-t1' } },
-  ],
+/** 一个时间节点的 trace（有工具调用、没有正文、没有思考、没有用量） */
+export const TRACE_TIME: TraceDetail = {
+  nodeId: 'time',
+  nodeName: 'time',
+  nodeType: 'time',
+  presetId: 'p-deepseek-v4-flash',
+  prompt: '> act one\n\nday 1 hour 8',
+  thinking: '',
+  toolCalls: [{ name: 'advance_time', args: { hours: 1 }, result: 'day 1 hour 9' }],
+  output: '',
+  usage: null,
+  durationMs: 12,
+  tps: null,
+  turn: 1,
+}
+
+/** 一个输出节点的 trace（有思考、有正文、有用量） */
+export const TRACE_OUTPUT: TraceDetail = {
+  nodeId: 'output',
+  nodeName: 'output',
+  nodeType: 'output',
+  presetId: 'p-deepseek-v4-pro',
+  prompt: 'BODY_ONE\n\n1 place = VAL_PLACE_A1\n\n> act one\n\nNODE_OUT',
+  thinking: 'THINK_ONE\nTHINK_TWO',
+  toolCalls: [],
+  output: '[mock] turn 1: act one',
   usage: { inputTokens: 128, outputTokens: 64, totalTokens: 192 },
-  presets: {
-    time: 'p-deepseek-v4-flash',
-    check: 'p-deepseek-v4-flash',
-    output: 'p-deepseek-v4-pro',
-  },
-  nodes: {
-    time: { durationMs: 12, usage: null, tps: null },
-    check: { durationMs: 9, usage: null, tps: null },
-    output: {
-      durationMs: 320,
-      usage: { inputTokens: 128, outputTokens: 64, totalTokens: 192 },
-      tps: 200,
-    },
-  },
+  durationMs: 320,
+  tps: 200,
+  turn: 1,
+}
+
+/** 一回合的合计读数（跟在故事流里那一回合的末尾） */
+export const TURN_STATS: TurnStatsDetail = {
+  turn: 1,
   totalMs: 360,
+  usage: { inputTokens: 128, outputTokens: 64, totalTokens: 192 },
+  tps: 53.3,
 }

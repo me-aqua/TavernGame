@@ -19,7 +19,6 @@ import {
   APP_PATH,
   boot,
   createSave,
-  debugPrompt,
   KEYS,
   makeCard,
   makeSave,
@@ -31,12 +30,13 @@ import {
   readStorage,
   route,
   slowMock,
+  tracePrompt,
   upstreamRead,
 } from './support/app.js'
 
 const CARD_ID = 'c1'
-/** 调试面板是按节点分段的：读某个节点的 prompt 必须带节点那一格（§8.3） */
-const OUTPUT_PROMPT = debugPrompt('output')
+/** 调试读数内联在故事流里：读某个节点的 prompt 必须带节点那一格（§8.3） */
+const OUTPUT_PROMPT = tracePrompt('output')
 
 /** 一个「真」预设：请求会被 `page.route` 拦掉，不联外网 */
 const REAL_PRESET = {
@@ -280,8 +280,65 @@ test.describe('眼睛：拼装顺序', () => {
     expect((output.match(/act one/g) ?? []).length, '行动在历史块里只出现一次').toBe(1)
 
     // 口径 A 再钉一条：historyTurns=0 的节点**也**看得见行动（只此一句，不重复）
-    const time = (await page.locator(debugPrompt('time')).textContent()) ?? ''
+    const time = (await page.locator(tracePrompt('time')).textContent()) ?? ''
     expect(time, 'historyTurns=0 也要看见本回合行动（口径 A）').toContain('act one')
     expect((time.match(/act one/g) ?? []).length, '行动在历史块里只出现一次').toBe(1)
+  })
+})
+
+test.describe('读 / 写控件：看得见的 chip（老板 2026-11-25）', () => {
+  test('三处读眼睛 + 写眼睛：≥24×24、关着也有底色与边框、点开换成另一种底色', async ({ page }) => {
+    await boot(page, { storage: seedCardOnly() })
+    await page.goto(`${APP_PATH}${route.edit(CARD_ID)}`)
+    // 判定节点：状态元素可读可写、上游有时间、公共提示词也都在同一屏
+    await page.locator('[data-node-id="check"]').click()
+
+    const eyes = {
+      stateRead: '[data-state-item="1"] [data-eyes="read"]',
+      upstreamEye: upstreamRead('time'),
+      promptEye: promptRead('pr1'),
+      writeEye: '[data-state-item="1"] [data-eyes="write"]',
+    }
+
+    /** 控件这一刻的盒子与底色 —— 关着 / 开着都要能判，不靠像素基线 */
+    async function measure(selector) {
+      const box = await page.locator(selector).boundingBox()
+      // 这一段在页面里跑 ⇒ 写成模板串（普通函数会被 lint 的 no-undef 拦下，见 support/app.js 的约定）
+      const style = await page.evaluate(
+        `(() => {
+          const element = document.querySelector(${JSON.stringify(selector)})
+          const computed = getComputedStyle(element)
+          return { background: computed.backgroundColor, border: parseFloat(computed.borderTopWidth) }
+        })()`,
+      )
+      return { ...style, width: box?.width ?? 0, height: box?.height ?? 0 }
+    }
+
+    // ① 点按目标：旧的 24px 幽灵按钮现在必须还是够大（WCAG 2.5.8 的 24×24 底线）
+    for (const [name, selector] of Object.entries(eyes)) {
+      await expect(page.locator(selector), `${name} 不见了`).toBeVisible()
+      const chip = await measure(selector)
+      expect(chip.width, `${name} 太窄（点按目标不足 24）`).toBeGreaterThanOrEqual(24)
+      expect(chip.height, `${name} 太矮（点按目标不足 24）`).toBeGreaterThanOrEqual(24)
+    }
+
+    // ② 关着 ≠ 没有这个控件：底色不是全透明、边框至少 1px
+    for (const name of ['stateRead', 'upstreamEye', 'promptEye']) {
+      const chip = await measure(eyes[name])
+      // 先钉读回来的形状：读不到底色时上面的 not.toBe 会静默通过（假绿）
+      expect(chip.background, `${name} 没读到底色（量具坏了）`).toMatch(/^rgba?\(/)
+      expect(chip.background, `${name} 关着时没有底色（像幽灵按钮）`).not.toBe('rgba(0, 0, 0, 0)')
+      expect(chip.border, `${name} 关着时没有边框`).toBeGreaterThanOrEqual(1)
+    }
+
+    // ③ 开着 = 换一种底色（accent 实心），不是「只有一点点描边变化」
+    const stateRead = page.locator(eyes.stateRead)
+    await expect(stateRead).toHaveAttribute('data-on', 'false')
+    const before = await measure(eyes.stateRead)
+    await stateRead.click()
+    await expect(stateRead).toHaveAttribute('data-on', 'true')
+    const after = await measure(eyes.stateRead)
+    expect(after.background, '开着的 chip 要换底色（accent 实心）').not.toBe(before.background)
+    expect(after.background).not.toBe('rgba(0, 0, 0, 0)')
   })
 })

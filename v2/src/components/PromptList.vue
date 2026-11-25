@@ -50,7 +50,7 @@ defineEmits<{
         <button
           v-if="node"
           type="button"
-          class="eye"
+          class="chip"
           data-prompt-read
           :data-prompt-id="prompt.id"
           :data-on="node.reads.includes(prompt.id) ? 'true' : 'false'"
@@ -114,20 +114,5 @@ defineEmits<{
 .name {
   flex: 1 1 auto;
   font-size: var(--fs2);
-}
-
-.eye {
-  flex: 0 0 auto;
-  width: 26px;
-  height: 24px;
-  padding: 0;
-  font-size: var(--fs3);
-  color: var(--ink-soft);
-}
-
-.eye[data-on='true'] {
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 600;
 }
 </style>

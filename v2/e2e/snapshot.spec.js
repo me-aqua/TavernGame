@@ -10,7 +10,6 @@ import {
   APP_PATH,
   boot,
   createSave,
-  debugPrompt,
   KEYS,
   makeCard,
   makeSave,
@@ -19,6 +18,7 @@ import {
   playTurn,
   readStorage,
   route,
+  tracePrompt,
 } from './support/app.js'
 
 const CARD_ID = 'c1'
@@ -43,10 +43,10 @@ test('改初值与节点提示词之后：旧存档仍按旧卡跑，新存档�
   await page.locator('[data-node-id="output"]').click()
   await page.locator('[data-node-prompt]').fill('NODE_OUT_EDITED')
 
-  // ---- 旧存档：跑一回合，prompt 里还是旧卡（调试面板按节点分段 ⇒ 读输出节点那一格）
+  // ---- 旧存档：跑一回合，prompt 里还是旧卡（trace 卡片按节点分 ⇒ 读输出节点那一张）
   await openStory(page, CARD_ID, 's1', { debug: true })
   await playTurn(page, 'act one', 1)
-  const prompt = page.locator(debugPrompt('output'))
+  const prompt = page.locator(tracePrompt('output'))
   // 旧存档的 tree 取的是**快照**的初值：元素 1 这一回合被判定节点写成 mock-t1（P2 同回合可见），
   // 所以「跑的是旧卡」用三样东西证：提示词块正文、节点提示词、以及没被写过的元素 2。
   await expect(prompt).toContainText('BODY_ONE')
@@ -75,7 +75,7 @@ test('改初值与节点提示词之后：旧存档仍按旧卡跑，新存档�
 
   await openStory(page, CARD_ID, newSaveId, { debug: true })
   await playTurn(page, 'act one', 1)
-  await expect(page.locator(debugPrompt('output'))).toContainText('NODE_OUT_EDITED')
+  await expect(page.locator(tracePrompt('output'))).toContainText('NODE_OUT_EDITED')
 })
 
 test('删掉卡之后旧存档还在盘上（卡没了不等于存档没了）', async ({ page }) => {

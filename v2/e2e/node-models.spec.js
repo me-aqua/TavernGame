@@ -25,6 +25,7 @@ import {
   readStorage,
   route,
   slowMock,
+  tracePreset,
 } from './support/app.js'
 
 const CARD_ID = 'c1'
@@ -110,10 +111,9 @@ test('跑一回合时逐节点生效：只有输出节点用真预设 ⇒ 只发
   expect(requests[0]).toBe('https://mock.invalid/v1/chat/completions')
   await expect(page.locator('[data-line="narration"]')).toHaveText('ONLYOUTPUT')
 
-  // 调试面板要能看出「这一步用了哪个预设」——模型住在本地映射，这是唯一看得见它的地方
-  const presetsLine = await page.locator('[data-debug-presets]').textContent()
-  expect((presetsLine ?? '').includes(REAL_PRESET.id)).toBe(true)
-  expect((presetsLine ?? '').includes(MOCK_PRESET.id)).toBe(true)
+  // 每一步用了哪个预设：模型住在本地映射，trace 卡片是唯一看得见它的地方（逐节点一张）
+  await expect(page.locator(tracePreset('output'))).toContainText(REAL_PRESET.id)
+  await expect(page.locator(tracePreset('time'))).toContainText(MOCK_PRESET.id)
 })
 
 test('一个预设都没有：那一格禁用，且不许往盘上写假映射', async ({ page }) => {

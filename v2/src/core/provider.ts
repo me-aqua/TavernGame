@@ -95,6 +95,7 @@ export async function callProvider({
   // 两个独立的「别再等了」合流：玩家点停止（`signal`，可以没有）与引擎给的 60 秒 deadline
   const combined = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal
   let text = ''
+  let reasoning = ''
   const toolCalls: ProviderToolCall[] = []
 
   try {
@@ -112,13 +113,16 @@ export async function callProvider({
         if (part.type === 'text-delta') {
           text += part.text
           onChunk?.(part.text)
+        } else if (part.type === 'reasoning-delta') {
+          // 思考只记账、不进故事流：模型没给就是空串（**不补、不猜**）
+          reasoning += part.text
         } else if (part.type === 'tool-call') {
           toolCalls.push({ name: part.toolName, args: (part.input ?? {}) as Record<string, unknown> })
         } else if (part.type === 'error') {
           throw part.error
         }
       }
-      return { text, toolCalls, usage: usageOf(await result.usage) }
+      return { text, reasoning, toolCalls, usage: usageOf(await result.usage) }
     } finally {
       // `usage` 是**另一条**独立的 promise：中止 / 失败时它也会跟着 reject，
       // 而那时我们已经在往外抛了（E_ABORTED / E_PROVIDER）—— 接住它，只为了避免多一条
