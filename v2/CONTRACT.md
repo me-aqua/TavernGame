@@ -241,7 +241,10 @@ export function createStorage(backend = globalThis.localStorage) -> Storage
 
 ### 3.1 内置示例卡（`晨风镇`）—— 资产，不是玩家数据
 
-- 卡片本体住在 `v2/src/data/morningwind.json`（**资产**，随构建发布）；**代码里不写死它的内容**。
+- 卡片本体住在 `v2/src/data/sample-card.json`（**资产**，随构建发布）；**代码里不写死它的内容**。
+- **种下去的是克隆 + 运行时不透明 id**：资产里的 `id` 只是资产内部标识；`main.ts` 种卡时把克隆的
+  `id` 换成 `c-<uuid>`（与首页新建卡同一套生成器）—— **资产名不进 URL / 存档**；存档的
+  `cardSnapshot.id` 就是这个运行时 id。**没有迁移**：已经种过的卡与旧存档一个字节都不改。
 - **首次打开种一次**：`main.ts` 在启动时看 `tg2.settings.sampleSeeded`；
   不是 `true` ⇒ 若 `tg2.cards` 为空就写入这张卡，然后把标记置 `true`（一次性的）。
   标记**不新增第六个键**（住 settings 里）。

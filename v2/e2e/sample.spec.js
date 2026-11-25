@@ -8,19 +8,33 @@
  *   ③ **不许复种**：刷新 / 再打开都不许把它种回来（标记一旦落盘就是一次性的）——
  *      这一条是「数据与项目本体分离」的实测口径：卡是数据、能被玩家彻底删掉。
  *
+ * 🔴 **资产名不进玩家侧**（老板 2026-11-25 晚）：示例卡资产是 `v2/src/data/sample-card.json`，
+ *    但种进盘里的卡是**克隆 + 运行时不透明 id** `c-<uuid>`（与新建卡同一套生成器）。
+ *    ⇒ 首页 / 对话页 / 编辑器的 URL 里都只许有 `c-…` / `s-…`，不许出现 `morningwind` / `sample-card`。
+ *
  * ⚠️ 这是唯一用 `boot(page, { sample: true })` 的用例（它不写标记 = 模拟真·首次打开）。
  *    其它所有用例靠 `boot()` 的默认标记躲开这张卡。
  */
 import { expect, test } from '@playwright/test'
 import { APP_PATH, boot, KEYS, readStorage, route } from './support/app.js'
 
-/** 内置样例的事实（来自 `v2/src/data/morningwind.json`；文案与结构都在这儿对一遍） */
+/** 内置样例的事实（来自 `v2/src/data/sample-card.json`；文案与结构都在这儿对一遍） */
 const SAMPLE = {
-  id: 'card-morningwind',
   name: '晨风镇',
   stateCodes: ['0', '1', '2', '3', '4'],
   nodeIds: ['time', 'check', 'output'],
 }
+
+/** 种下去的 id 是运行时不透明 id（`c-<uuid>`，与首页新建卡同一套生成器） */
+const CARD_ID = /^c-[0-9a-f-]{36}$/
+const SAVE_ID = /^s-[0-9a-f-]{36}$/
+
+/** 页面 URL 的 hash：只许有运行时不透明 id（资产名一个字符都不许出现） */
+const PLAY_HASH = /^#\/play\/c-[0-9a-f-]{36}\/s-[0-9a-f-]{36}$/
+const EDIT_HASH = /^#\/edit\/c-[0-9a-f-]{36}$/
+
+/** 资产名 / 资产内部 id 的记号：玩家侧（URL、存储）一个都不许出现 */
+const ASSET_MARKERS = ['morningwind', 'sample-card']
 
 /** 删掉当前唯一那张卡（走确认层） */
 async function deleteOnlyCard(page) {
@@ -42,7 +56,10 @@ test('首次打开就有「晨风镇」：结构完整、卡里没有 presetId',
 
   const cards = await readStorage(page, KEYS.cards)
   expect(cards).toHaveLength(1)
-  expect(cards[0].id).toBe(SAMPLE.id)
+  // 种下去的是**运行时不透明 id**：不是资产里的 card-morningwind
+  expect(cards[0].id, '示例卡种下去必须是 c-<uuid>').toMatch(CARD_ID)
+  expect(cards[0].id, '不许沿用资产 id').not.toBe('card-morningwind')
+  await expect(page.locator('[data-card-id]')).toHaveAttribute('data-card-id', CARD_ID)
   expect(cards[0].name).toBe(SAMPLE.name)
   expect(cards[0].state.map((element) => element.code)).toEqual(SAMPLE.stateCodes)
   expect(cards[0].chain.map((node) => node.id)).toEqual(SAMPLE.nodeIds)
@@ -50,6 +67,11 @@ test('首次打开就有「晨风镇」：结构完整、卡里没有 presetId',
   for (const node of cards[0].chain) expect(Object.keys(node)).not.toContain('presetId')
   // 也带了「开场」那一块（§2.1：缺它就是不合法的卡）
   expect(cards[0].prompts.some((prompt) => prompt.id === 'opening')).toBe(true)
+  // 资产名 / 资产内部 id 不进玩家存储
+  const persisted = JSON.stringify(cards)
+  for (const marker of ASSET_MARKERS) {
+    expect(persisted.includes(marker), `存储里出现了资产名 ${marker}`).toBe(false)
+  }
   // 标记要在种完之后立刻落盘，否则每次打开都会再种一张
   expect((await readStorage(page, KEYS.settings)).sampleSeeded).toBe(true)
 })
@@ -78,12 +100,14 @@ test('删掉之后刷新：不许把示例卡种回来', async ({ page }) => {
 
 test('删掉之后自己建卡：能建、能进编辑器，刷新后还是自己那一张', async ({ page }) => {
   await boot(page, { sample: true })
+  // 示例卡是 c-<uuid>：先记下来，「新建的卡不是它」才有得比
+  const sampleId = (await readStorage(page, KEYS.cards))[0].id
   await deleteOnlyCard(page)
 
   await page.locator('[data-new-card]').click()
   await expect(page.locator('[data-card-id]')).toHaveCount(1)
   const cardId = await page.locator('[data-card-id]').first().getAttribute('data-card-id')
-  expect(cardId, '新建的卡不是示例卡').not.toBe(SAMPLE.id)
+  expect(cardId, '新建的卡不是示例卡').not.toBe(sampleId)
 
   await page.goto(`${APP_PATH}${route.edit(cardId)}`)
   await expect(page.locator('[data-page="editor"]')).toBeVisible()
@@ -93,4 +117,40 @@ test('删掉之后自己建卡：能建、能进编辑器，刷新后还是自�
   await page.reload()
   await expect(page.locator('[data-card-id]')).toHaveCount(1)
   expect((await readStorage(page, KEYS.cards)).map((card) => card.id)).toEqual([cardId])
+})
+
+test('示例卡的 id 是运行时不透明 id：对话页 / 编辑器 URL 里都没有资产名', async ({ page }) => {
+  await boot(page, { sample: true })
+  await expect(page.locator('[data-page="home"]')).toBeVisible()
+
+  const cardId = (await readStorage(page, KEYS.cards))[0].id
+  expect(cardId, '示例卡不是 c-<uuid>').toMatch(CARD_ID)
+  for (const marker of ASSET_MARKERS) expect(cardId).not.toContain(marker)
+
+  // 从示例卡新建一个存档，再点进对话页 —— URL 里只许有运行时不透明 id
+  await page.locator(`[data-card-id="${cardId}"]`).click()
+  await page.locator('[data-new-save]').click()
+  const saves = await readStorage(page, KEYS.saves)
+  expect(saves).toHaveLength(1)
+  const saveId = saves[0].id
+  expect(saveId, '存档 id 不是 s-<uuid>').toMatch(SAVE_ID)
+  expect(saves[0].cardSnapshot.id, '存档快照里也得是运行时不透明 id').toBe(cardId)
+
+  await page.locator(`[data-save-id="${saveId}"]`).click()
+  await expect(page.locator('[data-page="play"]')).toBeVisible()
+  const playHash = new URL(page.url()).hash
+  expect(playHash, `对话页 URL 不是 #/play/c-<uuid>/s-<uuid>：${playHash}`).toMatch(PLAY_HASH)
+  for (const marker of ASSET_MARKERS) {
+    expect(page.url().includes(marker), `对话页 URL 里出现了资产名 ${marker}`).toBe(false)
+  }
+
+  // 编辑器 URL 也只有卡 id
+  await page.goto(`${APP_PATH}${route.home}`)
+  await page.locator(`[data-card-id="${cardId}"] [data-card-edit]`).click()
+  await expect(page.locator('[data-page="editor"]')).toBeVisible()
+  const editHash = new URL(page.url()).hash
+  expect(editHash, `编辑器 URL 不是 #/edit/c-<uuid>：${editHash}`).toMatch(EDIT_HASH)
+  for (const marker of ASSET_MARKERS) {
+    expect(page.url().includes(marker), `编辑器 URL 里出现了资产名 ${marker}`).toBe(false)
+  }
 })

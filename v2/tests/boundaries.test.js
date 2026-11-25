@@ -110,6 +110,9 @@ describe('模块边界：不往旧站和别的框架里看', () => {
     const files = sourceFiles()
     const assets = files.filter((file) => file.startsWith('data/'))
     expect(assets.length, '`src/data/` 下应当有示例卡资产（晨风镇）').toBeGreaterThan(0)
+    // 资产的名字是结构的一部分（老板 2026-11-25 晚：文件名不许带「这张卡是谁」的线索）
+    expect(files, '示例卡资产应在 data/sample-card.json').toContain('data/sample-card.json')
+    expect(files, '旧资产名 morningwind.json 不许还在').not.toContain('data/morningwind.json')
     // 引用面收窄：只有入口（main.ts）可以 import data/ 下的资产
     const importers = files.filter((file) => /from\s+['"]\.\/data\//.test(readSource(file)))
     expect(importers, '示例卡只该由 main.ts 引入').toEqual(['main.ts'])
@@ -118,7 +121,7 @@ describe('模块边界：不往旧站和别的框架里看', () => {
   })
 
   it('示例卡本身是合法数据：链是那三个固定节点，卡里没有 presetId（模型不进卡）', () => {
-    const sample = JSON.parse(readFileSync(join(SRC, 'data', 'morningwind.json'), 'utf8'))
+    const sample = JSON.parse(readFileSync(join(SRC, 'data', 'sample-card.json'), 'utf8'))
     expect(sample.schemaVersion).toBe(1)
     expect(typeof sample.id).toBe('string')
     expect(sample.name.length, '示例卡要有名字').toBeGreaterThan(0)
@@ -138,7 +141,7 @@ describe('模块边界：不往旧站和别的框架里看', () => {
 
   it('示例卡过得了 validateCard（种子路径靠它 —— 不合法的卡不许被种进玩家的存储）', async () => {
     const { validateCard } = await loadModule('core/schema.ts', () => import('../src/core/schema.ts'))
-    const sample = JSON.parse(readFileSync(join(SRC, 'data', 'morningwind.json'), 'utf8'))
+    const sample = JSON.parse(readFileSync(join(SRC, 'data', 'sample-card.json'), 'utf8'))
     expect(() => validateCard(sample)).not.toThrow()
   })
 })

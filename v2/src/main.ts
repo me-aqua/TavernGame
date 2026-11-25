@@ -12,7 +12,7 @@ import { provideStorage } from './app-context'
 import { validateCard } from './core/schema'
 import { createStorage, DEFAULT_SETTINGS } from './core/storage'
 import type { Card, Settings } from './core/types'
-import sample from './data/morningwind.json'
+import sample from './data/sample-card.json'
 import { t } from './i18n'
 import { DEFAULT_PRESETS } from './presets'
 import './styles/main.css'
@@ -38,6 +38,10 @@ try {
  * 标记住在 `tg2.settings.sampleSeeded`（不新增第六个键）。玩家把示例卡删掉之后
  * 标记还在 ⇒ 不会再种回来；他清空整个 localStorage 才会重新看到示例。
  *
+ * 🔴 **种下去的是克隆，玩家侧的 id 是运行时不透明 id**：资产里的 `id` 只是资产内部标识，
+ * 种卡时换成 `c-<uuid>`（与首页新建卡同一套生成器）—— 资产名永远不进 URL / 存档。
+ * **没有迁移**：已经种过的卡与旧存档一个字节都不改。
+ *
  * 🔴 三种「读不出来」都**一个字节都不写**，启动照常：
  *   · 设置读不出来 ⇒ 整块跳过（页面已经在报那句数据错误，种卡也没人看得见）；
  *   · 盘上的卡读不出来（旧格式 / 坏了一份）⇒ 不种、不写标记（覆盖就再也拿不回来了），
@@ -62,7 +66,12 @@ if (settingsReadable && settings.sampleSeeded !== true) {
       }
     }
     if (sampleOk) {
-      if (stored.length === 0) storage.saveCards([sample as Card])
+      if (stored.length === 0) {
+        // 克隆资产再换 id：种进盘里的卡不沿用资产 id，存档快照之后自然跟着这个运行时不透明 id
+        const seeded = structuredClone(sample as Card)
+        seeded.id = `c-${crypto.randomUUID()}`
+        storage.saveCards([seeded])
+      }
       storage.saveSettings({ ...settings, sampleSeeded: true } as Settings)
     }
   }

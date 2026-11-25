@@ -59,7 +59,7 @@
 ## 3. 存储
 
 - localStorage keys：`tg2.cards` / `tg2.saves` / `tg2.presets` / `tg2.settings` / `tg2.nodeModels`；**不读写旧站 `tg.*`**。
-- 项目本体**不含玩家卡 / 存档**；随包只带一张**示例卡资产**（`src/data/morningwind.json`），由首次启动种入 localStorage，玩家可删除；删后首页空态、新建卡、编辑器、引擎、设置照常工作。
+- 项目本体**不含玩家卡 / 存档**；随包只带一张**示例卡资产**（`src/data/sample-card.json`），由首次启动种入 localStorage：**种入时换成运行时不透明 id `c-<uuid>`**（与首页新建卡同一套生成器），资产名永远不出现在 URL / 存档里；玩家可删除；删后首页空态、新建卡、编辑器、引擎、设置照常工作。
 - 首次打开：自动种入晨风镇示例卡 + 两条默认预设（只种一次，`sampleSeeded` 标记）；玩家删光后不再自动长回来。
 
 ## 4. 引擎
