@@ -6,6 +6,11 @@
  *   · **点卡行只是「选中」**，不跳页 —— 新建存档要用这个选中态（「编辑」才进编辑器）；
  *   · **新建存档落在列表末尾**、**不跳转**，`tree` 取卡的初值、`cardSnapshot` 是整张卡的深拷贝；
  *   · **删卡连带删存档与它的模型映射**（`tg2.nodeModels[cardId]`），删存档不动卡。
+ *
+ * 🔴 **读盘失败时整页只留错误面板**（`loadFailed`）：卡 / 存档的字节没读进来时，
+ * 内存里那份列表是空的 / 半截的 —— 这时只要能点到「新建」，写盘就会把盘上那份
+ * （可能是旧格式、也可能只是坏了一份）**整表覆盖**。所以读盘一失败，列表与
+ * `[data-new-card]` / `[data-new-save]` 一律不渲染，盘上一个字节都不动。
  */
 import { onMounted, ref } from 'vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
@@ -20,6 +25,8 @@ import { routeHash } from '../router'
 const cards = ref<Card[]>([])
 const saves = ref<Save[]>([])
 const error = ref<AppError | null>(null)
+/** 读盘失败：列表与「新建」都不许出现（否则一次写盘就会覆盖盘上的旧数据） */
+const loadFailed = ref(false)
 const selectedCardId = ref<string | null>(null)
 const renaming = ref<{ kind: 'card' | 'save'; id: string } | null>(null)
 const renameValue = ref('')
@@ -30,6 +37,7 @@ function load(): void {
     cards.value = storage().loadCards()
     saves.value = storage().loadSaves()
   } catch (cause) {
+    loadFailed.value = true
     error.value = asAppError(cause)
   }
 }
@@ -145,7 +153,7 @@ function go(hash: string): void {
 
     <ErrorPanel v-if="error" :error="error" />
 
-    <div class="page-body home-body">
+    <div v-if="!loadFailed" class="page-body home-body">
       <section class="home-col">
         <div class="col-title">
           <span class="ellipsis">{{ t('home.cardsTitle') }}</span>

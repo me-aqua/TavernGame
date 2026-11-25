@@ -23,8 +23,21 @@ import './styles/main.css'
 const storage = createStorage(localStorage)
 const settings = storage.loadSettings() as Settings & { sampleSeeded?: boolean }
 if (settings.sampleSeeded !== true) {
-  if (storage.loadCards().length === 0) storage.saveCards([sample as Card])
-  storage.saveSettings({ ...settings, sampleSeeded: true } as Settings)
+  /**
+   * 盘上有卡但读不出来（旧格式 / 坏了一份）：**不种示例、不写标记、也不在这里抛**。
+   * 抛出去会把本模块打断 ⇒ 应用连挂都挂不上，中文错误页也没了；种下去则会把它整表覆盖。
+   * 所以这条错误留给首页的读盘路径去撞、去显示（`HomePage` 的 `loadFailed`），这里一个字节都不写。
+   */
+  let stored: Card[] | null = null
+  try {
+    stored = storage.loadCards()
+  } catch {
+    // 见上：错误由首页的读盘路径显示，这里只负责「别种、别写、别炸」
+  }
+  if (stored !== null) {
+    if (stored.length === 0) storage.saveCards([sample as Card])
+    storage.saveSettings({ ...settings, sampleSeeded: true } as Settings)
+  }
 }
 
 // 新装的默认模型预设：只在 `tg2.presets` 这个键完全不存在时铺一次；删光了不再长回来。

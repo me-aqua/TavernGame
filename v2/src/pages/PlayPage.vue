@@ -11,6 +11,11 @@
  *
  * 右上角 `[data-debug-toggle]` 决定调试面板看不看：开着是逐节点读数（提示词 / 返回 / token /
  * t/s / 耗时），关着时页面上只剩最终故事与本回合总耗时。`?debug=1` 只是它的初始状态。
+ *
+ * 🔴 **读盘失败时只留表头 + 错误面板**（`loadFailed`）：存档 / 卡快照读不进来时，
+ * 页面上的故事流与输入区一律不渲染 —— 那两者后面挂着「写回整份存档」，坏数据一被写回
+ * 就再也拿不回来了。闸门**不能**挂在 `error` 上：`error` 也装着回合中途的 provider 错误，
+ * 那种失败之后故事与输入框必须还在。
  */
 import { computed, onMounted, ref } from 'vue'
 import DebugPanel from '../components/DebugPanel.vue'
@@ -32,6 +37,8 @@ const save = ref<Save | null>(null)
 const presets = ref<Preset[]>([])
 const nodePresets = ref<Record<string, string>>({})
 const error = ref<AppError | null>(null)
+/** 读盘失败：故事流 / 输入框 / 发送 / 调试面板都不许出现（一写盘就会覆盖盘上那份坏存档） */
+const loadFailed = ref(false)
 const running = ref(false)
 const streaming = ref('')
 const draft = ref('')
@@ -70,6 +77,7 @@ onMounted(() => {
     nodePresets.value = storage().loadNodeModels()[props.cardId] ?? {}
     if (found.turn > 0) status.value = t('play.status', { turn: found.turn })
   } catch (cause) {
+    loadFailed.value = true
     error.value = asAppError(cause)
   }
 })
@@ -150,7 +158,7 @@ function goBack(): void {
 
     <ErrorPanel v-if="error" :error="error" />
 
-    <div class="page-body">
+    <div v-if="!loadFailed" class="page-body">
       <div class="play-main">
         <StoryView :lines="lines" :streaming="streaming" />
 

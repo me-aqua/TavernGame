@@ -20,6 +20,7 @@ import WorkflowStrip from '../components/WorkflowStrip.vue'
 import { asAppError, storage } from '../app-context'
 import { nextPromptId, nextStateCode } from '../cards'
 import { AppError } from '../core/errors'
+import { validateCard } from '../core/schema'
 import { DEFAULT_SETTINGS } from '../core/storage'
 import type { Card, ChainNode, NodeModels, Preset, PromptBlock, StateElement } from '../core/types'
 import { t } from '../i18n'
@@ -91,7 +92,19 @@ onMounted(() => {
   }
 })
 
+/**
+ * 落盘一张卡：**先验后写** —— 不合法的中间态既不进内存、也不进 localStorage。
+ *
+ * 界面上会造出非法卡的开关已经藏起来了（写权限、上游、开场不可删……），这一层是兜底：
+ * `saveCards()` 是整表覆盖，写进去之前必须确认这一张还合契约。
+ */
 function persist(next: Card): void {
+  try {
+    validateCard(next)
+  } catch (cause) {
+    error.value = asAppError(cause)
+    return
+  }
   card.value = next
   cards.value = cards.value.map((item) => (item.id === next.id ? next : item))
   storage().saveCards(cards.value)

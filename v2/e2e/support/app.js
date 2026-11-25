@@ -123,6 +123,14 @@ export async function readStorage(page, key) {
   return page.evaluate(`JSON.parse(window.localStorage.getItem(${JSON.stringify(key)}) ?? 'null')`)
 }
 
+/**
+ * 读一个 localStorage 键的**原始字符串**（不解析）。
+ * 旧数据安全判据要靠它：坏数据没有被「顺手回写成一份新的」，字节必须逐字相同。
+ */
+export async function readRaw(page, key) {
+  return page.evaluate(`window.localStorage.getItem(${JSON.stringify(key)})`)
+}
+
 /** 当前 localStorage 用到的键（看有没有往 tg2.* 之外写） */
 export async function storageKeys(page) {
   return page.evaluate('Object.keys(window.localStorage).sort()')
