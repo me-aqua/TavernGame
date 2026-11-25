@@ -1,22 +1,23 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import PromptList from '../src/components/PromptList.vue'
-import { OUTPUT_NODE, PROMPTS } from './support/data'
+import { PROMPTS } from './support/data'
 
 /**
- * 右栏 · 公共提示词：每块前面一只「读」眼睛（当前选中的节点读不读它），块可以增删改。
+ * 右栏 · 公共提示词：只有块名与删除（名字点一下选中，正文在中栏改）。
+ * `+` 是裸的一个加号；「开场」那一块没有 ×。
  */
 const meta = {
   title: 'v2/PromptList',
   component: PromptList,
-  args: { prompts: PROMPTS, node: OUTPUT_NODE },
+  args: { prompts: PROMPTS, selectedId: 'pr1' },
   decorators: [() => ({ template: '<div style="width: 380px; height: 420px"><story /></div>' })],
 } satisfies Meta<typeof PromptList>
 
 export default meta
 type Story = StoryObj<typeof meta>
 
-/** 两块提示词，输出节点读第一块 */
+/** 三块提示词（开场 + 两块自己的），选中第二块 */
 export const Filled: Story = {}
 
-/** 一块都没有：只有新增按钮 */
-export const Empty: Story = { args: { prompts: [], node: null } }
+/** 只有开场那一块：它没有 × */
+export const OpeningOnly: Story = { args: { prompts: [PROMPTS[0]], selectedId: null } }

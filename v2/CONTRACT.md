@@ -102,7 +102,8 @@ v2/
 - 校验对「多出来的字段」**宽容**：旧卡里若残留 `presetId`，`validateCard` 不报错，
   但引擎**一个字节都不看它**（判据：`v2/tests/engine.test.js` 的「残留 presetId 不起作用」）。
 - `state[0].code` 固定为 `'0'`，是**时间元素**：它的 `initial` 是对象 `{ day: 1, hour: 8 }`（唯一例外），
-  其余元素 `initial` 是字符串。阶段 1 时间初值**只读**（界面不提供编辑），`'0'` 不可删除。
+  其余元素 `initial` 是字符串。阶段 1 时间初值在界面上是**两个数字框**（第几天 ≥1 / 第几小时 0–23），
+  可以直接改；`'0'` 不可删除。
 - `reads` 是**混合数组**：`prompts[].id` 表示读这块公共提示词；`state[].code` 表示读这个元素。
   同一个字符串不会同时是两者（id 由创建方保证不撞码）。
 - 新建卡的默认四节点（顺序固定；**id 固定成下面这四个 ASCII 记号**，名字是**给玩家看的文案**）：
@@ -117,7 +118,10 @@ v2/
   `id` 是**结构**（选择器、链里引用、测试靠它），必须 ASCII 且稳定；`name` 是**展示文案**，
   住在 `locales/zh-CN.json`（不许在 `.ts` 里写中文字面量，§9.3）。
 
-- 新建卡的 `state = [{ code:'0', name:'时间', note:'', type:'string', initial:{day:1,hour:8} }]`，`prompts = []`。
+- 新建卡的 `state = [{ code:'0', name:'时间', note:'', type:'string', initial:{day:1,hour:8} }]`，
+  `prompts = [{ id:'opening', title:'开场', body:'' }]` —— **每张卡都带这一块**（`opening` 不可删，§8.2），
+  标题来自文案表 `card.openingTitle`，**永远排第一**。
+  老卡缺这一块时，编辑器打开那一刻补在**最前**并落盘（`normalizeCard`，幂等；`load*()` 本身不写盘，§3）。
   之后**新增的状态元素 / 提示词块不自动进入任何节点的 `reads` / `writable`** —— 作者用眼睛打开。
 - `historyTurns` 数的是**已完成**的回合；本回合的玩家行动**恒为历史块的最后一条**（§5）。
 
@@ -456,24 +460,41 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   夹取：左 `[200, 480]`、右 `[240, 560]`，且中栏不得小于 320。
   落盘到 `tg2.settings.editorColumns`（**整数像素**，拖拽结束就写），刷新后保留。
   自由度只有两个（左、右）—— 三栏宽度都随拖动变化，中栏恒为余量。
+- 选中态三格互斥（S0–S3）：**什么都没选**（S0）· **选中工作流节点**（S1）· **选中状态元素**（S2）·
+  **选中公共提示词块**（S3）。三格里两个 `ref` 互相清空，任一时刻最多一格。
+- 左栏控件按选中态分档露出（S0–S3 矩阵）：
+  - **S0**（什么都没选）：只有行 —— `[data-state-code]` + `[data-state-name]`，没有任何按钮；
+  - **S1**（选中节点）：每行两只眼睛 `[data-eyes="read"]` / `[data-eyes="write"]`（带
+    `data-on="true"|"false"`，点击切换「当前选中节点」读/写这个元素）；
+  - **S2**（选中元素）：栏顶出现 `[data-add-state]`（裸 `+`），**每一行**出现 `[data-delete-state]`
+    （裸 `×`；`'0'` 这一行永远没有它）。眼睛在 S2 不出现。
 - 状态树 `[data-state-tree]`：每行 `[data-state-item="<code>"]`，行内 `[data-state-code]`（显示编码）、
-  `[data-state-name]`、`[data-delete-state]`（`'0'` 不许有）；`[data-add-state]` 新增元素。
-  行内眼睛 `[data-eyes="read"]` / `[data-eyes="write"]`，带 `data-on="true"|"false"`，
-  **只在选中了工作流节点时显示**，点击切换「当前选中节点」读/写这个元素。
-- 中栏三形态（互斥，按选中对象切换）：
-  - 选中节点：`[data-node-prompt]`（textarea）、`[data-node-preset]`（select）、
-    `[data-node-history]`（number）、`[data-node-upstream]`（带 `data-on`；**首节点禁用**：
-    `data-on="false"` + `aria-disabled="true"`，点了也不翻面）。
-  - 选中元素：`[data-field="name"]`、`[data-field="note"]`、`[data-field="initial"]`（时间元素时该框只读）。
-  - 没选：中栏显示空态 `[data-empty-middle]`。
+  `[data-state-name]`。
+- 中栏四形态（互斥，按选中对象切换）：
+  - S1 选中节点：`[data-node-preset]`（select）、`[data-node-history]`（number）、`[data-node-upstream]`
+    （带 `data-on`；**首节点禁用**：`data-on="false"` + `aria-disabled="true"`，点了也不翻面）、
+    **读公共提示词**一节 `[data-node-prompt-reads]`（每块一行，按钮 `[data-node-prompt-read]` 带
+    `data-prompt-id` 与 `data-on`，点击切换本节点的 `reads` 里有没有这一块）、
+    `[data-node-prompt]`（textarea，本节点提示词）。
+  - S2 选中元素：`[data-state-type]`（只读展示：`0` = 时间，其余 = 文字）、`[data-field="name"]`、
+    `[data-field="note"]`、初值 —— 时间元素是两个数字框 `[data-field="initial-day"]`（≥1）+
+    `[data-field="initial-hour"]`（0–23），其余元素是 `[data-field="initial"]`（字符串）。
+  - S3 选中提示词块：`[data-prompt-title]`（名字）+ `[data-prompt-body]`（textarea，正文）。
+  - 没选：中栏显示空态 `[data-empty-middle]`（**空壳，不写句子**）。
 - `[data-node-preset]`：选项 = `tg2.presets` 全部；**当前值 = 这个节点解析出的预设 id**
   （映射里没有就是 `presets[0].id`，§2.5）；改动写 `tg2.nodeModels[cardId][nodeId]`，**不动卡**。
-  一个预设都没有时它是空的、`aria-disabled="true"`（并给出「先去设置页加一个预设」的中文提示）。
+  一个预设都没有时它是空的、`aria-disabled="true"`（**不另挂提示文案**）。
   判据：`v2/e2e/node-models.spec.js`。
 - 工作流细条 `[data-workflow-strip]`：四个 `[data-node-id="<id>"]`，点击选中（带 `data-selected="true"`）。
-- 右栏 `[data-prompt-list]`：每块 `[data-prompt-block="<id>"]`，块内 `[data-prompt-title]`、
-  `[data-prompt-body]`（textarea）、`[data-prompt-eyes]`（同眼睛语义，`data-on`）、`[data-delete-prompt]`；
-  `[data-add-prompt]` 新增块（新 id 由创建方生成）。
+- 右栏 `[data-prompt-list]`：只有块名与删除 —— 每块 `[data-prompt-block="<id>"]`（点击 = 选中，带
+  `data-selected="true"|"false"`）、块内 `[data-prompt-name]`、`[data-delete-prompt]`（裸 `×`）；
+  `[data-add-prompt]` 新增块（裸 `+`，新 id 由创建方生成并当场选中）。
+  **这一栏没有输入框、也没有眼睛**（改名 / 正文在 S3 的中栏，读不读在 S1 的 NodeForm）。
+- **每张卡都有一块 `id: 'opening'`（标题「开场」）**：新建卡自带、示例卡里也有一份；右栏不给它
+  `[data-delete-prompt]`。老卡在编辑器打开时补上并落盘（§2 的「开场」口径）。
+- **没有教程提示**：编辑器的中栏空态（`[data-empty-middle]`）里不写句子；没有预设时、
+  设置页没有预设时、首页改名框上，都不再挂教程提示（旧文案与 `.hint` 一并清掉）。
+  判据：`v2/e2e/editor-panels.spec.js`。
 - **没有「保存」按钮**：字段改动（input / change / blur）即时写 `tg2.cards`。
   切走页面再回来、刷新后都还在。（判据：`v2/e2e/loop.spec.js`。）
 
@@ -579,33 +600,35 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
 
 ### 9.4 判据清单（谁钉哪条 SPEC §9）
 
-| 验收                                                   | 判据                                                     |
-| ------------------------------------------------------ | -------------------------------------------------------- |
-| §9.1 空态 / 删空后仍可用                               | `v2/e2e/empty.spec.js`                                   |
-| 首次打开种「晨风镇」/ 删了不复种                       | `v2/e2e/sample.spec.js`（§3.1）                          |
-| 新装默认两条预设（顺序 / name=model / Key 空）         | `v2/e2e/settings.spec.js`（§8.4）                        |
-| §9.2 建卡→编 2 元素+初值+2 提示词→存档→3 回合→刷新还在 | `v2/e2e/loop.spec.js`                                    |
-| §9.3 眼睛控制提示词拼装                                | `v2/e2e/eyes.spec.js` + `v2/tests/prompt.test.js`        |
-| §9.4 改卡后旧存档仍能跑                                | `v2/e2e/snapshot.spec.js`                                |
-| §9.5 四类比例 + 4K 不溢出 / 手机竖屏遮罩               | `v2/e2e/responsive.spec.js`                              |
-| §9.6 三栏可拖 / 细条固定 / 双击恢复 / 刷新保留         | `v2/e2e/editor-columns.spec.js`                          |
-| §9.7 组件故事 + 像素基线                               | **不在本契约**（stories 那一层由后续一票补，见 §10）     |
-| §9.8 流式可停止 / 错误中文                             | `v2/e2e/stream-abort.spec.js` + `v2/e2e/errors.spec.js`  |
-| §9.9 线上 `/v2/` 可打开、旧站仍可用                    | 人工 + 发布流程（不在本契约）                            |
-| 链校验（输出/校对/时间/首节点上游）                    | `v2/tests/chain.test.js`                                 |
-| 错误码五条都有中文 + 下一步                            | `v2/tests/errors.test.js`                                |
-| 存储五键 / 无种子 / 删空 / 坏 JSON / 坏映射            | `v2/tests/storage.test.js`                               |
-| 模块边界（无旧站 / core 不碰 DOM 与 Vue）              | `v2/tests/boundaries.test.js`                            |
-| 引擎语义（顺序、写入、流式、中止、快照）               | `v2/tests/engine.test.js`                                |
-| 模型不进卡 / 逐节点解析 / 缺预设即报错 / 删卡清映射    | `v2/tests/engine.test.js` + `v2/e2e/node-models.spec.js` |
-| 夹具自身合法性（正控：夹具坏了下面每条红都不可信）     | `v2/tests/fixtures.selfcheck.test.js`                    |
+| 验收                                                                    | 判据                                                     |
+| ----------------------------------------------------------------------- | -------------------------------------------------------- |
+| §9.1 空态 / 删空后仍可用                                                | `v2/e2e/empty.spec.js`                                   |
+| 首次打开种「晨风镇」/ 删了不复种                                        | `v2/e2e/sample.spec.js`（§3.1）                          |
+| 新装默认两条预设（顺序 / name=model / Key 空）                          | `v2/e2e/settings.spec.js`（§8.4）                        |
+| §9.2 建卡→编 2 元素+初值+2 提示词→存档→3 回合→刷新还在                  | `v2/e2e/loop.spec.js`                                    |
+| §9.3 眼睛控制提示词拼装                                                 | `v2/e2e/eyes.spec.js` + `v2/tests/prompt.test.js`        |
+| §9.4 改卡后旧存档仍能跑                                                 | `v2/e2e/snapshot.spec.js`                                |
+| §9.5 四类比例 + 4K 不溢出 / 手机竖屏遮罩                                | `v2/e2e/responsive.spec.js`                              |
+| §9.6 三栏可拖 / 细条固定 / 双击恢复 / 刷新保留                          | `v2/e2e/editor-columns.spec.js`                          |
+| 6 项 UI 变更（右栏只有名字+× / 无提示 / S2 的× / 时间 day-hour / 开场） | `v2/e2e/editor-panels.spec.js`                           |
+| §9.7 组件故事 + 像素基线                                                | **不在本契约**（stories 那一层由后续一票补，见 §10）     |
+| §9.8 流式可停止 / 错误中文                                              | `v2/e2e/stream-abort.spec.js` + `v2/e2e/errors.spec.js`  |
+| §9.9 线上 `/v2/` 可打开、旧站仍可用                                     | 人工 + 发布流程（不在本契约）                            |
+| 链校验（输出/校对/时间/首节点上游）                                     | `v2/tests/chain.test.js`                                 |
+| 错误码五条都有中文 + 下一步                                             | `v2/tests/errors.test.js`                                |
+| 存储五键 / 无种子 / 删空 / 坏 JSON / 坏映射                             | `v2/tests/storage.test.js`                               |
+| 模块边界（无旧站 / core 不碰 DOM 与 Vue）                               | `v2/tests/boundaries.test.js`                            |
+| 引擎语义（顺序、写入、流式、中止、快照）                                | `v2/tests/engine.test.js`                                |
+| 模型不进卡 / 逐节点解析 / 缺预设即报错 / 删卡清映射                     | `v2/tests/engine.test.js` + `v2/e2e/node-models.spec.js` |
+| 夹具自身合法性（正控：夹具坏了下面每条红都不可信）                      | `v2/tests/fixtures.selfcheck.test.js`                    |
 
 ### 9.5 第 2 关替实现钉下的、SPEC 没写死的决定（组长可否决）
 
 1. 一节点**一次** provider 调用（不做多步工具循环）——阶段 1 够用，多步留给阶段 3。
 2. `applyWrite` 越权写 ⇒ **`E_CHAIN`**（不是 `E_VALIDATION`）：它违反的是链里的 `writable` 声明。
 3. 新增错误码 **`E_ABORTED`**（SPEC §4 只列了四个）：停止是正常路径，不能与 `E_PROVIDER` 混。
-4. 时间元素初值 `{day:1,hour:8}` 且**只读**（阶段 1 不提供编辑）。
+4. 时间元素初值 `{day:1,hour:8}`，界面用 `[data-field="initial-day"]` / `[data-field="initial-hour"]`
+   两个数字框**可编辑**并即时落盘（原「只读」口径作废）。
 5. 栏宽只存 `{left, right}`（中栏 = 余量），默认 280 / 320。
 6. 编辑器**无保存按钮**，改动即时落盘。
 7. mock 提供方的输出文本格式（§7）——只给测试用，玩家看不到。

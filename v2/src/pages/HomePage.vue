@@ -153,7 +153,6 @@ function go(hash: string): void {
         </div>
         <div class="list scroll" data-card-list>
           <p v-if="cards.length === 0" class="muted empty" data-empty-cards>{{ t('home.emptyCards') }}</p>
-          <p v-if="cards.length === 0" class="muted hint">{{ t('home.emptyCardsHint') }}</p>
           <div
             v-for="card in cards"
             :key="card.id"
@@ -167,7 +166,6 @@ function go(hash: string): void {
                 v-model="renameValue"
                 class="rename"
                 data-rename-input
-                :title="t('home.renameHint')"
                 @keyup.enter="commitRename"
                 @keyup.esc="renaming = null"
                 @blur="commitRename"
@@ -211,7 +209,6 @@ function go(hash: string): void {
         </div>
         <div class="list scroll" data-save-list>
           <p v-if="saves.length === 0" class="muted empty" data-empty-saves>{{ t('home.emptySaves') }}</p>
-          <p v-if="saves.length === 0" class="muted hint">{{ t('home.emptySavesHint') }}</p>
           <div
             v-for="save in saves"
             :key="save.id"
@@ -224,7 +221,6 @@ function go(hash: string): void {
                 v-model="renameValue"
                 class="rename"
                 data-rename-input
-                :title="t('home.renameHint')"
                 @keyup.enter="commitRename"
                 @keyup.esc="renaming = null"
                 @blur="commitRename"
@@ -292,10 +288,6 @@ function go(hash: string): void {
 
 .empty {
   margin: 6px 4px 0;
-}
-
-.hint {
-  margin: 0 4px;
 }
 
 .item {

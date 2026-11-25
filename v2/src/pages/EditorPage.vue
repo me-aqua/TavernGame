@@ -12,12 +12,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import ErrorPanel from '../components/ErrorPanel.vue'
 import NodeForm from '../components/NodeForm.vue'
+import PromptForm from '../components/PromptForm.vue'
 import PromptList from '../components/PromptList.vue'
 import StateForm from '../components/StateForm.vue'
 import StateTree from '../components/StateTree.vue'
 import WorkflowStrip from '../components/WorkflowStrip.vue'
 import { asAppError, storage } from '../app-context'
-import { nextPromptId, nextStateCode } from '../cards'
+import { nextPromptId, nextStateCode, normalizeCard } from '../cards'
 import { AppError } from '../core/errors'
 import { DEFAULT_SETTINGS } from '../core/storage'
 import type { Card, ChainNode, NodeModels, Preset, PromptBlock, StateElement } from '../core/types'
@@ -40,6 +41,7 @@ const models = ref<NodeModels>({})
 const error = ref<AppError | null>(null)
 const selectedNodeId = ref<string | null>(null)
 const selectedCode = ref<string | null>(null)
+const selectedPromptId = ref<string | null>(null)
 const columns = reactive({
   left: DEFAULT_SETTINGS.editorColumns.left,
   right: DEFAULT_SETTINGS.editorColumns.right,
@@ -50,6 +52,9 @@ const selectedNode = computed(
 )
 const selectedElement = computed(
   () => card.value?.state.find((element) => element.code === selectedCode.value) ?? null,
+)
+const selectedPrompt = computed(
+  () => card.value?.prompts.find((prompt) => prompt.id === selectedPromptId.value) ?? null,
 )
 
 const sliceOf = (cardId: string): Record<string, string> => models.value[cardId] ?? {}
@@ -66,7 +71,13 @@ onMounted(() => {
     if (!found) {
       throw new AppError('E_VALIDATION', { message: t('error.missingCard'), nextStep: t('next.home') })
     }
-    card.value = found
+    // 老卡没有「开场」这一块：打开编辑器时补上并落盘（`load*()` 一律不写盘，那条判据钉着）
+    const normalized = normalizeCard(found)
+    if (normalized !== found) {
+      cards.value = cards.value.map((item) => (item.id === normalized.id ? normalized : item))
+      storage().saveCards(cards.value)
+    }
+    card.value = normalized
     presets.value = storage().loadPresets()
     models.value = storage().loadNodeModels()
     const settings = storage().loadSettings()
@@ -129,11 +140,20 @@ function toggleRef(field: 'reads' | 'writable', ref0: string): void {
 function selectNode(nodeId: string): void {
   selectedNodeId.value = nodeId
   selectedCode.value = null
+  selectedPromptId.value = null
 }
 
 function selectElement(code: string): void {
   selectedCode.value = code
   selectedNodeId.value = null
+  selectedPromptId.value = null
+}
+
+// S3：选中一块公共提示词（中栏换成 PromptForm）
+function selectPrompt(id: string): void {
+  selectedPromptId.value = id
+  selectedNodeId.value = null
+  selectedCode.value = null
 }
 
 function addState(): void {
@@ -170,6 +190,7 @@ function addPrompt(): void {
   if (!current) return
   const block: PromptBlock = { id: nextPromptId(current.prompts), title: '', body: '' }
   updateCard((card0) => ({ ...card0, prompts: [...card0.prompts, block] }))
+  selectPrompt(block.id)
 }
 
 function patchPrompt(id: string, patch: Partial<PromptBlock>): void {
@@ -186,6 +207,7 @@ function removePrompt(id: string): void {
     prompts: current.prompts.filter((prompt) => prompt.id !== id),
     chain: current.chain.map((node) => ({ ...node, reads: node.reads.filter((ref0) => ref0 !== id) })),
   }))
+  if (selectedPromptId.value === id) selectedPromptId.value = null
 }
 
 function choosePreset(nodeId: string, presetId: string): void {
@@ -307,15 +329,22 @@ function goBack(): void {
           :is-first="selectedNode.id === card.chain[0].id"
           :presets="presets"
           :preset-id="presetIdFor(selectedNode.id)"
+          :prompts="card.prompts"
           @patch="(patch) => patchNode(selectedNode!.id, patch)"
           @preset="(presetId) => choosePreset(selectedNode!.id, presetId)"
+          @toggle-prompt-read="(id) => toggleRef('reads', id)"
         />
         <StateForm
           v-else-if="selectedElement"
           :element="selectedElement"
           @patch="(patch) => patchElement(selectedElement!.code, patch)"
         />
-        <div v-else class="empty-middle muted" data-empty-middle>{{ t('editor.emptyMiddle') }}</div>
+        <PromptForm
+          v-else-if="selectedPrompt"
+          :prompt="selectedPrompt"
+          @patch="(patch) => patchPrompt(selectedPrompt!.id, patch)"
+        />
+        <div v-else data-empty-middle></div>
       </section>
 
       <div
@@ -330,11 +359,10 @@ function goBack(): void {
       <section class="col" data-col="right" :style="{ width: `${columns.right}px` }">
         <PromptList
           :prompts="card.prompts"
-          :node="selectedNode"
+          :selected-id="selectedPromptId"
           @add="addPrompt"
-          @patch="patchPrompt"
+          @select="selectPrompt"
           @remove="removePrompt"
-          @toggle-read="(id) => toggleRef('reads', id)"
         />
       </section>
     </div>
@@ -370,9 +398,5 @@ function goBack(): void {
 
 .splitter:hover {
   background: var(--line);
-}
-
-.empty-middle {
-  padding: 16px;
 }
 </style>

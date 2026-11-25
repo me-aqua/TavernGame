@@ -92,7 +92,6 @@ const REASONINGS: Reasoning[] = ['off', 'low', 'medium', 'high']
           </label>
         </div>
       </div>
-      <p v-if="presets.length === 0" class="muted hint">{{ t('settings.emptyPresets') }}</p>
     </div>
   </div>
 </template>
@@ -126,9 +125,5 @@ const REASONINGS: Reasoning[] = ['off', 'low', 'medium', 'high']
 
 .grow {
   flex: 1 1 auto;
-}
-
-.hint {
-  margin: 0;
 }
 </style>

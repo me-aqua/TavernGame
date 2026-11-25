@@ -2,13 +2,13 @@
 /**
  * 中栏 · 选中工作流节点时的那张表（SPEC §5）。
  *
- * 四样东西：节点提示词、**模型预设**、历史回合数、上游眼睛。
+ * 五样东西：节点提示词、**模型预设**、历史回合数、上游眼睛、**读哪几块公共提示词**。
  *
  * 模型预设这一格改的是 `tg2.nodeModels[cardId][nodeId]`（本机映射），**不动卡** ——
  * 卡要能原样带走；模型与 Key 是玩家这台机器的事（CONTRACT §2.5）。
  * 它的「当前值」是**解析结果**：映射里没有这一格时显示的就是池子的第一个预设。
  */
-import type { ChainNode, Preset } from '../core/types'
+import type { ChainNode, Preset, PromptBlock } from '../core/types'
 import { t } from '../i18n'
 
 const props = defineProps<{
@@ -16,11 +16,13 @@ const props = defineProps<{
   isFirst: boolean
   presets: Preset[]
   presetId: string
+  prompts: PromptBlock[]
 }>()
 
 const emit = defineEmits<{
   patch: [patch: Partial<ChainNode>]
   preset: [presetId: string]
+  togglePromptRead: [id: string]
 }>()
 
 function onHistory(event: Event): void {
@@ -56,7 +58,6 @@ function onUpstream(): void {
         <option v-for="preset in presets" :key="preset.id" :value="preset.id">{{ preset.name }}</option>
       </select>
     </label>
-    <p v-if="presets.length === 0" class="muted hint">{{ t('editor.noPreset') }}</p>
 
     <label class="field-row">
       <span class="field-label">{{ t('editor.nodeHistory') }}</span>
@@ -82,6 +83,26 @@ function onUpstream(): void {
       >
         {{ t('editor.eyeRead') }}
       </button>
+    </div>
+
+    <div class="reads">
+      <span class="field-label">{{ t('editor.nodePromptReads') }}</span>
+      <div class="read-rows" data-node-prompt-reads>
+        <div v-for="prompt in prompts" :key="prompt.id" class="read-row">
+          <span class="ellipsis">{{ prompt.title }}</span>
+          <button
+            type="button"
+            class="eye"
+            data-node-prompt-read
+            :data-prompt-id="prompt.id"
+            :data-on="node.reads.includes(prompt.id) ? 'true' : 'false'"
+            :title="t('editor.promptEye')"
+            @click="emit('togglePromptRead', prompt.id)"
+          >
+            {{ t('editor.eyeRead') }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <label class="stack grow">
@@ -124,8 +145,26 @@ function onUpstream(): void {
   width: 100%;
 }
 
-.hint {
-  margin: 0;
+.reads {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.read-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.read-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  font-size: var(--fs2);
 }
 
 .eye {

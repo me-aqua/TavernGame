@@ -3,13 +3,36 @@
   "id": "card-morningwind",
   "name": "晨风镇",
   "state": [
-    { "code": "0", "name": "时间", "note": "第几天、第几小时", "type": "string", "initial": { "day": 1, "hour": 18 } },
+    {
+      "code": "0",
+      "name": "时间",
+      "note": "第几天、第几小时",
+      "type": "string",
+      "initial": { "day": 1, "hour": 18 }
+    },
     { "code": "1", "name": "地点", "note": "玩家此刻所在", "type": "string", "initial": "晨风镇 · 酒馆" },
     { "code": "2", "name": "人物", "note": "此刻在场的人", "type": "string", "initial": "柜台后的老板娘" },
-    { "code": "3", "name": "氛围", "note": "光线、声音、气味", "type": "string", "initial": "炉火噼啪，麦酒和湿羊毛的味道" },
-    { "code": "4", "name": "线索", "note": "玩家已经知道的传闻", "type": "string", "initial": "码头三天里回来两条空船" }
+    {
+      "code": "3",
+      "name": "氛围",
+      "note": "光线、声音、气味",
+      "type": "string",
+      "initial": "炉火噼啪，麦酒和湿羊毛的味道"
+    },
+    {
+      "code": "4",
+      "name": "线索",
+      "note": "玩家已经知道的传闻",
+      "type": "string",
+      "initial": "码头三天里回来两条空船"
+    }
   ],
   "prompts": [
+    {
+      "id": "opening",
+      "title": "开场",
+      "body": ""
+    },
     {
       "id": "prompt-world",
       "title": "世界观",

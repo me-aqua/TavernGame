@@ -1,10 +1,13 @@
 <script setup lang="ts">
 /**
- * 左栏 · 状态树（SPEC §5「编辑器」）：单层文本元素，行内两只会「眼睛」。
+ * 左栏 · 状态树（SPEC §5「编辑器」）：单层元素，控件按 S0–S3 一步步露出来。
  *
- * 眼睛的语义与引擎完全一致：**读**（`reads` 里有它才进提示词）、**写**（`writable` 里有它才许写）。
- * 眼睛只在**选中了工作流节点**时出现 —— 它们说的都是「当前这个节点」读/写什么，
- * 没有当前节点时它们没有意义（显示了反而会让人以为点的是一个全局开关）。
+ *   · **S0**（什么都没选）：只有行 —— 编码 + 名字；
+ *   · **S1**（选中了工作流节点）：每行两只眼睛 —— **读**（`reads` 里有它才进提示词）、
+ *     **写**（`writable` 里有它才许写）；
+ *   · **S2**（选中了某个元素）：栏顶出现 `+`（加元素），**每一行**出现 `×`（删这一行）。
+ *
+ * `0`（时间元素）永远不许删，它不带 `×`。
  */
 import type { ChainNode, StateElement } from '../core/types'
 import { t } from '../i18n'
@@ -28,7 +31,17 @@ defineEmits<{
   <div class="state-tree" data-state-tree>
     <div class="col-title">
       <span class="ellipsis">{{ t('editor.stateTitle') }}</span>
-      <button type="button" data-add-state @click="$emit('add')">{{ t('editor.addState') }}</button>
+      <button
+        v-if="selectedCode !== null"
+        type="button"
+        class="icon"
+        data-add-state
+        :title="t('editor.addState')"
+        :aria-label="t('editor.addState')"
+        @click="$emit('add')"
+      >
+        +
+      </button>
     </div>
     <div class="rows scroll">
       <div
@@ -64,9 +77,9 @@ defineEmits<{
           </button>
         </template>
         <button
-          v-if="element.code !== '0'"
+          v-if="selectedCode !== null && element.code !== '0'"
           type="button"
-          class="eye"
+          class="icon"
           data-delete-state
           :title="t('editor.deleteState')"
           @click.stop="$emit('remove', element.code)"
@@ -74,7 +87,6 @@ defineEmits<{
           {{ t('common.remove') }}
         </button>
       </div>
-      <p v-if="!node" class="muted hint">{{ t('editor.eyesHint') }}</p>
     </div>
   </div>
 </template>
@@ -140,9 +152,5 @@ defineEmits<{
   border-color: var(--accent);
   color: var(--accent);
   font-weight: 600;
-}
-
-.hint {
-  margin: 4px 2px 0;
 }
 </style>

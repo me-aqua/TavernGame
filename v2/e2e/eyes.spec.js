@@ -24,6 +24,9 @@ import {
 const CARD_ID = 'c1'
 const DEBUG_PROMPT = '[data-debug-prompt]'
 
+/** 「读这块公共提示词」的眼睛**在 NodeForm 里**（右栏不再有眼睛）：`[data-node-prompt-read][data-prompt-id]` */
+const promptReadEye = (promptId) => `[data-node-prompt-read][data-prompt-id="${promptId}"]`
+
 /** 种一张卡 + 一个预设（不种存档：眼睛要在「快照之前」改） */
 function seedCardOnly({ saves = false } = {}) {
   const card = makeCard()
@@ -48,9 +51,7 @@ test.describe('眼睛：公共提示词块', () => {
   test('关掉 pr1 的读眼睛 ⇒ 它的正文从 prompt 里消失，pr2 还在', async ({ page }) => {
     await boot(page, { storage: seedCardOnly() })
     // 正向控制：先确认默认是读的
-    expect(
-      await toggleEye(page, { nodeId: 'output', selector: '[data-prompt-block="pr1"] [data-prompt-eyes]' }),
-    ).toBe('true')
+    expect(await toggleEye(page, { nodeId: 'output', selector: promptReadEye('pr1') })).toBe('true')
 
     const saveId = await createSave(page, CARD_ID)
     await openStory(page, CARD_ID, saveId, { debug: true })
@@ -64,8 +65,8 @@ test.describe('眼睛：公共提示词块', () => {
 
   test('把 pr1 再打开 ⇒ 正文回来（不是「永远都不在」）', async ({ page }) => {
     await boot(page, { storage: seedCardOnly() })
-    await toggleEye(page, { nodeId: 'output', selector: '[data-prompt-block="pr1"] [data-prompt-eyes]' })
-    await toggleEye(page, { nodeId: 'output', selector: '[data-prompt-block="pr1"] [data-prompt-eyes]' })
+    await toggleEye(page, { nodeId: 'output', selector: promptReadEye('pr1') })
+    await toggleEye(page, { nodeId: 'output', selector: promptReadEye('pr1') })
 
     const saveId = await createSave(page, CARD_ID)
     await openStory(page, CARD_ID, saveId, { debug: true })

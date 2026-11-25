@@ -1,0 +1,227 @@
+/**
+ * 编辑器的 6 项 UI 变更（老板 2026-11-25 口径）。
+ *
+ * 这一层的价值是把「看起来对」的三种东西钉死：
+ *   ① 右栏**只剩**名字与 `×`（输入框、眼睛都搬走了）—— 搬回来一个输入框，玩家能用但规矩没了；
+ *   ② **没有教程提示**（左栏 / 首页 / 中栏空态 / 没有预设时 / 设置页）—— 提示是「一次性」的东西，
+ *      但代码里留着它就会在别的状态里冒出来；
+ *   ③ S2 的 `×`、时间元素的 day/hour、开场的「不可删且排第一」—— 这三条都是**互斥状态**里的规则，
+ *      不分别验就会「看起来都对」。
+ *
+ * ⚠️ 「没有提示」判两条腿：**结构**（这些作用域里不许有 `.hint` 元素 / `title` 属性）
+ *    + **文案**（旧提示那几句不许出现在屏上）。只判结构，换一句话就漏；只判文案，加一个无名提示就漏。
+ */
+import { expect, test } from '@playwright/test'
+import { APP_PATH, boot, KEYS, makeCard, MOCK_PRESET, readStorage, route } from './support/app.js'
+
+const CARD_ID = 'c1'
+
+/** 旧提示的文案（`locales/zh-CN.json` 当前值）：这些句子不该再出现在屏上 */
+const OLD_HINTS = {
+  emptyMiddle: '未选择',
+  noPreset: '还没有模型预设',
+  settingsEmpty: '还没有模型预设',
+  rename: '回车提交，Esc 取消',
+}
+
+function seedCard({ presets = [MOCK_PRESET] } = {}) {
+  return { [KEYS.cards]: [makeCard()], [KEYS.presets]: presets }
+}
+
+/** 进编辑器（可指定预设池；空数组 = 一个预设都没有） */
+async function openEditor(page, options) {
+  await boot(page, { storage: seedCard(options) })
+  await page.goto(`${APP_PATH}${route.edit(CARD_ID)}`)
+  await expect(page.locator('[data-page="editor"]')).toBeVisible()
+}
+
+test.describe('右栏：只有名字与 ×，眼睛在 NodeForm 里', () => {
+  test('右栏每块只有名字 + 至多一个 ×；没有输入框、没有眼睛', async ({ page }) => {
+    await openEditor(page)
+    // 夹具卡有两块提示词；打开编辑器时「开场」会被补在最前
+    const blocks = page.locator('[data-col="right"] [data-prompt-block]')
+    await expect(blocks).toHaveCount(3)
+
+    for (let index = 0; index < 3; index += 1) {
+      const block = blocks.nth(index)
+      await expect(block.locator('[data-prompt-name]')).toHaveCount(1)
+      expect(await block.locator('[data-delete-prompt]').count()).toBeLessThanOrEqual(1)
+      // 右栏不摆任何输入控件 / 眼睛
+      await expect(block.locator('input, textarea, select')).toHaveCount(0)
+      await expect(block.locator('[data-eyes], [data-node-prompt-read]')).toHaveCount(0)
+    }
+  })
+
+  test('两个「+」按钮的文本恰好是 +；左栏那个只在 S2 才出现', async ({ page }) => {
+    await openEditor(page)
+    await expect(page.locator('[data-add-prompt]')).toHaveText('+')
+    // S0：没选任何东西 ⇒ 左栏没有 `+`
+    await expect(page.locator('[data-add-state]')).toHaveCount(0)
+    // S2：选中一行 ⇒ 出现，且文本就是 +
+    await page.locator('[data-state-item="0"]').click()
+    await expect(page.locator('[data-add-state]')).toHaveText('+')
+  })
+
+  test('眼睛搬到中栏：选中节点后每块提示词一颗读眼睛，点了会改 node.reads', async ({ page }) => {
+    await openEditor(page)
+    await page.locator('[data-node-id="output"]').click()
+
+    // 中栏的读眼睛与提示词块一一对应；右栏一颗都没有
+    const reads = page.locator('[data-node-prompt-read]')
+    await expect(reads).toHaveCount(3)
+    await expect(page.locator('[data-col="right"] [data-node-prompt-read]')).toHaveCount(0)
+    await expect(page.locator('[data-col="right"] [data-eyes]')).toHaveCount(0)
+
+    const pr1 = page.locator('[data-node-prompt-read][data-prompt-id="pr1"]')
+    await expect(pr1).toHaveAttribute('data-on', 'true')
+    await pr1.click()
+    await expect(pr1).toHaveAttribute('data-on', 'false')
+
+    const cards = await readStorage(page, KEYS.cards)
+    const output = cards[0].chain.find((node) => node.id === 'output')
+    expect(output.reads).not.toContain('pr1')
+    expect(output.reads, '别的引用不许被顺手删掉').toContain('pr2')
+  })
+})
+
+test.describe('没有教程提示', () => {
+  test('编辑器 S0：中栏空态没有「未选择」这类提示，左栏没有 .hint', async ({ page }) => {
+    await openEditor(page)
+    const middle = page.locator('[data-col="middle"]')
+    await expect(middle).toHaveText('')
+    await expect(page.locator('[data-page="editor"] .hint')).toHaveCount(0)
+    expect(await middle.textContent()).not.toContain(OLD_HINTS.emptyMiddle)
+  })
+
+  test('没有预设时：中栏不再挂「还没有模型预设」这句提示（下拉仍是禁用的）', async ({ page }) => {
+    await openEditor(page, { presets: [] })
+    await page.locator('[data-node-id="output"]').click()
+    const select = page.locator('[data-node-preset]')
+    await expect(select).toHaveAttribute('aria-disabled', 'true')
+    await expect(page.locator('[data-col="middle"] .hint')).toHaveCount(0)
+    expect(await page.locator('[data-col="middle"]').textContent()).not.toContain(OLD_HINTS.noPreset)
+  })
+
+  test('首页：改名框不再带「回车提交，Esc 取消」这个 title 提示', async ({ page }) => {
+    await boot(page, { storage: seedCard() })
+    await page.locator(`[data-card-id="${CARD_ID}"] [data-card-rename]`).click()
+    const input = page.locator('[data-rename-input]')
+    await expect(input).toBeVisible()
+    expect(await input.getAttribute('title'), '教程提示不该再挂在 title 上').toBeNull()
+    await expect(page.locator('[data-page="home"] .hint')).toHaveCount(0)
+    expect(await page.locator('[data-page="home"]').textContent()).not.toContain(OLD_HINTS.rename)
+  })
+
+  test('设置页：一个预设都没有时不再挂「还没有模型预设」这句提示', async ({ page }) => {
+    await boot(page, { storage: { [KEYS.presets]: [] } })
+    await page.goto(`${APP_PATH}${route.settings}`)
+    await expect(page.locator('[data-page="settings"]')).toBeVisible()
+    await expect(page.locator('[data-preset]')).toHaveCount(0)
+    await expect(page.locator('[data-page="settings"] .hint')).toHaveCount(0)
+    expect(await page.locator('[data-page="settings"]').textContent()).not.toContain(OLD_HINTS.settingsEmpty)
+  })
+})
+
+test.describe('S2：每行都有 ×，除了 0', () => {
+  test('S0 没有 ×；S2 每行都有，唯独时间元素（code 0）没有', async ({ page }) => {
+    await openEditor(page)
+    // S0
+    await expect(page.locator('[data-delete-state]')).toHaveCount(0)
+
+    await page.locator('[data-state-item="0"]').click()
+    await expect(page.locator('[data-state-item="0"] [data-delete-state]')).toHaveCount(0)
+    // 夹具卡有 3 个元素（0/1/2）⇒ S2 里另外两行各一个 ×
+    await expect(page.locator('[data-delete-state]')).toHaveCount(2)
+    for (const code of ['1', '2']) {
+      await expect(page.locator(`[data-state-item="${code}"] [data-delete-state]`)).toHaveCount(1)
+    }
+  })
+
+  test('S1 也没有 ×（眼睛与 × 不并存）', async ({ page }) => {
+    await openEditor(page)
+    await page.locator('[data-node-id="output"]').click()
+    await expect(page.locator('[data-state-item="1"] [data-eyes="read"]')).toHaveCount(1)
+    await expect(page.locator('[data-delete-state]')).toHaveCount(0)
+  })
+})
+
+test.describe('时间元素：类型显示「时间」，day/hour 可编辑并落盘', () => {
+  test('类型是「时间」，初值是两个数字框；改完落盘、刷新还在', async ({ page }) => {
+    await openEditor(page)
+    await page.locator('[data-state-item="0"]').click()
+
+    await expect(page.locator('[data-state-type]')).toHaveText('时间')
+    // 时间元素用 day/hour 两个框，不再有单一字符串框
+    await expect(page.locator('[data-field="initial"]')).toHaveCount(0)
+    const day = page.locator('[data-field="initial-day"]')
+    const hour = page.locator('[data-field="initial-hour"]')
+    await expect(day).toHaveValue('1')
+    await expect(hour).toHaveValue('8')
+
+    await day.fill('3')
+    await hour.fill('21')
+    expect((await readStorage(page, KEYS.cards))[0].state[0].initial).toEqual({ day: 3, hour: 21 })
+
+    await page.reload()
+    await page.locator('[data-state-item="0"]').click()
+    await expect(page.locator('[data-field="initial-day"]')).toHaveValue('3')
+    await expect(page.locator('[data-field="initial-hour"]')).toHaveValue('21')
+  })
+
+  test('文字元素的类型显示「文字」，初值仍是单个输入框', async ({ page }) => {
+    await openEditor(page)
+    await page.locator('[data-state-item="1"]').click()
+    await expect(page.locator('[data-state-type]')).toHaveText('文字')
+    await expect(page.locator('[data-field="initial"]')).toHaveCount(1)
+    await expect(page.locator('[data-field="initial-day"]')).toHaveCount(0)
+  })
+})
+
+test.describe('开场：每张卡都有、排第一、删不掉', () => {
+  test('新卡自带开场（只有它一块），右栏排第一且没有 ×', async ({ page }) => {
+    await boot(page, { storage: { [KEYS.presets]: [MOCK_PRESET] } })
+    await page.locator('[data-new-card]').click()
+    const cardId = await page.locator('[data-card-id]').first().getAttribute('data-card-id')
+
+    const cards = await readStorage(page, KEYS.cards)
+    expect(cards[0].prompts.map((prompt) => prompt.id)).toEqual(['opening'])
+    expect(cards[0].prompts[0].title, '开场的标题来自文案表，不该是空串').not.toBe('')
+
+    await page.goto(`${APP_PATH}${route.edit(cardId)}`)
+    await expect(page.locator('[data-prompt-block]')).toHaveCount(1)
+    await expect(page.locator('[data-prompt-block]').nth(0)).toHaveAttribute('data-prompt-block', 'opening')
+    await expect(page.locator('[data-prompt-block="opening"] [data-delete-prompt]')).toHaveCount(0)
+  })
+
+  test('老卡（没有开场）一打开编辑器就补在最前，且立刻落盘', async ({ page }) => {
+    await boot(page, { storage: seedCard() })
+    expect((await readStorage(page, KEYS.cards))[0].prompts.map((prompt) => prompt.id)).toEqual([
+      'pr1',
+      'pr2',
+    ])
+
+    await page.goto(`${APP_PATH}${route.edit(CARD_ID)}`)
+    await expect(page.locator('[data-prompt-block]').first()).toHaveAttribute('data-prompt-block', 'opening')
+
+    const stored = (await readStorage(page, KEYS.cards))[0]
+    expect(stored.prompts.map((prompt) => prompt.id)).toEqual(['opening', 'pr1', 'pr2'])
+    expect(
+      await page.locator('[data-state-item="0"] [data-delete-state]').count(),
+      '开场不是状态元素，别把这条判据扩散到左栏',
+    ).toBe(0)
+  })
+
+  test('开场能改名改正文（只是不能删）：改动落盘', async ({ page }) => {
+    await openEditor(page)
+    await page.locator('[data-prompt-block="opening"] [data-prompt-name]').click()
+    await expect(page.locator('[data-prompt-block="opening"]')).toHaveAttribute('data-selected', 'true')
+
+    await page.locator('[data-prompt-title]').fill('开场白')
+    await page.locator('[data-prompt-body]').fill('OPENING_BODY')
+    const stored = (await readStorage(page, KEYS.cards))[0]
+    expect(stored.prompts[0]).toMatchObject({ id: 'opening', title: '开场白', body: 'OPENING_BODY' })
+    // 开场仍然排第一、仍然没有 ×
+    await expect(page.locator('[data-prompt-block]').first()).toHaveAttribute('data-prompt-block', 'opening')
+    await expect(page.locator('[data-prompt-block="opening"] [data-delete-prompt]')).toHaveCount(0)
+  })
+})

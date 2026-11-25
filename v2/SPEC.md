@@ -25,7 +25,7 @@
 {
   schemaVersion: 1,
   id, name,
-  state: [ { code, name, note, type, initial } ], // 阶段 1 只有 type: 'string'，code '0' 固定时间
+  state: [ { code, name, note, type, initial } ], // 阶段 1 只有 type: 'string'；code '0' 在界面上就是“时间”，初值 {day,hour}
   chain: [ { id, type, name, reads, writable, readsUpstream, historyTurns, prompt } ], // 不含 presetId
   prompts: [ { id, title, body } ]
 }

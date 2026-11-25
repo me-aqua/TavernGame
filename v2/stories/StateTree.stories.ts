@@ -3,13 +3,12 @@ import StateTree from '../src/components/StateTree.vue'
 import { ELEMENTS, OUTPUT_NODE } from './support/data'
 
 /**
- * 左栏状态树：行内两只会「眼睛」（读 / 写），只在选中了工作流节点时出现。
- * 两个故事就是这两种形态 —— 有节点时看得见眼睛，没节点时看不见（也没有意义）。
+ * 左栏状态树：控件按 S0–S3 的矩阵出现 —— S1（选中节点）有眼睛，S2（选中元素）有 + 和 ×。
  */
 const meta = {
   title: 'v2/StateTree',
   component: StateTree,
-  args: { elements: ELEMENTS, node: OUTPUT_NODE, selectedCode: '1' },
+  args: { elements: ELEMENTS, node: OUTPUT_NODE, selectedCode: null },
   decorators: [
     () => ({ template: '<div style="width: 280px; height: 260px; display: flex"><story /></div>' }),
   ],
@@ -18,8 +17,11 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-/** 选中了输出节点：每行两只眼睛（这一行的值进提示词 / 可写） */
+/** S1：选中了输出节点 —— 每行两只眼睛 */
 export const WithNodeSelected: Story = {}
 
-/** 没选节点：眼睛不出现（它们说的是「当前这个节点」读/写什么） */
+/** S0：什么都没选 —— 只有编码与名字 */
 export const NoNodeSelected: Story = { args: { node: null, selectedCode: null } }
+
+/** S2：选中了元素 1 —— 栏顶有 +，每行都有 ×（`0` 那行没有） */
+export const ElementSelected: Story = { args: { node: null, selectedCode: '1' } }

@@ -222,3 +222,13 @@ textarea {
   flex: 1 1 auto;
   min-width: 0;
 }
+
+/* 图标按钮：裸的 + / ×（24×24 是点按目标的下界，组件故事那一层会量） */
+.icon {
+  flex: 0 0 auto;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 4px;
+  font-size: var(--fs2);
+  line-height: 1;
+}

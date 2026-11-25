@@ -41,6 +41,7 @@ export const PROOF_NODE = makeNode({ id: 'proof', type: 'proof', readsUpstream: 
 export const CHAIN: ChainNode[] = [TIME_NODE, CHECK_NODE, OUTPUT_NODE, PROOF_NODE]
 
 export const PROMPTS = [
+  { id: 'opening', title: 'opening', body: '' },
   { id: 'pr1', title: 'tone', body: 'BODY_ONE' },
   { id: 'pr2', title: 'style', body: 'BODY_TWO' },
 ]

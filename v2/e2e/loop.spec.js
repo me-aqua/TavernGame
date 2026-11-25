@@ -19,11 +19,14 @@ test('建卡 → 编内容 → 存档 → 三回合 → 刷新还在', async ({ 
   await expect(page.locator('[data-card-id]')).toHaveCount(1)
   const cardId = await page.locator('[data-card-id]').first().getAttribute('data-card-id')
 
-  // ---- 编辑器：两个文本元素 + 初值（`0` 是时间元素，动不了也不需要动）
+  // ---- 编辑器：两个文本元素 + 初值（`0` 是时间元素，初值在中栏用两个数字框改）
   await page.goto(`${APP_PATH}${route.edit(cardId)}`)
   await expect(page.locator('[data-page="editor"]')).toBeVisible()
   await expect(page.locator('[data-state-item="0"]')).toBeVisible()
 
+  // `+`（新增元素）只在 S2 出现（选中了某个元素）⇒ 先点任意一行进 S2
+  await page.locator('[data-state-item="0"]').click()
+  await expect(page.locator('[data-add-state]')).toHaveText('+')
   await page.locator('[data-add-state]').click()
   await page.locator('[data-state-item="1"]').click()
   await page.locator('[data-field="name"]').fill('place')
@@ -34,13 +37,16 @@ test('建卡 → 编内容 → 存档 → 三回合 → 刷新还在', async ({ 
   await page.locator('[data-field="name"]').fill('mood')
   await page.locator('[data-field="initial"]').fill('VAL_MOOD_B2')
 
-  // ---- 两块公共提示词
+  // ---- 两块公共提示词：右栏只「选」，改名/正文在中栏的 PromptForm
+  //      新增之后中栏会自动选中新块 ⇒ 直接往中栏那两个框里填
   await page.locator('[data-add-prompt]').click()
-  await page.locator('[data-prompt-block]').nth(0).locator('[data-prompt-title]').fill('tone')
-  await page.locator('[data-prompt-block]').nth(0).locator('[data-prompt-body]').fill('BODY_ONE')
+  await expect(page.locator('[data-prompt-block="pr1"]')).toHaveAttribute('data-selected', 'true')
+  await page.locator('[data-prompt-title]').fill('tone')
+  await page.locator('[data-prompt-body]').fill('BODY_ONE')
   await page.locator('[data-add-prompt]').click()
-  await page.locator('[data-prompt-block]').nth(1).locator('[data-prompt-title]').fill('style')
-  await page.locator('[data-prompt-block]').nth(1).locator('[data-prompt-body]').fill('BODY_TWO')
+  await expect(page.locator('[data-prompt-block="pr2"]')).toHaveAttribute('data-selected', 'true')
+  await page.locator('[data-prompt-title]').fill('style')
+  await page.locator('[data-prompt-body]').fill('BODY_TWO')
 
   // ---- 判定节点拿到对元素 1 的写权限（笔）。新建的元素不会自动进 writable。
   await page.locator('[data-node-id="check"]').click()
@@ -58,8 +64,10 @@ test('建卡 → 编内容 → 存档 → 三回合 → 刷新还在', async ({ 
   expect(cards[0].chain.map((node) => node.id)).toEqual(['time', 'check', 'output', 'proof'])
   expect(cards[0].state[1].initial).toBe('VAL_PLACE_A1')
   expect(cards[0].state[2].initial).toBe('VAL_MOOD_B2')
-  expect(cards[0].prompts.map((prompt) => prompt.body)).toEqual(['BODY_ONE', 'BODY_TWO'])
-  expect(cards[0].prompts.map((prompt) => prompt.title)).toEqual(['tone', 'style'])
+  // 每张卡自带「开场」，且**排第一**（`cards.ts` 的 `normalizeCard` / `freshCard`）
+  expect(cards[0].prompts.map((prompt) => prompt.id)).toEqual(['opening', 'pr1', 'pr2'])
+  expect(cards[0].prompts.map((prompt) => prompt.body)).toEqual(['', 'BODY_ONE', 'BODY_TWO'])
+  expect(cards[0].prompts.map((prompt) => prompt.title)).toEqual(['开场', 'tone', 'style'])
   const injected = cards[0].chain.find((node) => node.id === 'check')
   expect(injected.writable).toContain('1')
   expect(cards[0].chain).toHaveLength(4)
