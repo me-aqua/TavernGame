@@ -12,7 +12,6 @@ import ErrorPanel from '../components/ErrorPanel.vue'
 import ModelPresetList from '../components/ModelPresetList.vue'
 import { asAppError, storage } from '../app-context'
 import type { AppError } from '../core/errors'
-import { STORAGE_KEYS } from '../core/storage'
 import type { Preset } from '../core/types'
 import { t } from '../i18n'
 import { routeHash } from '../router'
@@ -21,33 +20,8 @@ import { setTheme, theme } from '../theme'
 const presets = ref<Preset[]>([])
 const error = ref<AppError | null>(null)
 
-/** 新装时铺的两条默认预设：预设名 = 模型名，Key 空着（绝不内置任何 Key） */
-const DEFAULT_PRESETS: Preset[] = [
-  {
-    id: 'p-deepseek-flash',
-    name: 'deepseek-flash',
-    provider: 'openai-compatible',
-    baseUrl: 'https://api.deepseek.com/v1',
-    model: 'deepseek-flash',
-    apiKey: '',
-    reasoning: 'medium',
-  },
-  {
-    id: 'p-deepseek-v4-pro',
-    name: 'deepseek-v4-pro',
-    provider: 'openai-compatible',
-    baseUrl: 'https://api.deepseek.com/v1',
-    model: 'deepseek-v4-pro',
-    apiKey: '',
-    reasoning: 'off',
-  },
-]
-
 onMounted(() => {
   try {
-    if (localStorage.getItem(STORAGE_KEYS.presets) === null) {
-      storage().savePresets(DEFAULT_PRESETS.map((preset) => ({ ...preset })))
-    }
     presets.value = storage().loadPresets()
     const settings = storage().loadSettings()
     setTheme(settings.theme)

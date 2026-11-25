@@ -11,6 +11,7 @@ import { createStorage } from './core/storage'
 import type { Card, Settings } from './core/types'
 import sample from './data/morningwind.json'
 import { t } from './i18n'
+import { DEFAULT_PRESETS } from './presets'
 import './styles/main.css'
 
 /**
@@ -25,6 +26,9 @@ if (settings.sampleSeeded !== true) {
   if (storage.loadCards().length === 0) storage.saveCards([sample as Card])
   storage.saveSettings({ ...settings, sampleSeeded: true } as Settings)
 }
+
+// 新装的默认模型预设：只在 `tg2.presets` 这个键完全不存在时铺一次；删光了不再长回来。
+if (localStorage.getItem('tg2.presets') === null) storage.savePresets(DEFAULT_PRESETS)
 
 provideStorage(storage)
 document.title = t('app.title')

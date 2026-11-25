@@ -117,7 +117,7 @@ test('跑一回合时逐节点生效：只有输出节点用真预设 ⇒ 只发
 
 test('一个预设都没有：那一格禁用，且不许往盘上写假映射', async ({ page }) => {
   const card = makeCard()
-  await boot(page, { storage: { [KEYS.cards]: [card] } })
+  await boot(page, { storage: { [KEYS.cards]: [card], [KEYS.presets]: [] } })
   await page.goto(`${APP_PATH}${route.edit(CARD_ID)}`)
   await page.locator('[data-node-id="output"]').click()
 
