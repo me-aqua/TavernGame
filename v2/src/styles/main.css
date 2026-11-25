@@ -14,6 +14,9 @@
   --fs2: 12.5px;
   --fs3: 11px;
 
+  /* 圆角只有这一档：普通按钮与读 / 写 chip 共用（老板 2026-11-25 晚：chip 别再单独一套） */
+  --radius: 6px;
+
   --bg: #f4ecdf;
   --bg-2: #ece0cd;
   --panel: #fffaf1;
@@ -71,7 +74,7 @@ button {
   min-height: 24px;
   padding: 2px 8px;
   border: 1px solid var(--line-strong);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--panel);
   color: var(--ink);
   font-family: inherit;
@@ -237,8 +240,7 @@ textarea {
  * 读 / 写开关：一眼看得见的 chip，不是一个若隐若现的幽灵按钮。
  * 开着 = accent 实心 + accent-ink（与工作流细条的选中态同一套语义）；
  * 关着也保留边框与底色，别让「没开」看起来像「没有这个控件」。
- * 形状是**小圆角方块**（老板 2026-11-25）：不是胶囊 —— 只有读 / 写 / 上游这三类 chip 变方，
- * 页面里的普通按钮（调试开关 / 发送）仍走全局 `button` 的 6px 圆角。
+ * 圆角与普通按钮共用 `--radius`（老板 2026-11-25 晚：chip 3px 太方；按钮与 chip 只留这一档）。
  */
 .chip {
   flex: 0 0 auto;
@@ -250,7 +252,7 @@ textarea {
   color: var(--ink);
   background: var(--panel-2);
   border: 1px solid var(--line-strong);
-  border-radius: 3px;
+  border-radius: var(--radius);
 }
 
 /* 悬停只改「关着」的那一半：开着的 chip 必须一直是 accent 实心 */

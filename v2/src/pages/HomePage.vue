@@ -174,6 +174,8 @@ function go(hash: string): void {
                 v-model="renameValue"
                 class="rename"
                 data-rename-input
+                @pointerdown.stop
+                @click.stop
                 @keyup.enter="commitRename"
                 @keyup.esc="renaming = null"
                 @blur="commitRename"
@@ -192,7 +194,12 @@ function go(hash: string): void {
                 >
                   {{ t('common.edit') }}
                 </button>
-                <button type="button" data-card-rename @click.stop="startRename('card', card.id)">
+                <button
+                  type="button"
+                  data-card-rename
+                  @pointerdown.stop
+                  @click.stop="startRename('card', card.id)"
+                >
                   {{ t('common.rename') }}
                 </button>
                 <button
@@ -229,6 +236,8 @@ function go(hash: string): void {
                 v-model="renameValue"
                 class="rename"
                 data-rename-input
+                @pointerdown.stop
+                @click.stop
                 @keyup.enter="commitRename"
                 @keyup.esc="renaming = null"
                 @blur="commitRename"
@@ -240,7 +249,12 @@ function go(hash: string): void {
                 {{ t('home.saveMeta', { card: cardNameOf(save), turn: save.turn }) }}
               </span>
               <span class="actions">
-                <button type="button" data-save-rename @click.stop="startRename('save', save.id)">
+                <button
+                  type="button"
+                  data-save-rename
+                  @pointerdown.stop
+                  @click.stop="startRename('save', save.id)"
+                >
                   {{ t('common.rename') }}
                 </button>
                 <button

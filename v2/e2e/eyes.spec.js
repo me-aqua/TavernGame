@@ -342,7 +342,7 @@ test.describe('读 / 写控件：看得见的 chip（老板 2026-11-25）', () =
     expect(after.background).not.toBe('rgba(0, 0, 0, 0)')
   })
 
-  test('三类读 / 写 chip 都是小圆角（>0 且 ≤4px）；发送 / 调试 / 返回不跟着变（>4px）', async ({ page }) => {
+  test('读 / 写 / 上游 chip 与普通按钮圆角统一：彼此差 ≤0.5px，且都 >4px、<12px', async ({ page }) => {
     const card = makeCard()
     await boot(page, {
       storage: {
@@ -370,16 +370,16 @@ test.describe('读 / 写控件：看得见的 chip（老板 2026-11-25）', () =
         })
       })()`,
     )
+    const chipRadii = []
     for (const group of chips) {
       expect(group.count, `${group.selector} 一颗都没有（判据失去对象）`).toBeGreaterThan(0)
       for (const radius of group.radii) {
         expect(Number.isFinite(radius), `${group.selector} 的圆角没读到数字（量具坏了）`).toBe(true)
-        expect(radius, `${group.selector} 不是小圆角：${radius}px`).toBeGreaterThan(0)
-        expect(radius, `${group.selector} 还是胶囊圆角：${radius}px`).toBeLessThanOrEqual(4)
+        chipRadii.push(radius)
       }
     }
 
-    // 普通按钮不跟着改（CONTRACT §8.2 / §9.5 #15）：发送 / 调试 / 返回仍是全局 6px
+    // 普通按钮（CONTRACT §8.2 / §9.5 #15 的新口径：全站只留一档圆角，chip 不再单独一套）
     await openStory(page, CARD_ID, 's1')
     const buttons = await page.evaluate(
       `(() => {
@@ -389,9 +389,25 @@ test.describe('读 / 写控件：看得见的 chip（老板 2026-11-25）', () =
         })
       })()`,
     )
+    const buttonRadii = []
     for (const [selector, radius] of buttons) {
       expect(Number.isFinite(radius), `${selector} 不在页面上`).toBe(true)
-      expect(radius, `${selector} 不该被改成 chip 的小圆角`).toBeGreaterThan(4)
+      buttonRadii.push(radius)
+    }
+
+    // ① 两类之间不许有「特殊那一档」：最大最小相差 ≤0.5px（3px chip / 999px 胶囊都过不了这关）
+    const all = [...chipRadii, ...buttonRadii]
+    const min = Math.min(...all)
+    const max = Math.max(...all)
+    expect(
+      max - min,
+      `圆角没统一：最小 ${min}px、最大 ${max}px（chip 与按钮必须同一档）`,
+    ).toBeLessThanOrEqual(0.5)
+
+    // ② 这一档本身是「普通圆角」：>4px（不是方角 chip），<12px（不是胶囊 / 999px）
+    for (const radius of all) {
+      expect(radius, `圆角 ${radius}px 太小（不是普通按钮的圆角）`).toBeGreaterThan(4)
+      expect(radius, `圆角 ${radius}px 太大（胶囊 / 999px 那一档）`).toBeLessThan(12)
     }
   })
 })

@@ -467,6 +467,9 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   `[data-card-rename]`、`[data-card-delete]`、`[data-card-count]`（该卡的存档数）。
 - 行内重命名：点击 `[data-card-rename]` 后该行出现输入框 `[data-rename-input]`，
   回车提交、Esc 取消；提交后的名字立即落盘。
+  **`[data-rename-input]` 与重命名按钮上的 pointerdown / click 不许冒泡到行**
+  （点输入框只是放光标：卡行不许变选中、存档行不许跳对话页），Enter / Esc 照旧。
+  判据：`v2/e2e/lists.spec.js`。
 - 存档行：`[data-save-id="<id>"]`（点击 = 进入对话页）、`[data-save-name]`、
   `[data-save-meta]`（文本里必须含卡名与回合数数字）、`[data-save-rename]`、`[data-save-delete]`。
 - 删除必须确认：`[data-card-delete]` / `[data-save-delete]` 点击后出现确认层
@@ -498,8 +501,8 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - **读 / 写是看得见的 chip**（老板 2026-11-25）：所有读/写按钮共用全局 `.chip`
   —— 关着时也有底色与边框（不是幽灵按钮），**开着 = `--accent` 实心 + `--accent-ink` 文字**；
   比旧的 24px 高（26×30 起），文字标签「读 / 写」保留。三处：状态树读/写、细条上游读、右栏提示词读。
-  **形状是小圆角方块**（老板 2026-11-25 晚：`border-radius: 3px`，不是胶囊）；
-  调试开关 / 发送 / 停止这类普通按钮**不跟着改**，仍是全局 `button` 的 6px 圆角（§9.5 #15）。
+  **圆角与普通按钮共用同一个 `--radius`（6px）**（老板 2026-11-25 晚：chip 3px 太方；按钮与 chip 只留这一档）；
+  按钮 / chip 里不再有 999px 或 3px 那一档（错误码徽章等非按钮件不在本口径内）。
 - 状态树 `[data-state-tree]`：每行 `[data-state-item="<code>"]`，行内 `[data-state-code]`（显示编码）、
   `[data-state-name]`。
 - 中栏四形态（互斥，按选中对象切换）：
@@ -718,14 +721,15 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
     - provider 若发 `reasoning-delta` 就记进 trace 的 `thinking`；没有就是空串，**不造假**。
     - 读/写按钮统一成 `.chip`（关着有底色边框、开着 accent 实心），三处共用一份样式（§8.2）。
       ⇒ SPEC.md §5 里「调试面板」那段与 §9 的 `[data-debug-*]` 钩子已过时，待组长同步。
-15. 🔴 **读/写 chip 改成小圆角方块 + 发送时的乐观行动**（老板 2026-11-25 晚）：
-    - `.chip` 的 `border-radius` 从 999px 改成 **3px**；尺寸与配色不变。
-      **只有读/写/上游这三类 chip 变方** —— 调试开关、发送、停止这些普通按钮不动，
-      仍是全局 `button` 的 6px 圆角。
+15. 🔴 **统一圆角 + 发送时的乐观行动 + 重命名不触发行**（老板 2026-11-25 晚）：
+    - **一档圆角**：`:root` 新增 `--radius: 6px`，全局 `button` 与 `.chip` 都用它 ——
+      chip 不再单独 3px，按钮 / chip 里不再有 999px 那一档；尺寸、配色与「开着 = accent 实心」不变。
     - 发送即见：行动先以 `[data-pending-action]` 的 action 气泡乐观显示；第一段正文未到时
       下面一行 `[data-generating]`「生成中……」；正文一到换成流式 narration、行动气泡保留。
     - 回合成功 ⇒ 撤掉乐观副本（`save.events` 里已有这条 action，不许出现两个气泡）；
       停止 / 出错 ⇒ 副本与半截正文一起撤掉，存档不变、草稿留在输入框（§8.3）。
+    - 行内重命名的 `[data-rename-input]` / 重命名按钮**不许把 pointerdown / click 冒泡到行**
+      （点输入框只是放光标；卡行不变选中、存档行不跳对话页），Enter 提交 / Esc 取消不变（§8.1）。
 
 ### 9.6 本关不做（别在阶段 1 拿它们当判据）
 
