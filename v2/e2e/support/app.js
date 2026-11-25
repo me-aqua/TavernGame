@@ -19,9 +19,10 @@ import {
   makeNode,
   makeSave,
   nodeModelsFor,
+  turnEvents,
 } from '../../tests/support/fixtures.js'
 
-export { MOCK_PRESET, MOCK_PRESET_B, freshCard, makeCard, makeNode, makeSave, nodeModelsFor }
+export { MOCK_PRESET, MOCK_PRESET_B, freshCard, makeCard, makeNode, makeSave, nodeModelsFor, turnEvents }
 
 /** 线上/本地产物都挂在这个路径下（`v2/vite.config.mjs` 的 base） */
 export const APP_PATH = '/TavernGame/v2/'

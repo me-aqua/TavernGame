@@ -21,6 +21,8 @@ const BASE_URL = `http://localhost:${PORT}`
 
 export default defineConfig({
   testDir: join(HERE, 'e2e'),
+  // 像素基线是另一层（慢、要看图）：它归 `v2:visual` + `playwright.visual.config.mjs`
+  testIgnore: '**/visual.spec.js',
   outputDir: join(HERE, 'test-results'),
   fullyParallel: false,
   workers: 1,

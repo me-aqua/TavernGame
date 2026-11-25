@@ -29,6 +29,7 @@
     "v2:test:watch": "vitest --config v2/vitest.config.mjs",
     "v2:typecheck": "vue-tsc --noEmit -p v2/tsconfig.json",
     "v2:e2e": "playwright test --config v2/playwright.config.mjs",
+    "v2:visual": "playwright test --config v2/playwright.visual.config.mjs",
     "v2:build-storybook": "storybook build --quiet --config-dir v2/.storybook --output-dir v2/storybook-static",
     "v2:stories": "npm run v2:build-storybook && playwright test --config v2/playwright.stories.config.mjs",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm test",

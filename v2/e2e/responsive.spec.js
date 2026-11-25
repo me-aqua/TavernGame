@@ -3,6 +3,8 @@
  *
  * 判据只两条（与旧站整页巡检同一套，`support/app.js` 的 `PROBE`）：横向溢出 ≤ 1px、没有元素伸出视口。
  * 首页与编辑器两屏都量 —— 编辑器是最挤的一屏，只量首页等于没量。
+ * 另外四类比例各跑一遍**最小闭环**（新建存档 → 发送 → 看到故事，第 1 轮评审第 5 条）：
+ * 「不溢出」只说明没画坏，能不能玩得再量一次。
  * 手机横屏与竖屏是**同一个布局的两种朝向**（SPEC：不单列低于 720p 的档位）。
  */
 import { expect, test } from '@playwright/test'
@@ -10,11 +12,14 @@ import {
   APP_PATH,
   boot,
   CJK,
+  createSave,
   expectClean,
   KEYS,
   makeCard,
   makeSave,
   MOCK_PRESET,
+  openStory,
+  playTurn,
   PROBE,
   route,
 } from './support/app.js'
@@ -53,6 +58,24 @@ test.describe('桌面/大屏比例档', () => {
       await boot(page, { storage: seed() })
       await page.goto(`${APP_PATH}${route.edit(CARD_ID)}`)
       await expect(page.locator('[data-page="editor"]')).toBeVisible()
+      expectClean(await page.evaluate(PROBE))
+    })
+  }
+})
+
+test.describe('比例档上的最小闭环：新建存档 → 发送 → 看到故事', () => {
+  // 第 1 轮评审第 5 条：四类比例各跑一回合。4K 不在这条里（它只量不溢出）。
+  for (const viewport of VIEWPORTS.filter((item) => item.width <= 2560)) {
+    test(`${viewport.name}：能跑完一回合`, async ({ page }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await boot(page, { storage: { [KEYS.cards]: [makeCard()], [KEYS.presets]: [MOCK_PRESET] } })
+
+      const saveId = await createSave(page, CARD_ID)
+      await openStory(page, CARD_ID, saveId)
+      await playTurn(page, 'act one', 1)
+
+      await expect(page.locator('[data-line="narration"]')).toContainText('[mock] turn 1: act one')
+      await expect(page.locator('[data-turn]')).toHaveText('1')
       expectClean(await page.evaluate(PROBE))
     })
   }

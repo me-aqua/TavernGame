@@ -12,6 +12,7 @@
  *   · **中止 = 什么都不写**：`E_ABORTED` 抛出时调用方拿回的还是原存档。
  */
 import { t } from '../i18n'
+import { PROVIDER_TIMEOUT_MS, startDeadline } from './deadline'
 import { AppError } from './errors'
 import { mockReply } from './mock'
 import { buildPrompt } from './prompt'
@@ -272,27 +273,42 @@ export async function runTurn({
     const preset = resolveNodePreset({ presets, nodePresets, nodeId: node.id })
     debug.presets[node.id] = preset.id
 
-    // 提示词里的状态值读的是**回合开始时**那份 tree（write 在回合收尾才与叙事一起落盘），
-    // 这样同一回合里前后节点看到的场景是同一份，不会出现「前一个节点刚改了什么、后一个看到半成品」。
-    const prompt = buildPrompt({ card, save, node, action, upstream })
+    // 提示词里的状态值读的是**本回合此刻**的 tree：前面的节点写进去的东西，后面节点看得见
+    // （写入同时累积进本回合的 tree，回合收尾与叙事一起提交进新 save）。
+    const prompt = buildPrompt({ card, save: { ...save, tree }, node, action, upstream })
     debug.prompts[node.id] = prompt
 
     const onChunk = node.type === 'output' ? (text: string) => onEvent?.({ type: 'chunk', text }) : undefined
 
-    const reply =
-      preset.provider === 'mock'
-        ? await mockReply({
-            node,
-            turn,
-            action,
-            onChunk,
-            signal,
-            delayMs: preset.mockChunkDelayMs ?? 0,
-          })
-        : // 真 provider 才按需把 AI SDK 那一块拉进来：首屏不必为了可能用不到的网络层付体积
-          await import('./provider').then(({ callProvider }) =>
-            callProvider({ preset, prompt, tools: TOOLS_FOR_NODE[node.type], onChunk, signal }),
-          )
+    let reply: ProviderReply
+    if (preset.provider === 'mock') {
+      reply = await mockReply({
+        node,
+        turn,
+        action,
+        onChunk,
+        signal,
+        delayMs: preset.mockChunkDelayMs ?? 0,
+      })
+    } else {
+      // 真 provider 才按需把 AI SDK 那一块拉进来：首屏不必为可能用不到的网络层付体积。
+      // 🔴 60 秒那颗定时器要在 import **之前**起：它必须在「这次调用开始」时就存在，
+      //    而不是等 chunk 下载完 —— 否则一个慢网络就能把「超时」变成永远等不到。
+      const deadline = startDeadline(PROVIDER_TIMEOUT_MS)
+      try {
+        const { callProvider } = await import('./provider')
+        reply = await callProvider({
+          preset,
+          prompt,
+          tools: TOOLS_FOR_NODE[node.type],
+          onChunk,
+          signal,
+          deadline,
+        })
+      } finally {
+        deadline.clear()
+      }
+    }
 
     if (signal?.aborted) throw aborted()
     debug.responses[node.id] = reply.text

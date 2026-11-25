@@ -118,6 +118,8 @@
   "error.presetGone": "节点 {node} 的模型预设没了（在设置页删掉过？）",
   "error.provider.noKey": "这个节点的模型预设没有填 Key",
   "error.provider.failed": "这一步没连上模型服务",
+  "error.provider.timeout": "模型服务 {seconds} 秒没有回话，这一步先断了",
+  "next.timeout": "检查网络后重发这一回合；还不行就去设置页换一个模型或 Base URL",
   "next.settings": "去设置页检查 Key 与 Base URL",
   "next.home": "回首页重新打开，或重新建一个存档",
   "next.editor": "回编辑器改一下工作流",

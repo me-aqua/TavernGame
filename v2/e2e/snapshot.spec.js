@@ -46,8 +46,11 @@ test('改初值与节点提示词之后：旧存档仍按旧卡跑，新存档�
   await openStory(page, CARD_ID, 's1', { debug: true })
   await playTurn(page, 'act one', 1)
   const prompt = page.locator('[data-debug-prompt]')
-  await expect(prompt).toContainText('VAL_PLACE_A1')
+  // 旧存档的 tree 取的是**快照**的初值：元素 1 这一回合被判定节点写成 mock-t1（P2 同回合可见），
+  // 所以「跑的是旧卡」用三样东西证：提示词块正文、节点提示词、以及没被写过的元素 2。
+  await expect(prompt).toContainText('BODY_ONE')
   await expect(prompt).toContainText('NODE_OUT')
+  await expect(prompt).toContainText('VAL_MOOD_B2')
   await expect(prompt).not.toContainText('VAL_PLACE_NEW')
   await expect(prompt).not.toContainText('NODE_OUT_EDITED')
 

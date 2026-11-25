@@ -18,6 +18,10 @@ export default tseslint.config(
       'test-results/**',
       'storybook-static/**',
       'artifacts/**',
+      // v2（独立应用）的生成物：与旧站那几个同类目录一样，是产物不是源码。
+      // ⚠️ 只加这两条 v2 路径 —— 旧站的忽略清单与判定一个字节都没变。
+      'v2/storybook-static/**',
+      'v2/test-results/**',
       // 本机脚手架目录（.gitignore 里已忽略它）。ESLint 不读 .gitignore，
       // flat config 也不再默认跳过点目录 —— 少了这一行，那堆临时脚本会淹掉
       // 整个 lint 输出（本机实测 3.6 万条，且全是误报）。

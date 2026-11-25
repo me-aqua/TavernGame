@@ -75,6 +75,21 @@ describe('提示词拼装：顺序', () => {
   })
 })
 
+describe('提示词拼装：状态取的是传进来的 tree', () => {
+  it('tree 里是什么就渲染什么 —— 同回合的写入由引擎负责先放进 tree（CONTRACT §5 的 P2 条）', async () => {
+    const card = makeCard()
+    const node = { ...card.chain[2], reads: ['1', '2'], historyTurns: 0 }
+    const save = makeSave(card)
+    save.tree['1'] = 'WRITTEN_THIS_TURN'
+    const text = await promptOf({ card, save, node, upstream: '' })
+    expect(text, 'buildPrompt 是纯函数：它只负责把 tree 里的当前值写进去').toContain(
+      '1 place = WRITTEN_THIS_TURN',
+    )
+    expect(text).not.toContain('VAL_PLACE_A1')
+    expect(text).toContain('2 mood = VAL_MOOD_B2')
+  })
+})
+
 describe('提示词拼装：没有独立的玩家行动段', () => {
   it('historyTurns=0 ⇒ 块里只剩本回合行动（行动仍可见，但没有更早的回合）', async () => {
     const card = makeCard()

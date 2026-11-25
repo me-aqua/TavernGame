@@ -40,8 +40,12 @@ const STATIC_CONTENT = /^public\/.*\.html$/
  * 它们里面的中文是**假数据与失败信息**，不是产品文案（产品文案只能由 src/locales/
  * 经 t() 给出）。用户 2026-09-14：「用正常的中文在新写的 e2e 里」——
  * 所以这两处不按源码那套 ASCII 规则查。
+ *
+ * v2（`v2/` 独立应用）按同一套口径加进来：`v2/tests/`（单测）、`v2/e2e/`（Playwright）、
+ * `v2/stories/`（组件故事与它的巡检夹具）。⚠️ **只加 v2 的这几支** ——
+ * 旧站 `tests/` 不在豁免里，那边的规矩一个字节都没变。
  */
-const TEST_TOOL = /^e2e\/|\.stories\.ts$/
+const TEST_TOOL = /^e2e\/|^v2\/e2e\/|^v2\/tests\/|^v2\/stories\/|\.stories\.ts$/
 /**
  * 开发者工具与工作台：钩子自己的检查脚本、卡渲染器、Storybook 配置。
  *

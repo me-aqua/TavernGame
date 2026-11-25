@@ -310,6 +310,10 @@ export function buildPrompt({ card, save, node, action, upstream }) -> string
 4. **上游输出**：`node.readsUpstream && upstream !== ''` 时，`upstream` **逐字**；
 5. **本节点提示词**：`node.prompt` **逐字**（空则省略）。
 
+🔴 **状态读的是「此刻的 tree」**（第 1 轮评审 P2）：链上更早的节点在同一回合里写下的值
+（时间推进、判定写入）**必须**出现在后面节点的状态段里 —— 引擎每跑一个节点就把**当时的 tree**
+交给 `buildPrompt`，不是回合开始前那份。判据：`v2/tests/engine.test.js` 的「同一回合内的写入立刻可见」。
+
 段与段之间用换行分隔，**具体分隔符与段标题由实现定**（测试不断言标题）；但要求：
 
 - 上面 1–5 里出现的**任何一段正文都要在结果里逐字可见**（不能截断、不能转义）；
@@ -432,8 +436,9 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 
 四区一行排开：`[data-col="left"]` · `[data-workflow-strip]` · `[data-col="middle"]` · `[data-col="right"]`。
 
-- **栏宽**：`[data-splitter="left"]` 拖 = 改左栏宽（中栏吸收），`[data-splitter="right"]` 拖 = 改右栏宽（中栏吸收）。
-  `[data-workflow-strip]` 宽度**固定**（不参与拖拽）。双击分隔条恢复默认（左 280 / 右 320）。
+- **栏宽**：`[data-splitter="left"]` **在左栏的右缘**（往**右**拖 = 左栏变宽）；
+  `[data-splitter="right"]` **在右栏的左缘**（往**左**拖 = 右栏变宽）——两个分隔条位置相反，方向也相反。
+  两者都由中栏吸收。`[data-workflow-strip]` 宽度**固定**（不参与拖拽）。双击分隔条恢复默认（左 280 / 右 320）。
   夹取：左 `[200, 480]`、右 `[240, 560]`，且中栏不得小于 320。
   落盘到 `tg2.settings.editorColumns`（**整数像素**，拖拽结束就写），刷新后保留。
   自由度只有两个（左、右）—— 三栏宽度都随拖动变化，中栏恒为余量。
@@ -545,9 +550,10 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
    （这与钩子自己的提示「文案一律走 `t('some.key')`，然后加进 locale 文件」一致。）
    `.vue` 模板里的中文也走 `{{ t('key') }}`，不许直接写字面量。
 2. **`.ts` / `.vue` / `.html` / `.css` / `.js` 里不许出现中文字面量**（含 `index.html` 的 `<title>`），注释除外。
-3. 测试源码（`v2/tests` / `v2/e2e` 都是 `.js`）里中文同样只能出现在注释里：
-   断言中文用正则 `[\u4e00-\u9fff]`，需要精确文案时用 `\uXXXX` 转义。
-   实测：钩子拦不拦只看扩展名，不看目录（`.team/…/x.js` 里写中文同样被拦）；`.json` 完全不在检查范围内。
+3. 测试源码（`v2/tests` / `v2/e2e`）**现在已经豁免**（`.githooks/checks/ascii.mjs` 的 `TEST_TOOL`
+   加了 `^v2/tests/` / `^v2/e2e/` / `^v2/stories/`，与旧站 `e2e/` 同一口径）—— 中文断言可以照写。
+   本契约的测试仍然把中文写成 `[\u4e00-\u9fff]` 正则：**行为判据不需要抄文案**，抄了反而会跟着改文案变红。
+   `.json` 完全不在检查范围内（这就是文案表的落点）。
 
 ### 9.4 判据清单（谁钉哪条 SPEC §9）
 

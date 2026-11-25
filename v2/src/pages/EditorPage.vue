@@ -28,6 +28,7 @@ const props = defineProps<{ cardId: string }>()
 
 const LEFT = { min: 200, max: 480 }
 const RIGHT = { min: 240, max: 560 }
+/** 中栏的最小宽度（CONTRACT §8.2）：两条分隔条都夹着它，先扣掉再谈左右能多宽 */
 const MIDDLE_MIN = 320
 const STRIP_WIDTH = 96
 const SPLITTER_WIDTH = 6
@@ -44,7 +45,6 @@ const columns = reactive({
   right: DEFAULT_SETTINGS.editorColumns.right,
 })
 const rowEl = ref<HTMLElement | null>(null)
-
 const selectedNode = computed(
   () => card.value?.chain.find((node) => node.id === selectedNodeId.value) ?? null,
 )
@@ -197,17 +197,24 @@ function choosePreset(nodeId: string, presetId: string): void {
   }
 }
 
-/** 中栏能用的宽度（右栏固定时左栏的上限）——中栏不得小于 `MIDDLE_MIN` */
-function clampLeft(px: number): number {
-  const width = rowEl.value?.clientWidth ?? 0
-  const room = width - columns.right - STRIP_WIDTH - MIDDLE_MIN - SPLITTER_WIDTH * 2
-  return Math.round(Math.min(LEFT.max, Math.max(LEFT.min, Math.min(px, room))))
+/**
+ * 栏宽的夹取：左 / 右各自 [min, max]，**并且中栏不许小于 320**（CONTRACT §8.2）。
+ *
+ * 所以每条栏的上限不是写死的常数，而是「当前可用宽度」：
+ * `可用 = 总宽 - 另一栏 - 细条 - 中栏最小 - 两条分隔条`，再与自己那一档的 max 取小。
+ * 1280 宽、右栏 320 时左栏能到 480；右栏 390 时左栏就只能到 462 —— 中栏那 320 谁也挤不掉。
+ * （窗口本身窄到连中栏 320 都放不下时，退回各栏自己的 min：那时哪一栏都不该被压成 0。）
+ */
+function clampWidth(px: number, range: { min: number; max: number }, room: number): number {
+  const ceiling = Math.max(range.min, Math.min(range.max, room))
+  return Math.round(Math.min(ceiling, Math.max(range.min, px)))
 }
 
-function clampRight(px: number): number {
+// 这一栏最多能有多宽：把另一栏、细条、中栏最小与分隔条都先扣掉
+function roomFor(which: 'left' | 'right'): number {
   const width = rowEl.value?.clientWidth ?? 0
-  const room = width - columns.left - STRIP_WIDTH - MIDDLE_MIN - SPLITTER_WIDTH * 2
-  return Math.round(Math.min(RIGHT.max, Math.max(RIGHT.min, Math.min(px, room))))
+  const other = which === 'left' ? columns.right : columns.left
+  return width - other - STRIP_WIDTH - MIDDLE_MIN - SPLITTER_WIDTH * 2
 }
 
 function persistColumns(): void {
@@ -223,18 +230,20 @@ function persistColumns(): void {
 }
 
 /**
- * 拖分隔条：位移**直接加到那一栏的宽度**上（往左拖 = 变窄），双击恢复默认 280 / 320。
- * 松手那一刻落盘（拖的过程里不写盘，免得每次 pointermove 都刷一遍 localStorage）。
+ * 拖分隔条：分隔条**跟着指针走** —— 两条分隔条各自贴在「它右边那一栏」的左边缘上。
+ *   · 左分隔条在左栏右侧：往右拖 ⇒ 左栏变宽（`+dx`）；
+ *   · 右分隔条在右栏左侧：往左拖 ⇒ 右栏变宽（`-dx`）。
+ * 双击恢复默认 280 / 320；松手那一刻落盘（拖的过程里不写盘，免得每次 pointermove 都刷一遍 localStorage）。
  */
 function startDrag(which: 'left' | 'right', event: PointerEvent): void {
   event.preventDefault()
   const startX = event.clientX
   const startWidth = which === 'left' ? columns.left : columns.right
-  // 拖动中：位移直接加到那一栏的宽度上，夹在允许区间里
+  // 拖动中：左栏吃正向位移、右栏吃反向位移，各自夹在允许区间里
   const move = (moveEvent: PointerEvent) => {
-    const width = startWidth + (moveEvent.clientX - startX)
-    if (which === 'left') columns.left = clampLeft(width)
-    else columns.right = clampRight(width)
+    const dx = moveEvent.clientX - startX
+    if (which === 'left') columns.left = clampWidth(startWidth + dx, LEFT, roomFor('left'))
+    else columns.right = clampWidth(startWidth - dx, RIGHT, roomFor('right'))
   }
   // 松手：摘掉两个监听，并把这一档栏宽落盘
   const up = () => {

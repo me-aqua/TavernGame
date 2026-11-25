@@ -233,6 +233,48 @@ describe('引擎：调试载荷（?debug=1 要用）', () => {
   })
 })
 
+describe('引擎：同一回合内的写入立刻可见（P2）', () => {
+  it('判定节点写的值、时间节点推的钟，输出节点的提示词里当场看得见', async () => {
+    const base = makeCard()
+    // 输出节点读时间元素 + 两个状态元素；判定节点也读元素 1（这样才有一个「写之前」的对照）
+    const chain = base.chain.map((node) => {
+      if (node.id === 'output') return { ...node, reads: ['0', '1', '2'], prompt: 'NODE_OUT' }
+      if (node.id === 'check') return { ...node, reads: ['1'] }
+      return node
+    })
+    const card = { ...base, chain }
+
+    const result = await turn({ card, save: makeSave(card), action: 'act one' })
+    const prompt = result.debug.prompts.output
+
+    // 时间节点先跑：8 点 → 9 点，输出节点读到的必须是 9 点
+    expect(prompt, '时间节点推进后的钟要进输出节点的提示词').toContain('0 time = day 1 hour 9')
+    // 判定节点先跑：元素 1 被写成 mock-t1，输出节点读到的必须是新值
+    expect(prompt, '判定节点这一回合写的值要立刻可见').toContain('1 place = mock-t1')
+    expect(prompt, '旧值不该还留在提示词里').not.toContain('1 place = VAL_PLACE_A1')
+    // 没被写过的元素照旧
+    expect(prompt).toContain('2 mood = VAL_MOOD_B2')
+
+    // 正向控制：判定节点自己（链上第 2 个）看到的还是**它写之前**的值 ——
+    // 说明这确实是「同一回合、逐节点」的时序，而不是「全部节点都用回合末的 tree」
+    expect(result.debug.prompts.check, '判定节点在写入之前拼提示词').toContain('1 place = VAL_PLACE_A1')
+    expect(result.save.tree['1']).toBe('mock-t1')
+  })
+
+  it('上游节点写的值也看得见：把 normal 挪到 output 之后也不串（顺序即因果）', async () => {
+    const base = makeCard()
+    const chain = base.chain.map((node) => (node.id === 'output' ? { ...node, reads: ['1'] } : node))
+    // 把判定节点挪到输出节点后面：于是输出节点看到的是**初值**（还没人写）
+    const card = {
+      ...base,
+      chain: [chain[0], chain[2], chain[1], chain[3]],
+    }
+    const result = await turn({ card, save: makeSave(card), action: 'act one' })
+    expect(result.debug.prompts.output).toContain('1 place = VAL_PLACE_A1')
+    expect(result.save.tree['1']).toBe('mock-t1')
+  })
+})
+
 describe('引擎：快照（改卡之后旧存档还能跑）', () => {
   it('拿 save.cardSnapshot 跑，读的是快照里的值（不是被改过的卡）', async () => {
     const card = makeCard()

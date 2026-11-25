@@ -75,7 +75,7 @@ test.describe('眼睛：公共提示词块', () => {
 })
 
 test.describe('眼睛：状态元素', () => {
-  test('关掉元素 1 的读眼睛 ⇒ 它的值从 prompt 里消失，元素 2 还在', async ({ page }) => {
+  test('关掉元素 1 的读眼睛 ⇒ 它这一回合的值从 prompt 里消失，元素 2 还在', async ({ page }) => {
     await boot(page, { storage: seedCardOnly() })
     await toggleEye(page, { nodeId: 'output', selector: '[data-state-item="1"] [data-eyes="read"]' })
 
@@ -84,8 +84,21 @@ test.describe('眼睛：状态元素', () => {
     await playTurn(page, 'act one', 1)
 
     const prompt = page.locator(DEBUG_PROMPT)
+    // 元素 1 这一回合已被判定节点写成 mock-t1（同一回合内可见，P2）⇒ 关掉眼睛就该一个字符都不剩
+    await expect(prompt).not.toContainText('mock-t1')
     await expect(prompt).not.toContainText('VAL_PLACE_A1')
     await expect(prompt).toContainText('VAL_MOOD_B2')
+  })
+
+  test('眼睛打开时，元素 1 的值是**这一回合刚写进去的**那份（不是初值）', async ({ page }) => {
+    await boot(page, { storage: seedCardOnly() })
+    const saveId = await createSave(page, CARD_ID)
+    await openStory(page, CARD_ID, saveId, { debug: true })
+    await playTurn(page, 'act one', 1)
+
+    const prompt = page.locator(DEBUG_PROMPT)
+    await expect(prompt, '判定节点这一回合写的值要立刻进输出节点的提示词').toContainText('mock-t1')
+    await expect(prompt).not.toContainText('VAL_PLACE_A1')
   })
 })
 
@@ -146,13 +159,14 @@ test.describe('眼睛：拼装顺序', () => {
     expect(output, '调试面板要按 [node:<id>] 分段（CONTRACT §8.3）').not.toBeNull()
 
     const at = (mark) => output.indexOf(mark)
-    for (const mark of ['BODY_ONE', 'BODY_TWO', 'VAL_PLACE_A1', 'act one', 'NODE_OUT']) {
+    // 状态段用**没被这一回合写过**的元素 2 当锚（元素 1 已被判定节点写成 mock-t1，P2）
+    for (const mark of ['BODY_ONE', 'BODY_TWO', 'VAL_MOOD_B2', 'mock-t1', 'act one', 'NODE_OUT']) {
       expect(at(mark), `${mark} 没进输出节点的 prompt`).toBeGreaterThanOrEqual(0)
     }
     expect(at('BODY_ONE')).toBeLessThan(at('BODY_TWO'))
-    expect(at('BODY_TWO')).toBeLessThan(at('VAL_PLACE_A1'))
+    expect(at('BODY_TWO')).toBeLessThan(at('VAL_MOOD_B2'))
     // 行动是历史块的最后一条（不是独立的一段）⇒ 它在状态之后、本节点提示词之前
-    expect(at('VAL_PLACE_A1')).toBeLessThan(at('act one'))
+    expect(at('VAL_MOOD_B2')).toBeLessThan(at('act one'))
     expect(at('act one')).toBeLessThan(at('NODE_OUT'))
     expect((output.match(/act one/g) ?? []).length, '行动在历史块里只出现一次').toBe(1)
 
