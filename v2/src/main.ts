@@ -1,42 +1,70 @@
 /**
- * v2 入口：建存储、挂 App、设标题。
+ * v2 入口：建存储、首次打开种示例卡、挂 App、设标题。
  *
- * 主题与设置的读取在 `App.vue` 里（读坏了也要能看见错误页，而不是白屏）；
- * 这里只负责把「浏览器 localStorage」这一份实例交给应用（core 层不碰全局）。
+ * 两条「不能白屏」的门槛都在这一层：
+ *   · **设置读坏了**（坏 JSON / 形状不对）⇒ 用默认值把启动走完，**不写回** ——
+ *     `App.vue` 会自己再读一次，把那份坏数据的中文错误页显示出来；
+ *   · 示例卡只往「读得出来且为空」的卡表里种一次，种之前先过 `validateCard`。
  */
 import { createApp } from 'vue'
 import App from './App.vue'
 import { provideStorage } from './app-context'
-import { createStorage } from './core/storage'
+import { validateCard } from './core/schema'
+import { createStorage, DEFAULT_SETTINGS } from './core/storage'
 import type { Card, Settings } from './core/types'
 import sample from './data/morningwind.json'
 import { t } from './i18n'
 import { DEFAULT_PRESETS } from './presets'
 import './styles/main.css'
 
+const storage = createStorage(localStorage)
+
+/**
+ * 读设置。读坏了（坏 JSON / 不是对象）就用默认值把启动走完 —— 不接住的话本模块当场中断，
+ * 白屏，连 `App.vue` 的错误页都出不来。这份默认值**不写回**：`App.vue` 会自己再读一次，
+ * 把那份坏数据的中文错误显示出来，别在这里把它盖掉。
+ */
+let settings = structuredClone(DEFAULT_SETTINGS) as Settings & { sampleSeeded?: boolean }
+let settingsReadable = true
+try {
+  settings = storage.loadSettings() as Settings & { sampleSeeded?: boolean }
+} catch {
+  settingsReadable = false
+}
+
 /**
  * 首次打开：没有卡、也没有「已经种过示例」的标记 ⇒ 种一张晨风镇。
  *
  * 标记住在 `tg2.settings.sampleSeeded`（不新增第六个键）。玩家把示例卡删掉之后
  * 标记还在 ⇒ 不会再种回来；他清空整个 localStorage 才会重新看到示例。
+ *
+ * 🔴 三种「读不出来」都**一个字节都不写**，启动照常：
+ *   · 设置读不出来 ⇒ 整块跳过（页面已经在报那句数据错误，种卡也没人看得见）；
+ *   · 盘上的卡读不出来（旧格式 / 坏了一份）⇒ 不种、不写标记（覆盖就再也拿不回来了），
+ *     错误留给首页的读盘路径去撞、去显示（`HomePage` 的 `loadFailed`）；
+ *   · 内置示例卡本校本就不合法 ⇒ 不种、也不写标记（坏的是随构建发布的资产，不是玩家数据），
+ *     由 `v2/tests/sample.test.js` 在 CI 里拦，别等它在玩家机器上炸启动。
  */
-const storage = createStorage(localStorage)
-const settings = storage.loadSettings() as Settings & { sampleSeeded?: boolean }
-if (settings.sampleSeeded !== true) {
-  /**
-   * 盘上有卡但读不出来（旧格式 / 坏了一份）：**不种示例、不写标记、也不在这里抛**。
-   * 抛出去会把本模块打断 ⇒ 应用连挂都挂不上，中文错误页也没了；种下去则会把它整表覆盖。
-   * 所以这条错误留给首页的读盘路径去撞、去显示（`HomePage` 的 `loadFailed`），这里一个字节都不写。
-   */
+if (settingsReadable && settings.sampleSeeded !== true) {
   let stored: Card[] | null = null
   try {
     stored = storage.loadCards()
   } catch {
-    // 见上：错误由首页的读盘路径显示，这里只负责「别种、别写、别炸」
+    // 见上：错误由首页的读盘路径显示
   }
   if (stored !== null) {
-    if (stored.length === 0) storage.saveCards([sample as Card])
-    storage.saveSettings({ ...settings, sampleSeeded: true } as Settings)
+    let sampleOk = true
+    if (stored.length === 0) {
+      try {
+        validateCard(sample as Card)
+      } catch {
+        sampleOk = false
+      }
+    }
+    if (sampleOk) {
+      if (stored.length === 0) storage.saveCards([sample as Card])
+      storage.saveSettings({ ...settings, sampleSeeded: true } as Settings)
+    }
   }
 }
 

@@ -135,6 +135,12 @@ describe('模块边界：不往旧站和别的框架里看', () => {
     // 每张卡都带「开场」那一块（§2.1：缺它就是不合法的卡）
     expect(sample.prompts.some((prompt) => prompt.id === 'opening')).toBe(true)
   })
+
+  it('示例卡过得了 validateCard（种子路径靠它 —— 不合法的卡不许被种进玩家的存储）', async () => {
+    const { validateCard } = await loadModule('core/schema.ts', () => import('../src/core/schema.ts'))
+    const sample = JSON.parse(readFileSync(join(SRC, 'data', 'morningwind.json'), 'utf8'))
+    expect(() => validateCard(sample)).not.toThrow()
+  })
 })
 
 describe('模块边界：中文文案住在 json 里', () => {
