@@ -7,6 +7,9 @@
  *     只在调试开关打开时由对话页放进 `items`；
  *   · `turnStats` —— 一回合的合计读数，永远显示（调试关着时是一行紧凑的统计）。
  *
+ * 版式（老板 2026-11-25 晚）：行动与叙事**同一版式** —— 左对齐、同字号、无气泡底；
+ * 每个块（行动 / 叙事 / trace 卡片）之间一条 `border-top: 1px dashed` 的虚线分隔。
+ *
  * `streaming` 是**本回合正在长出来的那段正文**：它还没落盘，所以不进 `items`；
  * 中途按「停止」时把 `streaming` 清空，故事流就回到本回合开始前的样子（存档一个字没动）。
  *
@@ -140,16 +143,9 @@ function statsTokens(usage: TokenUsage | null): string {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   font-size: var(--fs1);
-}
-
-.line[data-line='action'] {
-  align-self: flex-end;
-  max-width: 72%;
-  padding: 6px 10px;
-  border-radius: 10px 10px 2px 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  font-size: var(--fs2);
+  /* 每个故事块之间的虚线分隔：行动与叙事同一版式（左对齐、无气泡底），只有这条线 */
+  border-top: 1px dashed var(--line);
+  padding-top: 8px;
 }
 
 .line[data-line='narration'] {
@@ -168,6 +164,8 @@ function statsTokens(usage: TokenUsage | null): string {
   gap: 6px;
   padding: 8px 10px;
   border: 1px solid var(--line);
+  /* trace 卡片也是块：和故事块之间同一条虚线（保留 accent 左沿与卡片底） */
+  border-top: 1px dashed var(--line);
   border-left: 3px solid var(--accent);
   border-radius: 8px;
   background: var(--panel);

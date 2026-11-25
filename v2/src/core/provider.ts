@@ -74,6 +74,18 @@ export interface CallProviderArgs {
   deadline: Deadline
 }
 
+/**
+ * OpenAI-compatible 的思考藏在原始分片里：`choices[0].delta.reasoning_content`
+ * （有的服务商叫 `reasoning`）。AI SDK 7 的 chat 路径不解析这两个字段，所以从 `raw` 分片自己取；
+ * 没有就是空串（不补、不猜）。
+ */
+function rawReasoning(rawValue: unknown): string {
+  const choices = (rawValue as { choices?: Array<{ delta?: Record<string, unknown> }> } | null)?.choices
+  const delta = choices?.[0]?.delta
+  const value = delta?.reasoning_content ?? delta?.reasoning
+  return typeof value === 'string' ? value : ''
+}
+
 // 调一次 provider：流式收正文与工具调用，任何失败都翻成中文的 AppError
 export async function callProvider({
   preset,
@@ -106,6 +118,8 @@ export async function callProvider({
       abortSignal: combined,
       // 玩家就在屏幕前等：连不上就当场说，不替他静默重试三次（一次 2 秒起步）
       maxRetries: 0,
+      // DeepSeek 的思考只出现在原始 SSE 分片里（AI SDK 不解析 reasoning_content）
+      includeRawChunks: true,
     })
     try {
       for await (const part of result.fullStream) {
@@ -113,6 +127,9 @@ export async function callProvider({
         if (part.type === 'text-delta') {
           text += part.text
           onChunk?.(part.text)
+        } else if (part.type === 'raw') {
+          // 思考只记账、不进故事流：从原始分片里取 reasoning_content / reasoning
+          reasoning += rawReasoning(part.rawValue)
         } else if (part.type === 'reasoning-delta') {
           // 思考只记账、不进故事流：模型没给就是空串（**不补、不猜**）
           reasoning += part.text

@@ -325,9 +325,10 @@ export function advanceTime(tree, hours) -> tree                               /
 - `apiKey` 为空 ⇒ **不发请求**，直接 `E_PROVIDER`（消息说明「没填 Key」+ 下一步指向设置页）。
 - 4xx/5xx、断网、DNS 失败、超时（阶段 1 有 60 秒主动超时，归到 `E_PROVIDER`；玩家中止仍归 `E_ABORTED`）⇒ `E_PROVIDER`。
 - 上游报文原样塞进 `detail.upstream`；界面**不许**只显示英文原文。
-- **思考增量**：AI SDK 的 `fullStream` 若发 `reasoning-delta`，把增量拼进 `ProviderReply.reasoning`，
-  再进该节点 `trace.thinking`；没有就**是空串**（不补、不猜、不用别的东西冒充）。
-  mock 提供方一律返回空串（§7）。
+- **思考增量**：`streamText({ includeRawChunks: true })`；`fullStream` 的 `raw` 分片里取
+  OpenAI-compatible 的 `choices[0].delta.reasoning_content`（或 `reasoning`）拼进 `ProviderReply.reasoning`，
+  再进该节点 `trace.thinking`；SDK 若发 `reasoning-delta` 也照旧累加。没有就**是空串**
+  （不补、不猜、不用别的东西冒充）。**不绕过 AI SDK 自建 fetch**。mock 提供方一律返回空串（§7）。
 
 ---
 
@@ -547,11 +548,13 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   ⇒ 「关掉眼睛看 prompt 变化」的验收流程是：改眼睛 → **新建存档** → 跑一回合 → 看故事流里的 trace 卡片。
 - 故事流：每条 `action` 一个 `[data-line="action"]`，每条 `narration` 一个 `[data-line="narration"]`。
   **只有 `output` 节点的文本进故事流**（`opening` 是卡上的静态正文，不是引擎事件）。
+  **版式**（老板 2026-11-25 晚）：行动与叙事**同样** —— 左对齐、同一字号、**没有气泡底**；
+  每个块之间一条 `border-top: 1px dashed`（trace 卡片同样），行动**不是**右侧气泡。
 - 顶部：`[data-turn]`（`textContent` **恰好是回合数**，纯阿拉伯数字）、`[data-status]`（保存状态，完成一回合后非空）、
   `[data-back]`。
 - 发送（老板 2026-11-25 晚）：`[data-send]` / 回车 → **立刻**把这一句行动当
   `[data-line="action"][data-pending-action]` 挂到故事流末尾（乐观副本，**排在本回合 trace 之前**）；
-  同时禁用输入框、显示 `[data-stop]`、清掉上一回合的流式正文。
+  **同一时刻清空输入框**；同时禁用输入框、显示 `[data-stop]`、清掉上一回合的流式正文。
   - **第一段正文还没到**时，行动下面一行 `[data-generating]`，文案 = `play.generating`「生成中……」；
   - 第一段 `chunk` 一到 ⇒ `[data-generating]` 消失、换成 `[data-line="narration"]` 流式正文，
     行动气泡留着；调试开着时 trace 卡片照常按节点顺序出现，`[data-generating]` **只有一行**、
@@ -559,9 +562,10 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   - 回合成功 ⇒ 撤掉乐观副本（`save.events` 里已经有一条同样的 `action`，屏幕上不能出现两个气泡）、
     隐藏 `[data-stop]`、恢复输入、更新 `[data-turn]` 与 `[data-status]`，并把结果写回 `tg2.saves`。
 - 停止：点 `[data-stop]` ⇒ 中止本轮、**丢弃本轮半截文本与乐观行动气泡**（故事流回到本轮开始前）、
-  输入框恢复、`[data-action-input]` 保留刚才写的行动、存档不变。
+  输入框恢复、**把刚才那句放回 `[data-action-input]`（输入框仍为空时才放）**、存档不变。
 - 出错：`[data-error]` 出现，其中 `[data-error-code]` = 错误码字符串、`[data-error-next]` = 下一步中文；
-  乐观行动气泡撤掉、草稿留在输入框、存档不变；界面不白屏、不丢卡（判据：`v2/e2e/errors.spec.js`）。
+  乐观行动气泡撤掉、**刚才那句放回输入框（仍为空时才放）**、存档不变；界面不白屏、不丢卡
+  （判据：`v2/e2e/errors.spec.js`）。
 - **调试读数内联进故事流**（老板 2026-11-25；**没有右侧调试面板**，`[data-debug]` 不存在）：
   故事流按 `save.events` 的顺序排成一条时间轴 —— `action` / `narration` **永远在**；
   `trace` 卡片**只在调试开着时**出现（一节点一张，段落顺序：提示词组装 → 思考 → 工具调用 → 输出 →
@@ -727,9 +731,16 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
     - 发送即见：行动先以 `[data-pending-action]` 的 action 气泡乐观显示；第一段正文未到时
       下面一行 `[data-generating]`「生成中……」；正文一到换成流式 narration、行动气泡保留。
     - 回合成功 ⇒ 撤掉乐观副本（`save.events` 里已有这条 action，不许出现两个气泡）；
-      停止 / 出错 ⇒ 副本与半截正文一起撤掉，存档不变、草稿留在输入框（§8.3）。
+      停止 / 出错 ⇒ 副本与半截正文一起撤掉，存档不变（输入框的即时清空 / 放回见 #16）。
     - 行内重命名的 `[data-rename-input]` / 重命名按钮**不许把 pointerdown / click 冒泡到行**
       （点输入框只是放光标；卡行不变选中、存档行不跳对话页），Enter 提交 / Esc 取消不变（§8.1）。
+16. 🔴 **思考走原始分片 + 输入框即时清空 + 故事块版式**（老板 2026-11-25 晚）：
+    - `streamText({ includeRawChunks: true })`；从 `fullStream` 的 `raw` 分片里读
+      `choices[0].delta.reasoning_content` / `delta.reasoning`，拼进 `ProviderReply.reasoning`
+      （`reasoning-delta` 照旧累加），进 `trace.thinking`；**不绕过 AI SDK 自建 fetch**。
+    - 发送时**立刻清空输入框**（与乐观气泡同一刻）；停止 / 出错时若输入框仍为空，把刚才那句放回（§8.3）。
+    - 行动不再是右侧气泡：与叙事同为**左对齐、同字号、无气泡底**；块间（含 trace 卡片）用
+      `border-top: 1px dashed` 分隔；`[data-line="action"]` / `[data-line="narration"]` 钩子不变（§8.3）。
 
 ### 9.6 本关不做（别在阶段 1 拿它们当判据）
 

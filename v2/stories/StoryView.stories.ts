@@ -4,8 +4,9 @@ import type { StoryItem } from '../src/components/types'
 import { TURN_STATS, TRACE_OUTPUT, TRACE_TIME } from './support/data'
 
 /**
- * 故事流时间轴：玩家行动靠右、叙事靠左；每回合末尾一行合计读数；
- * 调试开着时，每个节点还会多一张卡片（提示词组装 / 思考 / 工具调用 / 输出 / 用量与耗时）。
+ * 故事流时间轴：行动与叙事同一版式（左对齐、同字号），块与块之间一条虚线分隔；
+ * 每回合末尾一行合计读数；调试开着时，每个节点还会多一张卡片
+ * （提示词组装 / 思考 / 工具调用 / 输出 / 用量与耗时）。
  * `streaming` 是本回合正在长出来的那一段（还没落盘）；
  * `generating` 是第一段正文还没到时的「生成中……」那一行（与 `streaming` 互斥）。
  */

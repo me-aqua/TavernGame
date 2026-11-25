@@ -10,10 +10,10 @@
  *     下面是故事流与输入区。
  *
  * 发送（老板 2026-11-25）：点发送 / 回车后**立刻**把这一句行动当 `[data-pending-action]` 挂到
- * 时间轴上（乐观副本，排在本回合的 trace 之前）；第一段正文还没到时，下面一行
- * `[data-generating]`「生成中……」。正文一到就换成流式 narration、行动气泡留着；
- * 回合成功时存档事件里已经有这条行动 ⇒ 撤掉副本（不重复），停止 / 出错则副本与半截正文一起撤掉
- * （存档不变，草稿还在输入框里）。
+ * 时间轴上（乐观副本，排在本回合的 trace 之前），**同一时刻清空输入框**；第一段正文还没到时，
+ * 下面一行 `[data-generating]`「生成中……」。正文一到就换成流式 narration、行动气泡留着；
+ * 回合成功时存档事件里已经有这条行动 ⇒ 撤掉副本（不重复）；停止 / 出错则副本与半截正文一起撤掉，
+ * 并把刚才那句放回输入框（存档不变）。
  *
  * 右上角 `[data-debug-toggle]` 决定**故事流里看不看逐节点读数**：开着时每个节点一张卡片
  * （提示词组装 / 思考 / 工具调用 / 输出 / 用量与耗时），关着时只剩故事与每回合一行合计读数。
@@ -131,6 +131,8 @@ async function send(): Promise<void> {
   error.value = null
   liveEvents.value = []
   pendingAction.value = action
+  // 输入框立刻清空（与乐观气泡同一时刻）；停止 / 出错时再放回去（catch 里）
+  draft.value = ''
   controller = new AbortController()
   try {
     const result = await runTurn({
@@ -150,12 +152,13 @@ async function send(): Promise<void> {
     save.value = result.save
     liveEvents.value = []
     persistSave(result.save)
-    draft.value = ''
     status.value = t('play.status', { turn: result.save.turn })
   } catch (cause) {
     const failure = asAppError(cause)
     // 停止不是错误现场：半截文本丢掉、输入框留着刚才那句话，不弹错
     if (failure.code !== 'E_ABORTED') error.value = failure
+    // 停止 / 出错：把刚发出去的那句放回输入框（玩家没改过才放）
+    if (draft.value === '') draft.value = action
   } finally {
     running.value = false
     streaming.value = ''

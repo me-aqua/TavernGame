@@ -425,4 +425,106 @@ test.describe('对话页：发送即见（乐观行动 / 生成中）', () => {
     expect(await readRaw(page, KEYS.saves), '停止不许写存档').toBe(before)
     releaseOutput()
   })
+
+  test('发送即清空输入框（Enter 也算）：首字没到之前是空串，停止后把发出去的那句还回来', async ({ page }) => {
+    const { releaseOutput } = await stubGatedOutput(page)
+    await boot(page, { storage: gatedStorage() })
+    await openStory(page, CARD_ID, 's1')
+    const input = page.locator('[data-action-input]')
+
+    await input.fill('act one')
+    await input.press('Enter')
+    // ① 发出去的当场：输入框空（不是等回合结束才清），气泡与「生成中」都在
+    await expect(input, '发送后输入框要立刻清空').toHaveValue('')
+    await expect(page.locator('[data-line="action"][data-pending-action]')).toHaveText('act one')
+    await expect(page.locator('[data-generating]')).toBeVisible()
+
+    await page.locator('[data-stop]').click()
+    await expect(page.locator('[data-stop]')).toHaveCount(0)
+    // ② 停止 = 这一句没发出去 ⇒ 还回输入框（不然玩家得重打一遍）
+    await expect(input, '停止后要把发出去的那句还回来').toHaveValue('act one')
+    await expect(input).toBeEnabled()
+    releaseOutput()
+  })
+
+  test('上游出错：发送即清空输入框，错误条出现后把发出去的那句还回来', async ({ page }) => {
+    let release
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    await page.route('**/chat/completions', async (intercepted) => {
+      await gate
+      try {
+        await intercepted.fulfill({
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ error: { message: 'upstream boom' } }),
+        })
+      } catch {
+        // 请求可能已被取消：fulfill 失败是预期
+      }
+    })
+    await boot(page, { storage: gatedStorage() })
+    await openStory(page, CARD_ID, 's1')
+    const input = page.locator('[data-action-input]')
+
+    await input.fill('act one')
+    await page.locator('[data-send]').click()
+    await expect(input, '发送后输入框要立刻清空').toHaveValue('')
+
+    release()
+    await expect(page.locator('[data-error]')).toBeVisible()
+    await expect(page.locator('[data-error-code]')).toHaveText('E_PROVIDER')
+    await expect(input, '出错后要把发出去的那句还回来').toHaveValue('act one')
+    await expect(page.locator('[data-pending-action]')).toHaveCount(0)
+    await expect(page.locator('[data-generating]')).toHaveCount(0)
+  })
+})
+
+test.describe('对话页：玩家行动不是气泡（左对齐 / 虚线分隔）', () => {
+  test('行动与叙事同一套左对齐、没有气泡底色与圆角；行动 / 叙事 / trace 卡片之间是虚线上边', async ({
+    page,
+  }) => {
+    await boot(page, { storage: seeded() })
+    await openStory(page, CARD_ID, 's1', { debug: true })
+    await playOneTurn(page, { action: 'act one', turn: 1, narrationText: mockNarration(1, 'act one') })
+
+    const styles = await page.evaluate(
+      `(() => {
+        const read = (element) => {
+          const computed = getComputedStyle(element)
+          return {
+            textAlign: computed.textAlign,
+            alignSelf: computed.alignSelf,
+            background: computed.backgroundColor,
+            radius: computed.borderTopLeftRadius,
+            borderTopStyle: computed.borderTopStyle,
+            borderTopWidth: parseFloat(computed.borderTopWidth),
+          }
+        }
+        const narrations = [...document.querySelectorAll('[data-line="narration"]')]
+        return {
+          action: read(document.querySelector('[data-line="action"]')),
+          narration: read(narrations[narrations.length - 1]),
+          trace: read(document.querySelector('[data-trace]')),
+        }
+      })()`,
+    )
+
+    // ① 左对齐：与叙事同一套（不是靠右的气泡）
+    expect(styles.action.textAlign, '行动的文字对齐与叙事不一致').toBe(styles.narration.textAlign)
+    expect(['start', 'left'], `行动不是左对齐：${styles.action.textAlign}`).toContain(styles.action.textAlign)
+    expect(styles.action.alignSelf, '行动又被推回右边了').not.toBe('flex-end')
+    expect(styles.action.alignSelf, '行动与叙事的 align-self 不一致').toBe(styles.narration.alignSelf)
+
+    // ② 没有气泡：底色与圆角都跟叙事一致（透明 / 0）
+    expect(styles.action.background, '行动还带着气泡底色').toBe(styles.narration.background)
+    expect(styles.action.radius, '行动还带着气泡圆角').toBe(styles.narration.radius)
+
+    // ③ 相邻块之间是虚线上边：行动、叙事、trace 卡片都要有
+    for (const [name, block] of Object.entries(styles)) {
+      expect(block.borderTopStyle, `${name} 的上边不是虚线`).toBe('dashed')
+      expect(block.borderTopWidth, `${name} 的虚线上边宽度为 0`).toBeGreaterThan(0)
+    }
+  })
 })
