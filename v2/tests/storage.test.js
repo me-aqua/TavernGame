@@ -6,11 +6,20 @@
  * 其中「坏数据必须出声」是本票的重点：坏 JSON 静默变空列表，用户看到的是「卡没了」，我们看不到任何红。
  */
 import { describe, expect, it } from 'vitest'
-import { fakeBackend, makeCard, makeSave, MOCK_PRESET, nodeModelsFor } from './support/fixtures.js'
+import {
+  fakeBackend,
+  makeCard,
+  makeNode,
+  makeSave,
+  MOCK_PRESET,
+  nodeModelsFor,
+  OPENING_PROMPT,
+} from './support/fixtures.js'
 import { loadModule } from './support/load.js'
 
 const CJK = /[\u4e00-\u9fff]/
 const loadStorage = () => loadModule('core/storage.ts', () => import('../src/core/storage.ts'))
+const loadSchema = () => loadModule('core/schema.ts', () => import('../src/core/schema.ts'))
 
 /** 建一个空后端上的 storage（每个用例一份，别跨用例共享 Map） */
 async function emptyStorage() {
@@ -185,5 +194,77 @@ describe('存储：坏数据必须出声（不许静默变空列表）', () => {
         expect.objectContaining({ code: 'E_VALIDATION' }),
       )
     }
+  })
+})
+
+describe('存储：旧格式的卡读出来就是错（不迁移、不改盘）', () => {
+  /** 三种旧格式：带校对节点 / 布尔上游 / 缺开场 */
+  const legacyVariants = () => {
+    const proofNode = { ...makeCard(), chain: [...makeCard().chain, makeNode('proof', 'proof')] }
+    const base = makeCard()
+    const booleanUpstream = {
+      ...base,
+      chain: base.chain.map((node) => ({ ...node, readsUpstream: node.id === 'output' })),
+    }
+    const noOpening = {
+      ...makeCard(),
+      prompts: makeCard().prompts.filter((prompt) => prompt.id !== OPENING_PROMPT.id),
+    }
+    return { proofNode, booleanUpstream, noOpening }
+  }
+
+  it('带校对节点 / 布尔上游 / 缺开场的卡 ⇒ loadCards 抛中文 E_VALIDATION', async () => {
+    const { createStorage } = await loadStorage()
+    for (const [name, card] of Object.entries(legacyVariants())) {
+      const backend = fakeBackend({ 'tg2.cards': JSON.stringify([card]) })
+      try {
+        createStorage(backend).loadCards()
+        throw new Error(`${name} 这样的旧卡没有被拒 —— 「不迁移」的口径没落地`)
+      } catch (error) {
+        expect(error.code, `${name} 报的不是 E_VALIDATION`).toBe('E_VALIDATION')
+        expect(error.message, `${name} 的提示不是中文`).toMatch(CJK)
+      }
+    }
+  })
+
+  it('读失败之后盘上的字节一个都不变（没有「顺手回写一份新格式」这种事）', async () => {
+    const { createStorage } = await loadStorage()
+    const raw = JSON.stringify([legacyVariants().proofNode])
+    const backend = fakeBackend({ 'tg2.cards': raw })
+    expect(() => createStorage(backend).loadCards()).toThrowError(
+      expect.objectContaining({ code: 'E_VALIDATION' }),
+    )
+    expect(backend.getItem('tg2.cards')).toBe(raw)
+    expect(backend.writes, '读盘不该写盘').toEqual([])
+  })
+
+  it('存档自身坏掉（tree 的 0 不是 {day,hour}）⇒ 中文 E_VALIDATION，盘上字节不变', async () => {
+    const { createStorage } = await loadStorage()
+    const save = makeSave(makeCard())
+    const badTree = { ...save, tree: { ...save.tree, 0: 'day 1 hour 8' } }
+    const raw = JSON.stringify([badTree])
+    const backend = fakeBackend({ 'tg2.saves': raw })
+    try {
+      createStorage(backend).loadSaves()
+      throw new Error('坏 tree 没有被拒')
+    } catch (error) {
+      expect(error.code).toBe('E_VALIDATION')
+      expect(error.message).toMatch(CJK)
+    }
+    expect(backend.getItem('tg2.saves')).toBe(raw)
+  })
+
+  it('存档里的 cardSnapshot 是旧卡：存储层照读（它只看存档自己那一半），卡片合法性由 schema 判', async () => {
+    const { createStorage } = await loadStorage()
+    const { validateCard } = await loadSchema()
+    const legacyCard = legacyVariants().proofNode
+    const save = makeSave(makeCard(), { cardSnapshot: legacyCard })
+    const backend = fakeBackend({ 'tg2.saves': JSON.stringify([save]) })
+    const loaded = createStorage(backend).loadSaves()
+    expect(loaded).toHaveLength(1)
+    // 旧卡在**卡片校验**那一层就被拒 ⇒ 引擎入场 / 对话页打开都会报错，不会「跑着跑着才炸」
+    expect(() => validateCard(loaded[0].cardSnapshot)).toThrowError(
+      expect.objectContaining({ code: 'E_VALIDATION' }),
+    )
   })
 })

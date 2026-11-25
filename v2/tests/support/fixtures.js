@@ -1,8 +1,12 @@
 /**
  * 第 2 关的共用夹具：卡 / 存档 / 预设 / 内存版存储后端。
  *
- * 形状照 `v2/CONTRACT.md` §2 / §7 写；契约改了这里要跟着改（夹具不是第二份真源，
+ * 形状照 `v2/CONTRACT.md` §2 写；契约改了这里要跟着改（夹具不是第二份真源，
  * 它是同一份形状的一份可执行副本 —— 判据与夹具对不上时，先怀疑夹具）。
+ *
+ * 🔴 **这里只有一种格式：契约 §2.1 的新格式**（老板 2026-11-25：不做旧卡兼容、不做迁移）。
+ *    没有校对节点（`NodeType` 只有 time / normal / output）、`readsUpstream` 是**节点 id 数组**、
+ *    每张卡都带 `opening` 提示词块。旧格式的卡在 `validateCard` 就该被拒 —— 那是判据，不是夹具的活。
  *
  * ⚠️ 这里只有纯数据与纯函数：不 import 产品代码、不碰 DOM、不发网络。
  *    vitest（node）与 Playwright（浏览器侧）都用它。
@@ -23,9 +27,13 @@ export const MOCK_PRESET = {
 /** 第二个预设：只为「这个节点用了哪个预设」那条判据准备（行为与第一个一样） */
 export const MOCK_PRESET_B = { ...MOCK_PRESET, id: 'p-mock-b', name: 'mock-b' }
 
+/** 每张卡必带的那块「开场」提示词（fixtures 里用 ASCII 记号，不抄产品文案） */
+export const OPENING_PROMPT = { id: 'opening', title: 'opening', body: '' }
+
 /**
  * 一条工作流节点（默认值 = 契约 §2.1 表里最简的那一列）。
  * 🔴 **没有 `presetId`**：模型绑定住在 `tg2.nodeModels`（§2.5），不在卡里。
+ * 🔴 `readsUpstream` 是**节点 id 数组**（读哪些前面节点的输出），不是布尔。
  */
 export function makeNode(id, type, over = {}) {
   return {
@@ -34,7 +42,7 @@ export function makeNode(id, type, over = {}) {
     name: id,
     reads: [],
     writable: [],
-    readsUpstream: false,
+    readsUpstream: [],
     historyTurns: 0,
     prompt: '',
     ...over,
@@ -59,8 +67,11 @@ function baseState() {
 }
 
 /**
- * 「内容齐全」的一张卡：两块公共提示词、两个可写元素、输出节点读全、校对节点读上游。
- * 引擎 / 提示词那一侧的单测用它。
+ * 「内容齐全」的一张卡（四节点：时间 / 判定 / 中间节点 / 输出）。
+ *
+ * 为什么留一个中间的 `extra`：上游是**按节点点名的名单**，判据要能看见
+ * 「只读名单里的那个、而且按链顺序」—— 一个上游的链证不了这两件事。
+ * 输出节点读 `check` + `extra`，不读 `time`（这样「没点名的上游不出现」也有得判）。
  */
 export function makeCard(over = {}) {
   return {
@@ -69,26 +80,27 @@ export function makeCard(over = {}) {
     name: 'card one',
     state: baseState(),
     prompts: [
+      { ...OPENING_PROMPT },
       { id: 'pr1', title: 'tone', body: 'BODY_ONE' },
       { id: 'pr2', title: 'style', body: 'BODY_TWO' },
     ],
     chain: [
       makeNode('time', 'time', { writable: ['0'], prompt: 'NODE_TIME' }),
       makeNode('check', 'normal', { writable: ['1', '2'], prompt: 'NODE_CHECK' }),
+      makeNode('extra', 'normal', { prompt: 'NODE_EXTRA' }),
       makeNode('output', 'output', {
         reads: ['pr1', 'pr2', '1', '2'],
-        readsUpstream: true,
+        readsUpstream: ['check', 'extra'],
         historyTurns: 3,
         prompt: 'NODE_OUT',
       }),
-      makeNode('proof', 'proof', { readsUpstream: true, prompt: 'NODE_PROOF' }),
     ],
     ...over,
   }
 }
 
 /**
- * 契约 §2.1 的「新建卡」**结构**默认值 —— id / 类型 / 编码 / 默认开关都对得上界面建出来的卡。
+ * 契约 §2.1 的「新建卡」形状 —— id / 类型 / 编码 / 默认开关都对得上界面建出来的卡。
  * ⚠️ 只有 `name` 不同：那是**展示文案**（`cards.ts` 走 `t()` 给中文），夹具里用 ASCII 记号，
  *    判据不该跟着文案漂（e2e 里真建卡那一条另有断言钉文案）。
  */
@@ -98,12 +110,11 @@ export function freshCard(over = {}) {
     id: 'c-fresh',
     name: 'card fresh',
     state: [{ code: '0', name: 'time', note: '', type: 'string', initial: { day: 1, hour: 8 } }],
-    prompts: [],
+    prompts: [{ ...OPENING_PROMPT }],
     chain: [
       makeNode('time', 'time', { writable: ['0'] }),
-      makeNode('check', 'normal', { writable: [] }),
-      makeNode('output', 'output', { readsUpstream: true, historyTurns: 3 }),
-      makeNode('proof', 'proof', { readsUpstream: true }),
+      makeNode('check', 'normal'),
+      makeNode('output', 'output', { readsUpstream: ['check'], historyTurns: 3 }),
     ],
     ...over,
   }

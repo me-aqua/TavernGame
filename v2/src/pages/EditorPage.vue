@@ -18,7 +18,7 @@ import StateForm from '../components/StateForm.vue'
 import StateTree from '../components/StateTree.vue'
 import WorkflowStrip from '../components/WorkflowStrip.vue'
 import { asAppError, storage } from '../app-context'
-import { nextPromptId, nextStateCode, normalizeCard } from '../cards'
+import { nextPromptId, nextStateCode } from '../cards'
 import { AppError } from '../core/errors'
 import { DEFAULT_SETTINGS } from '../core/storage'
 import type { Card, ChainNode, NodeModels, Preset, PromptBlock, StateElement } from '../core/types'
@@ -71,13 +71,7 @@ onMounted(() => {
     if (!found) {
       throw new AppError('E_VALIDATION', { message: t('error.missingCard'), nextStep: t('next.home') })
     }
-    // 老卡没有「开场」这一块：打开编辑器时补上并落盘（`load*()` 一律不写盘，那条判据钉着）
-    const normalized = normalizeCard(found)
-    if (normalized !== found) {
-      cards.value = cards.value.map((item) => (item.id === normalized.id ? normalized : item))
-      storage().saveCards(cards.value)
-    }
-    card.value = normalized
+    card.value = found
     presets.value = storage().loadPresets()
     models.value = storage().loadNodeModels()
     const settings = storage().loadSettings()
@@ -127,8 +121,8 @@ function patchElement(code: string, patch: Partial<StateElement>): void {
   }))
 }
 
-/** 眼睛：把某个引用塞进/拿出当前节点的 `reads` 或 `writable` */
-function toggleRef(field: 'reads' | 'writable', ref0: string): void {
+/** 眼睛：把某个引用塞进/拿出当前节点的 `reads` / `writable` / `readsUpstream` */
+function toggleRef(field: 'reads' | 'writable' | 'readsUpstream', ref0: string): void {
   const node = selectedNode.value
   if (!node) return
   const list = node[field]
@@ -320,19 +314,22 @@ function goBack(): void {
         @dblclick="resetColumns('left')"
       ></div>
 
-      <WorkflowStrip :nodes="card.chain" :selected-id="selectedNodeId" @select="selectNode" />
+      <WorkflowStrip
+        :nodes="card.chain"
+        :selected-id="selectedNodeId"
+        :reads-upstream="selectedNode?.readsUpstream ?? []"
+        @select="selectNode"
+        @toggle-read="(id) => toggleRef('readsUpstream', id)"
+      />
 
       <section class="col middle" data-col="middle">
         <NodeForm
           v-if="selectedNode"
           :node="selectedNode"
-          :is-first="selectedNode.id === card.chain[0].id"
           :presets="presets"
           :preset-id="presetIdFor(selectedNode.id)"
-          :prompts="card.prompts"
           @patch="(patch) => patchNode(selectedNode!.id, patch)"
           @preset="(presetId) => choosePreset(selectedNode!.id, presetId)"
-          @toggle-prompt-read="(id) => toggleRef('reads', id)"
         />
         <StateForm
           v-else-if="selectedElement"
@@ -360,9 +357,11 @@ function goBack(): void {
         <PromptList
           :prompts="card.prompts"
           :selected-id="selectedPromptId"
+          :node="selectedNode"
           @add="addPrompt"
           @select="selectPrompt"
           @remove="removePrompt"
+          @toggle-read="(id) => toggleRef('reads', id)"
         />
       </section>
     </div>

@@ -7,12 +7,15 @@
  *     **写**（`writable` 里有它才许写）；
  *   · **S2**（选中了某个元素）：栏顶出现 `+`（加元素），**每一行**出现 `×`（删这一行）。
  *
+ * **写眼睛按节点类型收窄**（与 schema 的链规矩同一套）：时间节点只有时间元素 0 那只，
+ * 输出节点一只都没有，其余类型每行都有。界面上不该露出一个点了会被引擎拒的开关。
+ *
  * `0`（时间元素）永远不许删，它不带 `×`。
  */
 import type { ChainNode, StateElement } from '../core/types'
 import { t } from '../i18n'
 
-defineProps<{
+const props = defineProps<{
   elements: StateElement[]
   node: ChainNode | null
   selectedCode: string | null
@@ -25,6 +28,14 @@ defineEmits<{
   'toggle-read': [code: string]
   'toggle-write': [code: string]
 }>()
+
+/** 这一行要不要露「写」眼睛（类型规则见文件头） */
+function showsWrite(code: string): boolean {
+  if (!props.node) return false
+  if (props.node.type === 'output') return false
+  if (props.node.type === 'time') return code === '0'
+  return true
+}
 </script>
 
 <template>
@@ -66,6 +77,7 @@ defineEmits<{
             {{ t('editor.eyeRead') }}
           </button>
           <button
+            v-if="showsWrite(element.code)"
             type="button"
             class="eye"
             data-eyes="write"

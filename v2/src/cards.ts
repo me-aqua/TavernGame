@@ -5,17 +5,15 @@
  * 抄两份迟早会分叉（一份改了初值默认，另一份没改）。
  */
 import type { Card, PromptBlock, StateElement, Tree } from './core/types'
+import { OPENING_PROMPT_ID } from './core/schema'
 import { t } from './i18n'
 
-/** 公共提示词里那块「开场」的固定 id：新卡自带，右栏不给它删除按钮 */
-export const OPENING_PROMPT_ID = 'opening'
-
-// 造一块「开场」：标题是数据，所以「建卡」与「归一化」两处各写进卡一次
+// 造一块「开场」：标题是数据，所以「建卡」这一处写进卡一次
 function openingBlock(): PromptBlock {
   return { id: OPENING_PROMPT_ID, title: t('card.openingTitle'), body: '' }
 }
 
-/** 新建卡的默认四节点：id 与 name 都固定（CONTRACT §2.1 的表） */
+/** 新建卡的默认三节点：id 与 name 都固定（CONTRACT §2.1 的表） */
 const DEFAULT_CHAIN: Card['chain'] = [
   {
     id: 'time',
@@ -23,7 +21,7 @@ const DEFAULT_CHAIN: Card['chain'] = [
     name: t('default.node.time'),
     reads: [],
     writable: ['0'],
-    readsUpstream: false,
+    readsUpstream: [],
     historyTurns: 0,
     prompt: '',
   },
@@ -33,7 +31,7 @@ const DEFAULT_CHAIN: Card['chain'] = [
     name: t('default.node.check'),
     reads: [],
     writable: [],
-    readsUpstream: false,
+    readsUpstream: [],
     historyTurns: 0,
     prompt: '',
   },
@@ -43,23 +41,13 @@ const DEFAULT_CHAIN: Card['chain'] = [
     name: t('default.node.output'),
     reads: [],
     writable: [],
-    readsUpstream: true,
+    readsUpstream: ['check'],
     historyTurns: 3,
-    prompt: '',
-  },
-  {
-    id: 'proof',
-    type: 'proof',
-    name: t('default.node.proof'),
-    reads: [],
-    writable: [],
-    readsUpstream: true,
-    historyTurns: 0,
     prompt: '',
   },
 ]
 
-// 新建一张卡：只有一个时间元素、一块「开场」提示词、契约 §2.1 那四个固定节点
+// 新建一张卡：只有一个时间元素、一块「开场」提示词、契约 §2.1 那三个固定节点
 export function freshCard(id: string, name: string): Card {
   return {
     schemaVersion: 1,
@@ -72,6 +60,7 @@ export function freshCard(id: string, name: string): Card {
       ...node,
       reads: [...node.reads],
       writable: [...node.writable],
+      readsUpstream: [...node.readsUpstream],
     })),
     prompts: [openingBlock()],
   }
@@ -114,15 +103,4 @@ export function nextPromptId(prompts: PromptBlock[]): string {
     const id = `pr${index}`
     if (!used.has(id)) return id
   }
-}
-
-/**
- * 归一化一张卡：没有「开场」就补一块（幂等）。
- *
- * 已有的原样返回**同一个对象** —— 调用方据此判断「要不要落盘」；
- * 开场排在**最前**（它是每张卡的门面）。老卡的 `state` / `chain` 一个字节都不动。
- */
-export function normalizeCard(card: Card): Card {
-  if (card.prompts.some((prompt) => prompt.id === OPENING_PROMPT_ID)) return card
-  return { ...card, prompts: [openingBlock(), ...card.prompts] }
 }

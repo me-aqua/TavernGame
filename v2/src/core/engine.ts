@@ -38,11 +38,19 @@ const TOOLS_FOR_NODE: Record<ChainNode['type'], string[]> = {
   time: ['advance_time'],
   normal: ['write_state'],
   output: [],
-  proof: [],
 }
 
 /** 流式回调看到的事件：落盘事件 + 只在内存里过的 `chunk` */
 export type StreamEvent = SaveEvent | { type: 'chunk'; text: string }
+
+/** 一个节点的实测读数（调试面板按节点显示） */
+export interface NodeDebug {
+  /** 这一次 provider / mock 调用的墙钟耗时 */
+  durationMs: number
+  usage: TokenUsage | null
+  /** 每秒输出多少 token；没有用量、或没量到时间时为 `null` */
+  tps: number | null
+}
 
 export interface DebugPayload {
   prompts: Record<string, string>
@@ -50,6 +58,9 @@ export interface DebugPayload {
   tools: { nodeId: string; name: string; args: Record<string, unknown> }[]
   usage: TokenUsage | null
   presets: Record<string, string>
+  nodes: Record<string, NodeDebug>
+  /** 本回合从头到尾的墙钟耗时 */
+  totalMs: number
 }
 
 export interface RunTurnArgs {
@@ -237,6 +248,12 @@ function sumUsage(usage: TokenUsage | null, reply: ProviderReply): TokenUsage | 
   }
 }
 
+/** 每秒输出 token 数：没有用量、或耗时为 0（量不出速率）时给 `null` */
+function tpsOf(usage: TokenUsage | null, durationMs: number): number | null {
+  if (!usage || durationMs <= 0) return null
+  return usage.outputTokens / (durationMs / 1000)
+}
+
 // 跑一回合：校验 -> 记行动 -> 逐节点调模型与执行工具 -> 收尾（返回新 save）
 export async function runTurn({
   card,
@@ -251,9 +268,18 @@ export async function runTurn({
   validateSave(save, card)
   if (signal?.aborted) throw aborted()
 
+  const turnStartedAt = Date.now()
   const turn = save.turn + 1
   const events: SaveEvent[] = []
-  const debug: DebugPayload = { prompts: {}, responses: {}, tools: [], usage: null, presets: {} }
+  const debug: DebugPayload = {
+    prompts: {},
+    responses: {},
+    tools: [],
+    usage: null,
+    presets: {},
+    nodes: {},
+    totalMs: 0,
+  }
 
   /** 落盘事件（同时转发给 onEvent） */
   const push = (event: SaveEvent) => {
@@ -264,7 +290,8 @@ export async function runTurn({
   push({ type: 'action', text: action, at: now() })
 
   let tree: Tree = save.tree
-  let upstream = ''
+  /** 本回合已执行节点的输出，按节点 id 索引（提示词的上游段从这里取） */
+  const outputs: Record<string, string> = {}
 
   for (const node of card.chain) {
     if (signal?.aborted) throw aborted()
@@ -275,11 +302,13 @@ export async function runTurn({
 
     // 提示词里的状态值读的是**本回合此刻**的 tree：前面的节点写进去的东西，后面节点看得见
     // （写入同时累积进本回合的 tree，回合收尾与叙事一起提交进新 save）。
-    const prompt = buildPrompt({ card, save: { ...save, tree }, node, action, upstream })
+    const prompt = buildPrompt({ card, save: { ...save, tree }, node, action, outputs })
     debug.prompts[node.id] = prompt
 
     const onChunk = node.type === 'output' ? (text: string) => onEvent?.({ type: 'chunk', text }) : undefined
 
+    // 计时只包住这一次模型调用（工具执行与事件记账不算进去）
+    const startedAt = Date.now()
     let reply: ProviderReply
     if (preset.provider === 'mock') {
       reply = await mockReply({
@@ -309,10 +338,12 @@ export async function runTurn({
         deadline.clear()
       }
     }
+    const durationMs = Date.now() - startedAt
 
     if (signal?.aborted) throw aborted()
     debug.responses[node.id] = reply.text
     debug.usage = sumUsage(debug.usage, reply)
+    debug.nodes[node.id] = { durationMs, usage: reply.usage, tps: tpsOf(reply.usage, durationMs) }
 
     for (const call of reply.toolCalls) {
       debug.tools.push({ nodeId: node.id, name: call.name, args: call.args })
@@ -322,7 +353,7 @@ export async function runTurn({
     }
 
     if (node.type === 'output') push({ type: 'narration', text: reply.text, at: now() })
-    upstream = reply.text
+    outputs[node.id] = reply.text
   }
 
   const nextSave: Save = {
@@ -332,5 +363,6 @@ export async function runTurn({
     turn,
     updatedAt: now(),
   }
+  debug.totalMs = Date.now() - turnStartedAt
   return { save: nextSave, events, debug }
 }

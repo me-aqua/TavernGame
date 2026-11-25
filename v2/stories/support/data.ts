@@ -19,7 +19,7 @@ export function makeNode(over: Partial<ChainNode> & { id: string; type: ChainNod
     name: over.id,
     reads: [],
     writable: [],
-    readsUpstream: false,
+    readsUpstream: [],
     historyTurns: 0,
     prompt: '',
     ...over,
@@ -32,13 +32,12 @@ export const OUTPUT_NODE = makeNode({
   id: 'output',
   type: 'output',
   reads: ['pr1', '1', '2'],
-  readsUpstream: true,
+  readsUpstream: ['check'],
   historyTurns: 3,
   prompt: 'NODE_OUT',
 })
-export const PROOF_NODE = makeNode({ id: 'proof', type: 'proof', readsUpstream: true })
 
-export const CHAIN: ChainNode[] = [TIME_NODE, CHECK_NODE, OUTPUT_NODE, PROOF_NODE]
+export const CHAIN: ChainNode[] = [TIME_NODE, CHECK_NODE, OUTPUT_NODE]
 
 export const PROMPTS = [
   { id: 'opening', title: 'opening', body: '' },
@@ -72,9 +71,8 @@ export const DEBUG: DebugPayload = {
     time: '> act one\n\nNODE_TIME',
     check: '[node:check] > act one',
     output: 'BODY_ONE\n\n1 place = VAL_PLACE_A1\n\n> act one\n\nNODE_OUT',
-    proof: 'NODE_PROOF',
   },
-  responses: { time: '', check: '', output: '[mock] turn 1: act one', proof: '[mock] proof turn 1 ok' },
+  responses: { time: '', check: '', output: '[mock] turn 1: act one' },
   tools: [
     { nodeId: 'time', name: 'advance_time', args: { hours: 1 } },
     { nodeId: 'check', name: 'write_state', args: { path: '1', value: 'mock-t1' } },
@@ -84,6 +82,15 @@ export const DEBUG: DebugPayload = {
     time: 'p-deepseek-v4-flash',
     check: 'p-deepseek-v4-flash',
     output: 'p-deepseek-v4-pro',
-    proof: 'p-deepseek-v4-pro',
   },
+  nodes: {
+    time: { durationMs: 12, usage: null, tps: null },
+    check: { durationMs: 9, usage: null, tps: null },
+    output: {
+      durationMs: 320,
+      usage: { inputTokens: 128, outputTokens: 64, totalTokens: 192 },
+      tps: 200,
+    },
+  },
+  totalMs: 360,
 }

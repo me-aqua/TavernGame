@@ -51,7 +51,7 @@
       "name": "时间",
       "reads": [],
       "writable": ["0"],
-      "readsUpstream": false,
+      "readsUpstream": [],
       "historyTurns": 0,
       "prompt": "根据玩家这一回合的行动，判断过去了多少小时，调用 advance_time 推进时间。只推进时间，不写故事。"
     },
@@ -61,7 +61,7 @@
       "name": "判定",
       "reads": ["1", "2", "3", "4"],
       "writable": ["1", "2", "3", "4"],
-      "readsUpstream": false,
+      "readsUpstream": [],
       "historyTurns": 1,
       "prompt": "根据玩家行动和当前状态，判断地点、人物、氛围、线索有没有变化。有变化就调用 write_state 写入；没有变化就不调用。不要写故事正文。"
     },
@@ -71,19 +71,9 @@
       "name": "输出",
       "reads": ["prompt-world", "prompt-style", "1", "2", "3", "4"],
       "writable": [],
-      "readsUpstream": true,
+      "readsUpstream": ["check"],
       "historyTurns": 3,
       "prompt": "根据状态、历史和玩家这一回合的行动，写这一回合的故事。只写玩家看得见的画面与对话，结尾停在玩家可以继续行动的地方。"
-    },
-    {
-      "id": "proof",
-      "type": "proof",
-      "name": "校对",
-      "reads": ["prompt-world"],
-      "writable": [],
-      "readsUpstream": true,
-      "historyTurns": 0,
-      "prompt": "检查上一段故事有没有和世界观冲突、有没有替玩家做决定、有没有写出玩家看不到的信息。只报问题，不重写故事。"
     }
   ]
 }

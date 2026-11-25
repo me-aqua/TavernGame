@@ -2,17 +2,20 @@
  * 卡 / 存档的结构校验（CONTRACT §6.1）。
  *
  * 两种错分得很清：**结构坏了**是 `E_VALIDATION`（缺字段、悬空引用、schemaVersion 不认），
- * **链的规矩坏了**是 `E_CHAIN`（输出个数、校对/时间上限、首节点读上游、id 重复、历史轮数）。
- * 分这么细是因为下一步不一样：前者回首页重开，后者回编辑器改链。
+ * **链的规矩坏了**是 `E_CHAIN`（输出个数、时间上限、id 重复、上游只能往前读、各类型的写权限、
+ * 历史轮数）。分这么细是因为下一步不一样：前者回首页重开，后者回编辑器改链。
  *
- * 对多出来的字段**宽容**：旧卡里残留 `presetId` 之类不报错 —— 模型绑定早就搬去
- * `tg2.nodeModels` 了（§2.5），这里只是不认它，也不拦它。
+ * 对多出来的字段**宽容**：卡里带 `presetId` 之类不报错 —— 模型绑定住在 `tg2.nodeModels`（§2.5），
+ * 这里不认它，也不拦它。
  */
 import { t } from '../i18n'
 import { AppError } from './errors'
 import type { Card, ChainNode, Save, TimeValue } from './types'
 
-const NODE_TYPES = ['time', 'normal', 'output', 'proof'] as const
+const NODE_TYPES = ['time', 'normal', 'output'] as const
+
+/** 每张卡都带的那块「开场」提示词：对话页把它的正文当故事的第一段（§8.3） */
+export const OPENING_PROMPT_ID = 'opening'
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -71,6 +74,13 @@ function validatePrompts(card: Card): void {
   if (new Set(prompts.map((prompt) => (prompt as Record<string, unknown>).id)).size !== prompts.length) {
     throw new AppError('E_VALIDATION', { message: t('error.field', { field: 'card.prompts.id' }) })
   }
+  if (!prompts.some((prompt) => (prompt as Record<string, unknown>).id === OPENING_PROMPT_ID)) {
+    throw new AppError('E_VALIDATION', {
+      message: t('error.openingMissing'),
+      nextStep: t('next.editor'),
+      detail: { field: `card.prompts.${OPENING_PROMPT_ID}` },
+    })
+  }
 }
 
 function validateNode(raw: unknown, index: number): ChainNode {
@@ -85,7 +95,9 @@ function validateNode(raw: unknown, index: number): ChainNode {
   requireArray(node.writable, `card.chain[${index}].writable`).forEach((code) =>
     requireString(code, `card.chain[${index}].writable`),
   )
-  if (typeof node.readsUpstream !== 'boolean') throw badField(`card.chain[${index}].readsUpstream`)
+  requireArray(node.readsUpstream, `card.chain[${index}].readsUpstream`).forEach((id) =>
+    requireString(id, `card.chain[${index}].readsUpstream`),
+  )
   if (!Number.isInteger(node.historyTurns) || node.historyTurns < 0) {
     throw new AppError('E_CHAIN', {
       message: t('error.historyTurns', { node: node.id }),
@@ -98,8 +110,8 @@ function validateNode(raw: unknown, index: number): ChainNode {
 }
 
 /**
- * 链的规矩（SPEC §2）：恰好一个输出、最多一个校对、最多一个时间、至少一个节点、
- * 首节点不读上游、id 不重复。
+ * 链的规矩（SPEC §2）：恰好一个输出、最多一个时间、至少一个节点、id 不重复、
+ * 上游只能往前读、写权限按节点类型收窄。
  */
 function validateChain(card: Card): void {
   const chain = requireArray(card.chain, 'card.chain') as unknown[]
@@ -117,18 +129,8 @@ function validateChain(card: Card): void {
       detail: { outputs },
     })
   }
-  if (countOf('proof') > 1) {
-    throw new AppError('E_CHAIN', { message: t('error.chainProof'), nextStep: t('next.editor') })
-  }
   if (countOf('time') > 1) {
     throw new AppError('E_CHAIN', { message: t('error.chainTime'), nextStep: t('next.editor') })
-  }
-  if (nodes[0].readsUpstream) {
-    throw new AppError('E_CHAIN', {
-      message: t('error.chainFirstUpstream', { node: nodes[0].id }),
-      nextStep: t('next.editor'),
-      detail: { nodeId: nodes[0].id },
-    })
   }
   const ids = nodes.map((node) => node.id)
   const duplicate = ids.find((id, index) => ids.indexOf(id) !== index)
@@ -143,7 +145,37 @@ function validateChain(card: Card): void {
   // 引用必须存在：reads 指向提示词 id 或状态 code，writable 只指向状态 code
   const promptIds = new Set((card.prompts as { id: string }[]).map((prompt) => prompt.id))
   const codes = new Set((card.state as { code: string }[]).map((element) => element.code))
-  for (const node of nodes) {
+  const indexOf = new Map(nodes.map((node, index) => [node.id, index]))
+  for (const [index, node] of nodes.entries()) {
+    // 上游只能往前读：引用必须存在，且排在它前面（自己与下游都不算上游）
+    for (const ref of node.readsUpstream) {
+      const at = indexOf.get(ref)
+      if (at === undefined || at >= index) {
+        throw new AppError('E_CHAIN', {
+          message: t('error.upstreamNotBefore', { node: node.id, ref }),
+          nextStep: t('next.editor'),
+          detail: { nodeId: node.id, ref },
+        })
+      }
+    }
+    // 写权限按类型收窄：时间节点只写时间元素（0），输出节点什么都不写
+    if (node.type === 'time') {
+      const extra = node.writable.find((code) => code !== '0')
+      if (extra !== undefined) {
+        throw new AppError('E_CHAIN', {
+          message: t('error.timeWritable', { node: node.id, ref: extra }),
+          nextStep: t('next.editor'),
+          detail: { nodeId: node.id, writable: node.writable },
+        })
+      }
+    }
+    if (node.type === 'output' && node.writable.length > 0) {
+      throw new AppError('E_CHAIN', {
+        message: t('error.outputWritable', { node: node.id }),
+        nextStep: t('next.editor'),
+        detail: { nodeId: node.id, writable: node.writable },
+      })
+    }
     for (const ref of node.reads) {
       if (!promptIds.has(ref) && !codes.has(ref)) {
         throw new AppError('E_VALIDATION', {

@@ -117,18 +117,23 @@ describe('模块边界：不往旧站和别的框架里看', () => {
     expect(offendersIn(files, [/from\s+['"][^'"]*\/cards\//, /from\s+['"]\.\.\/\.\.\/cards\//])).toEqual([])
   })
 
-  it('示例卡本身是合法数据：链是那四个固定节点，卡里没有 presetId（模型不进卡）', () => {
+  it('示例卡本身是合法数据：链是那三个固定节点，卡里没有 presetId（模型不进卡）', () => {
     const sample = JSON.parse(readFileSync(join(SRC, 'data', 'morningwind.json'), 'utf8'))
     expect(sample.schemaVersion).toBe(1)
     expect(typeof sample.id).toBe('string')
     expect(sample.name.length, '示例卡要有名字').toBeGreaterThan(0)
     expect(sample.state.length, '示例卡要有状态元素').toBeGreaterThan(1)
     expect(sample.state[0].code).toBe('0')
-    expect(sample.chain.map((node) => node.id)).toEqual(['time', 'check', 'output', 'proof'])
+    expect(sample.chain.map((node) => node.id)).toEqual(['time', 'check', 'output'])
     expect(sample.chain.filter((node) => node.type === 'output')).toHaveLength(1)
+    // 旧格式的一丝痕迹都不许有：没有校对节点、上游是数组不是布尔
+    expect(sample.chain.some((node) => node.type === 'proof')).toBe(false)
     for (const node of sample.chain) {
+      expect(Array.isArray(node.readsUpstream), `${node.id} 的上游不是数组`).toBe(true)
       expect(Object.keys(node), `${node.id} 不该带模型绑定`).not.toContain('presetId')
     }
+    // 每张卡都带「开场」那一块（§2.1：缺它就是不合法的卡）
+    expect(sample.prompts.some((prompt) => prompt.id === 'opening')).toBe(true)
   })
 })
 

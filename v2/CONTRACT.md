@@ -4,6 +4,8 @@
 > 上游：`v2/SPEC.md`（需求，唯一事实来源）· `.team/leader/2026-11-25/新版开发计划.md`（阶段 1 范围）
 > 本文回答的是「**实现只要做到这些，测试就能判它成没成**」：模块边界、公共 API、语义、DOM 钩子。
 > **与 SPEC 冲突时以 SPEC 为准**，并把冲突报给组长 —— 本文不擅自改需求。
+> 例外：老板 2026-11-25 的六条变更（上游按节点读 / 读眼睛回右栏 / 写权限 / 删校对 / 调试开关 / 去封面）
+> 已落进本文 §2.1 · §4.1 · §5 · §6.1 · §8.2 · §8.3 · §9.5 #13；这几处以本文为准，SPEC 的旧段待同步。
 
 ## 0. 四条总则
 
@@ -88,8 +90,8 @@ v2/
     { code: string, name: string, note: string, type: 'string', initial: string | { day: number, hour: number } }
   ],
   chain: [                     // 顺序即执行顺序
-    { id: string, type: 'time' | 'normal' | 'output' | 'proof', name: string,
-      reads: string[], writable: string[], readsUpstream: boolean,
+    { id: string, type: 'time' | 'normal' | 'output', name: string,
+      reads: string[], writable: string[], readsUpstream: string[],
       historyTurns: number, prompt: string }
   ],
   prompts: [ { id: string, title: string, body: string } ]
@@ -99,29 +101,33 @@ v2/
 - 🔴 **卡里不许存模型绑定**（也没有 `presetId` 字段）：模型是**玩家本机的设置**，
   住在 `tg2.nodeModels`（§2.5），不进卡、不进存档快照、不跟着导入导出走。
   与 `SPEC.md` §2 的差异见 §9.5 第 11 条（那是 SPEC 里的旧写法，本契约按组长口径执行）。
-- 校验对「多出来的字段」**宽容**：旧卡里若残留 `presetId`，`validateCard` 不报错，
+- 校验对「多出来的字段」**宽容**：卡里若带 `presetId`，`validateCard` 不报错，
   但引擎**一个字节都不看它**（判据：`v2/tests/engine.test.js` 的「残留 presetId 不起作用」）。
 - `state[0].code` 固定为 `'0'`，是**时间元素**：它的 `initial` 是对象 `{ day: 1, hour: 8 }`（唯一例外），
   其余元素 `initial` 是字符串。阶段 1 时间初值在界面上是**两个数字框**（第几天 ≥1 / 第几小时 0–23），
   可以直接改；`'0'` 不可删除。
 - `reads` 是**混合数组**：`prompts[].id` 表示读这块公共提示词；`state[].code` 表示读这个元素。
   同一个字符串不会同时是两者（id 由创建方保证不撞码）。
-- 新建卡的默认四节点（顺序固定；**id 固定成下面这四个 ASCII 记号**，名字是**给玩家看的文案**）：
+- 新建卡的默认三节点（顺序固定；**id 固定成下面这三个 ASCII 记号**，名字是**给玩家看的文案**）：
 
   | #   | id       | type     | 默认 name | reads | writable                   | readsUpstream | historyTurns | prompt |
   | --- | -------- | -------- | --------- | ----- | -------------------------- | ------------- | ------------ | ------ |
-  | 1   | `time`   | `time`   | 时间      | `[]`  | `['0']`                    | `false`       | `0`          | `''`   |
-  | 2   | `check`  | `normal` | 判定      | `[]`  | 建卡时全部非 `'0'` 的 code | `false`       | `0`          | `''`   |
-  | 3   | `output` | `output` | 输出      | `[]`  | `[]`                       | `true`        | `3`          | `''`   |
-  | 4   | `proof`  | `proof`  | 校对      | `[]`  | `[]`                       | `true`        | `0`          | `''`   |
+  | 1   | `time`   | `time`   | 时间      | `[]`  | `['0']`                    | `[]`          | `0`          | `''`   |
+  | 2   | `check`  | `normal` | 判定      | `[]`  | 建卡时全部非 `'0'` 的 code | `[]`          | `0`          | `''`   |
+  | 3   | `output` | `output` | 输出      | `[]`  | `[]`                       | `['check']`   | `3`          | `''`   |
 
   `id` 是**结构**（选择器、链里引用、测试靠它），必须 ASCII 且稳定；`name` 是**展示文案**，
   住在 `locales/zh-CN.json`（不许在 `.ts` 里写中文字面量，§9.3）。
 
+- **不做旧卡兼容 / 不做迁移**（老板 2026-11-25）：没有 `normalizeCard`，也没有「布尔上游 / 校对节点 /
+  缺开场」的自动升级。老格式的卡与存档进 `validateCard` / `validateSave` 就报中文 `E_VALIDATION`
+  （链规矩坏了是 `E_CHAIN`）。新卡与示例卡一律直接写成 §2.1 这一份形状。
+- `readsUpstream` 是**节点 id 数组**：这个节点读哪些**上游节点**的输出。引用的 id 必须在链上、
+  且**排在它前面**（自己与下游都不算上游，命中 `E_CHAIN`）；空数组 = 不读上游。
+
 - 新建卡的 `state = [{ code:'0', name:'时间', note:'', type:'string', initial:{day:1,hour:8} }]`，
   `prompts = [{ id:'opening', title:'开场', body:'' }]` —— **每张卡都带这一块**（`opening` 不可删，§8.2），
-  标题来自文案表 `card.openingTitle`，**永远排第一**。
-  老卡缺这一块时，编辑器打开那一刻补在**最前**并落盘（`normalizeCard`，幂等；`load*()` 本身不写盘，§3）。
+  标题来自文案表 `card.openingTitle`，**永远排第一**。老卡缺这一块就是不合法的卡（不补、不迁移，见上一条）。
   之后**新增的状态元素 / 提示词块不自动进入任何节点的 `reads` / `writable`** —— 作者用眼睛打开。
 - `historyTurns` 数的是**已完成**的回合；本回合的玩家行动**恒为历史块的最后一条**（§5）。
 
@@ -256,10 +262,14 @@ export function advanceTime(tree, hours) -> tree                               /
   3. 找不到（池子空、或映射指向一个已被删掉的预设）⇒ `E_VALIDATION`
      （消息说「这个节点的模型预设没了 / 还没有模型预设」，下一步指向设置页）。
      **卡里没有、也不许有模型绑定**：卡上残留的 `presetId` 一律忽略。
-- `debug`（第 2 关新增的返回字段，`?debug=1` 要用）：
+- `debug`（`?debug=1` 要用）：
   `{ prompts: { [nodeId]: string }, responses: { [nodeId]: string }, tools: [{ nodeId, name, args }],
- usage: object|null, presets: { [nodeId]: presetId } }`
-  —— `debug.presets` 是**解析结果**（哪一步用了哪个预设），排障就靠它。
+usage: object|null, presets: { [nodeId]: presetId }, nodes: { [nodeId]: { durationMs, usage, tps } },
+totalMs: number }`
+  —— `debug.presets` 是**解析结果**（哪一步用了哪个预设），排障就靠它；
+  `debug.nodes` 是**逐节点实测读数**：`durationMs` 只包住那一次 provider / mock 调用，
+  `usage` 是这一次调用的用量（mock 为 `null`），`tps` = 每秒输出 token（没有用量 / 耗时为 0 ⇒ `null`）；
+  `debug.totalMs` 是本回合从头到尾的墙钟耗时。
 
 ### 4.2 一回合的执行
 
@@ -279,8 +289,7 @@ export function advanceTime(tree, hours) -> tree                               /
 | -------- | ------------------------------ | ------------------------------------------------------ | ------------------------ |
 | `time`   | `advance_time({ hours })`      | `tree['0'] = advanceTime(tree['0'], hours)`            | 否                       |
 | `normal` | `write_state({ path, value })` | 只能写 `node.writable` 里的 code；`value` 必须是字符串 | 否                       |
-| `output` | 无                             | 无                                                     | **是**（只有它进故事流） |
-| `proof`  | 无                             | 只读                                                   | 否                       |
+| `output` | 无                             | 无（`writable` 必须为空）                              | **是**（只有它进故事流） |
 
 - `advanceTime(tree, hours)`：`hour += hours`；`day += Math.floor(hour / 24)`；`hour = ((hour % 24) + 24) % 24`。
   `hours` 必须是整数，否则 `E_VALIDATION`。
@@ -313,10 +322,11 @@ export function advanceTime(tree, hours) -> tree                               /
 ## 5. 提示词拼装（`src/core/prompt.js`）
 
 ```js
-export function buildPrompt({ card, save, node, action, upstream }) -> string
+export function buildPrompt({ card, save, node, action, outputs }) -> string
 ```
 
-`upstream` = 上一个已执行节点的输出文本（没有就空字符串；`node.readsUpstream === false` 时忽略）。
+`outputs` = 本回合**已执行节点**的输出，按节点 id 索引（`{ [nodeId]: text }`）。
+节点只取 `node.readsUpstream` 点名的那些 id，并按**链顺序**拼（谁先跑完谁在前）；上游为空串则省略这一段。
 拼接顺序**固定**（SPEC §4；🔴 **没有独立的「玩家行动」段** —— 2026-11-25 老板口径）：
 
 1. **公共提示词**：`card.prompts` 顺序里 `id ∈ node.reads` 的，`body` **逐字**；
@@ -325,7 +335,8 @@ export function buildPrompt({ card, save, node, action, upstream }) -> string
 3. **历史（含本回合行动）**：**一个块**。先按时间从旧到新排开最近 `node.historyTurns` 个
    **已完成**回合（每个回合的 `action` 一行、`narration` 一行），
    **然后把本回合的 `action` 接在这个块的末尾**（它是「刚刚发生的事」，不是独立一段）；
-4. **上游输出**：`node.readsUpstream && upstream !== ''` 时，`upstream` **逐字**；
+4. **上游输出**：`node.readsUpstream` 里点名的、本回合**排在它前面**的节点，按链顺序取它们的输出，
+   **逐字**（空串的跳过）；
 5. **本节点提示词**：`node.prompt` **逐字**（空则省略）。
 
 🔴 **状态读的是「此刻的 tree」**（第 1 轮评审 P2）：链上更早的节点在同一回合里写下的值
@@ -344,7 +355,7 @@ export function buildPrompt({ card, save, node, action, upstream }) -> string
     见 §9.5 第 12 条对「N 是否含本回合」这句歧义的处置）；
   - 判据：`historyTurns: 0` 且**节点提示词与上游都为空**时，整条提示词里行动只出现一次、且它就在最后。
 
-眼睛语义一句话：**`reads` 里有它就读，没有就不读**；`readsUpstream` 是上游输出的开关；`writable` 是写的开关。
+眼睛语义一句话：**`reads` 里有它就读，没有就不读**；`readsUpstream` 是「读哪几个上游节点的输出」的名单；`writable` 是写的开关。
 
 ---
 
@@ -367,13 +378,13 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - 所有面向玩家的错误都必须是这个类的实例（`instanceof Error` 且带 `code`），
   `detail` 里放上游原文，**正文不许只给英文**。
 
-| 码             | 什么时候                                                        | message 要说清什么           | nextStep 要指向              |
-| -------------- | --------------------------------------------------------------- | ---------------------------- | ---------------------------- |
-| `E_PROVIDER`   | 网络 / key / 额度 / 上游 4xx-5xx                                | 哪一步连不上（不填英文原文） | 设置页检查 Key 与 Base URL   |
-| `E_VALIDATION` | 卡或存档结构不合法、坏 JSON、schemaVersion 不认、id 不存在      | 哪个字段/对象坏了            | 回首页重开或重建存档         |
-| `E_CHAIN`      | 链不合法（输出数、校对数、时间数、首节点上游）、写非 `writable` | 哪一条链规则、哪个节点 id    | 回编辑器改链                 |
-| `E_UNKNOWN`    | 兜底（不许用来吞掉已知错误）                                    | 发生了什么                   | 刷新/看控制台                |
-| `E_ABORTED`    | 用户点「停止」                                                  | 你中止了本回合               | 无（界面按停止处理，不弹错） |
+| 码             | 什么时候                                                                | message 要说清什么           | nextStep 要指向              |
+| -------------- | ----------------------------------------------------------------------- | ---------------------------- | ---------------------------- |
+| `E_PROVIDER`   | 网络 / key / 额度 / 上游 4xx-5xx                                        | 哪一步连不上（不填英文原文） | 设置页检查 Key 与 Base URL   |
+| `E_VALIDATION` | 卡或存档结构不合法、坏 JSON、schemaVersion 不认、id 不存在              | 哪个字段/对象坏了            | 回首页重开或重建存档         |
+| `E_CHAIN`      | 链不合法（输出数、时间数、上游只能往前、写权限按类型）、写非 `writable` | 哪一条链规则、哪个节点 id    | 回编辑器改链                 |
+| `E_UNKNOWN`    | 兜底（不许用来吞掉已知错误）                                            | 发生了什么                   | 刷新/看控制台                |
+| `E_ABORTED`    | 用户点「停止」                                                          | 你中止了本回合               | 无（界面按停止处理，不弹错） |
 
 **判据**：五个码的 `message` 与 `nextStep` 都必须含中文（正则 `[\u4e00-\u9fff]`），且 `nextStep` 非空。
 
@@ -382,8 +393,11 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 按 SPEC §2 的链约束，命中就抛 `E_CHAIN`，`message` 里必须写出**节点 id** 或**规则名**：
 
 - `chain` 里 `type === 'output'` 恰好 1 个（0 个 / ≥2 个都错）；
-- `type === 'proof'` 最多 1 个；`type === 'time'` 最多 1 个；`chain.length ≥ 1`；
-- 首节点 `readsUpstream` 必须 `false`；
+- `type === 'time'` 最多 1 个；`chain.length ≥ 1`；
+- 节点 `type` 只能是 `'time' | 'normal' | 'output'`（别的值 ⇒ `E_VALIDATION`）；
+- `readsUpstream` 里的每个 id 都必须在链上，且**排在它前面**（首节点只能为空）；
+- **写权限按类型收窄**：`time` 的 `writable ⊆ ['0']`；`output` 的 `writable` 必须是 `[]`；
+- **`prompts` 里必须有 `id === 'opening'` 的那一块**（缺 ⇒ `E_VALIDATION`，不补）；
 - 节点 `id` 唯一；`historyTurns` 是 ≥0 的整数；
 - `reads` / `writable` 里的引用必须存在（提示词 id 或状态 code），否则 `E_VALIDATION`（指名悬空引用）。
 - **`presetId` 不在这里校验**：阶段 1 允许卡带着空 / 已失效的 `presetId` 存着（预设可以后配），
@@ -403,7 +417,6 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 | `time`   | 一次原生工具调用 `advance_time({ hours: 1 })`，文本空                                                                                       |
 | `normal` | 若 `node.writable` 非空：一次原生工具调用 `write_state({ path: <writable[0]>, value: 'mock-t<turn>' })`；否则空响应                         |
 | `output` | 文本 `[mock] turn <turn>: <action>`，**流式**：按 ≤8 字符切块，每块之间等 `mockChunkDelayMs`（缺省 0），块数 ≥3（文本短时也一样切成 ≥3 块） |
-| `proof`  | 文本 `[mock] proof turn <turn> ok`，无工具                                                                                                  |
 
 - mock 走的**是同一套事件/流式代码路径**（`chunk` → `narration`），不是另一条捷径。
 - `[mock] turn 2: act two` 这种整串是**逐字**可断言的（`turn` 用阿拉伯数字）。
@@ -466,16 +479,16 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   - **S0**（什么都没选）：只有行 —— `[data-state-code]` + `[data-state-name]`，没有任何按钮；
   - **S1**（选中节点）：每行两只眼睛 `[data-eyes="read"]` / `[data-eyes="write"]`（带
     `data-on="true"|"false"`，点击切换「当前选中节点」读/写这个元素）；
+    **写眼睛按节点类型收窄**（与 §6.1 的链规矩同一套）：`time` 只在 `[data-state-item="0"]` 那一行有，
+    `output` 一只都没有，`normal` 每一行都有；
   - **S2**（选中元素）：栏顶出现 `[data-add-state]`（裸 `+`），**每一行**出现 `[data-delete-state]`
     （裸 `×`；`'0'` 这一行永远没有它）。眼睛在 S2 不出现。
 - 状态树 `[data-state-tree]`：每行 `[data-state-item="<code>"]`，行内 `[data-state-code]`（显示编码）、
   `[data-state-name]`。
 - 中栏四形态（互斥，按选中对象切换）：
-  - S1 选中节点：`[data-node-preset]`（select）、`[data-node-history]`（number）、`[data-node-upstream]`
-    （带 `data-on`；**首节点禁用**：`data-on="false"` + `aria-disabled="true"`，点了也不翻面）、
-    **读公共提示词**一节 `[data-node-prompt-reads]`（每块一行，按钮 `[data-node-prompt-read]` 带
-    `data-prompt-id` 与 `data-on`，点击切换本节点的 `reads` 里有没有这一块）、
-    `[data-node-prompt]`（textarea，本节点提示词）。
+  - S1 选中节点：`[data-node-preset]`（select）、`[data-node-history]`（number）、
+    `[data-node-prompt]`（textarea，本节点提示词）。**这一形态没有眼睛** ——
+    读公共提示词在右栏、读上游在细条。
   - S2 选中元素：`[data-state-type]`（只读展示：`0` = 时间，其余 = 文字）、`[data-field="name"]`、
     `[data-field="note"]`、初值 —— 时间元素是两个数字框 `[data-field="initial-day"]`（≥1）+
     `[data-field="initial-hour"]`（0–23），其余元素是 `[data-field="initial"]`（字符串）。
@@ -485,13 +498,18 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   （映射里没有就是 `presets[0].id`，§2.5）；改动写 `tg2.nodeModels[cardId][nodeId]`，**不动卡**。
   一个预设都没有时它是空的、`aria-disabled="true"`（**不另挂提示文案**）。
   判据：`v2/e2e/node-models.spec.js`。
-- 工作流细条 `[data-workflow-strip]`：四个 `[data-node-id="<id>"]`，点击选中（带 `data-selected="true"`）。
-- 右栏 `[data-prompt-list]`：只有块名与删除 —— 每块 `[data-prompt-block="<id>"]`（点击 = 选中，带
+- 工作流细条 `[data-workflow-strip]`：每个节点一个 `[data-node-id="<id>"]`，点击选中（带
+  `data-selected="true"`）。选中某个节点时，**排在它前面的每个节点**旁边多一只读眼睛
+  `[data-read-upstream][data-upstream-id="<id>"]`（带 `data-on`，点击切换选中节点的
+  `readsUpstream` 里有没有这一条）；**选中节点自己与它下游的节点没有这只眼睛**。
+- 右栏 `[data-prompt-list]`：每块 `[data-prompt-block="<id>"]`（点击 = 选中，带
   `data-selected="true"|"false"`）、块内 `[data-prompt-name]`、`[data-delete-prompt]`（裸 `×`）；
   `[data-add-prompt]` 新增块（裸 `+`，新 id 由创建方生成并当场选中）。
-  **这一栏没有输入框、也没有眼睛**（改名 / 正文在 S3 的中栏，读不读在 S1 的 NodeForm）。
+  选中了节点时，每块还有一只读眼睛 `[data-prompt-read][data-prompt-id="<id>"]`（带 `data-on`，
+  点击切换选中节点的 `reads` 里有没有这一块）；没选节点时它不出现。
+  **这一栏没有输入框**（改名 / 正文在 S3 的中栏）。
 - **每张卡都有一块 `id: 'opening'`（标题「开场」）**：新建卡自带、示例卡里也有一份；右栏不给它
-  `[data-delete-prompt]`。老卡在编辑器打开时补上并落盘（§2 的「开场」口径）。
+  `[data-delete-prompt]`（老卡缺它就是不合法的卡，§2.1）。
 - **没有教程提示**：编辑器的中栏空态（`[data-empty-middle]`）里不写句子；没有预设时、
   设置页没有预设时、首页改名框上，都不再挂教程提示（旧文案与 `.hint` 一并清掉）。
   判据：`v2/e2e/editor-panels.spec.js`。
@@ -500,14 +518,15 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 
 ### 8.3 对话页
 
-- 结构：`[data-cover]`（卡名 + 存档名 + `[data-start]` 开始/继续）→ `[data-story]` → 输入区
-  `[data-action-input]`（textarea）+ `[data-send]`。
-  存档 `turn === 0` 时 `[data-start]` 文案是「开始」，否则「继续」；点它收起封面、露出故事流与输入区。
+- 结构：`[data-story]` → 输入区 `[data-action-input]`（textarea）+ `[data-send]`。
+  **没有封面、没有开始按钮**（`[data-cover]` / `[data-start]` 不存在）：打开存档直接看到
+  故事流 —— 第一段是**「开场」这一块公共提示词（`cardSnapshot.prompts` 里 `id === 'opening'`）的正文**，
+  它后面才是历史回合与正在流的正文。
 - **跑的一律是 `save.cardSnapshot`**（不是 `tg2.cards` 里那张现卡）：改卡 —— 含改提示词、改眼睛、
   改初值 —— **只影响之后新建的存档**。旧存档按它冻结时的那张卡跑（SPEC §2 / §9.4）。
-  ⇒ 「关掉眼睛看 prompt 变化」的验收流程是：改眼睛 → **新建存档** → 跑一回合 → 看 `?debug=1`。
+  ⇒ 「关掉眼睛看 prompt 变化」的验收流程是：改眼睛 → **新建存档** → 跑一回合 → 看调试面板。
 - 故事流：每条 `action` 一个 `[data-line="action"]`，每条 `narration` 一个 `[data-line="narration"]`。
-  **只有 `output` 节点的文本进故事流**。
+  **只有 `output` 节点的文本进故事流**（`opening` 是卡上的静态正文，不是引擎事件）。
 - 顶部：`[data-turn]`（`textContent` **恰好是回合数**，纯阿拉伯数字）、`[data-status]`（保存状态，完成一回合后非空）、
   `[data-back]`。
 - 发送：`[data-send]` → 禁用输入框、显示 `[data-stop]`、流式写入本回合 narration 元素；
@@ -516,10 +535,16 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   输入框恢复、`[data-action-input]` 保留刚才写的行动、存档不变。
 - 出错：`[data-error]` 出现，其中 `[data-error-code]` = 错误码字符串、`[data-error-next]` = 下一步中文；
   界面不白屏、不丢卡（判据：`v2/e2e/errors.spec.js`）。
-- `?debug=1`：`[data-debug]` 面板含 `[data-debug-prompt]`（本回合每个节点拼出的提示词，
-  每个节点用 `[node:<id>]` 这样的标题分隔）、`[data-debug-response]`、`[data-debug-tools]`、
-  `[data-debug-usage]`、`[data-debug-presets]`（每个节点**实际用了哪个预设** —— 模型是本地映射，
-  这一格是排障时唯一看得见它的地方，§2.5）。
+- **调试开关**：右上角 `[data-debug-toggle]`（带 `data-on`），`?debug=1` 只是它的**初始状态**，
+  点它随时开 / 关。开着时 `[data-debug]` 面板可见，里面有：
+  - `[data-debug-total]`：本回合总耗时（毫秒）；
+  - 每个节点一行 `[data-debug-node="<id>"]`，行内 `[data-debug-duration]`（毫秒）、
+    `[data-debug-tokens]`（这一次调用的 token 用量，没有就写「没有用量」）、
+    `[data-debug-tps]`（每秒输出 token，量不出就写「没有速率」）、
+    `[data-debug-prompt]`（这一节点拼出的提示词）、`[data-debug-response]`（这一节点的返回）；
+  - `[data-debug-tools]`、`[data-debug-usage]`（本回合合计）、`[data-debug-presets]`
+    （每个节点**实际用了哪个预设** —— 模型是本地映射，这一格是排障时唯一看得见它的地方，§2.5）。
+    关着时面板整个不出现，页面上只剩最终故事与本回合总耗时 `[data-turn-ms]`。
 
 ### 8.4 设置
 
@@ -600,27 +625,27 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
 
 ### 9.4 判据清单（谁钉哪条 SPEC §9）
 
-| 验收                                                                    | 判据                                                     |
-| ----------------------------------------------------------------------- | -------------------------------------------------------- |
-| §9.1 空态 / 删空后仍可用                                                | `v2/e2e/empty.spec.js`                                   |
-| 首次打开种「晨风镇」/ 删了不复种                                        | `v2/e2e/sample.spec.js`（§3.1）                          |
-| 新装默认两条预设（顺序 / name=model / Key 空）                          | `v2/e2e/settings.spec.js`（§8.4）                        |
-| §9.2 建卡→编 2 元素+初值+2 提示词→存档→3 回合→刷新还在                  | `v2/e2e/loop.spec.js`                                    |
-| §9.3 眼睛控制提示词拼装                                                 | `v2/e2e/eyes.spec.js` + `v2/tests/prompt.test.js`        |
-| §9.4 改卡后旧存档仍能跑                                                 | `v2/e2e/snapshot.spec.js`                                |
-| §9.5 四类比例 + 4K 不溢出 / 手机竖屏遮罩                                | `v2/e2e/responsive.spec.js`                              |
-| §9.6 三栏可拖 / 细条固定 / 双击恢复 / 刷新保留                          | `v2/e2e/editor-columns.spec.js`                          |
-| 6 项 UI 变更（右栏只有名字+× / 无提示 / S2 的× / 时间 day-hour / 开场） | `v2/e2e/editor-panels.spec.js`                           |
-| §9.7 组件故事 + 像素基线                                                | **不在本契约**（stories 那一层由后续一票补，见 §10）     |
-| §9.8 流式可停止 / 错误中文                                              | `v2/e2e/stream-abort.spec.js` + `v2/e2e/errors.spec.js`  |
-| §9.9 线上 `/v2/` 可打开、旧站仍可用                                     | 人工 + 发布流程（不在本契约）                            |
-| 链校验（输出/校对/时间/首节点上游）                                     | `v2/tests/chain.test.js`                                 |
-| 错误码五条都有中文 + 下一步                                             | `v2/tests/errors.test.js`                                |
-| 存储五键 / 无种子 / 删空 / 坏 JSON / 坏映射                             | `v2/tests/storage.test.js`                               |
-| 模块边界（无旧站 / core 不碰 DOM 与 Vue）                               | `v2/tests/boundaries.test.js`                            |
-| 引擎语义（顺序、写入、流式、中止、快照）                                | `v2/tests/engine.test.js`                                |
-| 模型不进卡 / 逐节点解析 / 缺预设即报错 / 删卡清映射                     | `v2/tests/engine.test.js` + `v2/e2e/node-models.spec.js` |
-| 夹具自身合法性（正控：夹具坏了下面每条红都不可信）                      | `v2/tests/fixtures.selfcheck.test.js`                    |
+| 验收                                                                                          | 判据                                                     |
+| --------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| §9.1 空态 / 删空后仍可用                                                                      | `v2/e2e/empty.spec.js`                                   |
+| 首次打开种「晨风镇」/ 删了不复种                                                              | `v2/e2e/sample.spec.js`（§3.1）                          |
+| 新装默认两条预设（顺序 / name=model / Key 空）                                                | `v2/e2e/settings.spec.js`（§8.4）                        |
+| §9.2 建卡→编 2 元素+初值+2 提示词→存档→3 回合→刷新还在                                        | `v2/e2e/loop.spec.js`                                    |
+| §9.3 眼睛控制提示词拼装                                                                       | `v2/e2e/eyes.spec.js` + `v2/tests/prompt.test.js`        |
+| §9.4 改卡后旧存档仍能跑                                                                       | `v2/e2e/snapshot.spec.js`                                |
+| §9.5 四类比例 + 4K 不溢出 / 手机竖屏遮罩                                                      | `v2/e2e/responsive.spec.js`                              |
+| §9.6 三栏可拖 / 细条固定 / 双击恢复 / 刷新保留                                                | `v2/e2e/editor-columns.spec.js`                          |
+| 6 项 UI 变更（右栏读眼睛+名字+× / 上游读眼睛在细条 / 无提示 / S2 的× / 时间 day-hour / 开场） | `v2/e2e/editor-panels.spec.js`                           |
+| §9.7 组件故事 + 像素基线                                                                      | **不在本契约**（stories 那一层由后续一票补，见 §10）     |
+| §9.8 流式可停止 / 错误中文                                                                    | `v2/e2e/stream-abort.spec.js` + `v2/e2e/errors.spec.js`  |
+| §9.9 线上 `/v2/` 可打开、旧站仍可用                                                           | 人工 + 发布流程（不在本契约）                            |
+| 链校验（输出数 / 时间上限 / 上游只能往前 / 类型写权限 / 不兼容旧格式）                        | `v2/tests/chain.test.js`                                 |
+| 错误码五条都有中文 + 下一步                                                                   | `v2/tests/errors.test.js`                                |
+| 存储五键 / 无种子 / 删空 / 坏 JSON / 坏映射                                                   | `v2/tests/storage.test.js`                               |
+| 模块边界（无旧站 / core 不碰 DOM 与 Vue）                                                     | `v2/tests/boundaries.test.js`                            |
+| 引擎语义（顺序、写入、流式、中止、快照）                                                      | `v2/tests/engine.test.js`                                |
+| 模型不进卡 / 逐节点解析 / 缺预设即报错 / 删卡清映射                                           | `v2/tests/engine.test.js` + `v2/e2e/node-models.spec.js` |
+| 夹具自身合法性（正控：夹具坏了下面每条红都不可信）                                            | `v2/tests/fixtures.selfcheck.test.js`                    |
 
 ### 9.5 第 2 关替实现钉下的、SPEC 没写死的决定（组长可否决）
 
@@ -649,6 +674,11 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
       （`0` ⇒ 块里只余本回合行动）。依据：老板同一句里还说「action **appended as the last entry** of
       the history block」——先有块、再把行动接上去；且这样 `N=0` 不会把玩家行动悄悄弄丢。
     - (B) `N` 含本回合（`3` = 前 2 完整回合 + 本回合；`0` ⇒ 行动也一起没了）——**不采用**。
+13. 🔴 **校对节点整块删除 + 上游改成节点 id 数组 + 不做旧数据兼容**（老板 2026-11-25）：
+    `NodeType` 只剩 `'time' | 'normal' | 'output'`；链要求**恰好 1 个 output、最多 1 个 time**；
+    `readsUpstream` 从 `boolean` 改成 `string[]`（id 必须排在它前面）；写权限按类型收窄（§6.1）。
+    老卡 / 老存档**不迁移**：缺新字段、带 `proof`、`readsUpstream` 是布尔值的，都直接报错（§2.1）。
+    界面不再有「读上游输出」「读公共提示词」两节：上游读眼睛在细条上、公共提示词读眼睛在右栏（§8.2）。
 
 ### 9.6 本关不做（别在阶段 1 拿它们当判据）
 

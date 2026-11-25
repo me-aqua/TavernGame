@@ -1,14 +1,16 @@
 /**
  * 夹具自检（**今天就该绿**）。
  *
- * 这一份不碰产品代码 —— 它量的是「别的用例红，不是因为夹具自己坏了」。
- * 判据：`v2/tests/support/fixtures.js` 造出来的东西必须满足契约 §2 的结构不变量；
- * 夹具错了，后面每一条红都不可信（红也要红得对）。
+ * 这一份量的是「别的用例红，不是因为夹具自己坏了」：夹具错了，后面每一条红都不可信。
+ *
+ * 🔴 2026-11-25 补的洞：上一版只做手写形状检查，**没调用 `validateCard`** —— 夹具已经非法
+ *    （旧格式：校对节点 + 布尔上游），这一份还绿着。现在正控就是「产品校验器认它」。
  */
 import { describe, expect, it } from 'vitest'
 import {
   MOCK_PRESET,
   MOCK_PRESET_B,
+  OPENING_PROMPT,
   collect,
   fakeBackend,
   freshCard,
@@ -17,18 +19,61 @@ import {
   nodeModelsFor,
   turnEvents,
 } from './support/fixtures.js'
+import { loadModule } from './support/load.js'
 
-describe('夹具自检', () => {
-  it('makeCard 的链满足 SPEC §2 的四条链约束', () => {
-    const chain = makeCard().chain
-    expect(chain.filter((node) => node.type === 'output')).toHaveLength(1)
-    expect(chain.filter((node) => node.type === 'proof').length).toBeLessThanOrEqual(1)
-    expect(chain.filter((node) => node.type === 'time').length).toBeLessThanOrEqual(1)
-    expect(chain[0].readsUpstream).toBe(false)
-    expect(new Set(chain.map((node) => node.id)).size).toBe(chain.length)
+const loadSchema = () => loadModule('core/schema.ts', () => import('../src/core/schema.ts'))
+
+describe('夹具自检：产品校验器必须认它们', () => {
+  it('makeCard / freshCard 都过得了 validateCard（正控：因为夹具过不了而产生的红不算红）', async () => {
+    const { validateCard } = await loadSchema()
+    expect(() => validateCard(makeCard())).not.toThrow()
+    expect(() => validateCard(freshCard())).not.toThrow()
   })
 
-  it('makeCard / freshCard 里的引用都能解析（reads 指向存在的提示词或元素）', () => {
+  it('makeSave 过得了 validateSave（与它自己那张卡配对）', async () => {
+    const { validateSave } = await loadSchema()
+    const card = makeCard()
+    expect(() => validateSave(makeSave(card), card)).not.toThrow()
+  })
+})
+
+describe('夹具自检：链的形状是契约 §2.1 那一份', () => {
+  it('makeCard 的链满足链约束（恰好 1 输出 / 至多 1 时间 / id 不重复）', () => {
+    const chain = makeCard().chain
+    expect(chain.filter((node) => node.type === 'output')).toHaveLength(1)
+    expect(chain.filter((node) => node.type === 'time').length).toBeLessThanOrEqual(1)
+    expect(new Set(chain.map((node) => node.id)).size).toBe(chain.length)
+    // 上游只能是前面节点的 id：这里点名 check + extra，二者都排在 output 之前
+    const output = chain.find((node) => node.id === 'output')
+    expect(output.readsUpstream).toEqual(['check', 'extra'])
+  })
+
+  it('readsUpstream 是数组、只指向**前面**的节点（没有布尔、也不许指向自己）', () => {
+    for (const card of [makeCard(), freshCard()]) {
+      const at = new Map(card.chain.map((node, index) => [node.id, index]))
+      for (const node of card.chain) {
+        expect(Array.isArray(node.readsUpstream), `${card.id}/${node.id} 的 readsUpstream 不是数组`).toBe(
+          true,
+        )
+        for (const ref of node.readsUpstream) {
+          expect(at.has(ref), `${card.id}/${node.id} 读了不存在的上游 ${ref}`).toBe(true)
+          expect(at.get(ref), `${card.id}/${node.id} 读了不在它前面的 ${ref}`).toBeLessThan(at.get(node.id))
+        }
+      }
+    }
+  })
+
+  it('freshCard 就是契约 §2.1 的默认值（三节点 + 只有一个时间元素 + 自带开场）', () => {
+    const card = freshCard()
+    expect(card.chain.map((node) => node.id)).toEqual(['time', 'check', 'output'])
+    expect(card.chain.map((node) => node.type)).toEqual(['time', 'normal', 'output'])
+    expect(card.state.map((element) => element.code)).toEqual(['0'])
+    expect(card.prompts.map((prompt) => prompt.id)).toEqual([OPENING_PROMPT.id])
+    expect(card.chain[2].historyTurns).toBe(3)
+    expect(card.chain[2].readsUpstream).toEqual(['check'])
+  })
+
+  it('makeCard / freshCard 里的引用都能解析（reads 指向存在的提示词或元素；写权限在状态里）', () => {
     for (const card of [makeCard(), freshCard()]) {
       const ids = new Set([
         ...card.state.map((element) => element.code),
@@ -46,15 +91,17 @@ describe('夹具自检', () => {
     }
   })
 
-  it('freshCard 就是契约 §2.1 的默认值（固定四节点 + 只有一个时间元素）', () => {
-    const card = freshCard()
-    expect(card.chain.map((node) => node.id)).toEqual(['time', 'check', 'output', 'proof'])
-    expect(card.chain.map((node) => node.type)).toEqual(['time', 'normal', 'output', 'proof'])
-    expect(card.state.map((element) => element.code)).toEqual(['0'])
-    expect(card.prompts).toEqual([])
-    expect(card.chain[2].historyTurns).toBe(3)
+  it('夹具里没有校对节点，也没有布尔上游（旧格式的一丝痕迹都不留）', () => {
+    for (const card of [makeCard(), freshCard()]) {
+      for (const node of card.chain) {
+        expect(node.type, `${card.id}/${node.id} 还是旧类型`).not.toBe('proof')
+        expect(typeof node.readsUpstream, `${card.id}/${node.id} 的 readsUpstream 是布尔`).not.toBe('boolean')
+      }
+    }
   })
+})
 
+describe('夹具自检：值', () => {
   it('makeSave 的 tree 覆盖全部 code，且与卡初值**不共享引用**', () => {
     const card = makeCard()
     const save = makeSave(card)
@@ -79,7 +126,15 @@ describe('夹具自检', () => {
   })
 
   it('夹具里的记号不会互相串（眼睛断言要能无歧义地找）', () => {
-    const marks = ['VAL_PLACE_A1', 'VAL_MOOD_B2', 'BODY_ONE', 'BODY_TWO', 'NODE_OUT', 'NODE_PROOF']
+    const marks = [
+      'VAL_PLACE_A1',
+      'VAL_MOOD_B2',
+      'BODY_ONE',
+      'BODY_TWO',
+      'NODE_OUT',
+      'NODE_EXTRA',
+      'UP_CHECK',
+    ]
     for (const mark of marks) {
       const others = marks.filter((other) => other !== mark)
       for (const other of others) expect(mark.includes(other), `${mark} 里含 ${other}`).toBe(false)

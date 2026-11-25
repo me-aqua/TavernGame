@@ -66,7 +66,8 @@ test.describe('整页像素基线（1280×720 · 浅色）', () => {
   test('对话页（已有两回合故事）', async ({ page }) => {
     await boot(page, { storage: settingsStorage(), hash: route.play(CARD_ID, 's1') })
     await expect(page.locator('[data-page="play"]')).toBeVisible()
-    await page.locator('[data-start]').click()
+    // 没有封面 / 开始按钮（CONTRACT §8.3）：打开就在故事流
+    await expect(page.locator('[data-start]')).toHaveCount(0)
     await expect(page.locator('[data-line="narration"]')).toHaveCount(2)
     await expect(page).toHaveScreenshot('play-with-story.png')
   })

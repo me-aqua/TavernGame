@@ -59,26 +59,28 @@ test('建卡 → 编内容 → 存档 → 三回合 → 刷新还在', async ({ 
   expect(cards).toHaveLength(1)
   // 时间元素的名字是**文案**（`cards.ts` 给的是中文「时间」），我们新加的两个是作者自己起的
   expect(cards[0].state.map((element) => element.name)).toEqual(['时间', 'place', 'mood'])
-  // 四个固定节点的名字也是文案（id 仍是 ASCII，选择器靠 id）
-  expect(cards[0].chain.map((node) => node.name)).toEqual(['时间', '判定', '输出', '校对'])
-  expect(cards[0].chain.map((node) => node.id)).toEqual(['time', 'check', 'output', 'proof'])
+  // 三个固定节点的名字也是文案（id 仍是 ASCII，选择器靠 id）；校对节点已删（CONTRACT §2.1）
+  expect(cards[0].chain.map((node) => node.name)).toEqual(['时间', '判定', '输出'])
+  expect(cards[0].chain.map((node) => node.id)).toEqual(['time', 'check', 'output'])
+  expect(cards[0].chain.map((node) => node.type)).toEqual(['time', 'normal', 'output'])
+  expect(cards[0].chain[2].readsUpstream, '新卡的输出节点默认读判定节点').toEqual(['check'])
   expect(cards[0].state[1].initial).toBe('VAL_PLACE_A1')
   expect(cards[0].state[2].initial).toBe('VAL_MOOD_B2')
-  // 每张卡自带「开场」，且**排第一**（`cards.ts` 的 `normalizeCard` / `freshCard`）
+  // 每张卡自带「开场」，且**排第一**（`cards.ts` 的 `freshCard`）
   expect(cards[0].prompts.map((prompt) => prompt.id)).toEqual(['opening', 'pr1', 'pr2'])
   expect(cards[0].prompts.map((prompt) => prompt.body)).toEqual(['', 'BODY_ONE', 'BODY_TWO'])
   expect(cards[0].prompts.map((prompt) => prompt.title)).toEqual(['开场', 'tone', 'style'])
   const injected = cards[0].chain.find((node) => node.id === 'check')
   expect(injected.writable).toContain('1')
-  expect(cards[0].chain).toHaveLength(4)
+  expect(cards[0].chain).toHaveLength(3)
 
   // ---- 模型绑定不进卡：卡里没有 presetId，映射在 tg2.nodeModels 里（首次打开就铺好）
   for (const node of cards[0].chain) expect(Object.keys(node)).not.toContain('presetId')
   const models = await readStorage(page, KEYS.nodeModels)
   const slice = models[cards[0].id]
   expect(slice, '打开编辑器后这张卡应该有模型映射（CONTRACT §2.5）').toBeTruthy()
-  expect(Object.keys(slice).sort()).toEqual(['check', 'output', 'proof', 'time'])
-  expect(Object.values(slice)).toEqual(Array(4).fill(MOCK_PRESET.id))
+  expect(Object.keys(slice).sort()).toEqual(['check', 'output', 'time'])
+  expect(Object.values(slice)).toEqual(Array(3).fill(MOCK_PRESET.id))
 
   // ---- 新建存档（基于选中的卡）
   await page.goto(`${APP_PATH}${route.home}`)
@@ -95,11 +97,10 @@ test('建卡 → 编内容 → 存档 → 三回合 → 刷新还在', async ({ 
   await expect(page.locator('[data-turn]')).toHaveText('3')
   await expect(page.locator('[data-status]')).not.toHaveText('')
 
-  // ---- 刷新：卡 / 存档 / 回合 / 故事都在
+  // ---- 刷新：卡 / 存档 / 回合 / 故事都在（没有封面、没有开始按钮，打开就在）
   await page.reload()
   await expect(page.locator('[data-page="play"]')).toBeVisible()
-  const start = page.locator('[data-start]')
-  if (await start.count()) await start.click()
+  await expect(page.locator('[data-start]')).toHaveCount(0)
   await expect(page.locator('[data-line="action"]')).toHaveCount(3)
   await expect(page.locator('[data-line="narration"]')).toHaveCount(3)
   await expect(page.locator('[data-line="narration"]').nth(2)).toContainText('[mock] turn 3: act three')

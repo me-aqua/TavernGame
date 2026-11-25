@@ -14,6 +14,7 @@ import { expect } from '@playwright/test'
 import {
   MOCK_PRESET,
   MOCK_PRESET_B,
+  OPENING_PROMPT,
   freshCard,
   makeCard,
   makeNode,
@@ -22,7 +23,17 @@ import {
   turnEvents,
 } from '../../tests/support/fixtures.js'
 
-export { MOCK_PRESET, MOCK_PRESET_B, freshCard, makeCard, makeNode, makeSave, nodeModelsFor, turnEvents }
+export {
+  MOCK_PRESET,
+  MOCK_PRESET_B,
+  OPENING_PROMPT,
+  freshCard,
+  makeCard,
+  makeNode,
+  makeSave,
+  nodeModelsFor,
+  turnEvents,
+}
 
 /** 线上/本地产物都挂在这个路径下（`v2/vite.config.mjs` 的 base） */
 export const APP_PATH = '/TavernGame/v2/'
@@ -46,6 +57,23 @@ export const route = {
   edit: (cardId) => `#/edit/${cardId}`,
   play: (cardId, saveId) => `#/play/${cardId}/${saveId}`,
 }
+
+/**
+ * 编辑器里的两种读眼睛（CONTRACT §8.2）：
+ *   · 公共提示词的眼睛在**右栏**：`[data-prompt-read][data-prompt-id]`
+ *   · 上游的眼睛在**工作流细条**上：`[data-read-upstream][data-upstream-id]`（只有前面的节点有）
+ */
+export const promptRead = (promptId) => `[data-prompt-read][data-prompt-id="${promptId}"]`
+export const upstreamRead = (upstreamId) => `[data-read-upstream][data-upstream-id="${upstreamId}"]`
+
+/**
+ * 调试面板里**某个节点**的那一格（CONTRACT §8.3）：`[data-debug-node="<id>"]` 里
+ * 各自有 `[data-debug-prompt]` / `[data-debug-response]` —— 面板是按节点分段的，
+ * 拿一个全局 `[data-debug-prompt]` 去读会命中多个（strict mode 直接红）。
+ */
+export const nodeDebug = (nodeId) => `[data-debug-node="${nodeId}"]`
+export const debugPrompt = (nodeId) => `${nodeDebug(nodeId)} [data-debug-prompt]`
+export const debugResponse = (nodeId) => `${nodeDebug(nodeId)} [data-debug-response]`
 
 /**
  * 首次打开会种一张内置示例卡（晨风镇），标记住 `tg2.settings.sampleSeeded`（README/契约 §2.4）。
@@ -160,18 +188,15 @@ export async function playTurn(page, action, expectedNarrationCount) {
   await expect(page.locator('[data-stop]')).toHaveCount(0)
 }
 
-/** 收起封面（`turn` 为 0 时按钮是「开始」，否则「继续」；刷新之后封面会再出现一次） */
-export async function ensureStoryOpen(page) {
-  const start = page.locator('[data-start]')
-  if (await start.count()) await start.click()
-  await expect(page.locator('[data-story]')).toBeVisible()
-}
-
-/** 进对话页（可带 `?debug=1`）并收起封面 */
+/**
+ * 进对话页（可带 `?debug=1`，那只是调试开关的**初始状态**）。
+ *
+ * 🔴 没有封面、没有开始按钮（CONTRACT §8.3）：打开就看见故事流与输入区。
+ */
 export async function openStory(page, cardId, saveId, { debug = false } = {}) {
   await page.goto(`${APP_PATH}${debug ? '?debug=1' : ''}${route.play(cardId, saveId)}`)
   await expect(page.locator('[data-page="play"]')).toBeVisible()
-  await ensureStoryOpen(page)
+  await expect(page.locator('[data-story]')).toBeVisible()
 }
 
 /**

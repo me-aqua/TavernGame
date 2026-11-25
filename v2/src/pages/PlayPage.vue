@@ -1,11 +1,16 @@
 <script setup lang="ts">
 /**
- * 对话页（SPEC §5）：封面 → 故事流 → 输入框 + 发送；流式、可停止、每回合自动存档。
+ * 对话页（SPEC §5）：故事流 → 输入框 + 发送；流式、可停止、每回合自动存档。
  *
- * 两条最要紧的语义：
+ * 三条最要紧的语义：
  *   · **跑的一律是 `save.cardSnapshot`**（不是 `tg2.cards` 里那张现卡）——
  *     改卡只影响之后新建的存档，旧存档按它冻结时的那张卡跑（SPEC §9.4）；
- *   · **停止 = 什么都不写**：本轮半截文本丢掉、故事流回到回合开始前、存档一个字节没动。
+ *   · **停止 = 什么都不写**：本轮半截文本丢掉、故事流回到回合开始前、存档一个字节没动；
+ *   · **没有封面 / 开始按钮**：打开存档直接看到「开场」这一块提示词的正文（故事的第一段），
+ *     下面是故事流与输入区。
+ *
+ * 右上角 `[data-debug-toggle]` 决定调试面板看不看：开着是逐节点读数（提示词 / 返回 / token /
+ * t/s / 耗时），关着时页面上只剩最终故事与本回合总耗时。`?debug=1` 只是它的初始状态。
  */
 import { computed, onMounted, ref } from 'vue'
 import DebugPanel from '../components/DebugPanel.vue'
@@ -16,7 +21,7 @@ import { asAppError, storage } from '../app-context'
 import { AppError } from '../core/errors'
 import type { DebugPayload } from '../core/engine'
 import { runTurn } from '../core/engine'
-import { validateCard, validateSave } from '../core/schema'
+import { OPENING_PROMPT_ID, validateCard, validateSave } from '../core/schema'
 import type { Preset, Save } from '../core/types'
 import { t } from '../i18n'
 import { routeHash } from '../router'
@@ -32,15 +37,21 @@ const streaming = ref('')
 const draft = ref('')
 const status = ref('')
 const debug = ref<DebugPayload | null>(null)
-const coverOpen = ref(true)
-const debugEnabled = new URLSearchParams(location.search).get('debug') === '1'
+const debugEnabled = ref(new URLSearchParams(location.search).get('debug') === '1')
 let controller: AbortController | null = null
+
+/** 故事的第一段：「开场」那块公共提示词的正文（空则不放） */
+const openingBody = computed(
+  () => save.value?.cardSnapshot.prompts.find((prompt) => prompt.id === OPENING_PROMPT_ID)?.body ?? '',
+)
 
 const lines = computed<StoryLine[]>(() => {
   const events = save.value?.events ?? []
-  return events
+  const story: StoryLine[] = events
     .filter((event) => event.type === 'action' || event.type === 'narration')
     .map((event) => ({ type: event.type as StoryLine['type'], text: event.text }))
+  if (openingBody.value !== '') story.unshift({ type: 'narration', text: openingBody.value })
+  return story
 })
 
 onMounted(() => {
@@ -122,25 +133,25 @@ function goBack(): void {
       <span class="page-title ellipsis">{{ save ? save.cardSnapshot.name : cardId }}</span>
       <span class="muted">{{ save ? save.name : saveId }}</span>
       <span class="spacer"></span>
+      <span v-if="!debugEnabled && debug" class="muted" data-turn-ms>
+        {{ t('play.turnMs', { ms: Math.round(debug.totalMs) }) }}
+      </span>
       <span class="turn" data-turn>{{ save ? save.turn : 0 }}</span>
       <span class="muted status ellipsis" data-status>{{ status }}</span>
+      <button
+        type="button"
+        data-debug-toggle
+        :data-on="debugEnabled ? 'true' : 'false'"
+        @click="debugEnabled = !debugEnabled"
+      >
+        {{ t('play.debugToggle') }}
+      </button>
     </header>
 
     <ErrorPanel v-if="error" :error="error" />
 
     <div class="page-body">
       <div class="play-main">
-        <div v-if="coverOpen" class="cover" data-cover>
-          <div class="cover-card">
-            <div class="cover-title ellipsis">{{ save ? save.cardSnapshot.name : '' }}</div>
-            <div class="muted ellipsis">{{ save ? save.name : '' }}</div>
-            <p class="muted">{{ t('play.coverHint') }}</p>
-            <button type="button" data-start @click="coverOpen = false">
-              {{ save && save.turn > 0 ? t('play.continue') : t('play.start') }}
-            </button>
-          </div>
-        </div>
-
         <StoryView :lines="lines" :streaming="streaming" />
 
         <div class="composer">
@@ -188,34 +199,6 @@ function goBack(): void {
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-.cover {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-}
-
-.cover-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: center;
-  max-width: 420px;
-  padding: 18px 20px;
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: var(--panel);
-  text-align: center;
-}
-
-.cover-title {
-  font-size: var(--fs1);
-  font-weight: 600;
-  max-width: 100%;
 }
 
 .composer {

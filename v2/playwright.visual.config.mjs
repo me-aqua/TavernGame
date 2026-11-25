@@ -4,7 +4,7 @@
  * 与 `v2:e2e` 分开跑、分开的端口、分开的产物目录：
  *   · `v2:e2e` 量行为（45 条，秒级）；
  *   · `v2:visual` 只量 4 张稳定画面的像素（慢、且要看图，不该拦在每次冒烟里）。
- * 参数按 SPEC §6 定：`maxDiffPixelRatio: 0.01`、动画禁用、caret 隐藏、只跑 chromium。
+ * 参数按 SPEC §6 定：`maxDiffPixelRatio: 0.002`、动画禁用、caret 隐藏、只跑 chromium。
  *
  * ⚠️ **基线是平台相关的**：文件名会带 `-win32` 这类后缀（Playwright 自动加）。
  *    换系统 / 换机器要重录：`npm run v2:visual -- --update-snapshots`。
@@ -33,7 +33,7 @@ export default defineConfig({
   timeout: 60_000,
   expect: {
     toHaveScreenshot: {
-      maxDiffPixelRatio: 0.01,
+      maxDiffPixelRatio: 0.002,
       animations: 'disabled',
       caret: 'hide',
     },

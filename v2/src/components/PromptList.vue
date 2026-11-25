@@ -1,21 +1,23 @@
 <script setup lang="ts">
 /**
- * 右栏 · 公共提示词：**只有块名与删除**。
+ * 右栏 · 公共提示词：**块名 + 读眼睛 + 删除**。
  *
- * 名字点一下就选中（S3），改名与正文都在中栏的 `PromptForm` 里 —— 右栏不摆输入框，
- * 也不摆眼睛（「这个节点读不读它」现在在 `NodeForm` 里）。
+ * 名字点一下就选中（S3），改名与正文都在中栏的 `PromptForm` 里 —— 右栏不摆输入框。
+ * 选中了工作流节点时，每块旁边多一只「读」眼睛（决定选中节点读不读这一块）；
+ * 没选节点时眼睛不出现（没有「谁读」可言）。
  * `+` 永远是裸的一个加号；`×` 对「开场」那块不出现（每张卡都有它，删不掉）。
  */
-import { OPENING_PROMPT_ID } from '../cards'
-import type { PromptBlock } from '../core/types'
+import { OPENING_PROMPT_ID } from '../core/schema'
+import type { ChainNode, PromptBlock } from '../core/types'
 import { t } from '../i18n'
 
-defineProps<{ prompts: PromptBlock[]; selectedId: string | null }>()
+defineProps<{ prompts: PromptBlock[]; selectedId: string | null; node: ChainNode | null }>()
 
 defineEmits<{
   add: []
   select: [id: string]
   remove: [id: string]
+  'toggle-read': [id: string]
 }>()
 </script>
 
@@ -45,6 +47,18 @@ defineEmits<{
         @click="$emit('select', prompt.id)"
       >
         <span class="name ellipsis" data-prompt-name>{{ prompt.title }}</span>
+        <button
+          v-if="node"
+          type="button"
+          class="eye"
+          data-prompt-read
+          :data-prompt-id="prompt.id"
+          :data-on="node.reads.includes(prompt.id) ? 'true' : 'false'"
+          :title="t('editor.promptEye')"
+          @click.stop="$emit('toggle-read', prompt.id)"
+        >
+          {{ t('editor.eyeRead') }}
+        </button>
         <button
           v-if="prompt.id !== OPENING_PROMPT_ID"
           type="button"
@@ -100,5 +114,20 @@ defineEmits<{
 .name {
   flex: 1 1 auto;
   font-size: var(--fs2);
+}
+
+.eye {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  font-size: var(--fs3);
+  color: var(--ink-soft);
+}
+
+.eye[data-on='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
 }
 </style>

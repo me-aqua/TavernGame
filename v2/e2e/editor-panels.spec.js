@@ -2,17 +2,31 @@
  * 编辑器的 6 项 UI 变更（老板 2026-11-25 口径）。
  *
  * 这一层的价值是把「看起来对」的三种东西钉死：
- *   ① 右栏**只剩**名字与 `×`（输入框、眼睛都搬走了）—— 搬回来一个输入框，玩家能用但规矩没了；
+ *   ① 右栏**只有**名字 + 读眼睛 + `×`（没有输入框）—— 搬回来一个输入框，玩家能用但规矩没了；
  *   ② **没有教程提示**（左栏 / 首页 / 中栏空态 / 没有预设时 / 设置页）—— 提示是「一次性」的东西，
  *      但代码里留着它就会在别的状态里冒出来；
  *   ③ S2 的 `×`、时间元素的 day/hour、开场的「不可删且排第一」—— 这三条都是**互斥状态**里的规则，
  *      不分别验就会「看起来都对」。
  *
+ * 🔴 旧格式（带校对节点 / 布尔上游 / 缺开场）**不迁移**：打开就是中文 `E_VALIDATION`，
+ *    一个块都不渲染、盘上的字节也不改 —— 这条是拒绝的判据（CONTRACT §2.1）。
+ *
  * ⚠️ 「没有提示」判两条腿：**结构**（这些作用域里不许有 `.hint` 元素 / `title` 属性）
  *    + **文案**（旧提示那几句不许出现在屏上）。只判结构，换一句话就漏；只判文案，加一个无名提示就漏。
  */
 import { expect, test } from '@playwright/test'
-import { APP_PATH, boot, KEYS, makeCard, MOCK_PRESET, readStorage, route } from './support/app.js'
+import {
+  APP_PATH,
+  boot,
+  KEYS,
+  makeCard,
+  makeNode,
+  makeSave,
+  MOCK_PRESET,
+  OPENING_PROMPT,
+  readStorage,
+  route,
+} from './support/app.js'
 
 const CARD_ID = 'c1'
 
@@ -35,10 +49,10 @@ async function openEditor(page, options) {
   await expect(page.locator('[data-page="editor"]')).toBeVisible()
 }
 
-test.describe('右栏：只有名字与 ×，眼睛在 NodeForm 里', () => {
-  test('右栏每块只有名字 + 至多一个 ×；没有输入框、没有眼睛', async ({ page }) => {
+test.describe('右栏：名字 + 读眼睛 + ×，没有输入框', () => {
+  test('没选节点时：每块只有名字 + 至多一个 ×；没有输入框、也没有读眼睛', async ({ page }) => {
     await openEditor(page)
-    // 夹具卡有两块提示词；打开编辑器时「开场」会被补在最前
+    // 夹具卡有两块提示词；加上每张卡必带的「开场」= 3 块
     const blocks = page.locator('[data-col="right"] [data-prompt-block]')
     await expect(blocks).toHaveCount(3)
 
@@ -46,10 +60,10 @@ test.describe('右栏：只有名字与 ×，眼睛在 NodeForm 里', () => {
       const block = blocks.nth(index)
       await expect(block.locator('[data-prompt-name]')).toHaveCount(1)
       expect(await block.locator('[data-delete-prompt]').count()).toBeLessThanOrEqual(1)
-      // 右栏不摆任何输入控件 / 眼睛
+      // 这一栏不摆输入控件；「读不读这块」是选中节点时才有的眼睛（CONTRACT §8.2）
       await expect(block.locator('input, textarea, select')).toHaveCount(0)
-      await expect(block.locator('[data-eyes], [data-node-prompt-read]')).toHaveCount(0)
     }
+    await expect(page.locator('[data-prompt-read]')).toHaveCount(0)
   })
 
   test('两个「+」按钮的文本恰好是 +；左栏那个只在 S2 才出现', async ({ page }) => {
@@ -62,17 +76,16 @@ test.describe('右栏：只有名字与 ×，眼睛在 NodeForm 里', () => {
     await expect(page.locator('[data-add-state]')).toHaveText('+')
   })
 
-  test('眼睛搬到中栏：选中节点后每块提示词一颗读眼睛，点了会改 node.reads', async ({ page }) => {
+  test('选中节点后右栏每块一颗读眼睛（带 data-on），点了会改 node.reads', async ({ page }) => {
     await openEditor(page)
     await page.locator('[data-node-id="output"]').click()
 
-    // 中栏的读眼睛与提示词块一一对应；右栏一颗都没有
-    const reads = page.locator('[data-node-prompt-read]')
+    // 与提示词块一一对应；左栏（状态树）里没有它
+    const reads = page.locator('[data-prompt-read]')
     await expect(reads).toHaveCount(3)
-    await expect(page.locator('[data-col="right"] [data-node-prompt-read]')).toHaveCount(0)
-    await expect(page.locator('[data-col="right"] [data-eyes]')).toHaveCount(0)
+    await expect(page.locator('[data-col="left"] [data-prompt-read]')).toHaveCount(0)
 
-    const pr1 = page.locator('[data-node-prompt-read][data-prompt-id="pr1"]')
+    const pr1 = page.locator('[data-prompt-read][data-prompt-id="pr1"]')
     await expect(pr1).toHaveAttribute('data-on', 'true')
     await pr1.click()
     await expect(pr1).toHaveAttribute('data-on', 'false')
@@ -193,22 +206,44 @@ test.describe('开场：每张卡都有、排第一、删不掉', () => {
     await expect(page.locator('[data-prompt-block="opening"] [data-delete-prompt]')).toHaveCount(0)
   })
 
-  test('老卡（没有开场）一打开编辑器就补在最前，且立刻落盘', async ({ page }) => {
-    await boot(page, { storage: seedCard() })
-    expect((await readStorage(page, KEYS.cards))[0].prompts.map((prompt) => prompt.id)).toEqual([
-      'pr1',
-      'pr2',
-    ])
+  test('旧卡（没有开场）打开编辑器 ⇒ 中文 E_VALIDATION，且**不补**开场、不改盘', async ({ page }) => {
+    const legacy = makeCard({ prompts: makeCard().prompts.filter((p) => p.id !== OPENING_PROMPT.id) })
+    const raw = JSON.stringify([legacy])
+    await boot(page, { storage: { [KEYS.cards]: [legacy], [KEYS.presets]: [MOCK_PRESET] } })
 
     await page.goto(`${APP_PATH}${route.edit(CARD_ID)}`)
-    await expect(page.locator('[data-prompt-block]').first()).toHaveAttribute('data-prompt-block', 'opening')
+    await expect(page.locator('[data-error]')).toBeVisible()
+    await expect(page.locator('[data-error-code]')).toHaveText('E_VALIDATION')
+    await expect(page.locator('[data-error-next]')).not.toHaveText('')
+    // 没有「补上开场再落盘」这种事：编辑器一个块都不渲染，盘上的卡逐字不变
+    await expect(page.locator('[data-prompt-block]')).toHaveCount(0)
+    expect(JSON.stringify(await readStorage(page, KEYS.cards)), '读旧卡不许顺手回写新格式').toBe(raw)
+  })
 
-    const stored = (await readStorage(page, KEYS.cards))[0]
-    expect(stored.prompts.map((prompt) => prompt.id)).toEqual(['opening', 'pr1', 'pr2'])
-    expect(
-      await page.locator('[data-state-item="0"] [data-delete-state]').count(),
-      '开场不是状态元素，别把这条判据扩散到左栏',
-    ).toBe(0)
+  test('旧卡（布尔上游 / 校对节点）同样被拒：不迁移、不改盘', async ({ page }) => {
+    const base = makeCard()
+    const legacy = {
+      ...base,
+      chain: [
+        ...base.chain.map((node) => ({ ...node, readsUpstream: node.id === 'output' })),
+        makeNode('proof', 'proof'),
+      ],
+    }
+    const raw = JSON.stringify([legacy])
+    const save = { ...makeSave(base), cardSnapshot: legacy }
+    await boot(page, {
+      storage: { [KEYS.cards]: [legacy], [KEYS.saves]: [save], [KEYS.presets]: [MOCK_PRESET] },
+    })
+
+    await page.goto(`${APP_PATH}${route.edit(CARD_ID)}`)
+    await expect(page.locator('[data-error]')).toBeVisible()
+    await expect(page.locator('[data-error-code]')).toHaveText('E_VALIDATION')
+    expect(JSON.stringify(await readStorage(page, KEYS.cards))).toBe(raw)
+
+    // 对话页打开也不能「跑着跑着才炸」：旧卡的存档一进去就报错（校验在入场那一步）
+    await page.goto(`${APP_PATH}${route.play(CARD_ID, save.id)}`)
+    await expect(page.locator('[data-error]')).toBeVisible()
+    await expect(page.locator('[data-error-code]')).toHaveText('E_VALIDATION')
   })
 
   test('开场能改名改正文（只是不能删）：改动落盘', async ({ page }) => {

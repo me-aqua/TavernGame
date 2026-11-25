@@ -78,7 +78,8 @@ test('编辑器里逐节点改模型：只写映射、不动卡，刷新后还�
   // 其它节点没被顺手改掉（第一次打开时铺的默认值要留住）
   const after = await readStorage(page, KEYS.nodeModels)
   expect(after[CARD_ID].time).toBe(MOCK_PRESET.id)
-  expect(after[CARD_ID].proof).toBe(MOCK_PRESET.id)
+  expect(after[CARD_ID].extra).toBe(MOCK_PRESET.id)
+  expect(after[CARD_ID].check).toBe(MOCK_PRESET.id)
 })
 
 test('跑一回合时逐节点生效：只有输出节点用真预设 ⇒ 只发一次请求', async ({ page }) => {

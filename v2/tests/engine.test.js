@@ -3,6 +3,7 @@
  *
  * 钉的是「一回合到底发生了什么」：链按顺序跑、时间推进、写入只许落在 `writable`、
  * 只有 output 的文本进故事流、流式增量拼起来等于正文、中止之后存档一个字没动、
+ * 上游按**节点 id 的名单**取已执行节点的输出、
  * 以及**每个节点的模型是本地映射解析出来的**（卡里没有模型绑定，§2.5）。
  * 全部用 `provider:'mock'`，不发一次网络请求（除了那两条故意连不上的 E_PROVIDER 用例）。
  */
@@ -21,6 +22,9 @@ import { loadModule } from './support/load.js'
 
 const CJK = /[\u4e00-\u9fff]/
 const loadEngine = () => loadModule('core/engine.ts', () => import('../src/core/engine.ts'))
+
+/** 夹具卡的节点 id（链顺序）：time → check → extra → output */
+const NODE_IDS = ['time', 'check', 'extra', 'output']
 
 /**
  * 跑一回合。
@@ -79,7 +83,7 @@ describe('引擎：一回合的形状', () => {
     const card = makeCard()
     const result = await turn({ card, save: makeSave(card), action: 'act one' })
     const nodes = result.events.filter((event) => event.type === 'node')
-    expect(nodes.map((event) => event.detail.id)).toEqual(['time', 'check', 'output', 'proof'])
+    expect(nodes.map((event) => event.detail.id)).toEqual(NODE_IDS)
   })
 })
 
@@ -89,7 +93,8 @@ describe('引擎：只有输出节点的文本进故事流', () => {
     const narrations = save.events.filter((event) => event.type === 'narration')
     expect(narrations).toHaveLength(2)
     expect(narrations.map((event) => event.text)).toEqual(['[mock] turn 1: act 1', '[mock] turn 2: act 2'])
-    expect(save.events.some((event) => event.text.includes('mock proof'))).toBe(false)
+    // 普通节点这一回合什么都没回（mock 对 normal 只回工具调用）⇒ 它不可能被当成正文
+    expect(save.events.filter((event) => event.type === 'narration')).toHaveLength(2)
   })
 })
 
@@ -224,12 +229,28 @@ describe('引擎：调试载荷（?debug=1 要用）', () => {
   it('debug 里有每个节点的提示词、输出、工具清单', async () => {
     const card = makeCard()
     const result = await turn({ card, save: makeSave(card), action: 'act one' })
-    expect(Object.keys(result.debug.prompts).sort()).toEqual(['check', 'output', 'proof', 'time'])
+    expect(Object.keys(result.debug.prompts).sort()).toEqual([...NODE_IDS].sort())
     expect(result.debug.prompts.output).toContain('NODE_OUT')
     expect(result.debug.prompts.output).toContain('act one')
     expect(result.debug.responses.output).toBe('[mock] turn 1: act one')
     expect(result.debug.tools.map((item) => item.name)).toContain('advance_time')
     expect(result.debug).toHaveProperty('usage')
+  })
+
+  it('逐节点读数：每个节点都有 durationMs / usage / tps，且本回合有 totalMs', async () => {
+    const card = makeCard()
+    const result = await turn({ card, save: makeSave(card), action: 'act one' })
+    expect(Object.keys(result.debug.nodes).sort()).toEqual([...NODE_IDS].sort())
+    for (const id of NODE_IDS) {
+      const node = result.debug.nodes[id]
+      expect(typeof node.durationMs, `${id} 没有耗时读数`).toBe('number')
+      expect(node.durationMs).toBeGreaterThanOrEqual(0)
+      // mock 不给用量 ⇒ usage 为 null、tps 也量不出（不是 0，是 null）
+      expect(node.usage).toBeNull()
+      expect(node.tps).toBeNull()
+    }
+    expect(typeof result.debug.totalMs).toBe('number')
+    expect(result.debug.totalMs).toBeGreaterThanOrEqual(0)
   })
 })
 
@@ -261,17 +282,40 @@ describe('引擎：同一回合内的写入立刻可见（P2）', () => {
     expect(result.save.tree['1']).toBe('mock-t1')
   })
 
-  it('上游节点写的值也看得见：把 normal 挪到 output 之后也不串（顺序即因果）', async () => {
+  it('写入发生在下游：把写元素的节点挪到输出节点之后，输出节点看到的是初值', async () => {
     const base = makeCard()
-    const chain = base.chain.map((node) => (node.id === 'output' ? { ...node, reads: ['1'] } : node))
+    const chain = base.chain.map((node) =>
+      node.id === 'output' ? { ...node, reads: ['1'], readsUpstream: [] } : node,
+    )
     // 把判定节点挪到输出节点后面：于是输出节点看到的是**初值**（还没人写）
-    const card = {
-      ...base,
-      chain: [chain[0], chain[2], chain[1], chain[3]],
-    }
+    const card = { ...base, chain: [chain[0], chain[2], chain[3], chain[1]] }
     const result = await turn({ card, save: makeSave(card), action: 'act one' })
     expect(result.debug.prompts.output).toContain('1 place = VAL_PLACE_A1')
     expect(result.save.tree['1']).toBe('mock-t1')
+  })
+})
+
+describe('引擎：上游输出按节点名单取', () => {
+  it('点名的上游把**它这一回合的输出**交给下游的提示词（链顺序即执行顺序）', async () => {
+    const base = makeCard()
+    // 把输出节点放到链首：它先跑，正文已经产出；后面的普通节点点名读它 ⇒ 拿到的是本回合正文
+    const output = { ...base.chain[3], reads: [], readsUpstream: [], prompt: '' }
+    const reader = {
+      ...makeNode('reader', 'normal', { readsUpstream: ['output'], prompt: 'NODE_READER' }),
+    }
+    const card = { ...base, chain: [output, reader] }
+    const result = await turn({ card, save: makeSave(card), action: 'act one' })
+    expect(result.debug.prompts.reader).toContain('[mock] turn 1: act one')
+    expect(result.debug.prompts.reader).toContain('NODE_READER')
+  })
+
+  it('没点名上游的节点：即使前面节点有输出，提示词里也一个字都没有', async () => {
+    const base = makeCard()
+    const output = { ...base.chain[3], reads: [], readsUpstream: [], prompt: '' }
+    const reader = { ...makeNode('reader', 'normal', { readsUpstream: [], prompt: 'NODE_READER' }) }
+    const card = { ...base, chain: [output, reader] }
+    const result = await turn({ card, save: makeSave(card), action: 'act one' })
+    expect(result.debug.prompts.reader).not.toContain('[mock] turn 1')
   })
 })
 
@@ -280,7 +324,7 @@ describe('引擎：快照（改卡之后旧存档还能跑）', () => {
     const card = makeCard()
     const save = makeSave(card)
     card.state[1].initial = 'MUTATED_CARD'
-    card.prompts[0].body = 'MUTATED_BODY'
+    card.prompts[1].body = 'MUTATED_BODY'
 
     const result = await turn({ card: save.cardSnapshot, save, action: 'act one' })
     // ⚠️ 不能拿元素 1 的值当证据：判定节点这一回合会先把它写掉（mock 写 writable[0]）。
@@ -307,12 +351,7 @@ describe('引擎：模型从哪来（本地映射，卡里没有）', () => {
       nodePresets: nodeModelsFor(card, MOCK_PRESET_B.id),
       action: 'act one',
     })
-    expect(result.debug.presets).toEqual({
-      time: MOCK_PRESET_B.id,
-      check: MOCK_PRESET_B.id,
-      output: MOCK_PRESET_B.id,
-      proof: MOCK_PRESET_B.id,
-    })
+    expect(result.debug.presets).toEqual(Object.fromEntries(NODE_IDS.map((id) => [id, MOCK_PRESET_B.id])))
   })
 
   it('映射里缺的节点 ⇒ 默认用池子里的第一个（`presets[0]`）', async () => {
@@ -327,12 +366,12 @@ describe('引擎：模型从哪来（本地映射，卡里没有）', () => {
     expect(result.debug.presets).toEqual({
       time: MOCK_PRESET.id,
       check: MOCK_PRESET.id,
+      extra: MOCK_PRESET.id,
       output: MOCK_PRESET_B.id,
-      proof: MOCK_PRESET.id,
     })
   })
 
-  it('完全没有映射（旧数据 / 刚导入）也照样跑：全用第一个预设', async () => {
+  it('完全没有映射（刚导入 / 没打开过编辑器）也照样跑：全用第一个预设', async () => {
     const card = makeCard()
     const result = await turn({
       card,
@@ -342,7 +381,7 @@ describe('引擎：模型从哪来（本地映射，卡里没有）', () => {
       nodePresets: {},
       action: 'act one',
     })
-    expect(Object.values(result.debug.presets)).toEqual(Array(4).fill(MOCK_PRESET.id))
+    expect(Object.values(result.debug.presets)).toEqual(Array(NODE_IDS.length).fill(MOCK_PRESET.id))
   })
 
   it('卡上残留的 presetId 一个字节都不看（模型只在映射里）', async () => {
@@ -356,7 +395,7 @@ describe('引擎：模型从哪来（本地映射，卡里没有）', () => {
       nodePresets: nodeModelsFor(card),
       action: 'act one',
     })
-    expect(Object.values(result.debug.presets)).toEqual(Array(4).fill(MOCK_PRESET.id))
+    expect(Object.values(result.debug.presets)).toEqual(Array(NODE_IDS.length).fill(MOCK_PRESET.id))
     expect(result.save.cardSnapshot.chain.every((node) => node.presetId === 'p-ghost')).toBe(true)
   })
 
@@ -449,10 +488,20 @@ describe('引擎：预设与错误', () => {
     expect(save.events).toEqual([])
   })
 
-  it('没有 normal 节点也能跑（校对 + 输出两节点链）', async () => {
+  it('旧格式的卡（布尔上游）⇒ E_VALIDATION，一个节点都不跑（不迁移）', async () => {
     const base = makeCard()
-    const chain = [makeNode('time', 'time', { writable: ['0'] }), ...base.chain.slice(2)]
+    const chain = base.chain.map((node) => ({ ...node, readsUpstream: false }))
     const card = { ...base, chain }
+    const save = makeSave(card)
+    await expect(turn({ card, save, action: 'act one' })).rejects.toMatchObject({ code: 'E_VALIDATION' })
+    expect(save.events).toEqual([])
+  })
+
+  it('没有 normal 节点也能跑（时间 + 输出两节点链）', async () => {
+    const base = makeCard()
+    const time = base.chain[0]
+    const output = { ...base.chain[3], reads: [], readsUpstream: ['time'], prompt: 'NODE_OUT' }
+    const card = { ...base, chain: [time, output] }
     const result = await turn({ card, save: makeSave(card), action: 'act one' })
     expect(result.save.turn).toBe(1)
     expect(result.save.tree['1']).toBe('VAL_PLACE_A1')

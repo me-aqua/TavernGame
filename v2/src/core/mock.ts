@@ -57,9 +57,6 @@ export async function mockReply({
       usage: null,
     }
   }
-  if (node.type === 'proof') {
-    return { text: `[mock] proof turn ${turn} ok`, toolCalls: [], usage: null }
-  }
 
   const text = `[mock] turn ${turn}: ${action}`
   if (!onChunk) return { text, toolCalls: [], usage: null }

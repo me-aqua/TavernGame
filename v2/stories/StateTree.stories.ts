@@ -1,9 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import StateTree from '../src/components/StateTree.vue'
-import { ELEMENTS, OUTPUT_NODE } from './support/data'
+import { CHECK_NODE, ELEMENTS, OUTPUT_NODE } from './support/data'
 
 /**
  * 左栏状态树：控件按 S0–S3 的矩阵出现 —— S1（选中节点）有眼睛，S2（选中元素）有 + 和 ×。
+ * 写眼睛按节点类型收窄：时间节点只有 `0` 那一行，输出节点一只都没有。
  */
 const meta = {
   title: 'v2/StateTree',
@@ -17,8 +18,11 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-/** S1：选中了输出节点 —— 每行两只眼睛 */
-export const WithNodeSelected: Story = {}
+/** S1：选中了输出节点 —— 每行只有「读」眼睛（输出节点不写状态） */
+export const WithOutputNode: Story = {}
+
+/** S1：选中了判定节点 —— 每行两只眼睛 */
+export const WithNormalNode: Story = { args: { node: CHECK_NODE } }
 
 /** S0：什么都没选 —— 只有编码与名字 */
 export const NoNodeSelected: Story = { args: { node: null, selectedCode: null } }

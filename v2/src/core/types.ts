@@ -11,7 +11,7 @@ export interface TimeValue {
   hour: number
 }
 
-export type NodeType = 'time' | 'normal' | 'output' | 'proof'
+export type NodeType = 'time' | 'normal' | 'output'
 
 export interface StateElement {
   code: string
@@ -27,7 +27,8 @@ export interface ChainNode {
   name: string
   reads: string[]
   writable: string[]
-  readsUpstream: boolean
+  /** 读哪些上游节点的输出；id 必须在链上、且排在它前面 */
+  readsUpstream: string[]
   historyTurns: number
   prompt: string
 }

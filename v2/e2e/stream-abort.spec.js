@@ -128,7 +128,7 @@ test.describe('openai-compatible：请求形状与 SSE 增量', () => {
     // 行动逐字进了**每一跳**的请求，而且每一跳只有一次 —— 它只在历史块里（口径 A）：
     // historyTurns=0 的节点也看得见行动，但**没有**第二条独立的行动段。
     const occurrencesOf = (value) => (JSON.stringify(value).match(/act one/g) ?? []).length
-    expect(occurrencesOf(requests[2].body), '输出节点的历史块里要有行动').toBe(1)
+    expect(occurrencesOf(requests[3].body), '输出节点的历史块里要有行动').toBe(1)
     for (const [index, request] of requests.entries()) {
       expect(occurrencesOf(request.body), `第 ${index + 1} 跳的行动出现次数`).toBe(1)
     }

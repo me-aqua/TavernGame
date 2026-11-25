@@ -3,7 +3,7 @@
  *
  * 三件事非钉不可：
  *   ① **首次打开**（`tg2.settings.sampleSeeded` 还没落盘的机器）首页就有一张 `晨风镇`，
- *      结构完整：5 个状态元素、4 个固定节点（id 仍是 `time/check/output/proof`）、卡里**没有** `presetId`；
+ *      结构完整：5 个状态元素、3 个固定节点（id 是 `time/check/output`）、卡里**没有** `presetId`；
  *   ② **能删**：删掉之后列表真的空了，`tg2.cards` 也空了；
  *   ③ **不许复种**：刷新 / 再打开都不许把它种回来（标记一旦落盘就是一次性的）——
  *      这一条是「数据与项目本体分离」的实测口径：卡是数据、能被玩家彻底删掉。
@@ -19,7 +19,7 @@ const SAMPLE = {
   id: 'card-morningwind',
   name: '晨风镇',
   stateCodes: ['0', '1', '2', '3', '4'],
-  nodeIds: ['time', 'check', 'output', 'proof'],
+  nodeIds: ['time', 'check', 'output'],
 }
 
 /** 删掉当前唯一那张卡（走确认层） */
@@ -46,8 +46,10 @@ test('首次打开就有「晨风镇」：结构完整、卡里没有 presetId',
   expect(cards[0].name).toBe(SAMPLE.name)
   expect(cards[0].state.map((element) => element.code)).toEqual(SAMPLE.stateCodes)
   expect(cards[0].chain.map((node) => node.id)).toEqual(SAMPLE.nodeIds)
-  expect(cards[0].chain.map((node) => node.type)).toEqual(['time', 'normal', 'output', 'proof'])
+  expect(cards[0].chain.map((node) => node.type)).toEqual(['time', 'normal', 'output'])
   for (const node of cards[0].chain) expect(Object.keys(node)).not.toContain('presetId')
+  // 也带了「开场」那一块（§2.1：缺它就是不合法的卡）
+  expect(cards[0].prompts.some((prompt) => prompt.id === 'opening')).toBe(true)
   // 标记要在种完之后立刻落盘，否则每次打开都会再种一张
   expect((await readStorage(page, KEYS.settings)).sampleSeeded).toBe(true)
 })
