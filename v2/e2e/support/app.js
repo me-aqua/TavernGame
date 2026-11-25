@@ -48,17 +48,38 @@ export const route = {
 }
 
 /**
+ * 首次打开会种一张内置示例卡（晨风镇），标记住 `tg2.settings.sampleSeeded`（README/契约 §2.4）。
+ *
+ * 所以 `boot()` 默认**先把「已经种过了」的标记写进去**：已有用例的前提都是
+ * 「首页上没有示例卡」（空态 / 只有自己种的那张卡），它们不该被这张卡影响。
+ * 只有 `sample: true` 的那条用例**不写标记** —— 那是唯一该看见「首次打开」的用例。
+ */
+export const SEEDED_MARKER = { sampleSeeded: true }
+
+/**
  * 打开应用。`storage` 里给的对象会被 JSON 序列化后写进 localStorage，
  * **只在第一次导航时写**（刷新不再写，否则持久化判据是假的）。
+ *
+ * @param {object}  options
+ * @param {object?} options.storage  种进 `tg2.*` 的键（对象会被 JSON 序列化）
+ * @param {string?} options.hash     打开的路由
+ * @param {string?} options.query    `?debug=1` 这类查询串（放在 hash 之前）
+ * @param {boolean} options.sample   true = **不写** sampleSeeded 标记（这条用例要看首次打开）
  */
-export async function boot(page, { storage = null, hash = route.home, query = '' } = {}) {
-  if (storage) {
-    const seed = JSON.stringify(storage)
+export async function boot(page, { storage = null, hash = route.home, query = '', sample = false } = {}) {
+  const seed = { ...(storage ?? {}) }
+  if (!sample) {
+    // 与调用方给的 settings 合并（别把 theme / editorColumns 冲掉），再补上「已种过」标记
+    const given = seed[KEYS.settings]
+    seed[KEYS.settings] = { ...(given && typeof given === 'object' ? given : {}), ...SEEDED_MARKER }
+  }
+  if (Object.keys(seed).length > 0) {
+    const payload = JSON.stringify(seed)
     await page.addInitScript(`
       (() => {
         if (window.sessionStorage.getItem('tg2-e2e-seeded') === '1') return
         window.sessionStorage.setItem('tg2-e2e-seeded', '1')
-        const seed = ${seed}
+        const seed = ${payload}
         for (const key of Object.keys(seed)) {
           const value = seed[key]
           window.localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value))

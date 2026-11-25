@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "id": "card-morningwind",
+  "name": "晨风镇",
+  "state": [
+    { "code": "0", "name": "时间", "note": "第几天、第几小时", "type": "string", "initial": { "day": 1, "hour": 18 } },
+    { "code": "1", "name": "地点", "note": "玩家此刻所在", "type": "string", "initial": "晨风镇 · 酒馆" },
+    { "code": "2", "name": "人物", "note": "此刻在场的人", "type": "string", "initial": "柜台后的老板娘" },
+    { "code": "3", "name": "氛围", "note": "光线、声音、气味", "type": "string", "initial": "炉火噼啪，麦酒和湿羊毛的味道" },
+    { "code": "4", "name": "线索", "note": "玩家已经知道的传闻", "type": "string", "initial": "码头三天里回来两条空船" }
+  ],
+  "prompts": [
+    {
+      "id": "prompt-world",
+      "title": "世界观",
+      "body": "晨风镇是边境小镇，镇外有座没人知道有多深的地牢。人们下去找苔药、旧铁和前人的遗物；镇公所挂着三百金的悬赏，但没几个人当真。"
+    },
+    {
+      "id": "prompt-style",
+      "title": "叙事风格",
+      "body": "用第二人称「你」写，中文，克制、具体，靠动作和感官推进。每次只写玩家这一回合能看见的事，不替玩家做决定，不写玩家心里怎么想。"
+    }
+  ],
+  "chain": [
+    {
+      "id": "time",
+      "type": "time",
+      "name": "时间",
+      "reads": [],
+      "writable": ["0"],
+      "readsUpstream": false,
+      "historyTurns": 0,
+      "prompt": "根据玩家这一回合的行动，判断过去了多少小时，调用 advance_time 推进时间。只推进时间，不写故事。"
+    },
+    {
+      "id": "check",
+      "type": "normal",
+      "name": "判定",
+      "reads": ["1", "2", "3", "4"],
+      "writable": ["1", "2", "3", "4"],
+      "readsUpstream": false,
+      "historyTurns": 1,
+      "prompt": "根据玩家行动和当前状态，判断地点、人物、氛围、线索有没有变化。有变化就调用 write_state 写入；没有变化就不调用。不要写故事正文。"
+    },
+    {
+      "id": "output",
+      "type": "output",
+      "name": "输出",
+      "reads": ["prompt-world", "prompt-style", "1", "2", "3", "4"],
+      "writable": [],
+      "readsUpstream": true,
+      "historyTurns": 3,
+      "prompt": "根据状态、历史和玩家这一回合的行动，写这一回合的故事。只写玩家看得见的画面与对话，结尾停在玩家可以继续行动的地方。"
+    },
+    {
+      "id": "proof",
+      "type": "proof",
+      "name": "校对",
+      "reads": ["prompt-world"],
+      "writable": [],
+      "readsUpstream": true,
+      "historyTurns": 0,
+      "prompt": "检查上一段故事有没有和世界观冲突、有没有替玩家做决定、有没有写出玩家看不到的信息。只报问题，不重写故事。"
+    }
+  ]
+}

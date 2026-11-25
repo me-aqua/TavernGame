@@ -21,23 +21,23 @@ import { setTheme, theme } from '../theme'
 const presets = ref<Preset[]>([])
 const error = ref<AppError | null>(null)
 
-/** 新装时铺的两条默认预设：名字是 V4 Pro / Flash，Key 空着（绝不内置任何 Key） */
+/** 新装时铺的两条默认预设：预设名 = 模型名，Key 空着（绝不内置任何 Key） */
 const DEFAULT_PRESETS: Preset[] = [
   {
-    id: 'p-deepseek-v4-pro',
-    name: 'DeepSeek V4 Pro',
+    id: 'p-deepseek-flash',
+    name: 'deepseek-flash',
     provider: 'openai-compatible',
     baseUrl: 'https://api.deepseek.com/v1',
-    model: 'deepseek-v4-pro',
+    model: 'deepseek-flash',
     apiKey: '',
     reasoning: 'medium',
   },
   {
-    id: 'p-deepseek-v4-flash',
-    name: 'DeepSeek V4 Flash',
+    id: 'p-deepseek-v4-pro',
+    name: 'deepseek-v4-pro',
     provider: 'openai-compatible',
     baseUrl: 'https://api.deepseek.com/v1',
-    model: 'deepseek-v4-flash',
+    model: 'deepseek-v4-pro',
     apiKey: '',
     reasoning: 'off',
   },
@@ -46,13 +46,7 @@ const DEFAULT_PRESETS: Preset[] = [
 onMounted(() => {
   try {
     if (localStorage.getItem(STORAGE_KEYS.presets) === null) {
-      // 名字走文案表（默认预设的名字也是界面文案），其余字段是这份默认值自己的事
-      storage().savePresets(
-        DEFAULT_PRESETS.map((preset, index) => ({
-          ...preset,
-          name: t(index === 0 ? 'settings.defaultPreset.pro' : 'settings.defaultPreset.flash'),
-        })),
-      )
+      storage().savePresets(DEFAULT_PRESETS.map((preset) => ({ ...preset })))
     }
     presets.value = storage().loadPresets()
     const settings = storage().loadSettings()

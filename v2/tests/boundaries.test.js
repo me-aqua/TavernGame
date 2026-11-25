@@ -106,9 +106,29 @@ describe('模块边界：不往旧站和别的框架里看', () => {
     ).toEqual([])
   })
 
-  it('项目里没有示例卡 / 旧站卡的痕迹（数据与本体分离）', () => {
-    const offenders = sourceFiles().filter((file) => /cards\/|morningwind/.test(readSource(file)))
-    expect(offenders).toEqual([])
+  it('示例卡是**资产**：只能住在 `data/`，而且只由入口引入（别处不许搬一份内容）', () => {
+    const files = sourceFiles()
+    const assets = files.filter((file) => file.startsWith('data/'))
+    expect(assets.length, '`src/data/` 下应当有示例卡资产（晨风镇）').toBeGreaterThan(0)
+    // 引用面收窄：只有入口（main.ts）可以 import data/ 下的资产
+    const importers = files.filter((file) => /from\s+['"]\.\/data\//.test(readSource(file)))
+    expect(importers, '示例卡只该由 main.ts 引入').toEqual(['main.ts'])
+    // 也不许伸手去拿旧站根目录的 cards/（那是另一个应用的数据）
+    expect(offendersIn(files, [/from\s+['"][^'"]*\/cards\//, /from\s+['"]\.\.\/\.\.\/cards\//])).toEqual([])
+  })
+
+  it('示例卡本身是合法数据：链是那四个固定节点，卡里没有 presetId（模型不进卡）', () => {
+    const sample = JSON.parse(readFileSync(join(SRC, 'data', 'morningwind.json'), 'utf8'))
+    expect(sample.schemaVersion).toBe(1)
+    expect(typeof sample.id).toBe('string')
+    expect(sample.name.length, '示例卡要有名字').toBeGreaterThan(0)
+    expect(sample.state.length, '示例卡要有状态元素').toBeGreaterThan(1)
+    expect(sample.state[0].code).toBe('0')
+    expect(sample.chain.map((node) => node.id)).toEqual(['time', 'check', 'output', 'proof'])
+    expect(sample.chain.filter((node) => node.type === 'output')).toHaveLength(1)
+    for (const node of sample.chain) {
+      expect(Object.keys(node), `${node.id} 不该带模型绑定`).not.toContain('presetId')
+    }
   })
 })
 

@@ -1,9 +1,10 @@
 /**
- * SPEC §9.1 / §9 跨阶段规矩：**空项目能用，删空之后还能用**。
+ * SPEC §9.1 / §9 跨阶段规矩：**没有卡的时候首页能用，删空之后还能用**。
  *
- * 项目本体不许带任何卡 / 存档（数据与本体完全分离）：第一次打开是空列表，
- * 一张卡都没有时首页不能白屏，删光所有卡与存档之后每一个机制还要照常跑。
- * 这一份是**唯一**能证明「项目里真的没种数据」的判据 —— 单测只能证明存储层不种。
+ * ⚠️ 这里的「没有卡」是靠 `boot()` 的默认标记（`tg2.settings.sampleSeeded: true`）造出来的：
+ *    新版**首次打开会种一张内置示例卡（晨风镇）**，「首次打开」那件事归 `sample.spec.js` 管。
+ *    这一份只量**空态本身**：空列表、能新建、删空之后机制照常。
+ *    「项目本体不含卡」这一条由 `v2/tests/storage.test.js` 在存储层量（那才是它的地盘）。
  */
 import { expect, test } from '@playwright/test'
 import {
@@ -18,7 +19,6 @@ import {
   readStorage,
   route,
 } from './support/app.js'
-
 test.describe('空项目', () => {
   test('一张卡都没有：首页空态可见、能新建、存档列表也是空态', async ({ page }) => {
     await boot(page)
@@ -38,13 +38,17 @@ test.describe('空项目', () => {
     expect((await readStorage(page, KEYS.cards)).length).toBe(1)
   })
 
-  test('打开时不会自己长出一张示例卡（读一遍也不写盘）', async ({ page }) => {
+  test('种过一次之后不会再种：刷新仍然是同一个空列表', async ({ page }) => {
     await boot(page)
     await expect(page.locator('[data-page="home"]')).toBeVisible()
-    // 空态里点一下「刷新」这条路走不通（hash 不变），所以直接重新加载页面
+    // 标记必须在第一次导航之后就落盘（它是「别再种了」的唯一依据）
+    expect((await readStorage(page, KEYS.settings)).sampleSeeded, '标记要在首次导航后落盘').toBe(true)
+
     await page.reload()
     await expect(page.locator('[data-empty-cards]')).toBeVisible()
     await expect(page.locator('[data-card-id]')).toHaveCount(0)
+    // 从没建过卡 ⇒ `tg2.cards` 这个键可能压根没被写过（读回 null），那也算「空」
+    expect((await readStorage(page, KEYS.cards)) ?? []).toEqual([])
   })
 })
 

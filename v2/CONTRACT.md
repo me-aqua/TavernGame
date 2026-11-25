@@ -159,7 +159,8 @@ v2/
 {
   schemaVersion: 1,
   theme: 'light' | 'dark',
-  editorColumns: { left: number, right: number }   // px；中栏 = 余量
+  editorColumns: { left: number, right: number },  // px；中栏 = 余量
+  sampleSeeded?: boolean                          // 「内置示例卡已经种过了」的一次性标记（§3）
 }
 ```
 
@@ -213,10 +214,20 @@ export function createStorage(backend = globalThis.localStorage) -> Storage
 硬性规定：
 
 1. **五个键之外一个字节都不许写**，尤其不许写 `tg.*`（旧站）。判据：`v2/tests/storage.test.js`。
-2. **不种数据**：任何 `load*()` 都不得在空后端上写回默认卡 / 示例存档 / 示例映射
+2. **存储层不种数据**：任何 `load*()` 都不得在空后端上写回默认卡 / 示例存档 / 示例映射
    （映射的「首次打开铺默认」是**编辑器**的动作，不是 `load*()` 的副作用，§2.5）。
 3. **坏 JSON / 坏 schemaVersion ⇒ 抛错，不许静默当空列表**。错误 `code = 'E_VALIDATION'`，中文 message 含原因。
 4. `saveCards([])` 之后 `loadCards()` 必须是 `[]`（删空后机制照常）。
+
+### 3.1 内置示例卡（`晨风镇`）—— 资产，不是玩家数据
+
+- 卡片本体住在 `v2/src/data/morningwind.json`（**资产**，随构建发布）；**代码里不写死它的内容**。
+- **首次打开种一次**：`main.ts` 在启动时看 `tg2.settings.sampleSeeded`；
+  不是 `true` ⇒ 若 `tg2.cards` 为空就写入这张卡，然后把标记置 `true`（一次性的）。
+  标记**不新增第六个键**（住 settings 里）。
+- **删了不许复种**：玩家删掉这张卡之后再打开，列表就是空的（标记已落盘；删卡不动标记）。
+- 判据：`v2/e2e/sample.spec.js`（首次打开 / 删掉 / 刷新不复种 / 之后自己建卡照常）。
+  ⚠️ 其它所有 e2e 用例由 `boot()` 默认写入标记 ⇒ 它们看到的是「没有示例卡」的世界。
 
 ---
 
@@ -496,8 +507,16 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - 预设列表 `[data-preset-list]`，每条 `[data-preset="<id>"]`：`[data-preset-name]`、`[data-preset-baseurl]`、
   `[data-preset-model]`、`[data-preset-key]`、`[data-preset-reasoning]`、`[data-delete-preset]`；
   `[data-add-preset]` 新增。改动即时落盘 `tg2.presets`。
-- 默认两条 DeepSeek 预设（V4 Pro / Flash）——**只在新装（`tg2.presets` 无键）时**由设置页写一次；
-  用户删光了就是空的，**不许每次打开又长回来**。
+- 默认两条**本地**预设 —— **只在新装（`tg2.presets` 这个键不存在）时**由设置页写一次，顺序固定：
+
+  | #   | id                  | name              | model             | baseUrl                       | apiKey | reasoning |
+  | --- | ------------------- | ----------------- | ----------------- | ----------------------------- | ------ | --------- |
+  | 1   | `p-deepseek-flash`  | `deepseek-flash`  | `deepseek-flash`  | `https://api.deepseek.com/v1` | `''`   | `medium`  |
+  | 2   | `p-deepseek-v4-pro` | `deepseek-v4-pro` | `deepseek-v4-pro` | `https://api.deepseek.com/v1` | `''`   | `off`     |
+
+  `name === model`；**Key 必须是空串**（不许预置任何 Key），`[data-preset-key]` 是 `password` 输入框。
+  两条都可改可删、只住本机；**删光了就是空的**（`[]` 不是「没有键」）⇒ **不许每次打开又长回来**。
+  判据：`v2/e2e/settings.spec.js`。
 
 ### 8.5 响应式与横屏
 
@@ -563,6 +582,8 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
 | 验收                                                   | 判据                                                     |
 | ------------------------------------------------------ | -------------------------------------------------------- |
 | §9.1 空态 / 删空后仍可用                               | `v2/e2e/empty.spec.js`                                   |
+| 首次打开种「晨风镇」/ 删了不复种                       | `v2/e2e/sample.spec.js`（§3.1）                          |
+| 新装默认两条预设（顺序 / name=model / Key 空）         | `v2/e2e/settings.spec.js`（§8.4）                        |
 | §9.2 建卡→编 2 元素+初值+2 提示词→存档→3 回合→刷新还在 | `v2/e2e/loop.spec.js`                                    |
 | §9.3 眼睛控制提示词拼装                                | `v2/e2e/eyes.spec.js` + `v2/tests/prompt.test.js`        |
 | §9.4 改卡后旧存档仍能跑                                | `v2/e2e/snapshot.spec.js`                                |
