@@ -40,12 +40,14 @@ function showsWrite(code: string): boolean {
 
 <template>
   <div class="state-tree" data-state-tree>
-    <div class="col-title">
-      <span class="ellipsis">{{ t('editor.stateTitle') }}</span>
+    <div class="panel-head">
+      <div class="col-title" data-panel-title>
+        <span class="ellipsis">{{ t('editor.stateTitle') }}</span>
+      </div>
       <button
         v-if="selectedCode !== null"
         type="button"
-        class="icon"
+        class="icon panel-head-action"
         data-add-state
         :title="t('editor.addState')"
         :aria-label="t('editor.addState')"
@@ -113,6 +115,7 @@ function showsWrite(code: string): boolean {
 }
 
 .rows {
+  flex: 1 1 auto;
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -124,7 +127,8 @@ function showsWrite(code: string): boolean {
   gap: 4px;
   align-items: center;
   min-width: 0;
-  padding: 2px 4px;
+  height: var(--row-h);
+  padding: 3px 4px;
   border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;

@@ -14,11 +14,6 @@ defineEmits<{ patch: [patch: Partial<PromptBlock>] }>()
 
 <template>
   <div class="form stack">
-    <div class="form-head row">
-      <span class="form-title">{{ t('editor.promptsTitle') }}</span>
-      <span class="muted">{{ prompt.id }}</span>
-    </div>
-
     <label class="field-row">
       <span class="field-label">{{ t('editor.fieldName') }}</span>
       <input
@@ -46,15 +41,6 @@ defineEmits<{ patch: [patch: Partial<PromptBlock>] }>()
   min-height: 0;
   height: 100%;
   overflow: auto;
-}
-
-.form-head {
-  justify-content: space-between;
-}
-
-.form-title {
-  font-size: var(--fs1);
-  font-weight: 600;
 }
 
 .grow {

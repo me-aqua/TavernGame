@@ -17,6 +17,10 @@
   /* 圆角只有这一档：普通按钮与读 / 写 chip 共用（老板 2026-11-25 晚：chip 别再单独一套） */
   --radius: 6px;
 
+  /* 控件 / 行容器只留两档高度：单行控件 28，装控件的行 36（老板 2026-11-25 晚） */
+  --control-h: 28px;
+  --row-h: 36px;
+
   --bg: #f4ecdf;
   --bg-2: #ece0cd;
   --panel: #fffaf1;
@@ -71,7 +75,7 @@ body {
 
 button {
   min-width: 24px;
-  min-height: 24px;
+  height: var(--control-h);
   padding: 2px 8px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
@@ -103,6 +107,12 @@ option {
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   padding: 3px 6px;
+}
+
+/* 单行控件统一 28：textarea 不在此列（多行编辑器保留自己的 min-height） */
+input,
+select {
+  height: var(--control-h);
 }
 
 textarea {
@@ -161,10 +171,26 @@ textarea {
   align-items: center;
   justify-content: space-between;
   min-width: 0;
+  /* 四个面板标题同一档高度：28 控件 + 6+6 内边距 + 1 下边框 */
+  height: calc(var(--control-h) + 13px);
+  margin: 0;
   padding: 6px 8px;
   border-bottom: 1px solid var(--line);
   font-size: var(--fs2);
   color: var(--ink-soft);
+}
+
+/* 面板标题行：标题条是 .col-title，操作按钮绝对定位在右侧（不混进标题文字） */
+.panel-head {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.panel-head-action {
+  position: absolute;
+  top: 6px;
+  right: 8px;
 }
 
 .panel {
@@ -226,11 +252,11 @@ textarea {
   min-width: 0;
 }
 
-/* 图标按钮：裸的 + / ×（24×24 是点按目标的下界，组件故事那一层会量） */
+/* 图标按钮：裸的 + / ×（宽 ≥24 是点按目标的下界，组件故事那一层会量；高与单行控件同为 28） */
 .icon {
   flex: 0 0 auto;
   min-width: 24px;
-  min-height: 24px;
+  height: var(--control-h);
   padding: 0 4px;
   font-size: var(--fs2);
   line-height: 1;
@@ -245,7 +271,7 @@ textarea {
 .chip {
   flex: 0 0 auto;
   min-width: 30px;
-  min-height: 26px;
+  height: var(--control-h);
   padding: 0 7px;
   font-size: var(--fs3);
   line-height: 1;

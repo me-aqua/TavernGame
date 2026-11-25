@@ -58,6 +58,14 @@ const selectedPrompt = computed(
   () => card.value?.prompts.find((prompt) => prompt.id === selectedPromptId.value) ?? null,
 )
 
+/** 中栏标题：编辑·<当前选中对象的名字>；什么都没选就是「编辑」 */
+const middleTitle = computed(() => {
+  if (selectedNode.value) return t('editor.editTitle', { name: selectedNode.value.name })
+  if (selectedElement.value) return t('editor.editTitle', { name: selectedElement.value.name })
+  if (selectedPrompt.value) return t('editor.editTitle', { name: selectedPrompt.value.title })
+  return t('editor.editTitleEmpty')
+})
+
 const sliceOf = (cardId: string): Record<string, string> => models.value[cardId] ?? {}
 
 /** 某一格当前用的预设 id：映射里有就用它，没有就是池子第一个（`''` = 一个预设都没有） */
@@ -336,25 +344,32 @@ function goBack(): void {
       />
 
       <section class="col middle" data-col="middle">
-        <NodeForm
-          v-if="selectedNode"
-          :node="selectedNode"
-          :presets="presets"
-          :preset-id="presetIdFor(selectedNode.id)"
-          @patch="(patch) => patchNode(selectedNode!.id, patch)"
-          @preset="(presetId) => choosePreset(selectedNode!.id, presetId)"
-        />
-        <StateForm
-          v-else-if="selectedElement"
-          :element="selectedElement"
-          @patch="(patch) => patchElement(selectedElement!.code, patch)"
-        />
-        <PromptForm
-          v-else-if="selectedPrompt"
-          :prompt="selectedPrompt"
-          @patch="(patch) => patchPrompt(selectedPrompt!.id, patch)"
-        />
-        <div v-else data-empty-middle></div>
+        <div class="panel-head">
+          <div class="col-title" data-panel-title>
+            <span class="ellipsis">{{ middleTitle }}</span>
+          </div>
+        </div>
+        <div class="middle-body">
+          <NodeForm
+            v-if="selectedNode"
+            :node="selectedNode"
+            :presets="presets"
+            :preset-id="presetIdFor(selectedNode.id)"
+            @patch="(patch) => patchNode(selectedNode!.id, patch)"
+            @preset="(presetId) => choosePreset(selectedNode!.id, presetId)"
+          />
+          <StateForm
+            v-else-if="selectedElement"
+            :element="selectedElement"
+            @patch="(patch) => patchElement(selectedElement!.code, patch)"
+          />
+          <PromptForm
+            v-else-if="selectedPrompt"
+            :prompt="selectedPrompt"
+            @patch="(patch) => patchPrompt(selectedPrompt!.id, patch)"
+          />
+          <div v-else data-empty-middle></div>
+        </div>
       </section>
 
       <div
@@ -397,6 +412,14 @@ function goBack(): void {
 .col.middle {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.middle-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .splitter {

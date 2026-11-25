@@ -42,11 +42,6 @@ function patchHour(event: Event): void {
 
 <template>
   <div class="form stack">
-    <div class="form-head row">
-      <span class="form-title ellipsis">{{ element.name }}</span>
-      <span class="muted">{{ t('editor.code') }} {{ element.code }}</span>
-    </div>
-
     <div class="field-row">
       <span class="field-label">{{ t('editor.stateType') }}</span>
       <span class="type" data-state-type>
@@ -115,15 +110,6 @@ function patchHour(event: Event): void {
   min-height: 0;
   height: 100%;
   overflow: auto;
-}
-
-.form-head {
-  justify-content: space-between;
-}
-
-.form-title {
-  font-size: var(--fs1);
-  font-weight: 600;
 }
 
 .type {

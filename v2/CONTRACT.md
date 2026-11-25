@@ -483,6 +483,12 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 
 四区一行排开：`[data-col="left"]` · `[data-workflow-strip]` · `[data-col="middle"]` · `[data-col="right"]`。
 
+- **四个面板标题**（老板 2026-11-25 晚）：左 `状态树` · 细条 `工作流` · 中 `编辑·<选中的名字>` · 右 `公共提示词`。
+  四条共用 `.col-title` 同一版式（字号 / 字重 / 颜色 / 高度 41px = `--control-h` + 13px、
+  `padding: 6px 8px`、`border-bottom: 1px solid var(--line)`），各带 `data-panel-title`；
+  加号按钮在标题条外（绝对定位，不混进标题文字）。中栏标题：节点 → `编辑·<node.name>`、
+  元素 → `编辑·<element.name>`、提示词 → `编辑·<prompt.title>`、什么都没选 → `编辑`。
+  中栏的字段表不再自带标题。判据：`v2/e2e/panel-chrome.spec.js`。
 - **栏宽**：`[data-splitter="left"]` **在左栏的右缘**（往**右**拖 = 左栏变宽）；
   `[data-splitter="right"]` **在右栏的左缘**（往**左**拖 = 右栏变宽）——两个分隔条位置相反，方向也相反。
   两者都由中栏吸收。`[data-workflow-strip]` 宽度**固定**（不参与拖拽）。双击分隔条恢复默认（左 280 / 右 320）。
@@ -501,7 +507,8 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
     （裸 `×`；`'0'` 这一行永远没有它）。眼睛在 S2 不出现。
 - **读 / 写是看得见的 chip**（老板 2026-11-25）：所有读/写按钮共用全局 `.chip`
   —— 关着时也有底色与边框（不是幽灵按钮），**开着 = `--accent` 实心 + `--accent-ink` 文字**；
-  比旧的 24px 高（26×30 起），文字标签「读 / 写」保留。三处：状态树读/写、细条上游读、右栏提示词读。
+  高度 = `--control-h`（28px，与普通按钮 / 输入框同一档），文字标签「读 / 写」保留。
+  三处：状态树读/写、细条上游读、右栏提示词读（行容器见 §9.5 #17）。
   **圆角与普通按钮共用同一个 `--radius`（6px）**（老板 2026-11-25 晚：chip 3px 太方；按钮与 chip 只留这一档）；
   按钮 / chip 里不再有 999px 或 3px 那一档（错误码徽章等非按钮件不在本口径内）。
 - 状态树 `[data-state-tree]`：每行 `[data-state-item="<code>"]`，行内 `[data-state-code]`（显示编码）、
@@ -741,6 +748,17 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
     - 发送时**立刻清空输入框**（与乐观气泡同一刻）；停止 / 出错时若输入框仍为空，把刚才那句放回（§8.3）。
     - 行动不再是右侧气泡：与叙事同为**左对齐、同字号、无气泡底**；块间（含 trace 卡片）用
       `border-top: 1px dashed` 分隔；`[data-line="action"]` / `[data-line="narration"]` 钩子不变（§8.3）。
+17. 🔴 **控件 / 行容器两档高度**（老板 2026-11-25 晚）：
+    - `--control-h: 28px`：全局 `button` / `input` / `select` / `.icon` / `.chip` / 工作流 `.node`
+      —— 同一行里的节点按钮与上游读 chip 都是 28（`box-sizing: border-box`，量出来就是 28）。
+    - `--row-h: 36px`：`[data-prompt-block]` / `[data-state-item]` / 首页 `[data-card-id]` / `[data-save-id]` /
+      设置页预设的字段行（`.preset .row`）；**行内控件仍是 28 并竖直居中**，不把整行压成 28。
+    - `textarea` 与多行编辑器**不在这一档**：行动输入 44 / 节点提示词 120 / 提示词正文 160 各自保留。
+    - 判据：`v2/e2e/controls.spec.js`。
+18. 🔴 **编辑器四个面板标题**（老板 2026-11-25 晚）：左 `状态树` / 细条 `工作流` /
+    中 `编辑·<选中的名字>`（节点名 / 元素名 / 提示词标题；没选 = `编辑`）/ 右 `公共提示词`；
+    四条同版式（41px 高度 = `--control-h` + 13px、6px 8px 内边距、1px 实线下边框），
+    各带 `data-panel-title`，加号按钮在标题条外。中栏字段表不再自带标题（§8.2）。
 
 ### 9.6 本关不做（别在阶段 1 拿它们当判据）
 

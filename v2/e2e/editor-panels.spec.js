@@ -98,12 +98,16 @@ test.describe('右栏：名字 + 读眼睛 + ×，没有输入框', () => {
 })
 
 test.describe('没有教程提示', () => {
-  test('编辑器 S0：中栏空态没有「未选择」这类提示，左栏没有 .hint', async ({ page }) => {
+  test('编辑器 S0：中栏只有「编辑」标题、空态没有「未选择」这类提示，左栏没有 .hint', async ({ page }) => {
     await openEditor(page)
     const middle = page.locator('[data-col="middle"]')
-    await expect(middle).toHaveText('')
+    // 面板 chrome（CONTRACT §8.2）：S0 的中栏也有标题条，但它只是「编辑」两个字；
+    // 空态本体（[data-empty-middle]）仍然一个字都没有 —— 这条判据量的还是「没有教程提示」。
+    await expect(middle.locator('[data-panel-title]')).toHaveText('编辑')
+    const emptyMiddle = middle.locator('[data-empty-middle]')
+    await expect(emptyMiddle).toHaveText('')
     await expect(page.locator('[data-page="editor"] .hint')).toHaveCount(0)
-    expect(await middle.textContent()).not.toContain(OLD_HINTS.emptyMiddle)
+    expect(await emptyMiddle.textContent()).not.toContain(OLD_HINTS.emptyMiddle)
   })
 
   test('没有预设时：中栏不再挂「还没有模型预设」这句提示（下拉仍是禁用的）', async ({ page }) => {

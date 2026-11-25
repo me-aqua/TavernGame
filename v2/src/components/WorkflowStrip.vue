@@ -23,29 +23,36 @@ const isUpstream = (index: number): boolean => selectedIndex.value >= 0 && index
 
 <template>
   <div class="strip" data-workflow-strip>
-    <div v-for="(node, index) in nodes" :key="node.id" class="row">
-      <button
-        type="button"
-        class="node"
-        :class="{ selected: node.id === selectedId }"
-        :data-node-id="node.id"
-        :data-selected="node.id === selectedId ? 'true' : 'false'"
-        @click="$emit('select', node.id)"
-      >
-        {{ node.name }}
-      </button>
-      <button
-        v-if="isUpstream(index)"
-        type="button"
-        class="chip"
-        data-read-upstream
-        :data-upstream-id="node.id"
-        :data-on="readsUpstream.includes(node.id) ? 'true' : 'false'"
-        :title="t('editor.upstreamEye')"
-        @click.stop="$emit('toggle-read', node.id)"
-      >
-        {{ t('editor.eyeRead') }}
-      </button>
+    <div class="panel-head">
+      <div class="col-title" data-panel-title>
+        <span class="ellipsis">{{ t('editor.workflowTitle') }}</span>
+      </div>
+    </div>
+    <div class="rows">
+      <div v-for="(node, index) in nodes" :key="node.id" class="row">
+        <button
+          type="button"
+          class="node"
+          :class="{ selected: node.id === selectedId }"
+          :data-node-id="node.id"
+          :data-selected="node.id === selectedId ? 'true' : 'false'"
+          @click="$emit('select', node.id)"
+        >
+          {{ node.name }}
+        </button>
+        <button
+          v-if="isUpstream(index)"
+          type="button"
+          class="chip"
+          data-read-upstream
+          :data-upstream-id="node.id"
+          :data-on="readsUpstream.includes(node.id) ? 'true' : 'false'"
+          :title="t('editor.upstreamEye')"
+          @click.stop="$emit('toggle-read', node.id)"
+        >
+          {{ t('editor.eyeRead') }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -56,13 +63,21 @@ const isUpstream = (index: number): boolean => selectedIndex.value >= 0 && index
   width: 96px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 6px;
   border-left: 1px solid var(--line);
   border-right: 1px solid var(--line);
   background: var(--panel-2);
   min-height: 0;
+  overflow: hidden;
+}
+
+.rows {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .row {
@@ -75,7 +90,7 @@ const isUpstream = (index: number): boolean => selectedIndex.value >= 0 && index
 .node {
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 24px;
+  height: var(--control-h);
   font-size: var(--fs3);
   overflow: hidden;
   text-overflow: ellipsis;

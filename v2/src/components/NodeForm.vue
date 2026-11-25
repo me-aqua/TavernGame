@@ -35,11 +35,6 @@ function onHistory(event: Event): void {
 
 <template>
   <div class="form stack">
-    <div class="form-head row">
-      <span class="form-title ellipsis">{{ node.name }}</span>
-      <span class="muted">{{ node.type }}</span>
-    </div>
-
     <label class="field-row">
       <span class="field-label">{{ t('editor.nodePreset') }}</span>
       <select
@@ -84,15 +79,6 @@ function onHistory(event: Event): void {
   min-height: 0;
   height: 100%;
   overflow: auto;
-}
-
-.form-head {
-  justify-content: space-between;
-}
-
-.form-title {
-  font-size: var(--fs1);
-  font-weight: 600;
 }
 
 .grow {

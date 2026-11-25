@@ -123,6 +123,11 @@ const REASONINGS: Reasoning[] = ['off', 'low', 'medium', 'high']
   min-width: 0;
 }
 
+/* 预设里的每一行（label + 输入框 / 删除按钮）也是 36 的行容器：控件 28 居中 */
+.preset .row {
+  height: var(--row-h);
+}
+
 .grow {
   flex: 1 1 auto;
 }

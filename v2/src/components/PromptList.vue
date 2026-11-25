@@ -23,11 +23,13 @@ defineEmits<{
 
 <template>
   <div class="prompt-list" data-prompt-list>
-    <div class="col-title">
-      <span class="ellipsis">{{ t('editor.promptsTitle') }}</span>
+    <div class="panel-head">
+      <div class="col-title" data-panel-title>
+        <span class="ellipsis">{{ t('editor.promptsTitle') }}</span>
+      </div>
       <button
         type="button"
-        class="icon"
+        class="icon panel-head-action"
         data-add-prompt
         :title="t('editor.addPrompt')"
         :aria-label="t('editor.addPrompt')"
@@ -84,6 +86,7 @@ defineEmits<{
 }
 
 .blocks {
+  flex: 1 1 auto;
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -95,7 +98,8 @@ defineEmits<{
   gap: 4px;
   align-items: center;
   min-width: 0;
-  padding: 4px 6px;
+  height: var(--row-h);
+  padding: 3px 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);

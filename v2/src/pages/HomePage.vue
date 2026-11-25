@@ -318,7 +318,8 @@ function go(hash: string): void {
   gap: 4px 6px;
   align-items: center;
   min-width: 0;
-  padding: 5px 6px;
+  height: var(--row-h);
+  padding: 3px 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-2);
