@@ -43,7 +43,7 @@ try {
  *   · 盘上的卡读不出来（旧格式 / 坏了一份）⇒ 不种、不写标记（覆盖就再也拿不回来了），
  *     错误留给首页的读盘路径去撞、去显示（`HomePage` 的 `loadFailed`）；
  *   · 内置示例卡本校本就不合法 ⇒ 不种、也不写标记（坏的是随构建发布的资产，不是玩家数据），
- *     由 `v2/tests/sample.test.js` 在 CI 里拦，别等它在玩家机器上炸启动。
+ *     由 `v2/tests/boundaries.test.js` 在 CI 里拦，别等它在玩家机器上炸启动。
  */
 if (settingsReadable && settings.sampleSeeded !== true) {
   let stored: Card[] | null = null
