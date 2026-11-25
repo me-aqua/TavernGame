@@ -10,13 +10,17 @@
  * `streaming` 是**本回合正在长出来的那段正文**：它还没落盘，所以不进 `items`；
  * 中途按「停止」时把 `streaming` 清空，故事流就回到本回合开始前的样子（存档一个字没动）。
  *
+ * `generating` = 这一回合在跑、但**第一段正文还没到**：故事流末尾挂一行「生成中……」。
+ * 它和 `streaming` 互斥（第一段一到就换成正文），也不进 `items` —— 它不是故事，是一句状态。
+ * 带 `pending` 的那条 action 是对话页的**乐观副本**（还没落盘），本组件只负责把它画出来。
+ *
  * 空的段落（没有思考、没有工具调用）**不画空框** —— 没发生的事不该占一行。
  */
 import { t } from '../i18n'
 import type { TokenUsage } from '../core/types'
 import type { StoryItem } from './types'
 
-defineProps<{ items: StoryItem[]; streaming: string }>()
+defineProps<{ items: StoryItem[]; streaming: string; generating: boolean }>()
 
 /** trace 卡片的用量文案：入 / 出两个数；没有用量就直说，不拿 0 冒充 */
 function traceTokens(usage: TokenUsage | null): string {
@@ -33,9 +37,16 @@ function statsTokens(usage: TokenUsage | null): string {
 
 <template>
   <div class="story" data-story>
-    <p v-if="items.length === 0 && streaming === ''" class="story-empty muted">{{ t('play.emptyStory') }}</p>
+    <p v-if="items.length === 0 && streaming === '' && !generating" class="story-empty muted">
+      {{ t('play.emptyStory') }}
+    </p>
     <template v-for="(item, index) in items" :key="index">
-      <div v-if="item.type === 'action' || item.type === 'narration'" class="line" :data-line="item.type">
+      <div
+        v-if="item.type === 'action' || item.type === 'narration'"
+        class="line"
+        :data-line="item.type"
+        :data-pending-action="item.pending ? 'true' : null"
+      >
         {{ item.text }}
       </div>
       <article
@@ -103,6 +114,7 @@ function statsTokens(usage: TokenUsage | null): string {
         </span>
       </div>
     </template>
+    <div v-if="generating" class="line generating" data-generating>{{ t('play.generating') }}</div>
     <div v-if="streaming !== ''" class="line" data-line="narration">{{ streaming }}</div>
   </div>
 </template>
@@ -142,6 +154,11 @@ function statsTokens(usage: TokenUsage | null): string {
 
 .line[data-line='narration'] {
   color: var(--ink);
+}
+
+/* 「生成中……」：一句状态，不是叙事 —— 用弱一档的颜色，不占 data-line 的钩子 */
+.generating {
+  color: var(--ink-soft);
 }
 
 .trace {

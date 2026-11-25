@@ -27,6 +27,7 @@ import {
   MOCK_PRESET,
   openAiSse,
   openStory,
+  readRaw,
   readStorage,
   slowMock,
   traceCard,
@@ -291,5 +292,137 @@ test.describe('对话页：调试开关（读数内联在故事流里）', () =>
     // ⚠️ 这里必须 `reload()`：goto 同一个 hash URL 是**同文档导航**，SPA 不会重挂组件，状态还在。
     await page.reload()
     await expect(page.locator('[data-debug-toggle]')).toHaveAttribute('data-on', 'false')
+  })
+})
+
+test.describe('对话页：发送即见（乐观行动 / 生成中）', () => {
+  /**
+   * 「首字延迟」的服务商替身（CONTRACT §8.3）：前三个节点立刻回，**输出节点卡在 gate 上**，
+   * 直到调用方 `releaseOutput()` 才回第一段正文。
+   *
+   * 为什么不用 mock：mock 几百毫秒就跑完了，「生成中」与「首字之后」这两个中间态根本看不见。
+   * 为什么用 gate 而不是 `setTimeout`：定时器会把判据钉在「机器多快」上；gate 让中间态**停在原地**，
+   * 断言完再放行。
+   */
+  async function stubGatedOutput(page) {
+    let release
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    const requests = []
+    const texts = ['TIME_TEXT', 'CHECK_TEXT', 'EXTRA_TEXT', 'OUTPUT_TEXT']
+    const reply = (intercepted, text) =>
+      intercepted.fulfill({
+        status: 200,
+        headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
+        body: openAiSse([text]),
+      })
+
+    await page.route('**/chat/completions', async (intercepted) => {
+      const index = requests.length
+      requests.push(index)
+      if (index !== 3) {
+        await reply(intercepted, texts[index] ?? 'TAIL_TEXT')
+        return
+      }
+      await gate
+      try {
+        await reply(intercepted, texts[3])
+      } catch {
+        // 停止之后这次请求已被取消：fulfill 失败是预期（不是产品错）
+      }
+    })
+    return { requests, releaseOutput: () => release() }
+  }
+
+  /** 空开场 + 一个真预设：故事流里不会多出「开场」那条 narration，计数才干净 */
+  function gatedStorage() {
+    const card = cardWithOpening('')
+    return {
+      [KEYS.cards]: [card],
+      [KEYS.saves]: [makeSave(card)],
+      [KEYS.presets]: [REAL_PRESET],
+    }
+  }
+
+  test('行动气泡立刻上屏 + 生成中；首个 trace 到了生成中还挂着；首字一到生成中消失、气泡仍在、收尾只有一个', async ({
+    page,
+  }) => {
+    const { requests, releaseOutput } = await stubGatedOutput(page)
+    await boot(page, { storage: gatedStorage() })
+    // 调试开着：输出节点还卡着时，前三个节点的 trace 卡片已经会先出来
+    await openStory(page, CARD_ID, 's1', { debug: true })
+    await expect(page.locator('[data-turn]')).toHaveText('0')
+
+    await page.locator('[data-action-input]').fill('act one')
+    await page.locator('[data-send]').click()
+
+    // ① 点下去当场：行动气泡（pending 副本）+「生成中……」；回合数还是 0、正文一条都没有
+    const pending = page.locator('[data-line="action"][data-pending-action]')
+    await expect(pending, '发送后行动要立刻上屏').toHaveText('act one')
+    await expect(page.locator('[data-generating]')).toHaveText('生成中……')
+    await expect(page.locator('[data-turn]')).toHaveText('0')
+    await expect(page.locator('[data-line="narration"]')).toHaveCount(0)
+
+    // ② 前三个节点跑完（trace 卡片已出现），输出节点还没出首字 ⇒ 「生成中」必须还挂着
+    await expect(page.locator('[data-trace]'), 'time/check/extra 的 trace 先到').toHaveCount(3, {
+      timeout: 10_000,
+    })
+    await expect(page.locator('[data-generating]'), '首字没到之前，生成中要一直挂着').toBeVisible()
+    await expect(page.locator('[data-line="action"][data-pending-action]'), '行动气泡也还在').toBeVisible()
+    await expect(page.locator('[data-turn]')).toHaveText('0')
+
+    // ③ 放行首字：生成中消失、换成正交流出来的 narration，行动气泡留着且只有一条
+    releaseOutput()
+    await expect(page.locator('[data-generating]'), '首字一到就该撤掉').toHaveCount(0, {
+      timeout: 10_000,
+    })
+    await expect(page.locator('[data-line="action"]'), '行动气泡不许随首字一起消失').toHaveCount(1)
+    await expect(page.locator('[data-line="action"]')).toHaveText('act one')
+
+    // ④ 收尾：正好一条 action 气泡、没有 pending 副本、正文是 output 的、存档里也只有一条 action
+    await expect(page.locator('[data-turn]')).toHaveText('1', { timeout: 15_000 })
+    await expect(page.locator('[data-stop]')).toHaveCount(0)
+    await expect(page.locator('[data-pending-action]'), '成功后乐观副本要撤掉（不许两个气泡）').toHaveCount(0)
+    await expect(page.locator('[data-line="action"]')).toHaveCount(1)
+    await expect(page.locator('[data-line="narration"]').last()).toHaveText('OUTPUT_TEXT')
+    expect(requests, '四个节点各一次调用').toHaveLength(4)
+
+    const save = (await readStorage(page, KEYS.saves))[0]
+    expect(save.turn).toBe(1)
+    expect(save.events.filter((event) => event.type === 'action').map((event) => event.text)).toEqual([
+      'act one',
+    ])
+    expect(save.events.filter((event) => event.type === 'narration')).toHaveLength(1)
+  })
+
+  test('首字之前停止：乐观气泡与生成中都撤掉、故事流回到回合前、草稿回来、存档一个字节没动', async ({
+    page,
+  }) => {
+    const { releaseOutput } = await stubGatedOutput(page)
+    await boot(page, { storage: gatedStorage() })
+    await openStory(page, CARD_ID, 's1')
+    const before = await readRaw(page, KEYS.saves)
+
+    await page.locator('[data-action-input]').fill('act one')
+    await page.locator('[data-send]').click()
+    await expect(page.locator('[data-line="action"][data-pending-action]')).toHaveText('act one')
+    await expect(page.locator('[data-generating]')).toBeVisible()
+
+    await page.locator('[data-stop]').click()
+
+    // 气泡与「生成中」一起撤掉；故事流回到本轮开始前（空开场 ⇒ 两条都是 0）
+    await expect(page.locator('[data-pending-action]')).toHaveCount(0)
+    await expect(page.locator('[data-generating]')).toHaveCount(0)
+    await expect(page.locator('[data-line="action"]')).toHaveCount(0)
+    await expect(page.locator('[data-line="narration"]')).toHaveCount(0)
+    await expect(page.locator('[data-turn]')).toHaveText('0')
+    // 草稿回来、输入框可用、停止按钮消失
+    await expect(page.locator('[data-stop]')).toHaveCount(0)
+    await expect(page.locator('[data-action-input]')).toBeEnabled()
+    await expect(page.locator('[data-action-input]')).toHaveValue('act one')
+    // 存档一个字节都没写：比原始字符串，不是比解析后的对象
+    expect(await readRaw(page, KEYS.saves), '停止不许写存档').toBe(before)
+    releaseOutput()
   })
 })

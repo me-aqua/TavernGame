@@ -498,6 +498,8 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - **读 / 写是看得见的 chip**（老板 2026-11-25）：所有读/写按钮共用全局 `.chip`
   —— 关着时也有底色与边框（不是幽灵按钮），**开着 = `--accent` 实心 + `--accent-ink` 文字**；
   比旧的 24px 高（26×30 起），文字标签「读 / 写」保留。三处：状态树读/写、细条上游读、右栏提示词读。
+  **形状是小圆角方块**（老板 2026-11-25 晚：`border-radius: 3px`，不是胶囊）；
+  调试开关 / 发送 / 停止这类普通按钮**不跟着改**，仍是全局 `button` 的 6px 圆角（§9.5 #15）。
 - 状态树 `[data-state-tree]`：每行 `[data-state-item="<code>"]`，行内 `[data-state-code]`（显示编码）、
   `[data-state-name]`。
 - 中栏四形态（互斥，按选中对象切换）：
@@ -544,12 +546,19 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   **只有 `output` 节点的文本进故事流**（`opening` 是卡上的静态正文，不是引擎事件）。
 - 顶部：`[data-turn]`（`textContent` **恰好是回合数**，纯阿拉伯数字）、`[data-status]`（保存状态，完成一回合后非空）、
   `[data-back]`。
-- 发送：`[data-send]` → 禁用输入框、显示 `[data-stop]`、流式写入本回合 narration 元素；
-  完成后隐藏 `[data-stop]`、恢复输入、更新 `[data-turn]` 与 `[data-status]`，并把结果写回 `tg2.saves`。
-- 停止：点 `[data-stop]` ⇒ 中止本轮、**丢弃本轮半截文本**（故事流回到本轮开始前）、
+- 发送（老板 2026-11-25 晚）：`[data-send]` / 回车 → **立刻**把这一句行动当
+  `[data-line="action"][data-pending-action]` 挂到故事流末尾（乐观副本，**排在本回合 trace 之前**）；
+  同时禁用输入框、显示 `[data-stop]`、清掉上一回合的流式正文。
+  - **第一段正文还没到**时，行动下面一行 `[data-generating]`，文案 = `play.generating`「生成中……」；
+  - 第一段 `chunk` 一到 ⇒ `[data-generating]` 消失、换成 `[data-line="narration"]` 流式正文，
+    行动气泡留着；调试开着时 trace 卡片照常按节点顺序出现，`[data-generating]` **只有一行**、
+    不与 trace 卡片重复；
+  - 回合成功 ⇒ 撤掉乐观副本（`save.events` 里已经有一条同样的 `action`，屏幕上不能出现两个气泡）、
+    隐藏 `[data-stop]`、恢复输入、更新 `[data-turn]` 与 `[data-status]`，并把结果写回 `tg2.saves`。
+- 停止：点 `[data-stop]` ⇒ 中止本轮、**丢弃本轮半截文本与乐观行动气泡**（故事流回到本轮开始前）、
   输入框恢复、`[data-action-input]` 保留刚才写的行动、存档不变。
 - 出错：`[data-error]` 出现，其中 `[data-error-code]` = 错误码字符串、`[data-error-next]` = 下一步中文；
-  界面不白屏、不丢卡（判据：`v2/e2e/errors.spec.js`）。
+  乐观行动气泡撤掉、草稿留在输入框、存档不变；界面不白屏、不丢卡（判据：`v2/e2e/errors.spec.js`）。
 - **调试读数内联进故事流**（老板 2026-11-25；**没有右侧调试面板**，`[data-debug]` 不存在）：
   故事流按 `save.events` 的顺序排成一条时间轴 —— `action` / `narration` **永远在**；
   `trace` 卡片**只在调试开着时**出现（一节点一张，段落顺序：提示词组装 → 思考 → 工具调用 → 输出 →
@@ -709,6 +718,14 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
     - provider 若发 `reasoning-delta` 就记进 trace 的 `thinking`；没有就是空串，**不造假**。
     - 读/写按钮统一成 `.chip`（关着有底色边框、开着 accent 实心），三处共用一份样式（§8.2）。
       ⇒ SPEC.md §5 里「调试面板」那段与 §9 的 `[data-debug-*]` 钩子已过时，待组长同步。
+15. 🔴 **读/写 chip 改成小圆角方块 + 发送时的乐观行动**（老板 2026-11-25 晚）：
+    - `.chip` 的 `border-radius` 从 999px 改成 **3px**；尺寸与配色不变。
+      **只有读/写/上游这三类 chip 变方** —— 调试开关、发送、停止这些普通按钮不动，
+      仍是全局 `button` 的 6px 圆角。
+    - 发送即见：行动先以 `[data-pending-action]` 的 action 气泡乐观显示；第一段正文未到时
+      下面一行 `[data-generating]`「生成中……」；正文一到换成流式 narration、行动气泡保留。
+    - 回合成功 ⇒ 撤掉乐观副本（`save.events` 里已有这条 action，不许出现两个气泡）；
+      停止 / 出错 ⇒ 副本与半截正文一起撤掉，存档不变、草稿留在输入框（§8.3）。
 
 ### 9.6 本关不做（别在阶段 1 拿它们当判据）
 

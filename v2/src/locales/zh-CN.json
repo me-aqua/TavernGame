@@ -49,6 +49,7 @@
   "play.send": "发送",
   "play.stop": "停止",
   "play.inputPlaceholder": "写下这一回合你要做的事",
+  "play.generating": "生成中……",
   "play.debugToggle": "调试",
   "play.tracePrompt": "提示词组装",
   "play.traceThinking": "思考",

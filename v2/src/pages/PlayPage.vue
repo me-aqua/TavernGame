@@ -9,6 +9,12 @@
  *   · **没有封面 / 开始按钮**：打开存档直接看到「开场」这一块提示词的正文（故事的第一段），
  *     下面是故事流与输入区。
  *
+ * 发送（老板 2026-11-25）：点发送 / 回车后**立刻**把这一句行动当 `[data-pending-action]` 挂到
+ * 时间轴上（乐观副本，排在本回合的 trace 之前）；第一段正文还没到时，下面一行
+ * `[data-generating]`「生成中……」。正文一到就换成流式 narration、行动气泡留着；
+ * 回合成功时存档事件里已经有这条行动 ⇒ 撤掉副本（不重复），停止 / 出错则副本与半截正文一起撤掉
+ * （存档不变，草稿还在输入框里）。
+ *
  * 右上角 `[data-debug-toggle]` 决定**故事流里看不看逐节点读数**：开着时每个节点一张卡片
  * （提示词组装 / 思考 / 工具调用 / 输出 / 用量与耗时），关着时只剩故事与每回合一行合计读数。
  * `?debug=1` 只是它的初始状态。
@@ -44,6 +50,11 @@ const loadFailed = ref(false)
 const running = ref(false)
 const streaming = ref('')
 const draft = ref('')
+/**
+ * 这一回合**还没落盘**的行动：点发送就挂上故事流（乐观），回合成功 / 停止 / 出错时撤掉。
+ * 成功时 `save.events` 里已经有一条同样的 `action`，留着它就是两个气泡。
+ */
+const pendingAction = ref('')
 const status = ref('')
 const debugEnabled = ref(new URLSearchParams(location.search).get('debug') === '1')
 /** 本轮**还没落盘**的 trace / turnStats：边跑边显示，回合结束就并进 `save.events` */
@@ -60,10 +71,12 @@ const openingBody = computed(
  *   · action / narration：永远在；
  *   · trace：只在调试开着时放进来（历史回合的 trace 也在存档里，所以加载旧存档也看得见）；
  *   · turnStats：永远在（紧凑一行合计读数）。
+ * 本回合的乐观行动插在**已落盘事件之后、实时 trace 之前** —— 行动是这一回合的开头。
  */
 const items = computed<StoryItem[]>(() => {
   const timeline: StoryItem[] = []
-  for (const event of [...(save.value?.events ?? []), ...liveEvents.value]) {
+  /** 把一条存档事件翻译成时间轴上的一项（trace 另看调试开关） */
+  const push = (event: SaveEvent) => {
     if (event.type === 'action' || event.type === 'narration') {
       timeline.push({ type: event.type, text: event.text })
     } else if (event.type === 'trace' && debugEnabled.value) {
@@ -72,7 +85,12 @@ const items = computed<StoryItem[]>(() => {
       timeline.push({ type: 'turnStats', stats: event.detail as TurnStatsDetail })
     }
   }
-  if (openingBody.value !== '') timeline.unshift({ type: 'narration', text: openingBody.value })
+  if (openingBody.value !== '') timeline.push({ type: 'narration', text: openingBody.value })
+  for (const event of save.value?.events ?? []) push(event)
+  if (pendingAction.value !== '') {
+    timeline.push({ type: 'action', text: pendingAction.value, pending: true })
+  }
+  for (const event of liveEvents.value) push(event)
   return timeline
 })
 
@@ -112,6 +130,7 @@ async function send(): Promise<void> {
   streaming.value = ''
   error.value = null
   liveEvents.value = []
+  pendingAction.value = action
   controller = new AbortController()
   try {
     const result = await runTurn({
@@ -142,6 +161,8 @@ async function send(): Promise<void> {
     streaming.value = ''
     // 中止 / 出错时这一回合的存档没写：刚收到的 trace 也不能留在屏幕上
     liveEvents.value = []
+    // 乐观行动只在跑的时候存在：成功时存档里已经有这条 action，中止 / 出错时它不算数
+    pendingAction.value = ''
     controller = null
   }
 }
@@ -178,7 +199,7 @@ function goBack(): void {
 
     <div v-if="!loadFailed" class="page-body">
       <div class="play-main">
-        <StoryView :items="items" :streaming="streaming" />
+        <StoryView :items="items" :streaming="streaming" :generating="running && streaming === ''" />
 
         <div class="composer">
           <textarea

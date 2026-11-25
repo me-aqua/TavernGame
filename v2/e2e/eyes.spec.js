@@ -341,4 +341,57 @@ test.describe('读 / 写控件：看得见的 chip（老板 2026-11-25）', () =
     expect(after.background, '开着的 chip 要换底色（accent 实心）').not.toBe(before.background)
     expect(after.background).not.toBe('rgba(0, 0, 0, 0)')
   })
+
+  test('三类读 / 写 chip 都是小圆角（>0 且 ≤4px）；发送 / 调试 / 返回不跟着变（>4px）', async ({ page }) => {
+    const card = makeCard()
+    await boot(page, {
+      storage: {
+        [KEYS.cards]: [card],
+        [KEYS.saves]: [makeSave(card)],
+        [KEYS.presets]: [MOCK_PRESET],
+      },
+    })
+    await page.goto(`${APP_PATH}${route.edit(CARD_ID)}`)
+    await expect(page.locator('[data-page="editor"]')).toBeVisible()
+    // 判定节点：状态树读/写、细条上游读、右栏提示词读 —— 三类 chip 同屏
+    await page.locator('[data-node-id="check"]').click()
+
+    // 读回每一颗 chip 的圆角（浏览器侧代码一律模板串，见 support/app.js 的约定）
+    const chips = await page.evaluate(
+      `(() => {
+        const groups = ['[data-eyes]', '[data-read-upstream]', '[data-prompt-read]']
+        return groups.map((selector) => {
+          const elements = [...document.querySelectorAll(selector)]
+          return {
+            selector,
+            count: elements.length,
+            radii: elements.map((element) => parseFloat(getComputedStyle(element).borderTopLeftRadius)),
+          }
+        })
+      })()`,
+    )
+    for (const group of chips) {
+      expect(group.count, `${group.selector} 一颗都没有（判据失去对象）`).toBeGreaterThan(0)
+      for (const radius of group.radii) {
+        expect(Number.isFinite(radius), `${group.selector} 的圆角没读到数字（量具坏了）`).toBe(true)
+        expect(radius, `${group.selector} 不是小圆角：${radius}px`).toBeGreaterThan(0)
+        expect(radius, `${group.selector} 还是胶囊圆角：${radius}px`).toBeLessThanOrEqual(4)
+      }
+    }
+
+    // 普通按钮不跟着改（CONTRACT §8.2 / §9.5 #15）：发送 / 调试 / 返回仍是全局 6px
+    await openStory(page, CARD_ID, 's1')
+    const buttons = await page.evaluate(
+      `(() => {
+        return ['[data-send]', '[data-debug-toggle]', '[data-back]'].map((selector) => {
+          const element = document.querySelector(selector)
+          return [selector, element ? parseFloat(getComputedStyle(element).borderTopLeftRadius) : null]
+        })
+      })()`,
+    )
+    for (const [selector, radius] of buttons) {
+      expect(Number.isFinite(radius), `${selector} 不在页面上`).toBe(true)
+      expect(radius, `${selector} 不该被改成 chip 的小圆角`).toBeGreaterThan(4)
+    }
+  })
 })
