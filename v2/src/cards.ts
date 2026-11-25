@@ -5,13 +5,14 @@
  * 抄两份迟早会分叉（一份改了初值默认，另一份没改）。
  */
 import type { Card, PromptBlock, StateElement, Tree } from './core/types'
+import { t } from './i18n'
 
 /** 新建卡的默认四节点：id 与 name 都固定（CONTRACT §2.1 的表） */
 const DEFAULT_CHAIN: Card['chain'] = [
   {
     id: 'time',
     type: 'time',
-    name: 'time',
+    name: t('default.node.time'),
     reads: [],
     writable: ['0'],
     readsUpstream: false,
@@ -21,7 +22,7 @@ const DEFAULT_CHAIN: Card['chain'] = [
   {
     id: 'check',
     type: 'normal',
-    name: 'check',
+    name: t('default.node.check'),
     reads: [],
     writable: [],
     readsUpstream: false,
@@ -31,7 +32,7 @@ const DEFAULT_CHAIN: Card['chain'] = [
   {
     id: 'output',
     type: 'output',
-    name: 'output',
+    name: t('default.node.output'),
     reads: [],
     writable: [],
     readsUpstream: true,
@@ -41,7 +42,7 @@ const DEFAULT_CHAIN: Card['chain'] = [
   {
     id: 'proof',
     type: 'proof',
-    name: 'proof',
+    name: t('default.node.proof'),
     reads: [],
     writable: [],
     readsUpstream: true,
@@ -56,7 +57,7 @@ export function freshCard(id: string, name: string): Card {
     schemaVersion: 1,
     id,
     name,
-    state: [{ code: '0', name: 'time', note: '', type: 'string', initial: { day: 1, hour: 8 } }],
+    state: [{ code: '0', name: t('default.state.time'), note: '', type: 'string', initial: { day: 1, hour: 8 } }],
     chain: DEFAULT_CHAIN.map((node) => ({
       ...node,
       reads: [...node.reads],

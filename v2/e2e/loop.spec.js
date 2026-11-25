@@ -51,7 +51,11 @@ test('建卡 → 编内容 → 存档 → 三回合 → 刷新还在', async ({ 
   await page.reload()
   const cards = await readStorage(page, KEYS.cards)
   expect(cards).toHaveLength(1)
-  expect(cards[0].state.map((element) => element.name)).toEqual(['time', 'place', 'mood'])
+  // 时间元素的名字是**文案**（`cards.ts` 给的是中文「时间」），我们新加的两个是作者自己起的
+  expect(cards[0].state.map((element) => element.name)).toEqual(['时间', 'place', 'mood'])
+  // 四个固定节点的名字也是文案（id 仍是 ASCII，选择器靠 id）
+  expect(cards[0].chain.map((node) => node.name)).toEqual(['时间', '判定', '输出', '校对'])
+  expect(cards[0].chain.map((node) => node.id)).toEqual(['time', 'check', 'output', 'proof'])
   expect(cards[0].state[1].initial).toBe('VAL_PLACE_A1')
   expect(cards[0].state[2].initial).toBe('VAL_MOOD_B2')
   expect(cards[0].prompts.map((prompt) => prompt.body)).toEqual(['BODY_ONE', 'BODY_TWO'])

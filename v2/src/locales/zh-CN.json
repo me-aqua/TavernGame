@@ -134,5 +134,10 @@
   "error.E_UNKNOWN.message": "出了个没预料到的问题",
   "error.E_UNKNOWN.nextStep": "刷新页面重试；还不行就看浏览器控制台",
   "error.E_ABORTED.message": "你中止了本回合",
-  "error.E_ABORTED.nextStep": "回到故事流，重新发送行动"
+  "error.E_ABORTED.nextStep": "回到故事流，重新发送行动",
+  "default.node.time": "时间",
+  "default.node.check": "判定",
+  "default.node.output": "输出",
+  "default.node.proof": "校对",
+  "default.state.time": "时间"
 }

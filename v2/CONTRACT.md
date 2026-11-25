@@ -105,16 +105,19 @@ v2/
   其余元素 `initial` 是字符串。阶段 1 时间初值**只读**（界面不提供编辑），`'0'` 不可删除。
 - `reads` 是**混合数组**：`prompts[].id` 表示读这块公共提示词；`state[].code` 表示读这个元素。
   同一个字符串不会同时是两者（id 由创建方保证不撞码）。
-- 新建卡的默认四节点（顺序固定；**id 与 name 都固定成下面这四个**，测试与文档靠它点名）：
+- 新建卡的默认四节点（顺序固定；**id 固定成下面这四个 ASCII 记号**，名字是**给玩家看的文案**）：
 
   | #   | id       | type     | 默认 name | reads | writable                   | readsUpstream | historyTurns | prompt |
   | --- | -------- | -------- | --------- | ----- | -------------------------- | ------------- | ------------ | ------ |
-  | 1   | `time`   | `time`   | `time`    | `[]`  | `['0']`                    | `false`       | `0`          | `''`   |
-  | 2   | `check`  | `normal` | `check`   | `[]`  | 建卡时全部非 `'0'` 的 code | `false`       | `0`          | `''`   |
-  | 3   | `output` | `output` | `output`  | `[]`  | `[]`                       | `true`        | `3`          | `''`   |
-  | 4   | `proof`  | `proof`  | `proof`   | `[]`  | `[]`                       | `true`        | `0`          | `''`   |
+  | 1   | `time`   | `time`   | 时间      | `[]`  | `['0']`                    | `false`       | `0`          | `''`   |
+  | 2   | `check`  | `normal` | 判定      | `[]`  | 建卡时全部非 `'0'` 的 code | `false`       | `0`          | `''`   |
+  | 3   | `output` | `output` | 输出      | `[]`  | `[]`                       | `true`        | `3`          | `''`   |
+  | 4   | `proof`  | `proof`  | 校对      | `[]`  | `[]`                       | `true`        | `0`          | `''`   |
 
-- 新建卡的 `state = [{ code:'0', name:'time', note:'', type:'string', initial:{day:1,hour:8} }]`，`prompts = []`。
+  `id` 是**结构**（选择器、链里引用、测试靠它），必须 ASCII 且稳定；`name` 是**展示文案**，
+  住在 `locales/zh-CN.json`（不许在 `.ts` 里写中文字面量，§9.3）。
+
+- 新建卡的 `state = [{ code:'0', name:'时间', note:'', type:'string', initial:{day:1,hour:8} }]`，`prompts = []`。
   之后**新增的状态元素 / 提示词块不自动进入任何节点的 `reads` / `writable`** —— 作者用眼睛打开。
 - `historyTurns` 数的是**已完成**的回合；本回合的玩家行动**恒为历史块的最后一条**（§5）。
 
