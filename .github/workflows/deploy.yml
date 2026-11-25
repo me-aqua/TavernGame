@@ -43,6 +43,12 @@ jobs:
       - name: 构建（含类型检查）
         run: npm run build
 
+      # v2 是独立的 Vite 应用，产物落在 dist/v2；必须在旧站之后构建 ——
+      # 旧站的 vite build 会清空 dist/，顺序反了就会把 v2 抹掉。
+      # v2:build 自己先跑文件长度闸（v2:lines），所以部署绕不过那道闸。
+      - name: 构建 v2（含文件长度闸）
+        run: npm run v2:build
+
       - uses: actions/configure-pages@v6
 
       - uses: actions/upload-pages-artifact@v5

@@ -1,0 +1,29 @@
+{
+  // v2 的类型收口。两个读者：`vue-tsc --noEmit -p v2/tsconfig.json`（构建期）
+  // 与仓库 eslint 的 `projectService`（它按文件位置找最近的 tsconfig，找不到就报错）。
+  // ⚠️ 旧站的 tsconfig.app.json 是根目录锚定的（src/** + tests/**），照不到 v2/，所以这份是必需的。
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+
+    "jsx": "preserve",
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  // 单测（tests/**/*.js）故意不进这里：判据量行为，类型由本配置 + src 收口。
+  // 组件故事（stories/**/*.ts）要进：仓库的 eslint 按项目服务做类型感知检查，
+  // 不在 include 里的 .ts 会被报成「找不到项目」—— 故事也是手写代码，一样要过 lint。
+  "include": ["src/**/*.ts", "src/**/*.vue", "stories/**/*.ts", ".storybook/**/*.ts"]
+}

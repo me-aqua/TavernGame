@@ -1,0 +1,127 @@
+/**
+ * 模块边界判据（CONTRACT §1 / §9.3）。
+ *
+ * 这一层量的是「代码长在哪、往哪看」：
+ *   · 核心模块（storage / errors / prompt / engine / schema）必须以 `.ts` 存在 —— 单测的入口就是它们；
+ *   · `core/**` 不许 import Vue、不许碰 DOM（引擎要在 node 里跑）；
+ *   · 全项目不许 import 旧站（`../../src/`、`@/`）、不许 import react / svelte、不许引入 vue-router / pinia；
+ *   · 中文文案必须住在 `.json` 里（ascii 钩子查 `.ts/.vue/.js/.html/.css`，`.json` 是唯一干净的落点）。
+ *
+ * ⚠️ 「一个文件都没扫到」不是通过：`files.length === 0` 时先在这里红。
+ */
+import { describe, expect, it } from 'vitest'
+import { readFileSync, readdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { loadModule } from './support/load.js'
+
+/** `v2/src` 的绝对路径（本文件在 `v2/tests/`） */
+const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
+
+/** 递归列源文件（`.json` 也算：文案表要在这里被点名）；目录不存在直接给出契约级的人话 */
+function sourceFiles() {
+  let entries
+  try {
+    entries = readdirSync(SRC, { recursive: true })
+  } catch (cause) {
+    throw new Error('v2/src 不存在 —— 阶段 1 的实现一个文件都还没写（CONTRACT §1）', { cause })
+  }
+  return entries
+    .map((entry) => String(entry).replaceAll('\\', '/'))
+    .filter((entry) => /\.(ts|vue|mjs|html|css|json)$/.test(entry))
+    .sort()
+}
+
+function readSource(relative) {
+  return readFileSync(join(SRC, relative), 'utf8')
+}
+
+/** 在若干文件里找「匹配这些正则」的地方，返回人话清单（空数组 = 干净） */
+function offendersIn(files, patterns) {
+  const offenders = []
+  for (const file of files) {
+    const source = readSource(file)
+    for (const pattern of patterns) {
+      if (pattern.test(source)) offenders.push(`${file} 匹配 ${pattern}`)
+    }
+  }
+  return offenders
+}
+
+describe('模块边界：核心模块在不在', () => {
+  it('入口 + 路由 + 六个 core 模块 + 文案表都在', async () => {
+    const files = sourceFiles()
+    expect(files.length, 'v2/src 下一个源文件都没有 —— 这一层什么也没验').toBeGreaterThan(0)
+    for (const required of [
+      'main.ts',
+      'router.ts',
+      'core/storage.ts',
+      'core/errors.ts',
+      'core/prompt.ts',
+      'core/engine.ts',
+      'core/schema.ts',
+      'locales/zh-CN.json',
+    ]) {
+      expect(files, `缺 ${required}（CONTRACT §1）`).toContain(required)
+    }
+  })
+})
+
+describe('模块边界：core 层不碰界面（node 里能单测）', () => {
+  it('core/** 不 import Vue、不引用 document / window / localStorage 全局', () => {
+    const core = sourceFiles().filter((file) => file.startsWith('core/'))
+    expect(core.length, 'core/ 下一个文件都没有').toBeGreaterThan(0)
+    expect(
+      offendersIn(core, [
+        /from\s+['"]vue['"]/,
+        /from\s+['"]vue\//,
+        /\bdocument\./,
+        /\bwindow\./,
+        /globalThis\.localStorage/,
+      ]),
+    ).toEqual([])
+  })
+
+  it('五个核心模块都能在 node 里 import（没有依赖 DOM 的副作用）', async () => {
+    await loadModule('core/storage.ts', () => import('../src/core/storage.ts'))
+    await loadModule('core/errors.ts', () => import('../src/core/errors.ts'))
+    await loadModule('core/prompt.ts', () => import('../src/core/prompt.ts'))
+    await loadModule('core/engine.ts', () => import('../src/core/engine.ts'))
+    await loadModule('core/schema.ts', () => import('../src/core/schema.ts'))
+  })
+})
+
+describe('模块边界：不往旧站和别的框架里看', () => {
+  it('全项目不 import 旧站 / react / svelte / vue-router / pinia', () => {
+    expect(
+      offendersIn(sourceFiles(), [
+        /from\s+['"]react/,
+        /from\s+['"]svelte/,
+        /from\s+['"]@sveltejs\//,
+        /from\s+['"]vue-router['"]/,
+        /from\s+['"]pinia['"]/,
+        /from\s+['"]\.\.\/\.\.\/src\//,
+        /from\s+['"]@\//,
+      ]),
+    ).toEqual([])
+  })
+
+  it('项目里没有示例卡 / 旧站卡的痕迹（数据与本体分离）', () => {
+    const offenders = sourceFiles().filter((file) => /cards\/|morningwind/.test(readSource(file)))
+    expect(offenders).toEqual([])
+  })
+})
+
+describe('模块边界：中文文案住在 json 里', () => {
+  it('locales/zh-CN.json 能解析、至少一条、值是字符串', async () => {
+    const files = sourceFiles()
+    expect(files, '缺 locales/zh-CN.json（CONTRACT §9.3）').toContain('locales/zh-CN.json')
+    const table = JSON.parse(readFileSync(join(SRC, 'locales', 'zh-CN.json'), 'utf8'))
+    const entries = Object.entries(table)
+    expect(entries.length, '文案表是空的 —— 界面上每一句中文都得在这').toBeGreaterThan(0)
+    for (const [key, value] of entries) {
+      expect(typeof value, `${key} 的值不是字符串`).toBe('string')
+      expect(value.length, `${key} 是空串`).toBeGreaterThan(0)
+    }
+  })
+})

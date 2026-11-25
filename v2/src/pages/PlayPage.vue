@@ -1,0 +1,238 @@
+<script setup lang="ts">
+/**
+ * 对话页（SPEC §5）：封面 → 故事流 → 输入框 + 发送；流式、可停止、每回合自动存档。
+ *
+ * 两条最要紧的语义：
+ *   · **跑的一律是 `save.cardSnapshot`**（不是 `tg2.cards` 里那张现卡）——
+ *     改卡只影响之后新建的存档，旧存档按它冻结时的那张卡跑（SPEC §9.4）；
+ *   · **停止 = 什么都不写**：本轮半截文本丢掉、故事流回到回合开始前、存档一个字节没动。
+ */
+import { computed, onMounted, ref } from 'vue'
+import DebugPanel from '../components/DebugPanel.vue'
+import ErrorPanel from '../components/ErrorPanel.vue'
+import StoryView from '../components/StoryView.vue'
+import type { StoryLine } from '../components/types'
+import { asAppError, storage } from '../app-context'
+import { AppError } from '../core/errors'
+import type { DebugPayload } from '../core/engine'
+import { runTurn } from '../core/engine'
+import { validateCard, validateSave } from '../core/schema'
+import type { Preset, Save } from '../core/types'
+import { t } from '../i18n'
+import { routeHash } from '../router'
+
+const props = defineProps<{ cardId: string; saveId: string }>()
+
+const save = ref<Save | null>(null)
+const presets = ref<Preset[]>([])
+const nodePresets = ref<Record<string, string>>({})
+const error = ref<AppError | null>(null)
+const running = ref(false)
+const streaming = ref('')
+const draft = ref('')
+const status = ref('')
+const debug = ref<DebugPayload | null>(null)
+const coverOpen = ref(true)
+const debugEnabled = new URLSearchParams(location.search).get('debug') === '1'
+let controller: AbortController | null = null
+
+const lines = computed<StoryLine[]>(() => {
+  const events = save.value?.events ?? []
+  return events
+    .filter((event) => event.type === 'action' || event.type === 'narration')
+    .map((event) => ({ type: event.type as StoryLine['type'], text: event.text }))
+})
+
+onMounted(() => {
+  try {
+    const saves = storage().loadSaves()
+    const found = saves.find((item) => item.id === props.saveId)
+    if (!found)
+      throw new AppError('E_VALIDATION', { message: t('error.missingSave'), nextStep: t('next.home') })
+    if (found.cardId !== props.cardId) {
+      throw new AppError('E_VALIDATION', { message: t('error.cardIdMismatch'), nextStep: t('next.home') })
+    }
+    validateCard(found.cardSnapshot)
+    validateSave(found, found.cardSnapshot)
+    save.value = found
+    presets.value = storage().loadPresets()
+    nodePresets.value = storage().loadNodeModels()[props.cardId] ?? {}
+    if (found.turn > 0) status.value = t('play.status', { turn: found.turn })
+  } catch (cause) {
+    error.value = asAppError(cause)
+  }
+})
+
+function persistSave(next: Save): void {
+  const saves = storage()
+    .loadSaves()
+    .map((item) => (item.id === next.id ? next : item))
+  storage().saveSaves(saves)
+}
+
+async function send(): Promise<void> {
+  const current = save.value
+  const action = draft.value
+  if (!current || running.value || action === '') return
+  running.value = true
+  streaming.value = ''
+  error.value = null
+  controller = new AbortController()
+  try {
+    const result = await runTurn({
+      card: current.cardSnapshot,
+      save: current,
+      presets: presets.value,
+      nodePresets: nodePresets.value,
+      action,
+      signal: controller.signal,
+      onEvent: (event) => {
+        if (event.type === 'chunk') streaming.value += event.text
+      },
+    })
+    save.value = result.save
+    persistSave(result.save)
+    debug.value = result.debug
+    draft.value = ''
+    status.value = t('play.status', { turn: result.save.turn })
+  } catch (cause) {
+    const failure = asAppError(cause)
+    // 停止不是错误现场：半截文本丢掉、输入框留着刚才那句话，不弹错
+    if (failure.code !== 'E_ABORTED') error.value = failure
+  } finally {
+    running.value = false
+    streaming.value = ''
+    controller = null
+  }
+}
+
+function stop(): void {
+  controller?.abort()
+}
+
+function goBack(): void {
+  location.hash = routeHash({ name: 'home' })
+}
+</script>
+
+<template>
+  <div class="page" data-page="play">
+    <header class="page-bar">
+      <button type="button" data-back @click="goBack">{{ t('nav.back') }}</button>
+      <span class="page-title ellipsis">{{ save ? save.cardSnapshot.name : cardId }}</span>
+      <span class="muted">{{ save ? save.name : saveId }}</span>
+      <span class="spacer"></span>
+      <span class="turn" data-turn>{{ save ? save.turn : 0 }}</span>
+      <span class="muted status ellipsis" data-status>{{ status }}</span>
+    </header>
+
+    <ErrorPanel v-if="error" :error="error" />
+
+    <div class="page-body">
+      <div class="play-main">
+        <div v-if="coverOpen" class="cover" data-cover>
+          <div class="cover-card">
+            <div class="cover-title ellipsis">{{ save ? save.cardSnapshot.name : '' }}</div>
+            <div class="muted ellipsis">{{ save ? save.name : '' }}</div>
+            <p class="muted">{{ t('play.coverHint') }}</p>
+            <button type="button" data-start @click="coverOpen = false">
+              {{ save && save.turn > 0 ? t('play.continue') : t('play.start') }}
+            </button>
+          </div>
+        </div>
+
+        <StoryView :lines="lines" :streaming="streaming" />
+
+        <div class="composer">
+          <textarea
+            v-model="draft"
+            class="input"
+            data-action-input
+            :disabled="running"
+            :placeholder="t('play.inputPlaceholder')"
+            @keydown.enter.exact.prevent="send"
+          ></textarea>
+          <button type="button" data-send :disabled="running || draft === ''" @click="send">
+            {{ t('play.send') }}
+          </button>
+          <button v-if="running" type="button" data-stop @click="stop">{{ t('play.stop') }}</button>
+        </div>
+      </div>
+
+      <DebugPanel v-if="debugEnabled" :debug="debug" />
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.spacer {
+  flex: 1 1 auto;
+}
+
+.turn {
+  flex: 0 0 auto;
+  font-weight: 600;
+  font-size: var(--fs1);
+  min-width: 20px;
+  text-align: right;
+}
+
+.status {
+  flex: 0 1 auto;
+  max-width: 220px;
+}
+
+.play-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cover {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.cover-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  max-width: 420px;
+  padding: 18px 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--panel);
+  text-align: center;
+}
+
+.cover-title {
+  font-size: var(--fs1);
+  font-weight: 600;
+  max-width: 100%;
+}
+
+.composer {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+  min-width: 0;
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  max-height: 160px;
+}
+</style>

@@ -1,0 +1,140 @@
+# TavernGame v2 · SPEC（阶段 1）
+
+> 版本：2026-11-25 · 阶段 1 定稿
+> 位置：仓库内 `v2/`，独立 Vite 应用；**不 import 旧站 `src/` 任何代码**。
+> 部署：GitHub Pages `https://me-aqua.github.io/TavernGame/v2/`；旧站根路径保持只读可用。
+> 技术：Vue 3 + TypeScript + Vite + Vercel AI SDK；**从 0 写新组件，不 import 旧站 `src/`**；浏览器直连 provider，Key 只存本地。
+
+## 1. 页面与路由
+
+| 路由                     | 页面       | 阶段 1 内容                                   |
+| ------------------------ | ---------- | --------------------------------------------- |
+| `#/`                     | 首页       | 左：卡带列表；右：存档列表；新建/重命名/删除  |
+| `#/edit/:cardId`         | 卡带编辑器 | 左状态树 / 工作流细条 / 中编辑 / 右公共提示词 |
+| `#/play/:cardId/:saveId` | 对话页     | 故事流 + 输入框 + 发送；流式                  |
+| `#/settings`             | 设置       | 主题切换 + 模型预设                           |
+
+- hash 路由，刷新/深链不白屏；不存在的 id 显示中文错误页。
+- 所有返回按钮在左上角。
+
+## 2. 数据模型（`schemaVersion: 1`）
+
+### Card
+
+```js
+{
+  schemaVersion: 1,
+  id, name,
+  state: [ { code, name, note, type, initial } ], // 阶段 1 只有 type: 'string'，code '0' 固定时间
+  chain: [ { id, type, name, reads, writable, readsUpstream, historyTurns, prompt } ], // 不含 presetId
+  prompts: [ { id, title, body } ]
+}
+```
+
+- `type`: 阶段 1 只允许 `'string'`；`chain[].type`: `'time' | 'normal' | 'output' | 'proof'`。
+- 链约束：**恰好 1 个 output、最多 1 个 proof、最多 1 个 time**；首节点 `readsUpstream=false`。
+- 眼睛语义：`prompts[].id ∈ reads` 表示节点读这一块公共提示词；`state[].code ∈ reads` 表示读该元素；`readsUpstream` 表示读前驱输出；`writable` 表示可写该元素。
+
+### Save
+
+<!-- prettier-ignore -->
+```js
+{
+  schemaVersion: 1,
+  id, cardId, cardSnapshot, // 整张卡冻结
+  name, turn, tree, events, updatedAt
+}
+```
+
+- `tree`: `{ [code]: string }`（阶段 1 文本）；`0` 是 `{ day, hour }`。
+- `events`: `[{ type: 'action'|'narration'|'node'|'request'|'tool'|'write'|'toolResult'|'error', text, detail?, at }]`。
+- 新建存档时 `tree` 取卡的初始值；之后改卡不影响旧存档。
+
+### Preset
+
+```js
+{ id, name, provider: 'openai-compatible'|'mock', baseUrl, model, apiKey, reasoning }
+```
+
+## 3. 存储
+
+- localStorage keys：`tg2.cards` / `tg2.saves` / `tg2.presets` / `tg2.settings`；**不读写旧站 `tg.*`**。
+- 项目本体**不含任何卡 / 存档**；`晨风镇` 与全部存档可删除，删后首页空态、新建卡、编辑器、引擎、设置照常工作。
+- 首次打开：空列表 + 「新建卡带」按钮，不自动种卡。
+
+## 4. 引擎
+
+```js
+runTurn({ card, save, presets, nodePresets, action, onEvent }) → { save, events }
+```
+
+- 顺序执行链；time 节点 `advance_time({hours})` 写 `tree['0']`；normal 节点 `write_state({ path, value })` 只能写 `writable` 里的元素；output 节点产故事；proof 只读。
+- 提示词拼装顺序：公共提示词（按 reads）→ 状态树（按 reads）→ **历史（最近 N 回合，含本回合玩家行动；行动就是历史最后一条）** → 上游输出（readsUpstream）→ 本节点提示词。**不单列「玩家行动」段**。
+- 流式：output 节点流式回调 `onEvent({type:'chunk', text})`；可中止。
+- 错误：`E_PROVIDER`（网络/key/额度）· `E_VALIDATION`（卡/存档不合法）· `E_CHAIN`（链不合法）· `E_UNKNOWN`；中文提示 + 下一步。
+
+## 5. 页面细节
+
+### 首页
+
+- 两栏并排；卡带列表右上「＋ 新建卡带」，存档列表右上「＋ 新建存档（基于选中卡）」。
+- 卡行：名字、存档数、重命名、删除（确认）。
+- 存档行：名字、`卡带名 · 第 N 回合`、重命名、删除（确认）。
+
+### 编辑器（阶段 1）
+
+- 四区：左状态树（宽度可拖）· 工作流细条（**固定宽度**）· 中编辑（可拖）· 右公共提示词（可拖）。
+- 状态树：单层文本元素；行显示编码 + 名称；选中后中栏可改名字、备注、初值；可增/删（`0` 不可删）。
+- 初始值编辑区：选中根元素时，中栏下半段编辑该元素初值（阶段 1 每个元素都是根）。
+- 工作流：固定四节点，可选中；中栏编辑提示词、**模型预设（本地映射，不写卡）**、历史轮数、上游眼睛。
+- 右栏：公共提示词块，块前有眼睛（节点是否读它），可增/删/改。
+- 左栏元素前有眼睛（读）和笔（写），仅选中节点时显示。
+- 栏宽拖拽：左/中/右可拖，双击恢复默认，存本地；细条固定。
+
+### 对话页
+
+- 封面（卡名 + 存档名 + 开始/继续）→ 故事流 → 输入框 + 「发送」。
+- 发送后：禁用输入、流式显示故事、可「停止」；完成自动存档并更新回合。
+- 页面只有故事流 + 输入框 + 发送；**不做显示面板**。
+- `?debug=1`：显示最近一次 prompt / 返回 / 工具调用 / token 用量。
+
+### 设置
+
+- 主题：浅色 / 深色；持久化。
+- 模型预设：名称 / Base URL / 模型 / Key / 思考强度；增删改；默认两条 DeepSeek（V4 Pro / Flash）；Key 不写日志。
+
+## 6. UI 与响应式
+
+- 淡褐色 token；浅/深两套；`color-scheme` 跟随。
+- 桌面/大屏最小 **1280×720**，最大 4K 16:9；兼容 16:9 / 16:10 / 4:3 / 21:9。
+- 手机浏览器：竖屏显示「请横屏使用」遮罩；点击后尝试 `screen.orientation.lock('landscape')`，失败提示手动旋转；横屏进入布局。
+- 不添加低于 720p 的分辨率档。
+- 组件故事：`v2/stories/` 每个组件至少一个故事页；固定 1280×720；浅/深两主题；结构检查（横向溢出、出界、24px 点按、遮挡）+ 三档字号；不建组件像素基线；生成总览页。
+- 整页巡检：四类比例代表档 + 4K；稳定画面像素基线（`maxDiffPixelRatio: 0.01`，动画禁用，caret 隐藏）；只跑 chromium。
+
+## 7. 构建与部署
+
+- `v2/vite.config.mjs`：`base: '/TavernGame/v2/'`，`build.outDir: '../dist/v2'`。
+- 根 `package.json` scripts：
+  - `v2:dev` → `vite --config v2/vite.config.mjs`
+  - `v2:build` → `vite build --config v2/vite.config.mjs`
+  - `v2:test` → vitest（v2 测试）
+  - `v2:e2e` / `v2:stories` → playwright
+- 部署 workflow：先 `npm run build`（旧站），再 `npm run v2:build`（产物进 `dist/v2`），上传 `dist`。旧站根路径保持。
+- 每阶段完成即可推 `main`，`/v2/` 真浏览器验收。
+
+## 8. 阶段 1 不做
+
+导入导出、复制副本、节点增删排序、状态树类型/嵌套/字典键/结构体、复杂初始值、显示面板、重生成/撤销、连接测试、token 费用、多语言、自定义主题色。
+
+## 9. 验收口径
+
+1. 首页空态：项目无卡时显示「还没有卡带」，能新建。
+2. 新建卡 → 改 2 个文本元素 + 初值 + 2 块提示词 → 新建存档 → 发送行动，流式连跑 3 回合 → 刷新，卡/存档/回合/故事都在。
+3. 眼睛：关掉某提示词块 / 某状态元素 → `?debug=1` 的 prompt 里对应内容消失。
+4. 改卡后旧存档仍能跑（快照）。
+5. 四类比例（1280×720 / 1280×960 / 1280×800 / 2560×1080）+ 4K 无横向溢出/出界；手机竖屏出现横屏遮罩。
+6. 编辑器三栏可拖宽、细条固定、双击恢复、刷新保留。
+7. 组件故事矩阵结构检查通过；整页稳定画面像素基线通过。
+8. 真 key 流式成功、可停止；错误显示中文提示。
+9. `/v2/` 线上可打开，旧站根路径仍可用。

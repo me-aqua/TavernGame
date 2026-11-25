@@ -22,6 +22,15 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build --quiet",
     "stories": "npm run build-storybook && playwright test e2e/stories.spec.ts",
+    "v2:dev": "vite --config v2/vite.config.mjs",
+    "v2:lines": "node v2/scripts/check-lines.mjs",
+    "v2:build": "npm run v2:lines && vite build --config v2/vite.config.mjs",
+    "v2:test": "vitest run --config v2/vitest.config.mjs",
+    "v2:test:watch": "vitest --config v2/vitest.config.mjs",
+    "v2:typecheck": "vue-tsc --noEmit -p v2/tsconfig.json",
+    "v2:e2e": "playwright test --config v2/playwright.config.mjs",
+    "v2:build-storybook": "storybook build --quiet --config-dir v2/.storybook --output-dir v2/storybook-static",
+    "v2:stories": "npm run v2:build-storybook && playwright test --config v2/playwright.stories.config.mjs",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
     "verify": "npm run check && npm run test:coverage && npm run e2e",
     "hooks": "git config --local core.hooksPath .githooks",
@@ -36,7 +45,9 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.123",
     "@vue-flow/core": "^1.48.2",
+    "ai": "^7.0.181",
     "vue": "3.5.42"
   },
   "devDependencies": {

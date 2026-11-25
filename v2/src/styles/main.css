@@ -1,0 +1,224 @@
+/**
+ * v2 的基础样式：淡褐色 token + 浅深两套 + 三档字号 + 几个到处都用的小零件。
+ *
+ * 三条口径（SPEC §6）：
+ *   · **字号只有三档**（--fs1/2/3 = 14 / 12.5 / 11px）：组件故事那一层的结构检查会数 ——
+ *     多出第四档就红，所以别在组件里随手写 font-size；
+ *   · **主题只认 `<html data-theme>`**（设置页改的就是它），CSS 不认别的开关；
+ *   · **任何一屏都不许横向溢出**：根容器 `height: 100%` + 各栏自己滚，正文行用省略号截断
+ *     （截断的是元素自己的宽度，不是溢出到视口外）。
+ */
+:root {
+  color-scheme: light;
+  --fs1: 14px;
+  --fs2: 12.5px;
+  --fs3: 11px;
+
+  --bg: #f4ecdf;
+  --bg-2: #ece0cd;
+  --panel: #fffaf1;
+  --panel-2: #f7eddd;
+  --ink: #3b2f24;
+  --ink-soft: #6f6153;
+  --line: #d9c8ae;
+  --line-strong: #bda887;
+  --accent: #8a6a44;
+  --accent-ink: #fffaf1;
+  --danger: #9c3f2b;
+  --shadow: 0 1px 2px rgb(59 47 36 / 12%);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #231c17;
+  --bg-2: #2a221b;
+  --panel: #2f2721;
+  --panel-2: #3a3027;
+  --ink: #f1e7d8;
+  --ink-soft: #b8a894;
+  --line: #4b3f34;
+  --line-strong: #6b5b4a;
+  --accent: #c9a06a;
+  --accent-ink: #241d17;
+  --danger: #e08a6f;
+  --shadow: 0 1px 2px rgb(0 0 0 / 35%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  font-size: var(--fs1);
+  line-height: 1.5;
+}
+
+#app {
+  height: 100%;
+}
+
+button {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--fs2);
+  cursor: pointer;
+}
+
+button:hover:not([aria-disabled='true']):not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled,
+button[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+input,
+textarea,
+select,
+option {
+  font-family: inherit;
+  font-size: var(--fs2);
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---- 到处都用的小零件 ---- */
+
+.app-root {
+  height: 100%;
+  overflow: hidden;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.page-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+  min-width: 0;
+}
+
+.page-title {
+  font-weight: 600;
+  font-size: var(--fs1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.page-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.col-title {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs2);
+  color: var(--ink-soft);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.muted {
+  color: var(--ink-soft);
+  font-size: var(--fs3);
+}
+
+.ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.scroll {
+  overflow: auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.field-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.field-label {
+  flex: 0 0 auto;
+  font-size: var(--fs3);
+  color: var(--ink-soft);
+}
+
+.field-row > input,
+.field-row > textarea,
+.field-row > select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
