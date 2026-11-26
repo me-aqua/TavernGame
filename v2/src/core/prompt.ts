@@ -2,7 +2,8 @@
  * 提示词拼装（CONTRACT §5）。一个节点拼一次，五段按固定顺序进来，每段自带标记：
  *
  *   1. `<公共提示词·{title}>` + 正文（`prompts[].id ∈ node.reads` 的那些，`body` 逐字，**一块一个标记**）
- *   2. `<世界状态树>` + 读到的每个状态元素一行 `- <code>「<name>」：<JSON>`（`state[].code ∈ node.reads`）
+ *   2. `<世界状态树>` + 读到的每个状态元素一行 `- <code>「<name>」：<JSON>`（`state[].code ∈ node.reads`）；
+ *      JSON 的键是**中文名**：自身值 `"自身"`、子字段是元素 `name`（没有 `"0"` / `"1"` 这种 code 键）
  *   3. `<游戏历史记录>` + 历史条目（开场白打头，其后是最近 `historyTurns` 条叙事 + 行动，按事件先后排；
  *      本回合行动在最后）
  *   4. `<上游输出·{nodeName}>` + 正文（`node.readsUpstream` 点名的那些节点，按**链顺序**取输出，逐字）
@@ -13,7 +14,7 @@
  */
 import type { Card, ChainNode, Save, SaveEvent, TimeValue, Tree } from './types'
 import { OPENING_PROMPT_ID } from './schema'
-import { formatTime, pathsOf } from './statetree'
+import { childrenOf, formatTime, pathsOf } from './statetree'
 import { t } from '../i18n'
 
 interface BuildPromptArgs {
@@ -27,27 +28,21 @@ interface BuildPromptArgs {
 }
 
 /**
- * 一个节点下面那棵子树，**按相对段**拼成 JSON：自身值在 `"0"`，孩子用自己最后一段做键；
- * 孩子还有孩子就继续嵌套。结构体没有 `"0"`。
+ * 一个节点下面那棵子树，**按中文名**拼成对象：自己的值用 `自身`（`prompt.ownKey`），
+ * 孩子用元素的 `name` 做键；孩子还有孩子就继续嵌套。结构体没有 `自身`。
  *
- * 值的路径来自 `pathsOf`（本身是「自身值在前、深度优先」），所以这里只做「按段插进对象」。
+ * 键**不是** code（`"0"` / `"1"` 这种）：模型读的是人话，不是编号（契约 §5）。
  */
-function subtreeJson(state: Card['state'], tree: Tree, code: string): Record<string, unknown> {
-  const root: Record<string, unknown> = {}
-  const base = `${code}.`
-  for (const path of pathsOf(state, code)) {
-    const segments = path.slice(base.length).split('.')
-    let node = root
-    for (const [index, segment] of segments.entries()) {
-      if (index === segments.length - 1) {
-        node[segment] = tree[path]
-      } else {
-        node[segment] = (node[segment] as Record<string, unknown> | undefined) ?? {}
-        node = node[segment] as Record<string, unknown>
-      }
-    }
+function subtreeOf(state: Card['state'], tree: Tree, element: Card['state'][number]): unknown {
+  const children = childrenOf(state, element.code)
+  if (element.type === 'object') {
+    return Object.fromEntries(children.map((child) => [child.name, subtreeOf(state, tree, child)]))
   }
-  return root
+  const own = tree[children.length > 0 ? `${element.code}.0` : element.code]
+  if (children.length === 0) return own
+  const subtree: Record<string, unknown> = { [t('prompt.ownKey')]: own }
+  for (const child of children) subtree[child.name] = subtreeOf(state, tree, child)
+  return subtree
 }
 
 /**
@@ -55,11 +50,8 @@ function subtreeJson(state: Card['state'], tree: Tree, code: string): Record<str
  * 有孩子的节点是「自身值 + 整棵子树」的 JSON；叶子就是自己的值（JSON 形态）。
  */
 function projectOf(card: Card, tree: Tree, element: Card['state'][number]): string {
-  const [ownPath] = pathsOf(card.state, element.code)
-  if (element.type === 'time') return formatTime(tree[ownPath] as TimeValue)
-  // 自身值的路径不是它自己的 code ⇒ 它有孩子（或它是结构体）⇒ 出子树
-  if (ownPath !== element.code) return JSON.stringify(subtreeJson(card.state, tree, element.code))
-  return JSON.stringify(tree[ownPath])
+  if (element.type === 'time') return formatTime(tree[pathsOf(card.state, element.code)[0]] as TimeValue)
+  return JSON.stringify(subtreeOf(card.state, tree, element))
 }
 
 /** 历史里的一个回合：一个 `action` 开一个回合，后面跟着它的 `narration`（可能不止一条） */

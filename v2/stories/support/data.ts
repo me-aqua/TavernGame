@@ -4,12 +4,12 @@
  * 为什么单开一份：几个故事要的是同一张卡 / 同一个节点 / 同一批预设 —— 各写一份迟早不一致，
  * 而不一致的样例会让「结构检查通过」这件事变得没意义。
  */
-import type { TraceDetail, TurnStatsDetail, Tree } from '../../src/core/types'
+import type { TraceDetail, TurnStatsDetail } from '../../src/core/types'
 import type { ChainNode, Preset, StateElement } from '../../src/core/types'
 
 /**
  * 五种类型都出场的一小棵状态树（`0` 时间 / `1` 下拉带一个孩子 / `2` 文字 / `3` 数字 / `4` 结构体）。
- * `1` 有孩子 ⇒ 它的自身值在 `VALUES['1.0']`，孩子是 `1.1`。
+ * `1` 有孩子 ⇒ 它的自身值在 `1.0`，孩子是 `1.1`。
  */
 export const ELEMENTS: StateElement[] = [
   {
@@ -45,16 +45,6 @@ export const ELEMENTS: StateElement[] = [
   { code: '4', name: 'bag', note: '', type: 'object' },
   { code: '4.1', name: 'item', note: '', type: 'text', initial: 'VAL_ITEM_D4' },
 ]
-
-/** 与 `ELEMENTS` 对应的扁平值（左栏每行显示的自身值） */
-export const VALUES: Tree = {
-  0: { year: 1024, month: 9, day: 17, hour: 18, minute: 30, second: 0 },
-  '1.0': 'VAL_PLACE_A1',
-  '1.1': 'VAL_SITE_C3',
-  2: 'VAL_MOOD_B2',
-  3: 80,
-  '4.1': 'VAL_ITEM_D4',
-}
 
 // 造一个最简节点：没给的字段就是「不读不写不带上游、0 回合、空提示词」
 export function makeNode(over: Partial<ChainNode> & { id: string; type: ChainNode['type'] }): ChainNode {

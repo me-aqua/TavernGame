@@ -75,10 +75,8 @@ test('首次打开就有「晨风镇」：结构完整、卡里没有 presetId',
     granularityLower: 'minute',
     initial: { year: 1024, month: 9, day: 17, hour: 18, minute: 30, second: 0 },
   })
-  expect(stateOf('1'), '世界是 object').toMatchObject({ type: 'object' })
-  expect(stateOf('2'), '玩家是 object').toMatchObject({ type: 'object' })
-  expect(stateOf('1')).not.toHaveProperty('initial')
-  expect(stateOf('2')).not.toHaveProperty('initial')
+  expect(stateOf('1'), '世界是 text + 空自身值 + 子节点').toMatchObject({ type: 'text', initial: '' })
+  expect(stateOf('2'), '玩家是 text + 空自身值 + 子节点').toMatchObject({ type: 'text', initial: '' })
   expect(stateOf('1.1')).toMatchObject({
     type: 'enum',
     values: ['晨风镇', '镇郊', '地牢', '官道', '码头'],

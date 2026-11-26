@@ -23,7 +23,8 @@
       "code": "1",
       "name": "世界",
       "note": "玩家此刻所处的环境",
-      "type": "object"
+      "type": "text",
+      "initial": ""
     },
     {
       "code": "1.1",
@@ -59,7 +60,8 @@
       "code": "2",
       "name": "玩家",
       "note": "",
-      "type": "object"
+      "type": "text",
+      "initial": ""
     },
     {
       "code": "2.1",

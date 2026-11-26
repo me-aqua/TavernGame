@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * 删除前的确认层（CONTRACT §8.1：删除必须确认）。
- * 只有 `[data-confirm-ok]` 才真删；`[data-confirm-cancel]` 什么都不做。
+ * 删除 / 离开前的确认层（CONTRACT §8）：只有 `[data-confirm-ok]` 才真做，`[data-confirm-cancel]` 什么都不做。
+ * 确认按钮的字默认是「删除」；「离开编辑器」这类不是删除的场景由调用方传 `confirmLabel`。
  */
 import { t } from '../i18n'
 
-defineProps<{ message: string }>()
+defineProps<{ message: string; confirmLabel?: string }>()
 defineEmits<{ confirm: []; cancel: [] }>()
 </script>
 
@@ -16,7 +16,7 @@ defineEmits<{ confirm: []; cancel: [] }>()
       <div class="row confirm-actions">
         <button type="button" data-confirm-cancel @click="$emit('cancel')">{{ t('common.cancel') }}</button>
         <button type="button" class="danger" data-confirm-ok @click="$emit('confirm')">
-          {{ t('common.delete') }}
+          {{ confirmLabel ?? t('common.delete') }}
         </button>
       </div>
     </div>

@@ -11,14 +11,21 @@
  *
  * 三条口径：
  *   · **编辑只改内存草稿**：字段一改只动草稿，顶栏【保存】才校验 + 落盘（`[data-save-card]`）。
- *     校验不过 ⇒ 不写盘、草稿保留、中文错误清单可点回那一格；修好再点保存。
+ *     校验不过 ⇒ 不写盘、草稿保留、中文错误清单可点回那一格；修好再点保存；成功提示 3 秒后自己消失。
+ *     有没保存的改动时点【返回】先弹确认（取消 = 留在编辑器）。
  *   · **模型不进卡**：中栏那一格改的是节点映射 —— 卡模式 `tg2.nodeModels[cardId][nodeId]`，
  *     存档模式 `save.nodeModels[nodeId]`；映射**不属于卡草稿**，所以它照旧即时写。
  *     卡模式第一次打开会铺一条「每个节点 → 池子里第一个预设」的映射（没有预设就不铺）；
  *     存档没有自己的映射时先按卡级那一片显示，玩家真改哪一格才把整片写进存档；
  *   · **自由度只有两个**（左宽、右宽），中栏恒为余量；细条宽度固定，不参与拖拽。
+ *
+ * 两种模式保存时校验的东西不一样（CONTRACT §6.2）：
+ *   · 卡模式：整卡（含初始值）必须合法，`cardIssues` 一条都不能有；
+ *   · 存档模式：初始值不判（它只是新建存档的种子），改判**新快照容不容得下这一份存档的当前树** ——
+ *     `saveTreeIssues` 给出路径级的清单，不兼容 ⇒ 不写盘、草稿保留、错误点回那一格。
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ErrorPanel from '../components/ErrorPanel.vue'
 import NodeForm from '../components/NodeForm.vue'
 import PromptForm from '../components/PromptForm.vue'
@@ -30,19 +37,10 @@ import { asAppError, storage } from '../app-context'
 import { cloneCard, nextPromptId, nextStateCode } from '../cards'
 import type { AppError } from '../core/errors'
 import { validateCard, validateSave } from '../core/schema'
-import { addChild, cardIssues, initialTreeOf, removeNode } from '../core/statetree'
+import { addChild, cardIssues, initialTreeOf, pathsOf, removeNode, saveTreeIssues } from '../core/statetree'
 import type { CardIssue } from '../core/statetree'
 import { DEFAULT_SETTINGS } from '../core/storage'
-import type {
-  Card,
-  ChainNode,
-  NodeModels,
-  Preset,
-  PromptBlock,
-  Save,
-  StateElement,
-  Tree,
-} from '../core/types'
+import type { Card, ChainNode, NodeModels, Preset, PromptBlock, Save, StateElement } from '../core/types'
 import { t } from '../i18n'
 import { REPO_URL } from '../repo'
 import { routeHash } from '../router'
@@ -74,6 +72,12 @@ const error = ref<AppError | null>(null)
 /** 上一次点保存的问题清单（空 = 没拦下来）与成功提示 */
 const saveIssues = ref<CardIssue[]>([])
 const savedOk = ref(false)
+/** 草稿动过没有（点【返回】时决定要不要确认） */
+const dirty = ref(false)
+/** 等着确认的那件事：删元素 / 删提示词 / 带着改动离开 */
+const pending = ref<
+  { kind: 'state'; code: string } | { kind: 'prompt'; id: string } | { kind: 'back' } | null
+>(null)
 const selectedNodeId = ref<string | null>(null)
 const selectedCode = ref<string | null>(null)
 const selectedPromptId = ref<string | null>(null)
@@ -103,11 +107,28 @@ const middleTitle = computed(() => {
   return t('editor.editTitleEmpty')
 })
 
-/** 左栏每行要显示的自身值：卡模式读**初值树**（编辑初值当场反映），存档模式读存档自己的树 */
-const stateValues = computed<Tree>(() => {
-  if (editingSave) return save.value?.tree ?? {}
-  return card.value ? initialTreeOf(card.value) : {}
+/**
+ * 存档模式：选中元素这一格在 `save.tree` 里的当前值（中栏数字元素的「当前值」那一行）。
+ * 卡模式没有「当前值」可看（那一份的树还不存在）⇒ `undefined`。
+ */
+const currentValue = computed(() => {
+  const element = selectedElement.value
+  const current = save.value
+  const draft = card.value
+  if (!element || !current || !draft) return undefined
+  const [ownPath] = pathsOf(draft.state, element.code)
+  return ownPath === undefined ? undefined : current.tree[ownPath]
 })
+
+/** 确认层的文案与确认按钮：删除说「删除」，离开说「离开」 */
+const pendingMessage = computed(() => {
+  if (pending.value?.kind === 'state') return t('editor.deleteStateConfirm')
+  if (pending.value?.kind === 'prompt') return t('editor.deletePromptConfirm')
+  return t('editor.leaveConfirm')
+})
+const pendingConfirmLabel = computed(() =>
+  pending.value?.kind === 'back' ? t('editor.leave') : t('common.delete'),
+)
 
 /** 某一格当前用的预设 id：映射里有就用它，没有就是池子第一个（`''` = 一个预设都没有） */
 function presetIdFor(nodeId: string): string {
@@ -138,7 +159,8 @@ function openCard(id: string): void {
  */
 function openSave(id: string): void {
   const found = storage().loadSaveById(id)
-  validateCard(found.cardSnapshot)
+  // 初始值不判（§6.2）：这一格在存档里早就展开成 `save.tree`，存档模式也不显示它
+  validateCard(found.cardSnapshot, { initial: false })
   validateSave(found, found.cardSnapshot)
   save.value = found
   card.value = cloneCard(found.cardSnapshot)
@@ -182,14 +204,21 @@ function writeSave(next: Card): void {
 /**
  * 落盘草稿：**先验后写**。
  *
- * `cardIssues` 给出中文问题清单（状态树 + 链的规矩，一条一个可点回的 code）；一条都没有才写盘。
+ * 卡模式：`cardIssues`（状态树 + 链的规矩，含初始值）一条都不能有；
+ * 存档模式：不判初始值 —— 改判**新快照容不容得下这一份存档的当前树**（`saveTreeIssues`），
+ * 不兼容就是路径级的一条错误，点回那一格。
+ *
  * 两种模式都只替换「这一个对象」那一行、宽松写回整表：盘上别的卡 / 存档（包括不合法的那些）
  * **JSON 值**不变（空白 / 数字写法会被重新序列化，不承诺字节逐字相同）。
  */
 function saveCard(): void {
   const draft = card.value
   if (!draft) return
-  const issues = cardIssues(draft)
+  const current = save.value
+  const issues =
+    editingSave && current
+      ? [...cardIssues(draft, { initial: false }), ...saveTreeIssues(draft, current.tree)]
+      : cardIssues(draft)
   if (issues.length > 0) {
     saveIssues.value = issues
     savedOk.value = false
@@ -197,16 +226,28 @@ function saveCard(): void {
   }
   try {
     // 清单空 ⇒ 只剩形状层（数组 / 字符串）；校验器抛的错按一条「卡级」问题显示
-    validateCard(draft)
+    validateCard(draft, { initial: !editingSave })
     if (editingSave) writeSave(draft)
     else writeCard(draft)
     saveIssues.value = []
-    savedOk.value = true
+    dirty.value = false
+    flashSaved()
   } catch (cause) {
     saveIssues.value = [{ code: '', path: '', message: asAppError(cause).message, errorCode: 'E_VALIDATION' }]
     savedOk.value = false
   }
 }
+
+/** 成功提示只活 3 秒（连着保存两次就从这一次重新计时） */
+let savedTimer: number | undefined
+function flashSaved(): void {
+  savedOk.value = true
+  window.clearTimeout(savedTimer)
+  savedTimer = window.setTimeout(() => {
+    savedOk.value = false
+  }, 3000)
+}
+onUnmounted(() => window.clearTimeout(savedTimer))
 
 /** 点错误清单里的一条：有 code 就选中那一格（卡级问题只清掉成功提示） */
 function selectIssue(issue: CardIssue): void {
@@ -215,11 +256,12 @@ function selectIssue(issue: CardIssue): void {
   selectElement(issue.code)
 }
 
-/** 草稿改动：只动内存，不写盘 */
+/** 草稿改动：只动内存，不写盘；从这一刻起草稿就「脏」了（返回要先确认） */
 function updateCard(mutate: (current: Card) => Card): void {
   const current = card.value
   if (!current) return
   card.value = mutate(current)
+  dirty.value = true
 }
 
 function patchNode(nodeId: string, patch: Partial<ChainNode>): void {
@@ -334,7 +376,17 @@ function patchPrompt(id: string, patch: Partial<PromptBlock>): void {
   }))
 }
 
-/** 删提示词块：同样要把它从每个节点的 `reads` 里摘掉 */
+/** 点【×】（删元素）：先弹确认，真删在 `confirmPending`（取消 ⇒ 草稿一个字不动） */
+function requestRemoveState(code: string): void {
+  pending.value = { kind: 'state', code }
+}
+
+/** 点提示词块的【×】：同样先确认 */
+function requestRemovePrompt(id: string): void {
+  pending.value = { kind: 'prompt', id }
+}
+
+/** 提示词块真的删掉：同样要把它从每个节点的 `reads` 里摘掉 */
 function removePrompt(id: string): void {
   updateCard((current) => ({
     ...current,
@@ -342,6 +394,16 @@ function removePrompt(id: string): void {
     chain: current.chain.map((node) => ({ ...node, reads: node.reads.filter((ref0) => ref0 !== id) })),
   }))
   if (selectedPromptId.value === id) selectedPromptId.value = null
+}
+
+/** 确认层的「确定」：删元素 / 删提示词 / 带着改动离开；确认按钮的字由 `pendingConfirmLabel` 给 */
+function confirmPending(): void {
+  const target = pending.value
+  pending.value = null
+  if (!target) return
+  if (target.kind === 'state') removeState(target.code)
+  else if (target.kind === 'prompt') removePrompt(target.id)
+  else location.hash = routeHash({ name: 'home' })
 }
 
 /**
@@ -435,7 +497,12 @@ function resetColumns(which: 'left' | 'right'): void {
   persistColumns()
 }
 
+/** 【返回】：草稿脏的时候先问一句，确认才真的离开 */
 function goBack(): void {
+  if (dirty.value) {
+    pending.value = { kind: 'back' }
+    return
+  }
   location.hash = routeHash({ name: 'home' })
 }
 </script>
@@ -479,13 +546,12 @@ function goBack(): void {
       <section class="col" data-col="left" :style="{ width: `${columns.left}px` }">
         <StateTree
           :elements="card.state"
-          :values="stateValues"
           :node="selectedNode"
           :selected-code="selectedCode"
           :structure-locked="editingSave"
           @add="addState"
           @select="selectElement"
-          @remove="removeState"
+          @remove="requestRemoveState"
           @add-child="addChildOf"
           @toggle-read="(code, tri) => toggleRef('reads', code, tri)"
           @toggle-write="(code, tri) => toggleRef('writable', code, tri)"
@@ -528,6 +594,7 @@ function goBack(): void {
             v-else-if="selectedElement"
             :element="selectedElement"
             :initial-locked="editingSave"
+            :current-value="currentValue"
             @edit="(element) => patchElement(selectedElement!.code, element)"
           />
           <PromptForm
@@ -555,11 +622,19 @@ function goBack(): void {
           :node="selectedNode"
           @add="addPrompt"
           @select="selectPrompt"
-          @remove="removePrompt"
+          @remove="requestRemovePrompt"
           @toggle-read="(id) => toggleRef('reads', id)"
         />
       </section>
     </div>
+
+    <ConfirmDialog
+      v-if="pending"
+      :message="pendingMessage"
+      :confirm-label="pendingConfirmLabel"
+      @confirm="confirmPending"
+      @cancel="pending = null"
+    />
   </div>
 </template>
 

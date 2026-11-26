@@ -2,21 +2,35 @@
 /**
  * 中栏 · 选中状态元素时的那张表（CONTRACT §8.2）：类型、名字、备注、类型自己的格子、初始值。
  *
- * 五种类型各有自己的字段：
+ * 作者能选的类型只有**文字 / 数字 / 下拉 / 时间**：`object` 是「有子元素」的后台形态，
+ * 不在类型下拉里出现（导入的卡里真有一个 `object` 元素时，下拉会把它照实显示出来）。
+ *
+ * 各类型的格子：
  *   · `text` 初始值一个文本框；`integer` 上下限 + 单次步幅 + 初始值；`enum` 取值白名单（一行一个）+ 初始值下拉；
  *   · `object` 没有自身值（初始值那一格整块不出现）；`time` 是六格公历 + 颗粒度上下界，类型只读。
  *
- * 改类型时**收拾干净**：`object` 删掉 `initial`（结构体没有自身值），其余类型按新类型给一个能编辑的值；
- * 不留在旧类型上的字段（`values` / 上下限 / 颗粒度），否则一份草稿会带着两边都不认的钥匙。
+ * **中栏分两段**：上半 = 结构字段，下半 = 初始值块（从 ~50% 起往下排，不贴底、不靠 `margin-top: auto`；
+ * 两块之间至少 16px，放不下就滚动）。初始值是「新建存档时的种子」，不属于上面那些结构字段。
+ * 存档模式（`initialLocked`）整块不渲染 —— 当前值住在 `save.tree` 里。
+ *
+ * 改类型时**收拾干净**：清掉旧类型的字段（`values` / 上下限 / 颗粒度 / `initial`），再按新类型给一套
+ * 能编辑的值，否则一份草稿会带着两边都不认的钥匙。
  */
 import { TIME_UNITS } from '../core/statetree'
-import type { StateElement, StateType, TimeUnit, TimeValue } from '../core/types'
+import type { StateElement, StateType, StateValue, TimeUnit, TimeValue } from '../core/types'
 import { t } from '../i18n'
 
-const props = defineProps<{ element: StateElement; initialLocked?: boolean }>()
+const props = defineProps<{
+  element: StateElement
+  /** 存档模式：初值不可改（初值只是新建存档的种子） */
+  initialLocked?: boolean
+  /** 存档模式：这一格在 `save.tree` 里的当前值（数字元素显示在上下限下方） */
+  currentValue?: StateValue
+}>()
 const emit = defineEmits<{ edit: [element: StateElement] }>()
 
-const TYPES: StateType[] = ['text', 'integer', 'enum', 'object', 'time']
+/** 作者能选的类型（`object` 不在这里：它是「有子元素」的后台形态） */
+const TYPES: StateType[] = ['text', 'integer', 'enum', 'time']
 const TIME_PARTS = ['year', 'month', 'day', 'hour', 'minute', 'second'] as const
 const DEFAULT_TIME: TimeValue = { year: 1024, month: 1, day: 1, hour: 0, minute: 0, second: 0 }
 
@@ -55,10 +69,6 @@ function isClock(value: StateElement['initial']): value is TimeValue {
 function withType(type: StateType): void {
   const base = strip(props.element, TYPED_FIELDS)
   const initial = props.element.initial
-  if (type === 'object') {
-    emit('edit', { ...base, type })
-    return
-  }
   if (type === 'time') {
     emit('edit', {
       ...base,
@@ -151,39 +161,41 @@ function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): voi
 </script>
 
 <template>
-  <div class="form stack">
-    <div class="field-row">
-      <span class="field-label">{{ t('editor.stateType') }}</span>
-      <select
-        data-state-type
-        :value="element.type"
-        :disabled="element.type === 'time'"
-        @change="withType(($event.target as HTMLSelectElement).value as StateType)"
-      >
-        <option v-for="type in TYPES" :key="type" :value="type">{{ typeLabel(type) }}</option>
-      </select>
-    </div>
+  <div class="form">
+    <div class="fields stack">
+      <div class="field-row">
+        <span class="field-label">{{ t('editor.stateType') }}</span>
+        <select
+          data-state-type
+          :value="element.type"
+          :disabled="element.type === 'time'"
+          @change="withType(($event.target as HTMLSelectElement).value as StateType)"
+        >
+          <!-- 导入的卡里真有一个结构体时照实显示它；作者新建 / 换类型只能选下面那四档 -->
+          <option v-if="element.type === 'object'" value="object">{{ typeLabel('object') }}</option>
+          <option v-for="type in TYPES" :key="type" :value="type">{{ typeLabel(type) }}</option>
+        </select>
+      </div>
 
-    <label class="field-row">
-      <span class="field-label">{{ t('editor.fieldName') }}</span>
-      <input
-        data-field="name"
-        :value="element.name"
-        @input="setText('name', ($event.target as HTMLInputElement).value)"
-      />
-    </label>
+      <label class="field-row">
+        <span class="field-label">{{ t('editor.fieldName') }}</span>
+        <input
+          data-field="name"
+          :value="element.name"
+          @input="setText('name', ($event.target as HTMLInputElement).value)"
+        />
+      </label>
 
-    <label class="field-row">
-      <span class="field-label">{{ t('editor.fieldNote') }}</span>
-      <input
-        data-field="note"
-        :value="element.note"
-        @input="setText('note', ($event.target as HTMLInputElement).value)"
-      />
-    </label>
+      <label class="field-row">
+        <span class="field-label">{{ t('editor.fieldNote') }}</span>
+        <input
+          data-field="note"
+          :value="element.note"
+          @input="setText('note', ($event.target as HTMLInputElement).value)"
+        />
+      </label>
 
-    <template v-if="element.type === 'enum'">
-      <label class="stack">
+      <label v-if="element.type === 'enum'" class="stack">
         <span class="field-label">{{ t('editor.fieldValues') }}</span>
         <textarea
           class="values"
@@ -192,8 +204,83 @@ function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): voi
           @input="setValues(($event.target as HTMLTextAreaElement).value)"
         ></textarea>
       </label>
-      <label v-if="!initialLocked" class="field-row">
-        <span class="field-label">{{ t('editor.fieldInitial') }}</span>
+
+      <template v-if="element.type === 'integer'">
+        <label class="field-row">
+          <span class="field-label">{{ t('editor.fieldMin') }}</span>
+          <input
+            type="number"
+            class="num"
+            data-field="min"
+            :value="element.min ?? ''"
+            @input="setNumber('min', ($event.target as HTMLInputElement).value)"
+          />
+        </label>
+        <label class="field-row">
+          <span class="field-label">{{ t('editor.fieldMax') }}</span>
+          <input
+            type="number"
+            class="num"
+            data-field="max"
+            :value="element.max ?? ''"
+            @input="setNumber('max', ($event.target as HTMLInputElement).value)"
+          />
+        </label>
+        <label class="field-row">
+          <span class="field-label">{{ t('editor.fieldStepMin') }}</span>
+          <input
+            type="number"
+            class="num"
+            data-field="step-min"
+            :value="element.stepMin ?? ''"
+            @input="setNumber('stepMin', ($event.target as HTMLInputElement).value)"
+          />
+        </label>
+        <label class="field-row">
+          <span class="field-label">{{ t('editor.fieldStepMax') }}</span>
+          <input
+            type="number"
+            class="num"
+            data-field="step-max"
+            :value="element.stepMax ?? ''"
+            @input="setNumber('stepMax', ($event.target as HTMLInputElement).value)"
+          />
+        </label>
+        <!-- 存档模式：这一局的当前值（读自 save.tree），改上下限时照着它判会不会越界 -->
+        <div v-if="currentValue !== undefined" class="field-row">
+          <span class="field-label">{{ t('editor.fieldCurrent') }}</span>
+          <span class="current" data-current-value>{{ currentValue }}</span>
+        </div>
+      </template>
+
+      <template v-if="element.type === 'time'">
+        <label class="field-row">
+          <span class="field-label">{{ t('editor.fieldGranularityUpper') }}</span>
+          <select
+            data-field="granularity-upper"
+            :value="element.granularityUpper"
+            @change="setUnit('granularityUpper', ($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="unit in TIME_UNITS" :key="unit" :value="unit">{{ unitLabel(unit) }}</option>
+          </select>
+        </label>
+        <label class="field-row">
+          <span class="field-label">{{ t('editor.fieldGranularityLower') }}</span>
+          <select
+            data-field="granularity-lower"
+            :value="element.granularityLower"
+            @change="setUnit('granularityLower', ($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="unit in TIME_UNITS" :key="unit" :value="unit">{{ unitLabel(unit) }}</option>
+          </select>
+        </label>
+      </template>
+    </div>
+
+    <!-- 初始值：新建存档时的种子。存档模式不渲染（这一局的当前值在 save.tree 里） -->
+    <div v-if="!initialLocked && element.type !== 'object'" class="initial stack" data-initial-block>
+      <span class="field-label">{{ t('editor.fieldInitial') }}</span>
+      <template v-if="element.type === 'enum'">
         <select
           data-field="initial"
           :value="element.initial"
@@ -201,52 +288,8 @@ function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): voi
         >
           <option v-for="value in element.values ?? []" :key="value" :value="value">{{ value }}</option>
         </select>
-      </label>
-    </template>
-
-    <template v-if="element.type === 'integer'">
-      <label class="field-row">
-        <span class="field-label">{{ t('editor.fieldMin') }}</span>
-        <input
-          type="number"
-          class="num"
-          data-field="min"
-          :value="element.min ?? ''"
-          @input="setNumber('min', ($event.target as HTMLInputElement).value)"
-        />
-      </label>
-      <label class="field-row">
-        <span class="field-label">{{ t('editor.fieldMax') }}</span>
-        <input
-          type="number"
-          class="num"
-          data-field="max"
-          :value="element.max ?? ''"
-          @input="setNumber('max', ($event.target as HTMLInputElement).value)"
-        />
-      </label>
-      <label class="field-row">
-        <span class="field-label">{{ t('editor.fieldStepMin') }}</span>
-        <input
-          type="number"
-          class="num"
-          data-field="step-min"
-          :value="element.stepMin ?? ''"
-          @input="setNumber('stepMin', ($event.target as HTMLInputElement).value)"
-        />
-      </label>
-      <label class="field-row">
-        <span class="field-label">{{ t('editor.fieldStepMax') }}</span>
-        <input
-          type="number"
-          class="num"
-          data-field="step-max"
-          :value="element.stepMax ?? ''"
-          @input="setNumber('stepMax', ($event.target as HTMLInputElement).value)"
-        />
-      </label>
-      <label v-if="!initialLocked" class="field-row">
-        <span class="field-label">{{ t('editor.fieldInitial') }}</span>
+      </template>
+      <template v-if="element.type === 'integer'">
         <input
           type="number"
           class="num"
@@ -254,70 +297,67 @@ function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): voi
           :value="element.initial ?? ''"
           @input="setInitial($event.target as HTMLInputElement)"
         />
-      </label>
-    </template>
-
-    <template v-if="element.type === 'text'">
-      <label v-if="!initialLocked" class="field-row">
-        <span class="field-label">{{ t('editor.fieldInitial') }}</span>
+      </template>
+      <template v-if="element.type === 'text'">
         <input
           data-field="initial"
           :value="element.initial"
           @input="emit('edit', { ...element, initial: ($event.target as HTMLInputElement).value })"
         />
-      </label>
-    </template>
-
-    <template v-if="element.type === 'time'">
-      <label class="field-row">
-        <span class="field-label">{{ t('editor.fieldGranularityUpper') }}</span>
-        <select
-          data-field="granularity-upper"
-          :value="element.granularityUpper"
-          @change="setUnit('granularityUpper', ($event.target as HTMLSelectElement).value)"
-        >
-          <option v-for="unit in TIME_UNITS" :key="unit" :value="unit">{{ unitLabel(unit) }}</option>
-        </select>
-      </label>
-      <label class="field-row">
-        <span class="field-label">{{ t('editor.fieldGranularityLower') }}</span>
-        <select
-          data-field="granularity-lower"
-          :value="element.granularityLower"
-          @change="setUnit('granularityLower', ($event.target as HTMLSelectElement).value)"
-        >
-          <option v-for="unit in TIME_UNITS" :key="unit" :value="unit">{{ unitLabel(unit) }}</option>
-        </select>
-      </label>
-      <div v-if="!initialLocked" class="field-row time-row">
-        <span class="field-label">{{ t('editor.fieldInitial') }}</span>
-        <input
-          v-for="part in TIME_PARTS"
-          :key="part"
-          type="number"
-          class="num"
-          :data-field="`time-${part}`"
-          :title="unitLabel(part)"
-          :aria-label="unitLabel(part)"
-          :value="timeOf()[part]"
-          @input="setTimePart(part, ($event.target as HTMLInputElement).value)"
-        />
-      </div>
-    </template>
+      </template>
+      <template v-if="element.type === 'time'">
+        <div class="time-row">
+          <span v-for="part in TIME_PARTS" :key="part" class="time-part">
+            <input
+              type="number"
+              class="num"
+              :data-field="`time-${part}`"
+              :aria-label="unitLabel(part)"
+              :value="timeOf()[part]"
+              @input="setTimePart(part, ($event.target as HTMLInputElement).value)"
+            />
+            <span class="time-unit" :data-time-unit="part">{{ unitLabel(part) }}</span>
+          </span>
+        </div>
+      </template>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   padding: 8px 10px;
   min-height: 0;
   height: 100%;
   overflow: auto;
 }
 
+/*
+ * 中栏分两段：上半 = 结构字段（至少占一半），下半 = 初始值块（从 ~50% 起往下排）。
+ * 不用 `margin-top: auto` 贴底 —— 那会把初始值一直沉到中栏最底下，不是「下半部分」。
+ * 字段多过一半就往下长，两块合计放不下时由 `.form` 自己滚（`padding-top` 保证 ≥16px 的缝）。
+ */
+.fields {
+  flex: 0 0 auto;
+  min-height: 50%;
+}
+
+.initial {
+  flex: 0 0 auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
 .num {
   flex: 0 0 auto;
   width: 72px;
+}
+
+.current {
+  font-size: var(--fs2);
 }
 
 .values {
@@ -326,6 +366,19 @@ function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): voi
 }
 
 .time-row {
+  display: flex;
   flex-wrap: wrap;
+  gap: 6px;
+}
+
+.time-part {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.time-unit {
+  font-size: var(--fs3);
+  color: var(--ink-soft);
 }
 </style>

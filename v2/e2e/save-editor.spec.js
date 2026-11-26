@@ -26,6 +26,7 @@ import {
   readStorage,
   slowMock,
 } from './support/app.js'
+import { v5Card, v5Save } from '../tests/support/state-fixtures.js'
 
 const SAVE_ID = 's1'
 
@@ -268,5 +269,41 @@ test.describe('存档编辑器：模型映射', () => {
     const modelsOfCalls = requests.map((body) => body.model)
     // 链顺序 time → check → extra → output：只有第二跳换了模型
     expect(modelsOfCalls).toEqual(['model-a', 'model-b', 'model-a', 'model-a'])
+  })
+})
+test.describe('存档编辑器：整数当前值', () => {
+  test('显示 save.tree 当前值；新上下限不兼容当前值时保存被拦，错误点名 2.2', async ({ page }) => {
+    const base = v5Card()
+    const card = {
+      ...base,
+      state: base.state.map((element) => (element.code === '2.2' ? { ...element, initial: 100 } : element)),
+    }
+    const save = v5Save(card, { id: 's-int-current' })
+    await boot(page, {
+      storage: {
+        [KEYS.cards]: [card],
+        [KEYS.saves]: [save],
+        [KEYS.presets]: [MOCK_PRESET],
+      },
+    })
+    await page.goto(`${APP_PATH}#/edit-save/s-int-current`)
+    await expect(page.locator('[data-page="editor"]')).toBeVisible()
+    await page.locator('[data-state-item="2.2"]').click()
+
+    // 中间表单要显示这一局的当前值（save.tree 的 80），不是快照 initial 的 100
+    await expect(page.locator('[data-col="middle"]')).toContainText('80')
+
+    await page.locator('[data-field="min"]').fill('90')
+    await page.locator('[data-field="max"]').fill('100')
+    await page.locator('[data-save-card]').click()
+    await expect(page.locator('[data-save-errors]'), '当前值 80 < 新下限 90，保存应当被拦').toBeVisible()
+
+    const first = page.locator('[data-save-error]').first()
+    const code = await first.getAttribute('data-save-error-code')
+    const text = (await first.textContent()) ?? ''
+    expect(code === '2.2' || text.includes('2.2'), '错误要点名 2.2 这条路径').toBe(true)
+
+    const saved = (await readStorage(page, KEYS.saves))[0]
+    expect(saved.cardSnapshot.state.find((element) => element.code === '2.2').min, '校验失败不许写盘').toBe(0)
   })
 })

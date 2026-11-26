@@ -48,7 +48,7 @@ describe('晨风镇 v5 · 资产形状', () => {
     expect(() => validateCard(card)).not.toThrow()
   })
 
-  it('树就是 v5 §7.1 那一棵：时间 / 世界 / 玩家，五个值类型都出场', async () => {
+  it('树就是 v5 §7.1 那一棵：时间 / 世界 / 玩家，四种用户可选类型都出场', async () => {
     const card = sampleCard()
     expect(card.state.map((item) => item.code).sort()).toEqual([...CODES].sort())
     expect(elementOf(card, '0')).toMatchObject({
@@ -57,8 +57,9 @@ describe('晨风镇 v5 · 资产形状', () => {
       granularityLower: 'minute',
       initial: { year: 1024, month: 9, day: 17, hour: 18, minute: 30, second: 0 },
     })
-    expect(elementOf(card, '1')).toMatchObject({ type: 'object' })
-    expect(elementOf(card, '2')).toMatchObject({ type: 'object' })
+    // 世界 / 玩家是「text + 空自身值 + 子节点」——结构体只是后台形态
+    expect(elementOf(card, '1')).toMatchObject({ type: 'text', initial: '' })
+    expect(elementOf(card, '2')).toMatchObject({ type: 'text', initial: '' })
     expect(elementOf(card, '1.2')).toMatchObject({
       type: 'enum',
       values: ['晴', '阴', '雨', '雪', '雾'],
@@ -112,10 +113,12 @@ describe('晨风镇 v5 · 初始值展开（§7.2）', () => {
     const { initialTreeOf } = await loadState()
     expect(initialTreeOf(sampleCard())).toEqual({
       0: { year: 1024, month: 9, day: 17, hour: 18, minute: 30, second: 0 },
+      '1.0': '',
       '1.1.0': '晨风镇',
       '1.1.1': '醉猫旅店 · 一楼',
       1.2: '雨',
       1.3: '炉火噼啪，麦酒和湿羊毛的味道',
+      '2.0': '',
       2.1: '旅人',
       2.2: 80,
       2.3: '正常',
@@ -123,9 +126,11 @@ describe('晨风镇 v5 · 初始值展开（§7.2）', () => {
     })
   })
 
-  it('object（1 / 2）在初始值里没有键', async () => {
+  it('世界 / 玩家在初始值里是 1.0 / 2.0 空串，没有 1 / 2 键', async () => {
     const { initialTreeOf } = await loadState()
     const tree = initialTreeOf(sampleCard())
+    expect(tree['1.0']).toBe('')
+    expect(tree['2.0']).toBe('')
     expect('1' in tree).toBe(false)
     expect('2' in tree).toBe(false)
   })

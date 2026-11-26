@@ -3,8 +3,8 @@
  * 左栏 · 状态树（CONTRACT §8.2）：按 code 缩进的一棵扁平树，一行一个**可见**元素。
  *
  * 一条铁律：**`.0` 不单独出行** —— 它是节点自身值的保留槽，属于父行那一行。
- * 所以「有自身值的行」显示的就是它的值：有孩子时取 `<code>.0`，没孩子时取 `<code>`；
- * 结构体（`object`）没有自身值，那一格不渲染。
+ * 行里只有 **编号 / 名字 / 读 / 写 / 加子元素 / 删除**：初始值与当前值不在这里显示
+ * （初始值在中栏下半部分改，当前值在存档编辑器里看）。
  *
  * 眼睛按 S1 / S2 露出来：
  *   · **S1**（选中工作流节点）：每行两只**文字按钮**【读】【写】；`data-on` 是「这一行整段都被读到 / 写到」，
@@ -15,17 +15,15 @@
  *     第 5 层不出现、时间没有）与 `[data-delete-state]`（删这一棵，时间没有）。
  *
  * `structureLocked`（存档编辑器）把 `+` / 加子元素 / 删除**整块拿掉**（不渲染、不是禁用）：
- * 那一侧的卡结构是冻结的，只许改名字 / 备注 / 初值与眼睛。
+ * 那一侧的卡结构是冻结的，只许改名字 / 备注 / 提示词与眼睛。
  */
 import { computed } from 'vue'
-import { MAX_DEPTH, codeDepth, formatTime, pathsOf } from '../core/statetree'
-import type { ChainNode, StateElement, TimeValue, Tree } from '../core/types'
+import { MAX_DEPTH, codeDepth, pathsOf } from '../core/statetree'
+import type { ChainNode, StateElement } from '../core/types'
 import { t } from '../i18n'
 
 const props = defineProps<{
   elements: StateElement[]
-  /** 每一行要显示的自身值（卡模式 = 初值树；存档模式 = 存档的树） */
-  values: Tree
   node: ChainNode | null
   selectedCode: string | null
   /** 结构锁死：不渲染新元素 / 加子元素 / 删除（默认 false = 卡编辑器） */
@@ -40,20 +38,6 @@ defineEmits<{
   'toggle-read': [code: string, tri: 'all' | 'some' | 'none']
   'toggle-write': [code: string, tri: 'all' | 'some' | 'none']
 }>()
-
-/** 一个 code 的自身值路径；结构体没有自身值（`undefined` ⇒ 不渲染那一格） */
-function ownValuePath(element: StateElement): string | undefined {
-  return element.type === 'object' ? undefined : pathsOf(props.elements, element.code)[0]
-}
-
-/** 行里显示的值：时间走公历格式，其余按原样 */
-function ownValueOf(element: StateElement): string | undefined {
-  const path = ownValuePath(element)
-  if (path === undefined) return undefined
-  const value = props.values[path]
-  if (value === undefined) return undefined
-  return typeof value === 'object' ? formatTime(value as TimeValue) : String(value)
-}
 
 /**
  * 节点这一只眼睛覆盖到的值路径。引用可能是元素 code（覆盖自身值 + 整棵子树），也可能是
@@ -117,9 +101,6 @@ function showsWrite(): boolean {
       >
         <span class="state-code" data-state-code>{{ element.code }}</span>
         <span class="state-name ellipsis" data-state-name>{{ element.name }}</span>
-        <span v-if="ownValueOf(element) !== undefined" class="state-value ellipsis" data-state-value>
-          {{ ownValueOf(element) }}
-        </span>
         <template v-if="node">
           <button
             type="button"
@@ -234,17 +215,5 @@ function showsWrite(): boolean {
 .state-name {
   flex: 1 1 auto;
   font-size: var(--fs2);
-}
-
-/* 自身值是次要读数：占一行里剩下的位置，长了省略号 */
-.state-value {
-  flex: 0 1 auto;
-  max-width: 40%;
-  font-size: var(--fs3);
-  color: var(--ink-soft);
-}
-
-.state-row.selected .state-value {
-  color: var(--active-ink);
 }
 </style>

@@ -68,7 +68,7 @@ function elementAt(state: StateElement[], code: string): StateElement {
 }
 
 /** 直接孩子（按最后一段升序）；只认 `code.` 前缀且后面再没有点的那种 */
-function childrenOf(state: StateElement[], code: string): StateElement[] {
+export function childrenOf(state: StateElement[], code: string): StateElement[] {
   const prefix = `${code}.`
   return state
     .filter((item) => item.code.startsWith(prefix) && !item.code.slice(prefix.length).includes('.'))
@@ -378,7 +378,33 @@ export function removeNode(card: Card, tree: Tree, code: string): { card: Card; 
   return { card: { ...card, state, chain }, tree: nextTree }
 }
 
-function stateIssues(card: Card): CardIssue[] {
+/**
+ * 一条值路径属于哪个元素 code（错误清单点回哪一行）：叶子路径就是自己的 code，
+ * 有孩子的节点自身值路径 `<code>.0` 归它的父元素；对不上任何元素 ⇒ `''`（卡级问题）。
+ */
+function codeOfPath(state: StateElement[], path: string): string {
+  if (state.some((element) => element.code === path)) return path
+  const base = path.endsWith('.0') ? path.slice(0, -2) : ''
+  return base !== '' && state.some((element) => element.code === base) ? base : ''
+}
+
+/** 树里的一条值是不是这个元素认的形状（存档校验与存档编辑器共用这一份） */
+export function valueFits(element: StateElement, value: unknown): boolean {
+  switch (element.type) {
+    case 'time':
+      return isTimeValue(value)
+    case 'text':
+      return typeof value === 'string'
+    case 'integer':
+      return integerValueFits(element, value)
+    case 'enum':
+      return enumValueFits(element, value)
+    default:
+      return true
+  }
+}
+
+function stateIssues(card: Card, checkInitial: boolean): CardIssue[] {
   const issues: CardIssue[] = []
   const add = (code: string, path: string, message: string) =>
     issues.push({ code, path, message, errorCode: 'E_VALIDATION' })
@@ -439,14 +465,14 @@ function stateIssues(card: Card): CardIssue[] {
       continue
     }
     if (!('initial' in element)) {
-      add(element.code, '', t('issue.missingInitial', { code: element.code }))
+      if (checkInitial) add(element.code, '', t('issue.missingInitial', { code: element.code }))
     } else if (element.type === 'text') {
-      if (typeof element.initial !== 'string')
+      if (checkInitial && typeof element.initial !== 'string')
         add(element.code, '', t('issue.textInitial', { code: element.code }))
     } else if (element.type === 'integer') {
-      issues.push(...integerIssues(element))
+      issues.push(...integerIssues(element, checkInitial))
     } else if (element.type === 'enum') {
-      issues.push(...enumIssues(element))
+      issues.push(...enumIssues(element, checkInitial))
     }
     if (element.type === 'time') {
       const upper = element.granularityUpper
@@ -459,7 +485,7 @@ function stateIssues(card: Card): CardIssue[] {
       ) {
         add(element.code, '', t('issue.granularity', { code: element.code }))
       }
-      if ('initial' in element && !isTimeValue(element.initial)) {
+      if (checkInitial && 'initial' in element && !isTimeValue(element.initial)) {
         add(element.code, '', t('issue.timeValue', { code: element.code }))
       }
     }
@@ -506,7 +532,7 @@ export function enumValueFits(element: StateElement, value: unknown): value is s
   return typeof value === 'string' && (element.values ?? []).includes(value)
 }
 
-function integerIssues(element: StateElement): CardIssue[] {
+function integerIssues(element: StateElement, checkInitial: boolean): CardIssue[] {
   const issue = (message: string): CardIssue[] => [
     { code: element.code, path: '', message, errorCode: 'E_VALIDATION' },
   ]
@@ -520,13 +546,13 @@ function integerIssues(element: StateElement): CardIssue[] {
   if (min > max || stepMin > stepMax || stepMin < 0) {
     return issue(t('issue.integerBounds', { code: element.code }))
   }
-  if (!integerValueFits(element, element.initial)) {
+  if (checkInitial && !integerValueFits(element, element.initial)) {
     return issue(t('issue.integerInitial', { code: element.code }))
   }
   return []
 }
 
-function enumIssues(element: StateElement): CardIssue[] {
+function enumIssues(element: StateElement, checkInitial: boolean): CardIssue[] {
   const values = element.values
   const okValues =
     Array.isArray(values) &&
@@ -543,7 +569,7 @@ function enumIssues(element: StateElement): CardIssue[] {
       },
     ]
   }
-  if (!enumValueFits(element, element.initial)) {
+  if (checkInitial && !enumValueFits(element, element.initial)) {
     return [
       {
         code: element.code,
@@ -600,7 +626,49 @@ function chainIssues(card: Card): CardIssue[] {
 /**
  * 整卡的问题清单：状态树 + 链的规矩，一条一个 `{ code, path, message, errorCode }`；干净卡 ⇒ `[]`。
  * 保存按钮拿它当「能不能写盘」的判据，`validateCard` 拿它抛第一条 —— 两边不会各判一套。
+ *
+ * `initial: false` ⇒ **不判初始值**（缺初始值 / 类型不符 / 越界都不算）：存档编辑器改的是卡快照的
+ * 非初始字段，卡快照里的初始值早就展开成 `save.tree`，存档模式也不显示它（契约 §6.2）。
  */
-export function cardIssues(card: Card): CardIssue[] {
-  return [...stateIssues(card), ...chainIssues(card)]
+export function cardIssues(card: Card, options: { initial?: boolean } = {}): CardIssue[] {
+  return [...stateIssues(card, options.initial !== false), ...chainIssues(card)]
+}
+
+/**
+ * 存档编辑器保存前的兼容性清单：**新的卡快照必须容得下这一份存档的当前树** ——
+ * 每条值路径都还在、没有多出来的键、每个值仍符合元素的类型与上下限。
+ * **不看初始值**：初始值是卡的种子，这一局的当前值住在 `save.tree`（契约 §6.2）。
+ */
+export function saveTreeIssues(card: Card, tree: Tree): CardIssue[] {
+  const issues: CardIssue[] = []
+  const paths = new Set(card.state.flatMap((element) => pathsOf(card.state, element.code)))
+  for (const path of paths) {
+    if (!(path in tree)) {
+      issues.push({
+        code: codeOfPath(card.state, path),
+        path,
+        message: t('issue.saveTreeMissing', { path }),
+        errorCode: 'E_VALIDATION',
+      })
+    }
+  }
+  for (const path of Object.keys(tree)) {
+    if (!paths.has(path)) {
+      issues.push({ code: '', path, message: t('issue.saveTreeExtra', { path }), errorCode: 'E_VALIDATION' })
+    }
+  }
+  for (const element of card.state) {
+    if (element.type === 'object') continue
+    const [path] = pathsOf(card.state, element.code)
+    if (path === undefined || !(path in tree)) continue
+    if (!valueFits(element, tree[path])) {
+      issues.push({
+        code: element.code,
+        path,
+        message: t('issue.saveTreeValue', { path }),
+        errorCode: 'E_VALIDATION',
+      })
+    }
+  }
+  return issues
 }

@@ -9,11 +9,16 @@
  *
  * 判据只认 `- <code>「<name>」：…` 这些行：状态段里除了它们没有别的东西。
  */
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { v5Card, v5Save } from './support/state-fixtures.js'
 import { loadModule } from './support/load.js'
 
 const loadPrompt = () => loadModule('core/prompt.ts', () => import('../src/core/prompt.ts'))
+const loadState = () => loadModule('core/statetree.ts', () => import('../src/core/statetree.ts'))
+const SAMPLE = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'data', 'sample-card.json')
 
 /** 把一段提示词切成「`\n\n` 分隔的块」，返回以某个标记开头的块（找不到就是 undefined） */
 function blockOf(prompt, marker) {
@@ -48,14 +53,16 @@ describe('提示词 · 状态段（v5 §5）', () => {
     prompt: 'NODE_OUT',
   }
 
-  it('读有孩子的节点 ⇒ 一行，JSON 里 "0" 是自身值、"1" 是孩子', async () => {
+  it('读有孩子的节点 ⇒ 一行，JSON 里「自身」是自身值、子键用 name（不许数字键）', async () => {
     const { buildPrompt } = await loadPrompt()
     const prompt = buildPrompt({ card, save: v5Save(card), node, action: 'act one', outputs: {} })
     const lines = stateLines(prompt)
     expect(lines, '读了三样，应当有状态块').not.toBeNull()
     const line = lines.find((item) => item.startsWith('- 1.1「'))
     expect(line, '1.1 那一行').toBeTruthy()
-    expect(JSON.parse(payloadOf(line, '1.1', 'region'))).toEqual({ 0: 'A1', 1: 'SITE_X' })
+    const payload = JSON.parse(payloadOf(line, '1.1', 'region'))
+    expect(payload).toEqual({ 自身: 'A1', site: 'SITE_X' })
+    expect(JSON.stringify(payload), '不许出现 "0" / "1" 这种 code 键').not.toMatch(/"0"\s*:|"1"\s*:/)
   })
 
   it('读叶子 ⇒ 只有该字段；读时间 ⇒ 公历格式', async () => {
@@ -81,7 +88,9 @@ describe('提示词 · 状态段（v5 §5）', () => {
       outputs: {},
     })
     const line = stateLines(prompt).find((item) => item.startsWith('- 2.4「'))
-    expect(JSON.parse(payloadOf(line, '2.4', 'bag'))).toEqual({ 1: 'SWORD' })
+    const payload = JSON.parse(payloadOf(line, '2.4', 'bag'))
+    expect(payload).toEqual({ item: 'SWORD' })
+    expect(JSON.stringify(payload), '不许出现 "0" / "1" 这种 code 键').not.toMatch(/"0"\s*:|"1"\s*:/)
   })
 
   it('读顶层 object ⇒ 整棵子树的嵌套 JSON', async () => {
@@ -94,7 +103,9 @@ describe('提示词 · 状态段（v5 §5）', () => {
       outputs: {},
     })
     const line = stateLines(prompt).find((item) => item.startsWith('- 1「'))
-    expect(JSON.parse(payloadOf(line, '1', 'world'))).toEqual({ 1: { 0: 'A1', 1: 'SITE_X' }, 2: 'MOOD_Y' })
+    const payload = JSON.parse(payloadOf(line, '1', 'world'))
+    expect(payload).toEqual({ region: { 自身: 'A1', site: 'SITE_X' }, mood: 'MOOD_Y' })
+    expect(JSON.stringify(payload), '不许出现 "0" / "1" 这种 code 键').not.toMatch(/"0"\s*:|"1"\s*:/)
   })
 
   it('只读孩子时不带父亲的自身值；读父亲时不把子孙单独列行', async () => {
@@ -219,9 +230,55 @@ describe('提示词 · 读自身值路径 <code>.0', () => {
     expect(lines[0], '读孩子时不带父亲自身值').not.toContain('A1')
   })
 
-  it('reads 里是父亲 code 1.1 ⇒ 一行里同时有自身值（"0"）与孩子（"1"）', async () => {
+  it('reads 里是父亲 code 1.1 ⇒ 一行里同时有自身值（自身）与孩子（name）', async () => {
     const lines = await linesFor(['1.1'])
     expect(lines, '父亲 code 只出一行（子孙不单独出行）').toHaveLength(1)
-    expect(JSON.parse(payloadOfLine(lines[0]))).toEqual({ 0: 'A1', 1: 'SITE_X' })
+    expect(JSON.parse(payloadOfLine(lines[0]))).toEqual({ 自身: 'A1', site: 'SITE_X' })
+  })
+})
+
+describe('提示词 · 示例卡的 JSON 键是中文名', () => {
+  it('读世界 / 玩家：键是「自身」+ 子元素 name，没有数字键', async () => {
+    const { buildPrompt } = await loadPrompt()
+    const { initialTreeOf } = await loadState()
+    const sample = JSON.parse(readFileSync(SAMPLE, 'utf8'))
+    const save = v5Save(sample, { tree: initialTreeOf(sample) })
+    const reader = {
+      id: 'reader',
+      type: 'output',
+      name: 'reader',
+      reads: [],
+      writable: [],
+      readsUpstream: [],
+      historyTurns: 0,
+      prompt: '',
+    }
+
+    for (const code of ['1', '2']) {
+      const prompt = buildPrompt({
+        card: sample,
+        save,
+        node: { ...reader, reads: [code] },
+        action: 'act one',
+        outputs: {},
+      })
+      const line = stateLines(prompt).find((item) => item.startsWith(`- ${code}「`))
+      expect(line, `${code} 那一行`).toBeTruthy()
+      const payload = JSON.parse(line.slice(line.indexOf('：') + 1))
+      expect(payload.自身, '每个容器自己的值是空串').toBe('')
+      expect(JSON.stringify(payload), `示例卡 ${code} 出现了数字键`).not.toMatch(/"0"\s*:|"1"\s*:/)
+    }
+
+    const worldPrompt = buildPrompt({
+      card: sample,
+      save,
+      node: { ...reader, reads: ['1'] },
+      action: 'act one',
+      outputs: {},
+    })
+    const worldLine = stateLines(worldPrompt).find((item) => item.startsWith('- 1「'))
+    const world = JSON.parse(worldLine.slice(worldLine.indexOf('：') + 1))
+    expect(world.区域, '子键用元素的 name').toMatchObject({ 自身: '晨风镇', 地点: '醉猫旅店 · 一楼' })
+    expect(Object.keys(world)).toEqual(['自身', '区域', '天气', '氛围'])
   })
 })

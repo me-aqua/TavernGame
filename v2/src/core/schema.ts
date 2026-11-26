@@ -13,7 +13,7 @@
  */
 import { t } from '../i18n'
 import { AppError } from './errors'
-import { cardIssues, enumValueFits, integerValueFits, isTimeValue, pathsOf } from './statetree'
+import { cardIssues, isTimeValue, pathsOf, valueFits } from './statetree'
 import type { Card, ChainNode, Save, StateElement } from './types'
 
 const NODE_TYPES = ['time', 'normal', 'output'] as const
@@ -153,8 +153,13 @@ function validateChain(card: Card): void {
   chain.forEach((raw, index) => validateNode(raw, index))
 }
 
-/** 卡的结构 + 链的规矩；不合法就抛 `AppError`（第一条问题的错误码） */
-export function validateCard(card: Card): void {
+/**
+ * 卡的结构 + 链的规矩；不合法就抛 `AppError`（第一条问题的错误码）。
+ *
+ * `initial: false` ⇒ 不判初始值（校验清单原样交给 `cardIssues`）：存档编辑器保存时用的是这一支，
+ * 它要判的是「新的快照容不容得下这一份存档的当前树」，不是「卡的种子值合不合法」。
+ */
+export function validateCard(card: Card, options: { initial?: boolean } = {}): void {
   if (!isRecord(card)) throw new AppError('E_VALIDATION', { message: t('error.field', { field: 'card' }) })
   if (card.schemaVersion !== 1) {
     throw new AppError('E_VALIDATION', {
@@ -168,7 +173,7 @@ export function validateCard(card: Card): void {
   validateState(card)
   validatePrompts(card)
   validateChain(card)
-  const [first] = cardIssues(card)
+  const [first] = cardIssues(card, options)
   if (first) {
     throw new AppError(first.errorCode, {
       message: first.message,
@@ -258,20 +263,4 @@ export function validateSave(save: Save, card?: Card): void {
 /** 元素在树里的自身值路径（`pathsOf` 的首项就是它；结构体没有自身值，调用方先跳过） */
 function ownPathIn(card: Card, element: StateElement): string {
   return pathsOf(card.state, element.code)[0]
-}
-
-/** 树里的一条值是不是这个元素认的形状（数字 / 下拉的规矩与写入执行器同一份，见 `statetree`） */
-function valueFits(element: StateElement, value: unknown): boolean {
-  switch (element.type) {
-    case 'time':
-      return isTimeValue(value)
-    case 'text':
-      return typeof value === 'string'
-    case 'integer':
-      return integerValueFits(element, value)
-    case 'enum':
-      return enumValueFits(element, value)
-    default:
-      return true
-  }
 }

@@ -11,7 +11,7 @@
  * 判据只用契约 §8 的数据钩子；界面文案不在这里钉。
  */
 import { expect, test } from '@playwright/test'
-import { APP_PATH, CJK, KEYS, MOCK_PRESET, boot, readStorage, route } from './support/app.js'
+import { APP_PATH, KEYS, MOCK_PRESET, boot, readStorage, route } from './support/app.js'
 import { deepCard, v5Card } from '../tests/support/state-fixtures.js'
 
 /** 选中一行（状态树的行只做选择；眼睛 / 加孩子 / 删除都是行内按钮） */
@@ -92,8 +92,9 @@ test('示例卡：1.1（区域）与 1.1.1（地点）都在，.0 不单独出�
   await expect(page.locator(row('1.1'))).toBeVisible()
   await expect(page.locator(row('1.1.1'))).toBeVisible()
   await expect(page.locator(row('1.1.0')), '.0 是自身值的保留槽，不出行').toHaveCount(0)
-  await expect(page.locator(`${row('1.1')} [data-state-value]`)).toHaveText('晨风镇')
-  await expect(page.locator(`${row('1.1.1')} [data-state-value]`)).toHaveText('醉猫旅店 · 一楼')
+  await expect(page.locator('[data-state-tree] [data-state-value]'), '左栏不显示初始值 / 当前值').toHaveCount(
+    0,
+  )
 
   await expect(page.locator(row('1'))).toHaveAttribute('data-depth', '1')
   await expect(page.locator(row('1.1'))).toHaveAttribute('data-depth', '2')
@@ -108,10 +109,12 @@ test('示例卡：新建存档的 tree 就是 §7.2 那张扁平表（.0 与叶�
   const saves = await readStorage(page, KEYS.saves)
   expect(saves.at(-1).tree).toEqual({
     0: { year: 1024, month: 9, day: 17, hour: 18, minute: 30, second: 0 },
+    '1.0': '',
     '1.1.0': '晨风镇',
     '1.1.1': '醉猫旅店 · 一楼',
     1.2: '雨',
     1.3: '炉火噼啪，麦酒和湿羊毛的味道',
+    '2.0': '',
     2.1: '旅人',
     2.2: 80,
     2.3: '正常',
@@ -229,6 +232,8 @@ test('界面上删顶层中间元素：0 不动、根重排 1..n、可保存、�
   await openEditor(page, card)
   await selectElement(page, '2')
   await page.locator(`${row('2')} [data-delete-state]`).click()
+  await expect(page.locator('[data-confirm]'), '删除状态元素要弹确认').toBeVisible()
+  await page.locator('[data-confirm-ok]').click()
 
   // 不楔死：页面还在、时间 0 还在、老的 3 已经没了
   await expect(page.locator('[data-page="editor"]')).toBeVisible()
@@ -241,8 +246,8 @@ test('界面上删顶层中间元素：0 不动、根重排 1..n、可保存、�
     .evaluateAll((rows) => rows.map((item) => item.getAttribute('data-state-item')))
   expect(codes, '顶层根号要重排成 0/1/2').toEqual(['0', '1', '2'])
   for (const code of codes) expect(code, `根号不许变成 ${code}`).toMatch(/^\d+(\.\d+)*$/)
-  // 旧 3 的值要落到新的 2 上
-  await expect(page.locator(`${row('2')} [data-state-value]`)).toHaveText('THREE')
+  // 左栏不显示值；旧 3 的值只能从盘上确认
+  await expect(page.locator('[data-state-tree] [data-state-value]')).toHaveCount(0)
 
   expect(await save(page), '删完的卡应当能保存').toBe(0)
   const saved = (await readStorage(page, KEYS.cards))[0]
@@ -268,7 +273,7 @@ test('给标量加孩子：不转换类型、自身值仍是自身值（保存�
   expect(codes.indexOf('1.2'), '1.2 应排在 1.1.2 之后').toBeGreaterThan(childAt)
   await expect(page.locator(row('1.1.2'))).toHaveAttribute('data-depth', '3')
   await page.locator(row('1.1')).click()
-  await expect(page.locator(`${row('1.1')} [data-state-value]`)).toHaveText('A1')
+  await expect(page.locator('[data-state-tree] [data-state-value]'), '左栏不显示值').toHaveCount(0)
   await expect(page.locator('[data-state-type]')).toHaveValue('enum')
 
   expect(await save(page)).toBe(0)
@@ -349,27 +354,123 @@ test('enum values 改成不含旧值：initial 自动重置为第一项，保存
   expect(saved.initial).toBe('B1')
 })
 
-test('校验拦截 · 空 object：不写盘、草稿保留、错误可点回', async ({ page }) => {
-  const card = v5Card()
-  await openEditor(page, card)
+test('类型下拉没有结构体；示例卡 1/2 是 text 空自身值；加孩子仍是 text', async ({ page }) => {
+  await openSample(page)
+
+  for (const code of ['1', '2']) {
+    await selectElement(page, code)
+    await expect(page.locator('[data-state-type]'), `示例卡 ${code} 应是文字`).toHaveValue('text')
+    await expect(page.locator('[data-field="initial"]')).toHaveValue('')
+  }
+
+  // 类型下拉里不许出现「结构体」（object 是后台形态）
+  const types = await page
+    .locator('[data-state-type] option')
+    .evaluateAll((options) => options.map((option) => option.getAttribute('value')))
+  expect(types, '类型下拉不许出现 object / 结构体').not.toContain('object')
+  for (const type of ['text', 'integer', 'enum', 'time']) expect(types).toContain(type)
+
+  // 给 text 容器加孩子：类型不变，孩子落到 1.4
+  await selectElement(page, '1')
+  await page.locator(addChild('1')).click()
+  await expect(page.locator(row('1.4'))).toBeVisible()
+  await expect(page.locator('[data-state-type]'), '加孩子不转换类型').toHaveValue('text')
+  expect(await save(page)).toBe(0)
+  const saved = (await readStorage(page, KEYS.cards))[0]
+  expect(saved.state.find((element) => element.code === '1')).toMatchObject({ type: 'text', initial: '' })
+  expect(saved.state.some((element) => element.code === '1.4')).toBe(true)
+})
+
+test('时间初值六格：每个输入框右边带自己的单位 年/月/日/时/分/秒', async ({ page }) => {
+  await openEditor(page, v5Card())
+  await selectElement(page, '0')
+
+  const units = {
+    'time-year': '年',
+    'time-month': '月',
+    'time-day': '日',
+    'time-hour': '时',
+    'time-minute': '分',
+    'time-second': '秒',
+  }
+  for (const [field, unit] of Object.entries(units)) {
+    const suffix = await page
+      .locator(`[data-field="${field}"]`)
+      .evaluate((input) => input.nextElementSibling?.textContent?.trim() ?? '')
+    expect(suffix, `${field} 右边应当是「${unit}」`).toBe(unit)
+  }
+})
+
+test('初始值块从中栏下半部分开始，且不溢出 / 钉在栏底', async ({ page }) => {
+  await openEditor(page, v5Card())
   await selectElement(page, '1.2')
-  await page.locator('[data-add-state]').click()
-  await page.locator('[data-state-type]').selectOption('object')
-  await expect(page.locator('[data-state-type]')).toHaveValue('object')
 
-  const errors = await save(page)
-  expect(errors, '空 object 应当被拦').toBeGreaterThan(0)
-  await expect(page.locator('[data-save-errors]')).toBeVisible()
-  const first = page.locator('[data-save-error]').first()
-  await expect(first).toContainText(CJK)
-  await expectNoWrite(page, card)
-  await expect(page.locator('[data-state-type]'), '草稿保留').toHaveValue('object')
+  const middle = await page.locator('[data-col="middle"]').boundingBox()
+  const block = await page.locator('[data-initial-block]').boundingBox()
+  expect(middle).not.toBeNull()
+  expect(block).not.toBeNull()
 
-  // 点错误回到那一格
-  const code = await first.getAttribute('data-save-error-code')
-  expect(code, '错误项要带可点回的 code').toBeTruthy()
-  await first.click()
-  await expect(page.locator(selectedRow(code))).toHaveCount(1)
+  // 起点必须在下半部分（容差 2px），不是靠「和字段差 16px」蒙过去
+  const tolerance = 2
+  expect(block.y, '初始值块起点必须 ≥ 中栏中点（容差 2px）').toBeGreaterThanOrEqual(
+    middle.y + middle.height / 2 - tolerance,
+  )
+  // 整块不能越过中栏底部（不贴底 / 不被裁掉）
+  expect(block.y + block.height, '初始值块不许越过中栏底部').toBeLessThanOrEqual(
+    middle.y + middle.height + tolerance,
+  )
+})
+
+test('删除状态元素弹确认：取消保留，确认删除', async ({ page }) => {
+  await openEditor(page, v5Card())
+  await selectElement(page, '1.2')
+
+  await page.locator(`${row('1.2')} [data-delete-state]`).click()
+  await expect(page.locator('[data-confirm]'), '删除状态元素要弹确认').toBeVisible()
+  await page.locator('[data-confirm-cancel]').click()
+  await expect(page.locator('[data-confirm]')).toHaveCount(0)
+  await expect(page.locator(row('1.2')), '取消后元素必须还在').toBeVisible()
+
+  await page.locator(`${row('1.2')} [data-delete-state]`).click()
+  await page.locator('[data-confirm-ok]').click()
+  await expect(page.locator(row('1.2')), '确认后才删除').toHaveCount(0)
+})
+
+test('删除公共提示词弹确认：取消保留，确认删除', async ({ page }) => {
+  await openEditor(page, v5Card())
+
+  const del = page.locator('[data-prompt-block="pr1"] [data-delete-prompt]')
+  await del.click()
+  await expect(page.locator('[data-confirm]'), '删除公共提示词要弹确认').toBeVisible()
+  await page.locator('[data-confirm-cancel]').click()
+  await expect(page.locator('[data-prompt-block="pr1"]'), '取消后提示词必须还在').toHaveCount(1)
+
+  await del.click()
+  await page.locator('[data-confirm-ok]').click()
+  await expect(page.locator('[data-prompt-block="pr1"]'), '确认后才删除').toHaveCount(0)
+})
+
+test('有未保存改动点返回：先弹确认；取消留在编辑器', async ({ page }) => {
+  await openEditor(page, v5Card())
+  await selectElement(page, '1.2')
+  await page.locator('[data-field="name"]').fill('UNSAVED_NAME')
+
+  await page.locator('[data-back]').click()
+  await expect(page.locator('[data-confirm]'), '未保存改动返回要弹确认').toBeVisible()
+  await page.locator('[data-confirm-cancel]').click()
+  await expect(page.locator('[data-page="editor"]'), '取消后留在编辑器').toBeVisible()
+
+  await page.locator('[data-back]').click()
+  await page.locator('[data-confirm-ok]').click()
+  await expect(page.locator('[data-page="home"]'), '确认后才回首页').toBeVisible()
+})
+
+test('保存成功提示 3 秒后消失', async ({ page }) => {
+  await openEditor(page, v5Card())
+  await page.locator('[data-save-card]').click()
+  await expect(page.locator('[data-save-ok]')).toBeVisible()
+  await page.waitForTimeout(3200)
+  await expect(page.locator('[data-save-ok]'), '【已保存】3 秒后应当消失').toHaveCount(0)
 })
 
 test('校验拦截 · 空 enum 取值：不写盘、草稿保留', async ({ page }) => {

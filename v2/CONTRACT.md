@@ -55,7 +55,7 @@ v2/
 ```
 
 - **状态树是扁平的、键是完整 code**（v5）：`state[]` 只是**声明**，值住在存档的 `tree` 里（§2.2）。
-- `type ∈ 'time' | 'text' | 'integer' | 'enum' | 'object'`；`type` 描述的是**自身值**，所以标量节点也可以有孩子、不会因此变成 `object`。
+- `type ∈ 'time' | 'text' | 'integer' | 'enum' | 'object'`；**作者只能选 `text` / `integer` / `enum` / `time`**，`object` 是「有孩子」的内部形态（类型下拉里没有；导入的卡真有 `object` 时照实显示并按它校验）。`type` 描述的是**自身值**，所以标量节点也可以有孩子、不会因此变成 `object`。
 - **编号铁律**：`state[0].code === '0'` 且 `type === 'time'`（整张卡只能有一个 `time`，它不能有孩子）；节点自己的值住在**隐式**的 `<code>.0`（**不进 `state[]`**），可见孩子从 `<code>.1` 起连续编号；父 code 必须存在；深度（`.0` 不计）最大 5（`1.1.1.1.1` 合法）。
 - **自身值**：`object` 没有 `initial`（必须有孩子）；其余类型必须带 `initial`（带孩子的标量也一样）。`initial` 永远是「这个元素自己的值」，落到树里的 `<code>.0` 是派生（`initialTreeOf`），卡里不存 `.0` 键。
 - 各类型的格子：`enum` 的 `values` 非空 / 不重复 / 都是字符串，初始值必须是其中一项；`integer` 的 `min`/`max`（缺省 ∓1e9）与 `stepMin`/`stepMax`（缺省 0 / 1e9）是值范围与**单次写入的步幅**（`|new − old|`），初始值只受上下限约束；`time` 的 `granularityUpper`/`granularityLower` 是单次推进的最粗 / 最细单位（顺序：year > month > week > day > hour > minute > second，upper 不细于 lower），值永远是合法公历六格。
@@ -164,7 +164,7 @@ export function createStorage(backend) -> Storage   // backend 由调用方注�
 ### 3.1 内置示例卡（`晨风镇`）—— 资产，不是玩家数据
 
 - 卡片本体住在 `v2/src/data/sample-card.json`（**资产**，随构建发布）；代码里不写死它的内容，只有 `main.ts` 引入它。
-- 资产形状 = 阶段 2.1 的 v5 样例：时间（`0`，颗粒度 day / minute）+ `1 世界`（`object`；`1.1 区域` 下拉自身值 + `1.1.1 地点` 文字；`1.2 天气` 下拉；`1.3 氛围` 文字）+ `2 玩家`（`object`；名字 / 体力 0..100 步幅 1..10 / 状态下拉 / 携带文字）。人物与线索不在 2.1 里。
+- 资产形状 = 阶段 2.1 的 v5 样例：时间（`0`，颗粒度 day / minute）+ `1 世界`（`text` + 空自身值 + 子节点；`1.1 区域` 下拉自身值 + `1.1.1 地点` 文字；`1.2 天气` 下拉；`1.3 氛围` 文字）+ `2 玩家`（`text` + 空自身值 + 子节点；名字 / 体力 0..100 步幅 1..10 / 状态下拉 / 携带文字）。人物与线索不在 2.1 里。
 - 种下去的是克隆 + 运行时不透明 id：克隆后 `id = c-<uuid>`（与首页新建卡同一套生成器）；资产 id 不进 URL / 存档；存档 `cardSnapshot.id` 用运行时 id。
 - 首次打开：`main.ts` 看 `tg2.settings.sampleSeeded`；不是 `true` ⇒ 若 `tg2.cards` 为空就写入示例卡，并把标记置 `true`（卡表非空也置 `true`、不种；一次性，不新增第六个键）。
 - 删了不复种：玩家删掉示例卡后再打开，列表就是空的（标记已落盘；删卡不动标记）。
@@ -244,7 +244,7 @@ export function buildPrompt({ card, save, node, action, outputs }) -> string
 `outputs` = 本回合**已执行节点**的输出，按节点 id 索引（`{ [nodeId]: text }`）。拼接顺序固定，**每段自带标记，空段连标记一起省略**：
 
 1. **公共提示词**：`card.prompts` 顺序里 `id ∈ node.reads` 且 `body !== ''` 的，每块 `<公共提示词·{title}>`，下一行起 `body` **逐字**。
-2. **状态树**：`<世界状态树>` + 读到的每个引用**一行**：`- <code>「<name>」：<JSON>`（`.0` 引用那一行的 `<code>` 写的是值路径，名字仍是元素的 `name`）。**读元素 code** ⇒ 时间输出 `formatTime` 的 `YYYY-MM-DD HH:mm:ss（周X）`；有孩子的节点输出「自身值 + 整棵子树」的 JSON（自身值在 `"0"`，孩子用自己最后一段做键，**嵌套**；结构体没有 `"0"`）；叶子输出自己的值（JSON 形态）。**读 `<code>.0`** ⇒ 只输出这个元素自己的值，不出孩子、不出整棵树。读父 code 时子孙不再单独出行；只读 `.0` 时孩子照旧可以单独读。不输出形状表 / 类型清单；一个引用都没读 ⇒ 连标记都不出现。
+2. **状态树**：`<世界状态树>` + 读到的每个引用**一行**：`- <code>「<name>」：<JSON>`（`.0` 引用那一行的 `<code>` 写的是值路径，名字仍是元素的 `name`）。**读元素 code** ⇒ 时间输出 `formatTime` 的 `YYYY-MM-DD HH:mm:ss（周X）`；有孩子的节点输出「自身值 + 整棵子树」的 JSON（**键是中文名**：自身值 `"自身"`、孩子用元素 `name`，**嵌套**；没有 `"0"` / `"1"` 这种 code 键；结构体没有 `"自身"`）；叶子输出自己的值（JSON 形态）。**读 `<code>.0`** ⇒ 只输出这个元素自己的值，不出孩子、不出整棵树。读父 code 时子孙不再单独出行；只读 `.0` 时孩子照旧可以单独读。不输出形状表 / 类型清单；一个引用都没读 ⇒ 连标记都不出现。
 3. **历史**：`<游戏历史记录>` + 最近 `node.historyTurns` 条叙事与最近 `node.historyTurns − 1` 条历史行动，按事件原有先后穿插；本回合 `action` **恒为最后一条**。
 4. **上游输出**：`node.readsUpstream` 点名的、排在它前面的节点，按**链顺序**，一段一个 `<上游输出·{nodeName}>`，下一行起正文逐字（空串跳过）。
 5. **本节点提示词**：`<节点提示词>`，下一行起 `node.prompt` 逐字（空则整段省略）；它永远是最后一段。
@@ -344,20 +344,21 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - 四个面板标题共用 `.col-title` 同版式（41px = `--control-h` + 13px、`padding: 6px 8px`、1px 实线下边框），各带 `data-panel-title`；加号按钮在标题条外（绝对定位）；中栏标题：节点 / 元素 / 提示词 → `编辑·<name>`，没选 → `编辑`；中栏字段表不自带标题。
 - 分隔条：`[data-splitter="left"]` 在左栏右缘（往右拖 = 左栏变宽），`[data-splitter="right"]` 在右栏左缘（往左拖 = 右栏变宽）；双击恢复默认 280 / 320；夹取左 `[200, 480]`、右 `[240, 560]`，中栏不得小于 320；拖完落盘 `tg2.settings.editorColumns`（整数 px），刷新保留。
 - 选中态互斥：S0 什么都没选 · S1 选中工作流节点 · S2 选中状态元素 · S3 选中公共提示词块；两个 `ref` 互相清空，任一时刻最多一格。
-- 左栏：S0 只有 `[data-state-code]` + `[data-state-name]` + 自身值；S1 每行 `[data-eyes="read"]` / `[data-eyes="write"]`（**文字按钮**「读」/「写」，带 `data-on` 与三态 `data-tri="all|some|none"`，切换当前节点的 `reads` / `writable`），写眼睛只看 `node.writable`、`output` 没有写眼睛；S2 栏顶 `[data-add-state]`（裸 `+`）、每行 `[data-add-child="<code>"]`（第 5 层不渲染、时间没有）与 `[data-delete-state]`（裸 `×`，时间没有），S2 不出现眼睛。
-- 状态树 `[data-state-tree]`：每行 `[data-state-item="<code>"]` + `data-depth="<可见深度>"`（`0` ⇒ 1、`1.1` ⇒ 2），行内 `[data-state-code]` / `[data-state-name]` / `[data-state-value]`（**自身值**：有孩子时取 `<code>.0`，没孩子取自己；`object` 与没值的行不渲染这一格）；`.0` 永远不单独出行。
+- 左栏：S0 只有 `[data-state-code]` + `[data-state-name]`；S1 每行 `[data-eyes="read"]` / `[data-eyes="write"]`（**文字按钮**「读」/「写」，带 `data-on` 与三态 `data-tri="all|some|none"`，切换当前节点的 `reads` / `writable`），写眼睛只看 `node.writable`、`output` 没有写眼睛；S2 栏顶 `[data-add-state]`（裸 `+`）、每行 `[data-add-child="<code>"]`（第 5 层不渲染、时间没有）与 `[data-delete-state]`（裸 `×`，时间没有），S2 不出现眼睛。
+- 状态树 `[data-state-tree]`：每行 `[data-state-item="<code>"]` + `data-depth="<可见深度>"`（`0` ⇒ 1、`1.1` ⇒ 2），行内只有 `[data-state-code]` / `[data-state-name]` / 眼睛 / 加子元素 / 删除 —— **初始值与当前值都不显示**（`[data-state-value]` 不存在）；`.0` 永远不单独出行。
 - 眼睛的三态：一个**元素 code** 覆盖**自身值 + 整棵子树**，所以父行「满」= 整段都被读到、「半」= 只覆盖了一部分、「未」= 没有；点父行 = 全选 / 全反选（全反选会把这一 code 连同它下面已经单独的引用一起摘掉），子节点按钮只切自己。`reads` / `writable` 里手写 / 导入的 `<code>.0`（只取自身值）也进覆盖 —— 父行变「半」、`.0` 自己不占一行。提示词块与上游节点的眼睛**不是三态**，只翻自己那一条。
 - 中栏 S1：`[data-node-name]`（input，改 `node.name`；细条 / 中栏标题跟着变，卡与存档两种模式都可改）、`[data-node-preset]`（select）、`[data-node-history]`（number）、`[data-node-prompt]`（textarea）；**这一形态没有眼睛**。
-- 中栏 S2：`[data-state-type]`（select，`value ∈ text|integer|enum|object|time`，时间元素 `disabled`）、`[data-field="name"]`、`[data-field="note"]`；各类型的格子：enum 的 `[data-field="values"]`（textarea，一行一个）+ `[data-field="initial"]`（select）、integer 的 `[data-field="min"]` / `max` / `step-min` / `step-max` + `[data-field="initial"]`（number）、text 的 `[data-field="initial"]`、time 的 `[data-field="granularity-upper"]` / `granularity-lower`（select）+ `[data-field="time-year|time-month|time-day|time-hour|time-minute|time-second"]`（六格）；`object` 没有初始值那一格。存档模式**不渲染** `[data-field="initial"]` 与时间六格（初值只是新建存档的种子，改它不会动 `save.tree`）。换类型时清掉旧类型的字段（`object` 删 `initial`），整份元素替换而不是合并。
+- 中栏 S2：`[data-state-type]`（select，作者选项只有 `text|integer|enum|time`，时间元素 `disabled`；导入的 `object` 元素照实显示）、`[data-field="name"]`、`[data-field="note"]`；各类型的格子：enum 的 `[data-field="values"]`（textarea，一行一个）+ `[data-field="initial"]`（select）、integer 的 `[data-field="min"]` / `max` / `step-min` / `step-max` + `[data-field="initial"]`（number）、text 的 `[data-field="initial"]`、time 的 `[data-field="granularity-upper"]` / `granularity-lower`（select）+ 六格 `[data-field="time-year|time-month|time-day|time-hour|time-minute|time-second"]`，每格右边紧邻单位 `[data-time-unit="year|month|day|hour|minute|second"]`（年/月/日/时/分/秒）。**初始值那一块住在中栏下半部分**（两行布局：上半 = 结构字段、至少占一半；下半从 ~50% 起 = `[data-initial-block]`，不贴底、不用 `margin-top: auto`；两块间 ≥16px，放不下就滚动）；`object` 没有初始值。存档模式**不渲染**初始值整块，integer 改在上下限下方显示 `[data-current-value]`（读 `save.tree`）。换类型时清掉旧类型的字段（`object` 删 `initial`），整份元素替换而不是合并。
 - 中栏 S3：`[data-prompt-title]` + `[data-prompt-body]`（textarea）；没选：`[data-empty-middle]`（空壳，不写句子）。
 - `[data-node-preset]`：选项 = `tg2.presets` 全部；当前值 = 这个节点解析出的预设 id（映射没有就是 `presets[0].id`）；改动写 `tg2.nodeModels[cardId][nodeId]`，**不动卡**；一个预设都没有时为空、`aria-disabled="true"`（不另挂提示）。
 - 工作流细条 `[data-workflow-strip]`：每节点 `[data-node-id="<id>"]`（点击选中，带 `data-selected`）；选中节点时，排在它前面的每个节点旁有 `[data-read-upstream][data-upstream-id="<id>"]`（带 `data-on`，切换 `readsUpstream`）；自己与下游没有。
 - 右栏 `[data-prompt-list]`：每块 `[data-prompt-block="<id>"]`（点击选中，带 `data-selected`）、`[data-prompt-name]`、`[data-delete-prompt]`（裸 `×`）；`[data-add-prompt]`（裸 `+`，新 id 由创建方生成并当场选中）；选中节点时每块有 `[data-prompt-read][data-prompt-id="<id>"]`（带 `data-on`，切换 `reads`）；没选节点时它不出现；右栏没有输入框。
 - 每张卡都有一块 `id: 'opening'`（标题「开场」）：新建卡自带、示例卡也有一份；右栏不给它 `[data-delete-prompt]`。
-- **保存按钮**：编辑只改内存草稿，顶栏 `[data-save-card]` 才校验 + 落盘。校验不过 ⇒ **不写盘**、草稿保留、中文错误清单 `[data-save-errors]`（每条 `[data-save-error]` 带 `data-save-error-code`，点了选中那一格）；成功 ⇒ 写盘 + `[data-save-ok]` 提示。清单来自 `cardIssues`（状态树 + 链的规矩）。
+- **保存按钮**：编辑只改内存草稿，顶栏 `[data-save-card]` 才校验 + 落盘。校验不过 ⇒ **不写盘**、草稿保留、中文错误清单 `[data-save-errors]`（每条 `[data-save-error]` 带 `data-save-error-code`，点了选中那一格）；成功 ⇒ 写盘 + `[data-save-ok]` 提示，**提示 3 秒后自动消失**（再保存重新计时）。清单来自 `cardIssues`（状态树 + 链的规矩）。
+- **确认**：删状态元素、删公共提示词都先弹 `[data-confirm]`（`[data-confirm-ok]` 才真删，`[data-confirm-cancel]` 取消 = 草稿一个字不动）；有未保存改动点 `[data-back]` 也先确认（取消 = 留在编辑器）。
 - 不挂教程提示：中栏空态、没有预设时、设置页没有预设时、首页改名框上都没有 `.hint` / 教程文案。
 - 只按 id 校验目标卡：`#/edit/:cardId` 用 `loadCardById()` 打开 —— 盘上别的坏卡不挡；目标自己坏了照样中文 `E_VALIDATION`；保存时只替换这一张（`saveCardsLoose()`），盘上别的卡（含坏卡）原样保留。
-- 存档模式 `#/edit-save/:saveId`（同一份 `EditorPage`）：编辑目标是这一份存档的 `cardSnapshot`（深拷贝）与 `save.nodeModels`，写回只替换 `tg2.saves` 那一行、`tg2.cards` 一个字节不动；**结构锁死** —— 没有 `[data-add-state]` / `[data-add-child]` / `[data-delete-state]`（不渲染，不是禁用）、没有节点增删排序、卡名不改，其余字段（名字 / 备注 / 提示词块 / 节点名字 / 节点提示词 / 历史轮数 / 眼睛 / 模型预设）照常可改；**初值那一格不渲染**（初值是新建存档时的种子，存档的 `tree` 已经展开过，改它只改 `cardSnapshot`、不碰 `save.tree`）；保存按钮与错误清单行为同卡模式。
+- 存档模式 `#/edit-save/:saveId`（同一份 `EditorPage`）：编辑目标是这一份存档的 `cardSnapshot`（深拷贝）与 `save.nodeModels`，写回只替换 `tg2.saves` 那一行、`tg2.cards` 一个字节不动；**结构锁死** —— 没有 `[data-add-state]` / `[data-add-child]` / `[data-delete-state]`（不渲染，不是禁用）、没有节点增删排序、卡名不改，其余字段（名字 / 备注 / 提示词块 / 节点名字 / 节点提示词 / 历史轮数 / 眼睛 / 模型预设）照常可改；**初始值整块不渲染**（存档模式不显示也不判初始值，当前值住在 `save.tree`）。保存时校验**新的快照容得下这一份存档的当前树**（`saveTreeIssues`：每条值路径都还在、值仍合类型与上下限，**不判初始值**）；不兼容 ⇒ 不写盘、草稿保留、错误点名路径；卡模式仍按整卡（含初始值）校验。
 - 存档模式打开时 `save.nodeModels` 缺省先按卡级映射显示，玩家真改了某一格才把整片写进存档（不迁移、不补写）；模型映射不属于卡草稿，所以它**即时写**（卡模式写 `tg2.nodeModels`，存档模式只换 `save.nodeModels`、快照不动）。
 - 控件 / 行高：`--control-h: 28px` 用于 button / input / select / `.icon` / `.chip` / 工作流 `.node`；`--row-h: 36px` 用于 `[data-prompt-block]` / `[data-state-item]` / 首页卡行 / 存档行 / 设置页预设字段行；行内控件仍 28 且垂直居中；多行编辑器不在这一档（行动输入 44 / 节点提示词 120 / 提示词正文 160）。
 - 圆角只有 `--radius: 6px`（button 与 `.chip` 共用）；读 / 写 chip 三处（状态树、细条上游、右栏提示词）共用 `.chip`：关着也有底色（`--panel-2`）与边框，开着 = 深底浅字（浅色主题 `--active-bg` #927049 / `--active-ink` #fff、字重 600，深色主题反过来用 `--accent` / `--accent-ink`）、边框 `--accent`；悬停只换边框、不铺底色；高度 `--control-h`；文字「读 / 写」保留；按钮 / chip 里不再有 999px 或 3px 档。
