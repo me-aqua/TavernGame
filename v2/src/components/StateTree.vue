@@ -7,12 +7,14 @@
  *     **写**（`writable` 里有它才许写）；
  *   · **S2**（选中了某个元素）：栏顶出现 `+`（加元素），**每一行**出现 `×`（删这一行）。
  *
- * **写眼睛按节点类型收窄**（与 schema 的链规矩同一套）：时间节点只有时间元素 0 那只，
- * 输出节点一只都没有，其余类型每行都有。界面上不该露出一个点了会被引擎拒的开关。
+ * **写眼睛按节点类型收窄**（与 `schema.canWrite` 同一套，不在这里另写一份 `if`）：
+ * 时间节点只有时间元素 `0` 那只，输出节点一只都没有，普通节点每行都有**除了 `0`**。
+ * 界面上不该露出一个点了会被引擎拒的开关（尤其是 `normal` 写 `0` —— 那会毁存档）。
  *
  * `0`（时间元素）永远不许删，它不带 `×`。
  */
 import type { ChainNode, StateElement } from '../core/types'
+import { canWrite } from '../core/schema'
 import { t } from '../i18n'
 
 const props = defineProps<{
@@ -29,12 +31,9 @@ defineEmits<{
   'toggle-write': [code: string]
 }>()
 
-/** 这一行要不要露「写」眼睛（类型规则见文件头） */
+/** 这一行要不要露「写」眼睛（唯一规则见 `schema.canWrite`） */
 function showsWrite(code: string): boolean {
-  if (!props.node) return false
-  if (props.node.type === 'output') return false
-  if (props.node.type === 'time') return code === '0'
-  return true
+  return props.node !== null && canWrite(props.node.type, code)
 }
 </script>
 

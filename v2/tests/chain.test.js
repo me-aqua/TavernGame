@@ -208,10 +208,26 @@ describe('链校验：写权限按节点类型收窄', () => {
     expect((await rejectionOf(makeCard({ chain }))).code).toBe('E_CHAIN')
   })
 
-  it('正向控制：普通节点可以写多个元素（含时间元素 0）', async () => {
+  it('反向控制：普通节点声明写时间元素 0 ⇒ E_CHAIN（点名节点与 0）', async () => {
     const { validateCard } = await loadSchema()
     const chain = makeCard().chain
-    chain[1] = { ...chain[1], writable: ['0', '1', '2'] }
+    chain[1] = { ...chain[1], writable: ['0', '1'] }
+    let error = null
+    try {
+      validateCard(makeCard({ chain }))
+    } catch (cause) {
+      error = cause
+    }
+    expect(error, 'normal.writable 含 0 却通过了校验 —— 写时间格的那条路还开着').not.toBeNull()
+    expect(error.code).toBe('E_CHAIN')
+    expect(error.message, '错误消息里要点名那个节点').toContain('check')
+    expect(error.message, '错误消息里要点名 0').toContain('0')
+  })
+
+  it('正向控制：普通节点仍然可以写多个**非时间**元素', async () => {
+    const { validateCard } = await loadSchema()
+    const chain = makeCard().chain
+    chain[1] = { ...chain[1], writable: ['1', '2'] }
     expect(() => validateCard(makeCard({ chain }))).not.toThrow()
   })
 })

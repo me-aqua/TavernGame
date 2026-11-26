@@ -101,6 +101,9 @@ export function advanceTime(time: TimeValue, hours: number): TimeValue {
 
 /**
  * 往状态树写一个字符串，返回**新** tree（入参一个字都不改）。
+ *
+ * 时间元素 `'0'` **只能走时间工具**（`advance_time` 在 `runTool` 里直接写 `{ day, hour }`），
+ * 这里一律拒 —— 一个字符串覆盖进去，整份存档就再也打不开了。
  * 越权（不在 `node.writable`）与悬空路径都算链的错（`E_CHAIN`）—— 它们违反的是
  * 卡里声明的 `writable`；值不是字符串则是数据错误（`E_VALIDATION`）。
  */
@@ -117,6 +120,13 @@ export function applyWrite({
   path: string
   value: unknown
 }): Tree {
+  if (path === '0') {
+    throw new AppError('E_CHAIN', {
+      message: t('error.writeTime', { node: node.id }),
+      nextStep: t('next.editor'),
+      detail: { nodeId: node.id, path },
+    })
+  }
   if (!node.writable.includes(path)) {
     throw new AppError('E_CHAIN', {
       message: t('error.writeNotAllowed', { node: node.id, path }),
@@ -368,5 +378,8 @@ export async function runTurn({
     turn,
     updatedAt: now(),
   }
+  // 提交之前再验一次：本回合写进 tree 的东西必须让整份存档仍然合法（时间格尤其）。
+  // 不合法 ⇒ 抛中文错误、不返回新存档，调用方按「本回合没发生」处理。
+  validateSave(nextSave, card)
   return { save: nextSave, events }
 }

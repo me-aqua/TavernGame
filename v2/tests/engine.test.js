@@ -598,3 +598,45 @@ describe('引擎：预设与错误', () => {
     expect(result.save.tree['1']).toBe('VAL_PLACE_A1')
   })
 })
+
+describe('引擎：普通节点写时间元素 0 一律拒绝', () => {
+  it('卡片声明 normal.writable 含 0 ⇒ runTurn 入场即 E_CHAIN，存档一个字段都不动', async () => {
+    const { runTurn } = await loadEngine()
+    const chain = makeCard().chain
+    chain[1] = { ...chain[1], writable: ['0', '1'] }
+    const card = makeCard({ chain })
+    const save = makeSave(card)
+    const before = JSON.parse(JSON.stringify(save))
+    const { events, onEvent } = collect()
+
+    await expect(
+      runTurn({
+        card,
+        save,
+        presets: [MOCK_PRESET],
+        nodePresets: nodeModelsFor(card),
+        action: 'act one',
+        onEvent,
+      }),
+    ).rejects.toMatchObject({ code: 'E_CHAIN' })
+
+    // 一回合都没开始：存档逐字段与调用前相同，时间格还是 {day,hour}
+    expect(save).toEqual(before)
+    expect(save.tree['0']).toEqual({ day: 1, hour: 8 })
+    expect(events, '入场就拒了，不该发出任何回合事件').toEqual([])
+  })
+
+  it('applyWrite 直接拒绝普通节点写 0（就算绕过卡片校验，也写不进时间格）', async () => {
+    const { applyWrite } = await loadEngine()
+    const card = makeCard()
+    const node = { ...card.chain[1], writable: ['0', '1'] }
+    const tree = makeSave(card).tree
+    const before = JSON.parse(JSON.stringify(tree))
+
+    expect(() => applyWrite({ card, node, tree, path: '0', value: 'OCCUPY_TIME' })).toThrowError(
+      expect.objectContaining({ code: 'E_CHAIN' }),
+    )
+    expect(tree).toEqual(before)
+    expect(tree['0']).toEqual({ day: 1, hour: 8 })
+  })
+})

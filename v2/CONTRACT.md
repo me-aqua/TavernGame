@@ -1,4 +1,4 @@
-# TavernGame v2 · 阶段 1 技术契约（CONTRACT）
+# TavernGame v2 · 阶段 2 基线技术契约（CONTRACT）
 
 > 版本：2026-11-26 · 第 2 关（契约与测试）交付物 · **技术栈修订：Vue 3 + TypeScript**
 > 上游：`v2/SPEC.md`（需求，唯一事实来源）· `.team/leader/2026-11-25/新版开发计划.md`（阶段 1 范围）
@@ -299,7 +299,7 @@ export function advanceTime(tree, hours) -> tree                               /
 3. 按 `chain` 顺序逐节点执行（§4.3）。每节点**恰好一次** provider 调用（阶段 1 不做多步工具循环）。
    每节点开头追加一条 `node` 事件：`{ type:'node', text: <node.name>, detail: { id, type } }`；
    节点跑完（模型返回 + 工具执行完）追加一条 `trace` 事件（§2.2）。
-4. 回合收尾：追加一条 `turnStats` 事件、`turn += 1`、`updatedAt` 刷新、返回 `{ save, events }`。
+4. 回合收尾：追加一条 `turnStats` 事件、`turn += 1`、`updatedAt` 刷新；**提交前再跑一次 `validateSave(nextSave, card)`**（本回合写进 tree 的东西必须让整份存档仍然合法），通过后返回 `{ save, events }`。
    `save.events` = 旧事件 + 本回合新事件；返回的 `events` = **只有本回合新事件**（同一批对象）。
 
 ### 4.3 节点类型语义
@@ -312,9 +312,8 @@ export function advanceTime(tree, hours) -> tree                               /
 
 - `advanceTime(tree, hours)`：`hour += hours`；`day += Math.floor(hour / 24)`；`hour = ((hour % 24) + 24) % 24`。
   `hours` 必须是整数，否则 `E_VALIDATION`。
-- `applyWrite`：`path` 不在 `node.writable` ⇒ `E_CHAIN`（`detail = { path, writable }`）；
-  `path` 不在 `card.state` ⇒ `E_CHAIN`（`detail = { path }`）；`value` 不是字符串 ⇒ `E_VALIDATION`。
-  合法则返回**新** tree（浅拷贝改一个键，入参 tree 一个字都不改）。
+- `applyWrite`：`path === '0'` ⇒ `E_CHAIN`（时间元素只能由 `advance_time` 推进）；`path` 不在 `node.writable` ⇒ `E_CHAIN`（`detail = { path, writable }`）；
+  `path` 不在 `card.state` ⇒ `E_CHAIN`（`detail = { path }`）；`value` 不是字符串 ⇒ `E_VALIDATION`。合法则返回**新** tree（浅拷贝改一个键，入参 tree 一个字都不改）。
 - 工具调用被引擎执行时各记两条事件：`tool`（`detail = { name, args }`）与 `write`（`detail = { path, value }`）；
   同一次调用还进该节点的 `trace.toolCalls`（带 `result`）。
   模型回文本里的工具调用（非原生 `tool_calls`）**一律不认**。
@@ -424,7 +423,8 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - `type === 'time'` 最多 1 个；`chain.length ≥ 1`；
 - 节点 `type` 只能是 `'time' | 'normal' | 'output'`（别的值 ⇒ `E_VALIDATION`）；
 - `readsUpstream` 里的每个 id 都必须在链上，且**排在它前面**（首节点只能为空）；
-- **写权限按类型收窄**：`time` 的 `writable ⊆ ['0']`；`output` 的 `writable` 必须是 `[]`；
+- **写权限按类型收窄**（唯一规则：`schema.ts` 的 `canWrite(type, code)`，卡校验 / 左栏写眼睛 / `applyWrite` 三处都从它派生）：
+  `time` 的 `writable ⊆ ['0']`；`output` 的必须是 `[]`；`normal` **不许含 `'0'`**（时间元素只能由时间节点经 `advance_time` 推进）。
 - **`prompts` 里必须有 `id === 'opening'` 的那一块**（缺 ⇒ `E_VALIDATION`，不补）；
 - 节点 `id` 唯一；`historyTurns` 是 ≥0 的整数；
 - `reads` / `writable` 里的引用必须存在（提示词 id 或状态 code），否则 `E_VALIDATION`（指名悬空引用）。
@@ -593,8 +593,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   - 第一段 `chunk` 一到 ⇒ `[data-generating]` 消失、换成 `[data-line="narration"]` 流式正文，
     行动气泡留着；调试开着时 trace 卡片照常按节点顺序出现，`[data-generating]` **只有一行**、
     不与 trace 卡片重复；
-  - 回合成功 ⇒ 撤掉乐观副本（`save.events` 里已经有一条同样的 `action`，屏幕上不能出现两个气泡）、
-    隐藏 `[data-stop]`、恢复输入、更新 `[data-turn]` 与 `[data-status]`，并把结果写回 `tg2.saves`。
+  - 回合成功 ⇒ **先校验 `result.save`、再写回 `tg2.saves`，写盘成功之后才更新内存与界面**：撤掉乐观副本（`save.events` 里已有这条 `action`，不许出现两个气泡）、隐藏 `[data-stop]`、恢复输入、更新 `[data-turn]` 与 `[data-status]`；校验不过 / 写盘失败 ⇒ 整回合按出错处理，`[data-turn]`、故事流与内存 `save` 都停在上一回合。
 - 停止：点 `[data-stop]` ⇒ 中止本轮、**丢弃本轮半截文本与乐观行动气泡**（故事流回到本轮开始前）、
   输入框恢复、**把刚才那句放回 `[data-action-input]`（输入框仍为空时才放）**、存档不变。
 - 出错：`[data-error]` 出现，其中 `[data-error-code]` = 错误码字符串、`[data-error-next]` = 下一步中文；
@@ -727,7 +726,7 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
 
 1. 一节点**一次** provider 调用（不做多步工具循环）——阶段 1 够用，多步留给阶段 3。
 2. `applyWrite` 越权写 ⇒ **`E_CHAIN`**（不是 `E_VALIDATION`）：它违反的是链里的 `writable` 声明。
-3. 新增错误码 **`E_ABORTED`**（SPEC §4 只列了四个）：停止是正常路径，不能与 `E_PROVIDER` 混。
+3. 新增错误码 **`E_ABORTED`**（SPEC §4 已同步为第五个码）：停止是正常路径，不能与 `E_PROVIDER` 混。
 4. 时间元素初值 `{day:1,hour:8}`，界面用 `[data-field="initial-day"]` / `[data-field="initial-hour"]`
    两个数字框**可编辑**并即时落盘（原「只读」口径作废）。
 5. 栏宽只存 `{left, right}`（中栏 = 余量），默认 280 / 320。

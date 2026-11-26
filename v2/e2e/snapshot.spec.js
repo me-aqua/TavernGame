@@ -78,7 +78,7 @@ test('改初值与节点提示词之后：旧存档仍按旧卡跑，新存档�
   await expect(page.locator(tracePrompt('output'))).toContainText('NODE_OUT_EDITED')
 })
 
-test('删掉卡之后旧存档还在盘上（卡没了不等于存档没了）', async ({ page }) => {
+test('删掉卡连带删掉它的存档（盘上卡与存档都清空）', async ({ page }) => {
   await boot(page, { storage: seedWithSave() })
   await page.goto(`${APP_PATH}${route.home}`)
   await page.locator(`[data-card-id="${CARD_ID}"] [data-card-delete]`).click()

@@ -1,6 +1,6 @@
-# TavernGame v2 · SPEC（阶段 1）
+# TavernGame v2 · SPEC（阶段 2 基线）
 
-> 版本：2026-11-25 · 阶段 1 定稿
+> 版本：2026-11-26 · 阶段 2 基线
 > 位置：仓库内 `v2/`，独立 Vite 应用；**不 import 旧站 `src/` 任何代码**。
 > 部署：GitHub Pages `https://me-aqua.github.io/TavernGame/v2/`；旧站根路径保持只读可用。
 > 技术：Vue 3 + TypeScript + Vite + Vercel AI SDK；**从 0 写新组件，不 import 旧站 `src/`**；浏览器直连 provider，Key 只存本地。
@@ -47,7 +47,7 @@
 ```
 
 - `tree`: `{ [code]: string }`（阶段 1 文本）；`0` 是 `{ day, hour }`。
-- `events`: `[{ type: 'action'|'narration'|'node'|'request'|'tool'|'write'|'toolResult'|'error', text, detail?, at }]`。
+- `events`: `[{ type: 'action'|'narration'|'node'|'request'|'tool'|'write'|'toolResult'|'error'|'trace'|'turnStats', text, detail?, at }]`。
 - 新建存档时 `tree` 取卡的初始值；之后改卡不影响旧存档。
 
 ### Preset
@@ -71,7 +71,7 @@ runTurn({ card, save, presets, nodePresets, action, onEvent }) → { save, event
 - 顺序执行链；time 节点 `advance_time({hours})` 写 `tree['0']`；normal 节点 `write_state({ path, value })` 只能写 `writable` 里的元素；output 节点产故事。
 - 提示词拼装顺序：公共提示词（按 reads，每块带 `<公共提示词·标题>`）→ 状态树（按 reads，带 `<世界状态树>`）→ **历史（带 `<游戏历史记录>`；卡里的「开场」正文是第 0 条输出，`读取历史回合=0` 只带当前 action，`=1` 带最近 1 条输出 + 当前 action，`=n` 带最近 n 条输出 + 含当前在内的最近 n 次 action）** → 上游输出（`readsUpstream` 里点名的前序节点，每段带 `<上游输出·节点名>`，按链顺序拼接）→ 本节点提示词（带 `<节点提示词>`）。空段连标记一起省略。
 - 流式：output 节点流式回调 `onEvent({type:'chunk', text})`；可中止。
-- 错误：`E_PROVIDER`（网络/key/额度）· `E_VALIDATION`（卡/存档不合法）· `E_CHAIN`（链不合法）· `E_UNKNOWN`；中文提示 + 下一步。
+- 错误：`E_PROVIDER`（网络/key/额度）· `E_VALIDATION`（卡/存档不合法）· `E_CHAIN`（链不合法）· `E_UNKNOWN` · `E_ABORTED`（用户点停止）；中文提示 + 下一步。
 
 ## 5. 页面细节
 

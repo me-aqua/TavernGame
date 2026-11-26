@@ -264,3 +264,34 @@ test.describe('开场：每张卡都有、排第一、删不掉', () => {
     await expect(page.locator('[data-prompt-block="opening"] [data-delete-prompt]')).toHaveCount(0)
   })
 })
+
+/**
+ * 写眼睛按类型收窄（评审 P1-1）：**时间元素 `0` 只有 `time` 节点能写**。
+ * 旧 UI 给 `normal` 的每一行都露写 chip（含 `0`）⇒ 玩家点一下、跑一回合，存档的时间格就被写成字符串，
+ * 这份存档当场变成非法。所以这一格必须在**露出 chip 的那一刻**就关掉，不能等引擎拒。
+ */
+test.describe('写眼睛按类型收窄', () => {
+  test('判定节点在「0 时间」那行没有写 chip；时间节点仍然有', async ({ page }) => {
+    await boot(page, { storage: { [KEYS.cards]: [makeCard()], [KEYS.presets]: [MOCK_PRESET] } })
+    await page.goto(`${APP_PATH}${route.edit(CARD_ID)}`)
+    await expect(page.locator('[data-page="editor"]')).toBeVisible()
+
+    // S1：选中判定节点（normal）
+    await page.locator('[data-node-id="check"]').click()
+    await expect(
+      page.locator('[data-state-item="0"] [data-eyes="write"]'),
+      '判定节点不该能写时间元素 0',
+    ).toHaveCount(0)
+    await expect(
+      page.locator('[data-state-item="1"] [data-eyes="write"]'),
+      '判定节点仍然可以写普通元素',
+    ).toHaveCount(1)
+
+    // S1：选中时间节点（time）—— 0 那一行的写 chip 必须还在
+    await page.locator('[data-node-id="time"]').click()
+    await expect(
+      page.locator('[data-state-item="0"] [data-eyes="write"]'),
+      '时间节点必须还能写时间元素 0',
+    ).toHaveCount(1)
+  })
+})

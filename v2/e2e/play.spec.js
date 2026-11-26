@@ -141,10 +141,14 @@ test.describe('对话页：调试开关（读数内联在故事流里）', () =>
     for (const turn of [1, 2]) {
       const row = page.locator(turnStatsRow(turn))
       await expect(row.locator('[data-turn-stats-turn]')).toContainText(String(turn))
-      // mock 不给用量 / 速率 ⇒ 说「没有」，不拿 0 冒充（CONTRACT §8.3）
-      await expect(row.locator('[data-turn-stats-tokens]'), '没有用量时不许写 0').toHaveText(CJK)
+      // mock 不给用量 / 速率 ⇒ 说「没有」，不拿 0 冒充（CONTRACT §8.3）。
+      // ⚠️ 不能拿 `CJK` 当「没有用量」的证据：Playwright 对正则是**搜索**语义，
+      //    「共 0 tokens」也含汉字，照样绿（评审 §6 第 2 条）。这里同时钉两样：含「没有」、且**不带任何数字**。
+      await expect(row.locator('[data-turn-stats-tokens]'), '没有用量时不许写数字').toContainText('没有')
+      await expect(row.locator('[data-turn-stats-tokens]'), '没有用量时不许写 0').not.toHaveText(/\d/)
       await expect(row.locator('[data-turn-stats-ms]')).toHaveText(/\d+\s*ms/)
-      await expect(row.locator('[data-turn-stats-tps]'), '没有速率时不许写 0').toHaveText(CJK)
+      await expect(row.locator('[data-turn-stats-tps]'), '没有速率时不许写数字').toContainText('没有')
+      await expect(row.locator('[data-turn-stats-tps]'), '没有速率时不许写 0').not.toHaveText(/\d/)
     }
   })
 
@@ -203,8 +207,11 @@ test.describe('对话页：调试开关（读数内联在故事流里）', () =>
       // 五样读数一个不少：提示词 / 耗时 / token / t/s / 预设
       await expect(card.locator('[data-trace-prompt]')).not.toHaveText('')
       await expect(card.locator('[data-trace-ms]')).toHaveText(/\d+\s*ms/)
-      await expect(card.locator('[data-trace-tokens]')).toHaveText(CJK)
-      await expect(card.locator('[data-trace-tps]')).toHaveText(CJK)
+      // mock 的 usage / tps 是 null ⇒ 只许说「没有」，不许拿 0 冒充（同上面那条，不用 CJK 兜底）
+      await expect(card.locator('[data-trace-tokens]')).toContainText('没有')
+      await expect(card.locator('[data-trace-tokens]')).not.toHaveText(/\d/)
+      await expect(card.locator('[data-trace-tps]')).toContainText('没有')
+      await expect(card.locator('[data-trace-tps]')).not.toHaveText(/\d/)
       await expect(card.locator('[data-trace-preset]')).toContainText(MOCK_PRESET.id)
     }
 
@@ -617,5 +624,46 @@ test.describe('对话页：玩家行动不是气泡（左对齐 / 虚线分隔�
       expect(block.borderTopStyle, `${name} 的上边不是虚线`).toBe('dashed')
       expect(block.borderTopWidth, `${name} 的虚线上边宽度为 0`).toBeGreaterThan(0)
     }
+  })
+})
+
+/**
+ * 写盘失败（评审 P2-2）：回合"跑完"不等于"存上了"。
+ * 模拟办法：在页面里把 `Storage.prototype.setItem` 对 `tg2.saves` 改成抛 `QuotaExceededError`
+ * （localStorage 满就是这条），然后照常发一句话。
+ * 判据：**界面上不许前进**（回合数、故事流、状态行）、盘上还是上一回合、草稿放回、错误条是中文。
+ * 旧实现先 `save.value = result.save` 再写盘，写失败也只弹一句错 —— 这条会在那三格上红。
+ */
+test.describe('写盘失败：回合不能算成功', () => {
+  test('存档写不进去 ⇒ 中文错误、回合数不动、故事流不进、盘上还是上一回合', async ({ page }) => {
+    await boot(page, { storage: seeded() })
+    await openStory(page, CARD_ID, 's1')
+
+    // 只让存档这个键写失败（卡片 / 预设的写不受影响）
+    await page.evaluate(`(() => {
+      const original = Storage.prototype.setItem
+      Storage.prototype.setItem = function (key, value) {
+        if (key === ${JSON.stringify(KEYS.saves)}) {
+          throw new DOMException('quota exceeded', 'QuotaExceededError')
+        }
+        return original.call(this, key, value)
+      }
+    })()`)
+
+    await page.locator('[data-action-input]').fill('act one')
+    await page.locator('[data-send]').click()
+
+    await expect(page.locator('[data-error]'), '写盘失败必须报错').toBeVisible({ timeout: 15_000 })
+    await expect(page.locator('[data-error]')).toHaveText(CJK)
+    await expect(page.locator('[data-turn]'), '写盘失败却把回合数推进了').toHaveText('0')
+    await expect(page.locator('[data-status]'), '写盘失败却说「已保存」').toHaveText('')
+    await expect(page.locator('[data-line="action"]'), '写盘失败却把行动留在故事流里').toHaveCount(0)
+    // 故事流里只该剩「开场」那一条（这张卡的开场正文是 OPENING_LINE），本回合正文不许进
+    await expect(page.locator('[data-line="narration"]'), '故事流里只该剩开场那一条').toHaveCount(1)
+    await expect(page.locator('[data-line="narration"]')).not.toContainText('[mock]')
+    await expect(page.locator('[data-turn-stats]'), '写盘失败却留下本回合的合计行').toHaveCount(0)
+    await expect(page.locator('[data-action-input]'), '写盘失败要把刚才那句放回输入框').toHaveValue('act one')
+    await expect(page.locator('[data-stop]')).toHaveCount(0)
+    expect((await readStorage(page, KEYS.saves))[0].turn, '写盘失败却把存档写进去了').toBe(0)
   })
 })

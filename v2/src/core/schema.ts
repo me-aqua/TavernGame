@@ -10,12 +10,26 @@
  */
 import { t } from '../i18n'
 import { AppError } from './errors'
-import type { Card, ChainNode, Save, TimeValue } from './types'
+import type { Card, ChainNode, NodeType, Save, TimeValue } from './types'
 
 const NODE_TYPES = ['time', 'normal', 'output'] as const
 
 /** 每张卡都带的那块「开场」提示词：对话页把它的正文当故事的第一段（§8.3） */
 export const OPENING_PROMPT_ID = 'opening'
+
+/**
+ * 谁能写哪个状态元素 —— **写权限的唯一真源**（SPEC §2 / CONTRACT §6.1）。
+ *
+ * 时间元素 `'0'` 只能由时间节点经 `advance_time` 推进（它不是字符串，是 `{ day, hour }`）；
+ * 输出节点一个都不写；普通节点写除 `'0'` 以外的元素。
+ * 三个载体都从这里派生：卡校验（`validateChain`）、左栏的「写」眼睛（`StateTree.vue`）、
+ * 引擎的写入（`applyWrite`）—— 别再各写一份 `if`。
+ */
+export function canWrite(type: NodeType, code: string): boolean {
+  if (type === 'output') return false
+  if (type === 'time') return code === '0'
+  return code !== '0'
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -158,20 +172,18 @@ function validateChain(card: Card): void {
         })
       }
     }
-    // 写权限按类型收窄：时间节点只写时间元素（0），输出节点什么都不写
-    if (node.type === 'time') {
-      const extra = node.writable.find((code) => code !== '0')
-      if (extra !== undefined) {
-        throw new AppError('E_CHAIN', {
-          message: t('error.timeWritable', { node: node.id, ref: extra }),
-          nextStep: t('next.editor'),
-          detail: { nodeId: node.id, writable: node.writable },
-        })
-      }
-    }
-    if (node.type === 'output' && node.writable.length > 0) {
+    // 写权限按类型收窄：一条规则 `canWrite`，三个载体共用（CONTRACT §6.1）
+    const forbidden = node.writable.filter((code) => !canWrite(node.type, code))
+    if (forbidden.length > 0) {
+      const extra = forbidden[0]
+      const message =
+        node.type === 'normal'
+          ? t('error.normalTimeWritable', { node: node.id, ref: extra })
+          : node.type === 'time'
+            ? t('error.timeWritable', { node: node.id, ref: extra })
+            : t('error.outputWritable', { node: node.id })
       throw new AppError('E_CHAIN', {
-        message: t('error.outputWritable', { node: node.id }),
+        message,
         nextStep: t('next.editor'),
         detail: { nodeId: node.id, writable: node.writable },
       })

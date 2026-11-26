@@ -128,7 +128,7 @@ test('一个预设都没有：那一格禁用，且不许往盘上写假映射',
   expect(await readStorage(page, KEYS.nodeModels)).toBeNull()
 })
 
-test('映射里缺的节点用第一个预设；整张卡没有映射时也能玩', async ({ page }) => {
+test('映射里缺的节点用第一个预设；局部映射也能玩', async ({ page }) => {
   const card = makeCard()
   await boot(page, {
     storage: {

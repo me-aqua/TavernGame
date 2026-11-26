@@ -6,6 +6,8 @@
  *   · **跑的一律是 `save.cardSnapshot`**（不是 `tg2.cards` 里那张现卡）——
  *     改卡只影响之后新建的存档，旧存档按它冻结时的那张卡跑（SPEC §9.4）；
  *   · **停止 = 什么都不写**：本轮半截文本丢掉、故事流回到回合开始前、存档一个字节没动；
+ *   · **写盘成功才认账**：回合结果先校验、再写回盘，最后才更新内存里的 `save` ——
+ *     校验不过或存储写不进去就整回合按出错处理，`[data-turn]` 与故事流停在上一回合；
  *   · **没有封面 / 开始按钮**：打开存档直接看到「开场」这一块提示词的正文（故事的第一段），
  *     下面是故事流与输入区。
  *
@@ -149,10 +151,13 @@ async function send(): Promise<void> {
         else if (event.type === 'trace' || event.type === 'turnStats') liveEvents.value.push(event)
       },
     })
-    save.value = result.save
+    // 先验、先写盘，成功之后才认账：校验不过 / 存储写不进去 ⇒ 内存停在上一回合，不更新 [data-turn]
+    const next = result.save
+    validateSave(next, next.cardSnapshot)
+    persistSave(next)
+    save.value = next
     liveEvents.value = []
-    persistSave(result.save)
-    status.value = t('play.status', { turn: result.save.turn })
+    status.value = t('play.status', { turn: next.turn })
   } catch (cause) {
     const failure = asAppError(cause)
     // 停止不是错误现场：半截文本丢掉、输入框留着刚才那句话，不弹错
