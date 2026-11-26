@@ -21,8 +21,17 @@ import { PROVIDER_TIMEOUT_MS, startDeadline } from './deadline'
 import { AppError } from './errors'
 import { mockReply } from './mock'
 import { buildPrompt } from './prompt'
-import { elementOfPath, isTimeValue, toolsForNode, validateCard, validateSave } from './schema'
-import { advanceTime, formatTime, pathsOf } from './statetree'
+import { elementOfPath, toolsForNode, validateCard, validateSave } from './schema'
+import {
+  advanceTime,
+  enumValueFits,
+  formatTime,
+  integerStepFits,
+  integerValueFits,
+  isTimeValue,
+  pathsOf,
+} from './statetree'
+import { advanceTimeArgsOf, writeStateArgsOf } from './tool-definitions'
 import type {
   Card,
   ChainNode,
@@ -138,13 +147,6 @@ export function applyWrite({
       detail: { path },
     })
   }
-  if (element.type === 'object') {
-    throw new AppError('E_VALIDATION', {
-      message: t('issue.objectInitial', { code: element.code }),
-      nextStep: t('next.editor'),
-      detail: { path },
-    })
-  }
   /** 值 / 范围不合就报这一条（中文，带上路径与类型，方便排障） */
   const reject = () =>
     new AppError('E_VALIDATION', {
@@ -152,20 +154,13 @@ export function applyWrite({
       nextStep: t('next.editor'),
       detail: { path, value, type: element.type },
     })
+  // 值的类型与范围由元素决定；数字 / 下拉的规矩与卡校验同一份（`statetree`），这里不重写
   if (element.type === 'text') {
     if (typeof value !== 'string') throw reject()
   } else if (element.type === 'enum') {
-    if (typeof value !== 'string' || !(element.values ?? []).includes(value)) throw reject()
+    if (!enumValueFits(element, value)) throw reject()
   } else if (element.type === 'integer') {
-    const min = element.min ?? -1e9
-    const max = element.max ?? 1e9
-    const stepMin = element.stepMin ?? 0
-    const stepMax = element.stepMax ?? 1e9
-    if (typeof value !== 'number' || !Number.isSafeInteger(value) || Math.abs(value) > 1e9) throw reject()
-    if (value < min || value > max) throw reject()
-    const before = tree[path]
-    const step = typeof before === 'number' ? Math.abs(value - before) : 0
-    if (step < stepMin || step > stepMax) throw reject()
+    if (!integerValueFits(element, value) || !integerStepFits(element, value, tree[path])) throw reject()
   }
   return { ...tree, [path]: value as Tree[string] }
 }
@@ -234,10 +229,11 @@ function runTool({
   const at = now()
   if (name === 'advance_time') {
     // 能走到这里就说明时间元素在 `node.writable` 里（`toolsForNode` 只在这种情况下发这个工具），
-    // 所以这一分支只看参数与颗粒度，不再问一遍权限。
+    // 所以这一分支只看参数与颗粒度，不再问一遍权限。实参名与 provider 声明的 schema 同一份。
+    const { amount, unit } = advanceTimeArgsOf(args)
     const element = timeElementOf(card)
     const path = timePathOf(card)
-    const next = advanceTime(timeAt(card, tree), args.amount as number, args.unit as TimeUnit, {
+    const next = advanceTime(timeAt(card, tree), amount as number, unit as TimeUnit, {
       upper: element.granularityUpper,
       lower: element.granularityLower,
     })
@@ -250,7 +246,8 @@ function runTool({
       result: formatTime(next),
     }
   }
-  const path = args.path
+  // 实参名与 provider 声明的 schema 同一份（`tool-definitions.ts`）
+  const { path, value } = writeStateArgsOf(args)
   if (typeof path !== 'string') {
     throw new AppError('E_VALIDATION', {
       message: t('error.field', { field: 'path' }),
@@ -258,14 +255,14 @@ function runTool({
       detail: { nodeId: node.id, args },
     })
   }
-  const next = applyWrite({ card, node, tree, path, value: args.value })
+  const next = applyWrite({ card, node, tree, path, value })
   return {
     tree: next,
     events: [
       { type: 'tool', text: name, detail: { name, args }, at },
-      { type: 'write', text: path, detail: { path, value: args.value }, at },
+      { type: 'write', text: path, detail: { path, value }, at },
     ],
-    result: String(args.value),
+    result: String(value),
   }
 }
 

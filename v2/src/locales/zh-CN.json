@@ -181,6 +181,7 @@
   "issue.timeUnique": "整张卡只能有一个时间元素",
   "issue.timeChild": "时间元素 {code} 不能有子元素",
   "issue.childNumbering": "元素 {code} 的孩子要从 1 起连续编号",
+  "issue.rootNumbering": "顶层元素要从 1 起连续编号（0 只给时间；{code} 这一格不对）",
   "issue.emptyObject": "结构体 {code} 没有子元素",
   "issue.objectInitial": "结构体 {code} 不能有自己的值",
   "issue.missingInitial": "元素 {code} 缺少初始值",

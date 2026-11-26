@@ -168,6 +168,24 @@ describe('状态树 v5 · 编号铁律', () => {
     await expectIssue(gap, ['1.3', '1'], '孩子有断号')
   })
 
+  it('顶层根号也必须从 1 起连续：0/1/3 被拦，0/1/2 合法', async () => {
+    const time = v5Card().state[0]
+    const roots = (codes) =>
+      bareCard([
+        time,
+        ...codes.map((code) => ({
+          code,
+          name: `n${code}`,
+          note: '',
+          type: 'text',
+          initial: `V${code}`,
+        })),
+      ])
+    await expectReject(roots(['1', '3']), '顶层断号（缺 2）')
+    const { validateCard } = await loadSchema()
+    expect(() => validateCard(roots(['1', '2'])), '0/1/2 是合法的根编号').not.toThrow()
+  })
+
   it('object 必须有孩子，且没有自身值（不带 initial）', async () => {
     const empty = variant((state) => [...state, { code: '3', name: 'empty', note: '', type: 'object' }])
     await expectIssue(empty, '3', '空 object')
@@ -275,11 +293,12 @@ describe('状态树 v5 · 时间（§3）', () => {
     )
   })
 
-  it('时间值必须是合法公历六格（月份 13 / 2 月 30 / 24 点 / 缺字段 / 多字段都被拦）', async () => {
+  it('时间值必须是合法公历六格（月份 13 / 2 月 30 / 2 月 31 / 24 点 / 缺字段 / 多字段都被拦）', async () => {
     const cases = [
       [{ month: 13 }, '月份 13'],
       [{ day: 32 }, '日 32'],
       [{ month: 2, day: 30 }, '2 月 30'],
+      [{ month: 2, day: 31 }, '2 月 31'],
       [{ hour: 24 }, '24 点'],
       [{ minute: 60 }, '60 分'],
       [{ second: 60 }, '60 秒'],

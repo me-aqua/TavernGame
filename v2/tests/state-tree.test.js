@@ -33,6 +33,73 @@ function errorOf(run) {
   }
 }
 
+/** 一个时间元素（v5：公历六格 + 颗粒度上下界） */
+function timeElement() {
+  return {
+    code: '0',
+    name: 'time',
+    note: '',
+    type: 'time',
+    initial: { ...treeV5()['0'] },
+    granularityUpper: 'day',
+    granularityLower: 'minute',
+  }
+}
+
+/**
+ * 顶层有 0 / 1 / 2 / 3 的卡：用来量「删掉中间那个根」之后的重排。
+ * 中间那个根是 `2`，后面的 `3` 应当前移成 `2`，`0` 不动。
+ */
+function rootsCard() {
+  const base = v5Card()
+  return v5Card({
+    id: 'c-roots',
+    state: [
+      timeElement(),
+      { code: '1', name: 'one', note: '', type: 'text', initial: 'ONE' },
+      { code: '2', name: 'two', note: '', type: 'text', initial: 'TWO' },
+      { code: '3', name: 'three', note: '', type: 'text', initial: 'THREE' },
+    ],
+    chain: base.chain.map((node) =>
+      node.id === 'check'
+        ? { ...node, reads: ['1', '2', '3'], writable: ['1', '2', '3'] }
+        : node.id === 'output'
+          ? { ...node, reads: ['1'], readsUpstream: ['check'] }
+          : node,
+    ),
+  })
+}
+
+/**
+ * 两个「有自身值 + 孩子」的兄弟：删 1.1 之后 1.2 变成 1.1，
+ * 它的 `.0` 自身值键与 `.0` 读/写引用也要跟着改名。
+ */
+function nestedSiblingsCard() {
+  const base = v5Card()
+  return v5Card({
+    id: 'c-nested-siblings',
+    state: [
+      timeElement(),
+      { code: '1', name: 'root', note: '', type: 'object' },
+      { code: '1.1', name: 'a', note: '', type: 'enum', values: ['A1', 'A2'], initial: 'A1' },
+      { code: '1.1.1', name: 'a-child', note: '', type: 'text', initial: 'A_CHILD' },
+      { code: '1.2', name: 'b', note: '', type: 'enum', values: ['B1', 'B2'], initial: 'B1' },
+      { code: '1.2.1', name: 'b-child', note: '', type: 'text', initial: 'B_CHILD' },
+    ],
+    chain: base.chain.map((node) =>
+      node.id === 'check'
+        ? {
+            ...node,
+            reads: ['1.1.0', '1.1.1', '1.2.0', '1.2.1'],
+            writable: ['1.2.0', '1.2.1'],
+          }
+        : node.id === 'output'
+          ? { ...node, reads: [], readsUpstream: ['check'] }
+          : node,
+    ),
+  })
+}
+
 /** 一份「兄弟三个、用来量重排」的卡：object 1 下 1.1 / 1.2 / 1.3 三个文字 */
 function siblingsCard() {
   return v5Card({
@@ -132,6 +199,18 @@ describe('树值：扁平完整 code（§2.3 / §5）', () => {
     const tree = { ...treeV5(), 0: { day: 1, hour: 8 } }
     const error = errorOf(() => validateSave({ ...v5Save(v5Card(), { tree }) }))
     expect(error?.code).toBe('E_VALIDATION')
+    expect(error.message).toMatch(CJK)
+  })
+
+  it('validateSave 拒日历非法的时间（2024-02-31）', async () => {
+    const { validateSave } = await loadSchema()
+    const tree = {
+      ...treeV5(),
+      0: { year: 2024, month: 2, day: 31, hour: 8, minute: 0, second: 0 },
+    }
+    const error = errorOf(() => validateSave({ ...v5Save(v5Card(), { tree }) }))
+    expect(error, '2024-02-31 不存在，必须被拒').not.toBeNull()
+    expect(error.code).toBe('E_VALIDATION')
     expect(error.message).toMatch(CJK)
   })
 })
@@ -364,6 +443,53 @@ describe('增删孩子与删除节点（§2.3）', () => {
       '空 object 要出现在问题清单里',
     ).toBe(true)
     expect(errorOf(() => validateCard(result.card))?.code).toBe('E_VALIDATION')
+  })
+
+  it('删顶层中间元素：0 不动、后面的根重排为 1..n，tree 与 reads/writable 跟着映射', async () => {
+    const { removeNode } = await loadState()
+    const { validateCard } = await loadSchema()
+    const card = rootsCard()
+    const tree = { 0: { ...treeV5()['0'] }, 1: 'ONE', 2: 'TWO', 3: 'THREE' }
+
+    const result = removeNode(card, tree, '2')
+    expect(result.card.state.map((item) => item.code)).toEqual(['0', '1', '2'])
+    expect(result.tree).toEqual({ 0: tree[0], 1: 'ONE', 2: 'THREE' })
+    expect(result.card.chain[1].reads, 'reads 跟着映射').toEqual(['1', '2'])
+    expect(result.card.chain[1].writable, 'writable 跟着映射').toEqual(['1', '2'])
+    for (const code of result.card.state.map((item) => item.code)) {
+      expect(code, `根编号必须仍是数字 code，不许出现 .1 / .-1：${code}`).toMatch(/^\d+(\.\d+)*$/)
+    }
+    for (const key of Object.keys(result.tree)) {
+      expect(key, `tree 键必须仍是数字 code：${key}`).toMatch(/^\d+(\.\d+)*$/)
+    }
+    expect(() => validateCard(result.card), '删完之后的卡必须仍然合法（不楔死）').not.toThrow()
+
+    // 再删刚刚前移的根（原 3）也不许楔死
+    const again = removeNode(result.card, result.tree, '2')
+    expect(again.card.state.map((item) => item.code)).toEqual(['0', '1'])
+    expect(again.tree).toEqual({ 0: tree[0], 1: 'ONE' })
+  })
+
+  it('删兄弟里的 1.2 ⇒ 旧 1.2 变 1.1；tree 的 .0 键与 .0 引用一起映射', async () => {
+    const { removeNode } = await loadState()
+    const card = nestedSiblingsCard()
+    const tree = {
+      0: { ...treeV5()['0'] },
+      '1.1.0': 'A1',
+      '1.1.1': 'A_CHILD',
+      '1.2.0': 'B1',
+      '1.2.1': 'B_CHILD',
+    }
+
+    const result = removeNode(card, tree, '1.1')
+    expect(result.card.state.map((item) => item.code)).toEqual(['0', '1', '1.1', '1.1.1'])
+    expect(result.tree, '.0 与孩子键都要跟着改名').toEqual({
+      0: tree[0],
+      '1.1.0': 'B1',
+      '1.1.1': 'B_CHILD',
+    })
+    expect(result.card.chain[1].reads, 'reads 里的 .0 引用跟着映射').toEqual(['1.1.0', '1.1.1'])
+    expect(result.card.chain[1].writable, 'writable 里的 .0 引用跟着映射').toEqual(['1.1.0', '1.1.1'])
   })
 
   it('删中间的孩子：同层重排为 1..n，树键与 reads/writable 跟着映射', async () => {

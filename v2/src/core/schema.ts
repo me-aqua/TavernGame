@@ -13,8 +13,8 @@
  */
 import { t } from '../i18n'
 import { AppError } from './errors'
-import { cardIssues, pathsOf } from './statetree'
-import type { Card, ChainNode, Save, StateElement, TimeValue } from './types'
+import { cardIssues, enumValueFits, integerValueFits, isTimeValue, pathsOf } from './statetree'
+import type { Card, ChainNode, Save, StateElement } from './types'
 
 const NODE_TYPES = ['time', 'normal', 'output'] as const
 
@@ -64,33 +64,6 @@ export function elementOfPath(state: StateElement[], path: string): StateElement
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
-
-/**
- * 时间值是不是「六格」（`tree['0']` / 存档里的时间）。
- * 这里只判形状与逐格范围：**2 月 30 日这种日历细节由卡的校验（`cardIssues`）与推进器把关**，
- * 存档里出现它只可能是手改过的盘。
- */
-export function isTimeValue(value: unknown): value is TimeValue {
-  if (!isRecord(value)) return false
-  const keys = Object.keys(value).sort().join(',')
-  if (keys !== 'day,hour,minute,month,second,year') return false
-  const time = value as unknown as TimeValue
-  return (
-    Object.values(time).every((part) => Number.isInteger(part)) &&
-    time.year >= 1 &&
-    time.year <= 9999 &&
-    time.month >= 1 &&
-    time.month <= 12 &&
-    time.day >= 1 &&
-    time.day <= 31 &&
-    time.hour >= 0 &&
-    time.hour <= 23 &&
-    time.minute >= 0 &&
-    time.minute <= 59 &&
-    time.second >= 0 &&
-    time.second <= 59
-  )
-}
 
 function badField(field: string): AppError {
   return new AppError('E_VALIDATION', { message: t('error.field', { field }), detail: { field } })
@@ -287,7 +260,7 @@ function ownPathIn(card: Card, element: StateElement): string {
   return pathsOf(card.state, element.code)[0]
 }
 
-/** 树里的一条值是不是这个元素认的形状（范围由写入方保证：`applyWrite` 会拦） */
+/** 树里的一条值是不是这个元素认的形状（数字 / 下拉的规矩与写入执行器同一份，见 `statetree`） */
 function valueFits(element: StateElement, value: unknown): boolean {
   switch (element.type) {
     case 'time':
@@ -295,9 +268,9 @@ function valueFits(element: StateElement, value: unknown): boolean {
     case 'text':
       return typeof value === 'string'
     case 'integer':
-      return typeof value === 'number' && Number.isSafeInteger(value)
+      return integerValueFits(element, value)
     case 'enum':
-      return typeof value === 'string' && (element.values ?? []).includes(value)
+      return enumValueFits(element, value)
     default:
       return true
   }

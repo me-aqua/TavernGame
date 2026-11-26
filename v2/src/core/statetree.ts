@@ -22,7 +22,10 @@ import type { Card, StateElement, TimeUnit, TimeValue, Tree } from './types'
 export const TIME_UNITS: TimeUnit[] = ['year', 'month', 'week', 'day', 'hour', 'minute', 'second']
 
 /** 可见深度上限（`.0` 不计）：`1.1.1.1.1` 合法，第 6 段不合法 */
-const MAX_DEPTH = 5
+export const MAX_DEPTH = 5
+
+/** 数字元素的绝对值上限（值、初始值、上下限与步幅都用这一条） */
+export const INTEGER_LIMIT = 1e9
 
 const CODE = /^\d+(\.\d+)*$/
 
@@ -159,8 +162,11 @@ function civilFromDays(days: number): { year: number; month: number; day: number
   return { year: month <= 2 ? year + 1 : year, month, day }
 }
 
-/** 是不是合法公历六格（缺字段 / 多字段都算坏） */
-function isValidClock(value: unknown): value is TimeValue {
+/**
+ * 是不是合法公历六格（缺字段 / 多字段都算坏）。
+ * 卡校验、存档校验、时间推进三处共用这一份 —— `2024-02-31` 在哪一处都不成立。
+ */
+export function isTimeValue(value: unknown): value is TimeValue {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const keys = Object.keys(value).sort().join(',')
   if (keys !== 'day,hour,minute,month,second,year') return false
@@ -208,7 +214,7 @@ export function advanceTime(
   unit: TimeUnit,
   bounds: { upper?: TimeUnit; lower?: TimeUnit } = {},
 ): TimeValue {
-  if (!isValidClock(value)) throw invalid(t('error.timeSourceInvalid'), { value })
+  if (!isTimeValue(value)) throw invalid(t('error.timeSourceInvalid'), { value })
   if (!Number.isInteger(amount) || amount <= 0) throw invalid(t('error.amountInvalid'), { amount })
   const at = TIME_UNITS.indexOf(unit)
   if (at < 0) throw invalid(t('error.unitUnknown', { unit: String(unit) }), { unit })
@@ -278,7 +284,15 @@ export function addChild(card: Card, tree: Tree, code: string): { card: Card; tr
     delete nextTree[code]
   }
   nextTree[childCode] = ''
-  return { card: { ...card, state: [...card.state, child] }, tree: nextTree }
+  // 新孩子插在父的整棵子树之后（左栏按 `state[]` 顺序渲染，追加到末尾就会掉到整棵树最底下）
+  const state = [...card.state]
+  const subtree = new Set(subtreeCodes(card.state, code))
+  let insertAt = state.findIndex((item) => item.code === code) + 1
+  state.forEach((item, index) => {
+    if (subtree.has(item.code)) insertAt = index + 1
+  })
+  state.splice(insertAt, 0, child)
+  return { card: { ...card, state }, tree: nextTree }
 }
 
 /** 一个 code 连同它的整棵子树 */
@@ -304,13 +318,17 @@ export function removeNode(card: Card, tree: Tree, code: string): { card: Card; 
       : childrenOf(card.state, parent)
   const at = siblings.findIndex((item) => item.code === code)
 
-  // 旧 code → 新 code：被删节点后面的兄弟各自前移一位（连同整棵子树）
+  // 旧 code → 新 code：被删节点后面的兄弟各自前移一位（连同整棵子树）。
+  // 顶层（`parent === undefined`）没有前缀点，新 code 就是纯数字：`2` 前移成 `1`，不是 `.1`。
   const mapping = new Map<string, string>()
   for (const later of siblings.slice(at + 1)) {
     const segment = Number(later.code.split('.').at(-1))
-    const renamed = `${later.code.slice(0, later.code.lastIndexOf('.'))}.${segment - 1}`
+    const renamed = parent === undefined ? String(segment - 1) : `${parent}.${segment - 1}`
     for (const oldCode of subtreeCodes(card.state, later.code)) {
-      mapping.set(oldCode, renamed + oldCode.slice(later.code.length))
+      const newCode = renamed + oldCode.slice(later.code.length)
+      mapping.set(oldCode, newCode)
+      // 元素自己的值住在隐式 `.0`：它也是值路径，树键与链引用要一起搬（`subtreeCodes` 只回元素 code）
+      mapping.set(`${oldCode}.0`, `${newCode}.0`)
     }
   }
 
@@ -318,7 +336,7 @@ export function removeNode(card: Card, tree: Tree, code: string): { card: Card; 
     .filter((item) => !removed.has(item.code))
     .map((item) => (mapping.has(item.code) ? { ...item, code: mapping.get(item.code) as string } : item))
 
-  // 值路径与元素 code 同构（`.0` 只是多一段），所以同一张 mapping 对两者都成立
+  // 值路径 = 元素 code（`.0` 那一格也在 mapping 里），所以树键与链引用走同一张表
   const mapCode = (path: string): string | undefined => {
     if (removed.has(path) || [...removed].some((gone) => path.startsWith(`${gone}.`))) return undefined
     return mapping.get(path) ?? path
@@ -394,6 +412,14 @@ function stateIssues(card: Card): CardIssue[] {
     if (childrenOf(state, time.code).length > 0) add(time.code, '', t('issue.timeChild', { code: time.code }))
   }
 
+  // 根层也要 1..n（`0` 是时间，占第一格）：删顶层元素后的重排由这一条兜住
+  const roots = state
+    .filter((item) => CODE.test(item.code) && !item.code.includes('.') && item.code !== '0')
+    .map((item) => Number(item.code))
+    .sort((left, right) => left - right)
+  const badRoot = roots.find((segment, index) => segment !== index + 1)
+  if (badRoot !== undefined) add(String(badRoot), '', t('issue.rootNumbering', { code: String(badRoot) }))
+
   for (const element of state) {
     const children = childrenOf(state, element.code)
     // 同级孩子从 1 起连续编号（编号铁律）
@@ -427,7 +453,7 @@ function stateIssues(card: Card): CardIssue[] {
       ) {
         add(element.code, '', t('issue.granularity', { code: element.code }))
       }
-      if ('initial' in element && !isValidClock(element.initial)) {
+      if ('initial' in element && !isTimeValue(element.initial)) {
         add(element.code, '', t('issue.timeValue', { code: element.code }))
       }
     }
@@ -435,32 +461,63 @@ function stateIssues(card: Card): CardIssue[] {
   return issues
 }
 
+/** 数字的四个格与缺省值（契约 §2.1）：缺省只在这里写一次 */
+function integerRangeOf(element: StateElement): {
+  min: number
+  max: number
+  stepMin: number
+  stepMax: number
+} {
+  return {
+    min: element.min ?? -INTEGER_LIMIT,
+    max: element.max ?? INTEGER_LIMIT,
+    stepMin: element.stepMin ?? 0,
+    stepMax: element.stepMax ?? INTEGER_LIMIT,
+  }
+}
+
+/**
+ * 一个值能不能放进这个数字元素：安全整数、`abs ≤ 1e9`、在 `[min, max]` 内。
+ * **不看步幅** —— 初值与存档树只受上下限约束（步幅只管单次写入）。
+ * 卡校验 / 存档校验 / 写入执行三处共用这一份（契约 §2.1 / §4.3）。
+ */
+export function integerValueFits(element: StateElement, value: unknown): value is number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || Math.abs(value) > INTEGER_LIMIT)
+    return false
+  const { min, max } = integerRangeOf(element)
+  return value >= min && value <= max
+}
+
+/** 单次写入的步幅 `|new − old|` 要在 `[stepMin, stepMax]` 内；旧值不是数字时按 0 算 */
+export function integerStepFits(element: StateElement, value: number, before: unknown): boolean {
+  const { stepMin, stepMax } = integerRangeOf(element)
+  const step = typeof before === 'number' ? Math.abs(value - before) : 0
+  return step >= stepMin && step <= stepMax
+}
+
+/** enum 的值必须是白名单里的字符串（卡校验 / 存档校验 / 写入执行共用） */
+export function enumValueFits(element: StateElement, value: unknown): value is string {
+  return typeof value === 'string' && (element.values ?? []).includes(value)
+}
+
 function integerIssues(element: StateElement): CardIssue[] {
-  const issues: CardIssue[] = []
-  const add = (message: string) =>
-    issues.push({ code: element.code, path: '', message, errorCode: 'E_VALIDATION' })
+  const issue = (message: string): CardIssue[] => [
+    { code: element.code, path: '', message, errorCode: 'E_VALIDATION' },
+  ]
   const numbers = [element.min, element.max, element.stepMin, element.stepMax].filter(
     (value) => value !== undefined,
   )
-  if (!numbers.every((value) => Number.isInteger(value) && Math.abs(value as number) <= 1e9)) {
-    add(t('issue.integerBounds', { code: element.code }))
-    return issues
+  if (!numbers.every((value) => Number.isInteger(value) && Math.abs(value as number) <= INTEGER_LIMIT)) {
+    return issue(t('issue.integerBounds', { code: element.code }))
   }
-  const min = element.min ?? -1e9
-  const max = element.max ?? 1e9
-  const stepMin = element.stepMin ?? 0
-  const stepMax = element.stepMax ?? 1e9
+  const { min, max, stepMin, stepMax } = integerRangeOf(element)
   if (min > max || stepMin > stepMax || stepMin < 0) {
-    add(t('issue.integerBounds', { code: element.code }))
-    return issues
+    return issue(t('issue.integerBounds', { code: element.code }))
   }
-  const initial = element.initial
-  if (typeof initial !== 'number' || !Number.isSafeInteger(initial) || Math.abs(initial) > 1e9) {
-    add(t('issue.integerInitial', { code: element.code }))
-    return issues
+  if (!integerValueFits(element, element.initial)) {
+    return issue(t('issue.integerInitial', { code: element.code }))
   }
-  if (initial < min || initial > max) add(t('issue.integerInitial', { code: element.code }))
-  return issues
+  return []
 }
 
 function enumIssues(element: StateElement): CardIssue[] {
@@ -480,7 +537,7 @@ function enumIssues(element: StateElement): CardIssue[] {
       },
     ]
   }
-  if (typeof element.initial !== 'string' || !(values as string[]).includes(element.initial)) {
+  if (!enumValueFits(element, element.initial)) {
     return [
       {
         code: element.code,

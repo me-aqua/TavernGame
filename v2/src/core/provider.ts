@@ -14,32 +14,17 @@ import { jsonSchema, streamText, tool } from 'ai'
 import { t } from '../i18n'
 import { PROVIDER_TIMEOUT_MS, type Deadline } from './deadline'
 import { AppError } from './errors'
+import { TOOL_DEFINITIONS } from './tool-definitions'
 import type { Preset, ProviderReply, ProviderToolCall, TokenUsage } from './types'
 
 /** 工具的参数形状交给模型看；名字与键名一律 ASCII（中文只在 locales/ 里） */
-const TOOL_DEFINITIONS = {
-  advance_time: {
-    description: 'Advance the in-game clock by a whole number of hours.',
-    inputSchema: jsonSchema({
-      type: 'object',
-      properties: { hours: { type: 'integer', description: 'Hours to advance, may be negative.' } },
-      required: ['hours'],
-    }),
-  },
-  write_state: {
-    description: 'Write one string into the state tree of the current scene.',
-    inputSchema: jsonSchema({
-      type: 'object',
-      properties: { path: { type: 'string' }, value: { type: 'string' } },
-      required: ['path', 'value'],
-    }),
-  },
-} as const
-
 function toolSetOf(names: string[]) {
   const entries = names.map((name) => {
     const definition = TOOL_DEFINITIONS[name as keyof typeof TOOL_DEFINITIONS]
-    return [name, tool(definition)] as const
+    return [
+      name,
+      tool({ description: definition.description, inputSchema: jsonSchema(definition.inputSchema) }),
+    ] as const
   })
   return Object.fromEntries(entries)
 }

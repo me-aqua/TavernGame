@@ -19,7 +19,7 @@ v2/
   tsconfig.json  strict + include src/**/*.ts|vue + stories/**/*.ts + .storybook/**/*.ts
   scripts/check-lines.mjs  v2 文件长度闸（800 行）
   src/  main.ts  router.ts  i18n.ts  env.d.ts
-    core/  storage.ts errors.ts prompt.ts engine.ts schema.ts statetree.ts mock.ts (+ provider.ts deadline.ts types.ts)
+    core/  storage.ts errors.ts prompt.ts engine.ts schema.ts statetree.ts mock.ts tool-definitions.ts (+ provider.ts deadline.ts types.ts)
     components/*.vue  pages/ HomePage.vue EditorPage.vue PlayPage.vue SettingsPage.vue  locales/zh-CN.json  data/sample-card.json  styles/*.css
   tests/  vitest（node，被测 src/core/**）  e2e/  Playwright（dist/v2）  stories/ .storybook/  组件故事与巡检
 ```
@@ -217,6 +217,7 @@ export function elementOfPath(state, path) -> StateElement | undefined
 - `write_state({ path, value })` 只能写 `node.writable` 覆盖到的值路径（**完整 code**；有孩子的节点自身值是 `<code>.0`）；值按元素类型收：`text` 字符串、`integer` 安全整数 + 上下限 + 单次步幅、`enum` 白名单；写时间 ⇒ `E_CHAIN`（提示改用 `advance_time`）。`writable` 写的是 `<code>.0` 时，只有那一格可写，孩子不在权限里。
 - `applyWrite`：时间 ⇒ `E_CHAIN`；不在覆盖范围（越权 / 路径不存在 / 父 code 本身 / 结构体自身 code）⇒ `E_CHAIN`；结构体没有自身值 ⇒ `E_VALIDATION`；值类型或范围不符 ⇒ `E_VALIDATION`；合法返回**新** tree（入参 tree 一个字都不改）。
 - 工具调用被引擎执行时记两条事件：`tool`（`detail = { name, args }`）与 `write`（`detail = { path, value }`）；同一次调用还进该节点的 `trace.toolCalls`（带 `result`）；模型正文里的工具调用**一律不认**。
+- **工具参数表只有一份**（`src/core/tool-definitions.ts`）：provider 序列化给模型的 `inputSchema` 与引擎执行器读的实参名是同一张形状表（`advance_time` = `amount`/`unit`、`write_state` = `path`/`value`），值域仍由执行器判。
 - 节点文本：`output` 节点的文本 → `narration` 事件；所有节点的文本都进自己的 `trace.output`。
 
 ### 4.4 流式与中止

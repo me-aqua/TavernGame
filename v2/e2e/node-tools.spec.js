@@ -51,6 +51,80 @@ function toolNamesOf(request) {
   return Object.keys(tools).sort()
 }
 
+/** 一次请求里的某个工具定义（数组 / 按名字做键两种形状都收） */
+function toolShapeOf(body, name) {
+  const tools = body.tools ?? []
+  const entries = Array.isArray(tools)
+    ? tools
+    : Object.entries(tools).map(([key, value]) => ({ ...value, name: value?.name ?? key }))
+  const entry = entries.find((item) => (item?.function?.name ?? item?.name) === name)
+  return entry?.function ?? entry
+}
+
+/** 工具的参数 JSON Schema（不同 AI SDK 版本叫 `parameters` 或 `inputSchema`） */
+function parametersOf(shape) {
+  return shape?.parameters ?? shape?.inputSchema ?? shape?.function?.parameters
+}
+
+/** 一个 JSON Schema 接受哪些 type（含 anyOf / oneOf / type 数组） */
+function acceptedTypesOf(schema) {
+  const accepted = new Set()
+  const collect = (node) => {
+    if (!node || typeof node !== 'object') return
+    if (typeof node.type === 'string') accepted.add(node.type)
+    if (Array.isArray(node.type)) for (const type of node.type) accepted.add(type)
+    for (const branch of [...(node.anyOf ?? []), ...(node.oneOf ?? [])]) collect(branch)
+  }
+  collect(schema)
+  return [...accepted]
+}
+
+test('工具参数 schema：advance_time 用 amount + unit；write_state 的 value 收数字与 JSON 字符串', async ({
+  page,
+}) => {
+  const requests = []
+  await page.route('**/chat/completions', async (route) => {
+    requests.push({ body: route.request().postDataJSON() })
+    await route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
+      body: openAiSse(['OK']),
+    })
+  })
+
+  // time 节点同时写 0 与文本 1 ⇒ 两个工具都在这一个请求里
+  const card = cardWithWritable({ time: ['0', '1'], check: [], extra: [], output: [] })
+  await boot(page, { storage: { [KEYS.cards]: [card], [KEYS.presets]: [REAL_PRESET] } })
+  const saveId = await createSave(page, CARD_ID)
+  await openStory(page, CARD_ID, saveId)
+  await playTurn(page, 'act one', 1)
+  const body = requests[0].body
+  const advance = parametersOf(toolShapeOf(body, 'advance_time'))
+  expect(advance, 'advance_time 的工具 schema 不在请求里').toBeTruthy()
+  expect(advance.properties?.amount?.type, 'amount 是整数').toBe('integer')
+  expect(advance.properties?.hours, '旧的 hours 参数不许还在').toBeUndefined()
+  expect(advance.properties?.unit?.enum, 'unit 必须是 TIME_UNITS 那七个').toEqual([
+    'year',
+    'month',
+    'week',
+    'day',
+    'hour',
+    'minute',
+    'second',
+  ])
+  expect(advance.required, 'amount + unit 都必填').toEqual(expect.arrayContaining(['amount', 'unit']))
+
+  const write = parametersOf(toolShapeOf(body, 'write_state'))
+  expect(write, 'write_state 的工具 schema 不在请求里').toBeTruthy()
+  expect(write.properties?.path?.type, 'path 是字符串').toBe('string')
+  const valueTypes = acceptedTypesOf(write.properties?.value)
+  expect(valueTypes, 'value 必须收 JSON 字符串（模型可能回字符串）').toContain('string')
+  expect(
+    valueTypes.some((type) => type === 'number' || type === 'integer'),
+    `value 必须收整数（模型写数字元素时不能只给 string）：实际 ${JSON.stringify(valueTypes)}`,
+  ).toBe(true)
+})
+
 test('工具由 writable 决定：含 0 给 advance_time，含文本 code 给 write_state', async ({ page }) => {
   const requests = []
   await page.route('**/chat/completions', async (route) => {

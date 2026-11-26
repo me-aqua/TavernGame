@@ -18,7 +18,7 @@
  * 那一侧的卡结构是冻结的，只许改名字 / 备注 / 初值与眼睛。
  */
 import { computed } from 'vue'
-import { codeDepth, formatTime, pathsOf } from '../core/statetree'
+import { MAX_DEPTH, codeDepth, formatTime, pathsOf } from '../core/statetree'
 import type { ChainNode, StateElement, TimeValue, Tree } from '../core/types'
 import { t } from '../i18n'
 
@@ -40,9 +40,6 @@ defineEmits<{
   'toggle-read': [code: string, tri: 'all' | 'some' | 'none']
   'toggle-write': [code: string, tri: 'all' | 'some' | 'none']
 }>()
-
-/** 第 5 层（可见深度 5）不再加孩子 */
-const MAX_DEPTH = 5
 
 /** 一个 code 的自身值路径；结构体没有自身值（`undefined` ⇒ 不渲染那一格） */
 function ownValuePath(element: StateElement): string | undefined {

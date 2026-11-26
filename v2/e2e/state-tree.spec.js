@@ -208,6 +208,16 @@ test('给标量加孩子：不转换类型、自身值仍是自身值（保存�
   await selectElement(page, '1.1')
   await page.locator(addChild('1.1')).click()
   await expect(page.locator(row('1.1.2')), '新孩子用下一个空位').toBeVisible()
+  // 新孩子必须紧跟在父亲下面，不是被追加到整棵树末尾
+  const codes = await page
+    .locator('[data-state-item]')
+    .evaluateAll((rows) => rows.map((item) => item.getAttribute('data-state-item')))
+  const parentAt = codes.indexOf('1.1')
+  const childAt = codes.indexOf('1.1.2')
+  expect(childAt, '新孩子要插在 1.1 的子树里').toBeGreaterThan(parentAt)
+  expect(childAt, '1.1.2 应紧跟在已有孩子 1.1.1 之后').toBe(codes.indexOf('1.1.1') + 1)
+  expect(codes.indexOf('1.2'), '1.2 应排在 1.1.2 之后').toBeGreaterThan(childAt)
+  await expect(page.locator(row('1.1.2'))).toHaveAttribute('data-depth', '3')
   await page.locator(row('1.1')).click()
   await expect(page.locator(`${row('1.1')} [data-state-value]`)).toHaveText('A1')
   await expect(page.locator('[data-state-type]')).toHaveValue('enum')
@@ -236,6 +246,58 @@ test('保存按钮：编辑只改草稿，点保存才写盘', async ({ page }) 
     name: 'RENAMED',
     initial: 'HERO_2',
   })
+})
+
+test('清空数字初值：不炸、不楔死；保存时给校验或落一个合法整数，补回后能保存', async ({ page }) => {
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  const card = v5Card()
+  await openEditor(page, card)
+  await selectElement(page, '2.2')
+
+  const initial = page.locator('[data-field="initial"]')
+  await expect(initial).toHaveValue('80')
+  await initial.fill('')
+  expect(pageErrors, '清空初值不许触发运行时错误').toEqual([])
+  // 「不楔死」：编辑器还在、状态树还在、没有打成错误页
+  await expect(
+    page.locator('[data-page="editor"]'),
+    `清空初值后编辑器消失了；pageerror=${pageErrors.join(' | ')}`,
+  ).toBeVisible()
+  await expect(page.locator('[data-state-tree]')).toBeVisible()
+  await expect(page.locator('[data-error]'), '清空初值不许把编辑器打成错误页').toHaveCount(0)
+
+  const errors = await save(page)
+  const stored = (await readStorage(page, KEYS.cards))[0].state.find((item) => item.code === '2.2')
+  if (errors === 0) {
+    expect(Number.isSafeInteger(stored.initial), `保存成功时初值必须是合法整数，实际 ${stored.initial}`).toBe(
+      true,
+    )
+  } else {
+    expect(errors, '清空数字初值至少要报一条校验错误').toBeGreaterThan(0)
+  }
+
+  // 草稿还活着：补回合法值再保存必须成功
+  await page.locator('[data-field="initial"]').fill('90')
+  expect(await save(page)).toBe(0)
+  const saved = (await readStorage(page, KEYS.cards))[0].state.find((item) => item.code === '2.2')
+  expect(saved.initial).toBe(90)
+})
+
+test('enum values 改成不含旧值：initial 自动重置为第一项，保存成功', async ({ page }) => {
+  const card = v5Card()
+  await openEditor(page, card)
+  await selectElement(page, '1.1')
+
+  const initial = page.locator('[data-field="initial"]')
+  await expect(initial).toHaveValue('A1')
+  await page.locator('[data-field="values"]').fill('B1\nB2')
+  await expect(initial, '旧值不在新列表里 ⇒ initial 应重置为第一项').toHaveValue('B1')
+
+  expect(await save(page)).toBe(0)
+  const saved = (await readStorage(page, KEYS.cards))[0].state.find((item) => item.code === '1.1')
+  expect(saved.values).toEqual(['B1', 'B2'])
+  expect(saved.initial).toBe('B1')
 })
 
 test('校验拦截 · 空 object：不写盘、草稿保留、错误可点回', async ({ page }) => {

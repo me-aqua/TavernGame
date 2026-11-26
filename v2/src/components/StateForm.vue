@@ -91,6 +91,9 @@ function setText(key: 'name' | 'note', raw: string): void {
 }
 /** 数值格：空串 = 用缺省（把这一格删掉），其余按数字存（手打的中间态不写进草稿） */
 function setNumber(key: 'min' | 'max' | 'stepMin' | 'stepMax' | 'initial', raw: string): void {
+  // 数字初值不许清空：缺 `initial` 会让渲染期的 `initialTreeOf` 抛错、整页卡住（评审 P1-2）。
+  // 其它四个数值格清空是合法的 —— 它们有缺省值。
+  if (key === 'initial' && raw.trim() === '') return
   const next = { ...props.element }
   if (raw.trim() === '') {
     delete next[key]
@@ -103,14 +106,18 @@ function setNumber(key: 'min' | 'max' | 'stepMin' | 'stepMax' | 'initial', raw: 
   emit('edit', next)
 }
 
-/** 下拉白名单：一行一个，空行不算一项 */
+/** 下拉白名单：一行一个，空行不算一项；旧值不在新表里 ⇒ 重置为第一项（契约 §2.2） */
 function setValues(raw: string): void {
+  const values = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+  // 白名单被清空时没有「第一项」可重置：保留旧值，保存校验会拦住空白名单
+  const keep = typeof props.element.initial === 'string' && values.includes(props.element.initial)
   emit('edit', {
     ...props.element,
-    values: raw
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line !== ''),
+    values,
+    ...(keep || values.length === 0 ? {} : { initial: values[0] }),
   })
 }
 
