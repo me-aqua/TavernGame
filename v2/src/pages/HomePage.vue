@@ -5,7 +5,8 @@
  * 三条容易做坏的：
  *   · **点卡行只是「选中」**，不跳页 —— 新建存档要用这个选中态（「编辑」才进编辑器）；
  *   · **新建存档落在列表末尾**、**不跳转**，`tree` 取卡的初值、`cardSnapshot` 是整张卡的深拷贝；
- *   · **删卡连带删存档与它的模型映射**（`tg2.nodeModels[cardId]`），删存档不动卡。
+ *   · **删卡只删这张卡**：存档一条都不删（每份存档带完整的 `cardSnapshot`，独立可玩），
+ *     模型映射 `tg2.nodeModels[cardId]` 也保留（孤儿存档跑回合要用它）；删存档只删那一份。
  *
  * 🔴 **列表是逐条读的**（`loadCardEntries()` / `loadSaveEntries()`）：盘上一条坏卡 / 坏存档
  * 不再把整页挡在错误页后面 —— 坏项照原顺序渲染成一行（`data-invalid-*` + 中文原因），
@@ -167,13 +168,10 @@ function confirmDelete(): void {
   if (!target) return
   try {
     if (target.kind === 'card') {
+      // 只删卡这一行：存档与 `tg2.nodeModels[cardId]` 都留着 —— 存档跑的是自己的快照，
+      // 卡不在了也照样能打开继续玩（孤儿存档），它的模型映射还要用。
       cardEntries.value = cardEntries.value.filter((entry) => entry.card?.id !== target.id)
-      saveEntries.value = saveEntries.value.filter((entry) => entry.save?.cardId !== target.id)
       writeCards()
-      writeSaves()
-      const models = storage().loadNodeModels()
-      delete models[target.id]
-      storage().saveNodeModels(models)
       if (selectedCardId.value === target.id) selectedCardId.value = null
     } else {
       saveEntries.value = saveEntries.value.filter((entry) => entry.save?.id !== target.id)

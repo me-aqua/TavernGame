@@ -14,6 +14,7 @@ import {
   makeCard,
   makeSave,
   MOCK_PRESET,
+  nodeModelsFor,
   openStory,
   playTurn,
   readStorage,
@@ -78,15 +79,43 @@ test('改初值与节点提示词之后：旧存档仍按旧卡跑，新存档�
   await expect(page.locator(tracePrompt('output'))).toContainText('NODE_OUT_EDITED')
 })
 
-test('删掉卡连带删掉它的存档（盘上卡与存档都清空）', async ({ page }) => {
-  await boot(page, { storage: seedWithSave() })
+test('删掉卡：存档与模型映射都留着，存档还能点进去玩', async ({ page }) => {
+  const card = makeCard()
+  const save = makeSave(card)
+  const models = { [card.id]: nodeModelsFor(card) }
+  await boot(page, {
+    storage: {
+      [KEYS.cards]: [card],
+      [KEYS.saves]: [save],
+      [KEYS.presets]: [MOCK_PRESET],
+      [KEYS.nodeModels]: models,
+    },
+  })
   await page.goto(`${APP_PATH}${route.home}`)
   await page.locator(`[data-card-id="${CARD_ID}"] [data-card-delete]`).click()
-  await expect(page.locator('[data-confirm]')).toBeVisible()
+  const confirm = page.locator('[data-confirm]')
+  await expect(confirm).toBeVisible()
+  // 确认层要说清「存档保留」—— 旧文案「一起消失」在这条上必须已经改掉
+  await expect(confirm).toContainText('存档')
+  await expect(confirm).not.toContainText('一起消失')
   await page.locator('[data-confirm-ok]').click()
-  await expect(page.locator('[data-card-id]')).toHaveCount(0)
 
-  // 契约 §8.1：删卡连带删掉它的存档 —— 这里把口径钉死在读盘上，不靠界面猜
+  // 卡没了；**存档与模型映射一条都不许少**
+  await expect(page.locator('[data-card-id]')).toHaveCount(0)
+  await expect(page.locator('[data-empty-cards]')).toBeVisible()
   expect(await readStorage(page, KEYS.cards)).toEqual([])
-  expect(await readStorage(page, KEYS.saves)).toEqual([])
+  expect(await readStorage(page, KEYS.saves), '删卡把存档一起删了').toEqual([save])
+  expect(await readStorage(page, KEYS.nodeModels), '删卡把模型映射一起删了').toEqual(models)
+
+  // 存档行还在，卡名取快照
+  await expect(page.locator(`[data-save-id="${save.id}"]`)).toBeVisible()
+  await expect(page.locator(`[data-save-id="${save.id}"] [data-save-meta]`)).toContainText(card.name)
+
+  // 点进去能玩：故事流在、跑一回合照常落盘
+  await page.locator(`[data-save-id="${save.id}"]`).click()
+  await expect(page.locator('[data-page="play"]')).toBeVisible()
+  await expect(page.locator('[data-story]')).toBeVisible()
+  await expect(page.locator('[data-error]')).toHaveCount(0)
+  await playTurn(page, 'act one', 1)
+  await expect(page.locator('[data-turn]')).toHaveText('1')
 })

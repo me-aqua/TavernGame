@@ -72,14 +72,16 @@ test.describe('删空之后', () => {
     await expect(page.locator('[data-save-id]')).toHaveCount(0)
     expect(await readStorage(page, KEYS.saves)).toEqual([])
 
-    // 再删卡（带确认；它的存档与模型映射跟着一起走）
+    // 再删卡（带确认；存档与模型映射都**保留** —— 删卡不动存档）
     await page.locator('[data-card-id] [data-card-delete]').first().click()
     await expect(page.locator('[data-confirm]')).toBeVisible()
     await page.locator('[data-confirm-ok]').click()
     await expect(page.locator('[data-card-id]')).toHaveCount(0)
     await expect(page.locator('[data-empty-cards]')).toBeVisible()
     expect(await readStorage(page, KEYS.cards)).toEqual([])
-    expect(await readStorage(page, KEYS.nodeModels), '删卡要清掉它的模型映射').toEqual({})
+    expect(await readStorage(page, KEYS.nodeModels), '删卡不许动它的模型映射').toEqual({
+      [card.id]: nodeModelsFor(card),
+    })
 
     // 机制照常：建卡 → 编辑器 → 设置
     await page.locator('[data-new-card]').click()

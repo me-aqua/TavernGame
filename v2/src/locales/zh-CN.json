@@ -19,7 +19,7 @@
   "home.saveMeta": "{card} · 第 {turn} 回合",
   "home.invalidBadge": "非法",
   "home.unknownCard": "未知游戏卡",
-  "home.deleteCardConfirm": "删掉这张游戏卡？它的全部存档也会一起消失，不能撤销。",
+  "home.deleteCardConfirm": "删掉这张游戏卡？存档会保留，可以继续玩。",
   "home.deleteSaveConfirm": "删掉这个存档？不能撤销。",
   "home.noCardSelected": "先在左边选中一张游戏卡",
   "editor.stateTitle": "状态树",

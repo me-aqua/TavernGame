@@ -201,7 +201,7 @@ totalTokens } | null, durationMs, tps: number | null, turn }`；`text = node.nam
   「每个节点 → `tg2.presets[0].id`」的映射（**首次打开即落盘**，之后玩家改动才覆盖它）。
   一个预设都没有时**不写**（写空串只会制造假数据），运行回合时才报 `E_VALIDATION`。
 - **编辑器里改**：中栏的 `[data-node-preset]` 改的是这张映射（写盘 `tg2.nodeModels`），**不动卡**。
-- **删卡**：连带删掉 `tg2.nodeModels[cardId]`（§8.1）。
+- **删卡**：**不删** `tg2.nodeModels[cardId]`（§8.1）—— 存档还留着，孤儿存档跑回合时用的就是这一片映射。
 - 映射里指向一个**已经不存在的预设**（设置页删了它）⇒ 运行时 `E_VALIDATION`（不静默退回第一个）：
   消息说「这个节点的模型预设没了」，下一步指向设置页。
 
@@ -490,8 +490,9 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   `[data-save-meta]`（文本里必须含卡名与回合数数字）、`[data-save-rename]`、`[data-save-delete]`。
 - 删除必须确认：`[data-card-delete]` / `[data-save-delete]` 点击后出现确认层
   `[data-confirm]`，其中 `[data-confirm-ok]` 才真删、`[data-confirm-cancel]` 取消。
-  **删卡连带删掉它的全部存档**（存档的 `cardId` 指向它）**和它的模型映射 `tg2.nodeModels[cardId]`**；
-  删存档不动卡。判据：`v2/e2e/empty.spec.js` / `v2/e2e/snapshot.spec.js`。
+  **删卡只删 `tg2.cards` 里这一张**：存档一条都不删（每份存档带完整的 `cardSnapshot`，独立可玩），
+  模型映射 `tg2.nodeModels[cardId]` 也保留（孤儿存档跑回合要用它）；**删存档只删那一份**，确认文案说「存档保留」。
+  判据：`v2/e2e/empty.spec.js` / `v2/e2e/snapshot.spec.js`。
 - 空态：没有卡时 `[data-empty-cards]` 可见（中文文案「还没有游戏卡」），没有存档时 `[data-empty-saves]` 可见。
 - **坏项逐行标记、不挡合法项与新建**（阶段 2 第一项）：列表来自逐条读，非法行带
   `[data-invalid-card]` / `[data-invalid-save]` + `[data-invalid-reason]`（中文 `error.message`），
@@ -719,7 +720,7 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
 | 模块边界（无旧站 / core 不碰 DOM 与 Vue）                                                     | `v2/tests/boundaries.test.js`                                     |
 | 引擎语义（顺序、写入、流式、中止、快照）                                                      | `v2/tests/engine.test.js`                                         |
 | 调试内联：trace / turnStats 落盘、开关翻面、加载旧存档后仍能回看                              | `v2/e2e/play.spec.js` + `v2/tests/engine.test.js`                 |
-| 模型不进卡 / 逐节点解析 / 缺预设即报错 / 删卡清映射                                           | `v2/tests/engine.test.js` + `v2/e2e/node-models.spec.js`          |
+| 模型不进卡 / 逐节点解析 / 缺预设即报错 / 删卡不删映射                                         | `v2/tests/engine.test.js` + `v2/e2e/node-models.spec.js`          |
 | 夹具自身合法性（正控：夹具坏了下面每条红都不可信）                                            | `v2/tests/fixtures.selfcheck.test.js`                             |
 
 ### 9.5 第 2 关替实现钉下的、SPEC 没写死的决定（组长可否决）
