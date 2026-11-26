@@ -312,9 +312,10 @@ export function removeNode(card: Card, tree: Tree, code: string): { card: Card; 
 
   const removed = new Set(subtreeCodes(card.state, code))
   const parent = parentOfCode(code)
+  // 根 = `parentOfCode` 返回 undefined（全模块唯一的根判据）
   const siblings =
     parent === undefined
-      ? card.state.filter((item) => !item.code.includes('.'))
+      ? card.state.filter((item) => parentOfCode(item.code) === undefined)
       : childrenOf(card.state, parent)
   const at = siblings.findIndex((item) => item.code === code)
 
@@ -322,6 +323,8 @@ export function removeNode(card: Card, tree: Tree, code: string): { card: Card; 
   // 顶层（`parent === undefined`）没有前缀点，新 code 就是纯数字：`2` 前移成 `1`，不是 `.1`。
   const mapping = new Map<string, string>()
   for (const later of siblings.slice(at + 1)) {
+    // 坏 code 不参与重排；时间 `0` 永远不改名（否则会拼出 `-1` 或撞掉 `0`）
+    if (!CODE.test(later.code) || later.type === 'time') continue
     const segment = Number(later.code.split('.').at(-1))
     const renamed = parent === undefined ? String(segment - 1) : `${parent}.${segment - 1}`
     for (const oldCode of subtreeCodes(card.state, later.code)) {
@@ -336,6 +339,18 @@ export function removeNode(card: Card, tree: Tree, code: string): { card: Card; 
     .filter((item) => !removed.has(item.code))
     .map((item) => (mapping.has(item.code) ? { ...item, code: mapping.get(item.code) as string } : item))
 
+  // 删光了孩子：自身值从 `.0` 搬回父 code（与 addChild 的搬运对称）；
+  // 树键与链引用的 `<parent>.0` 也一起收成父 code —— 那个值路径已经不存在了（N-3）。
+  const parentElement = parent === undefined ? undefined : state.find((item) => item.code === parent)
+  if (
+    parent !== undefined &&
+    parentElement &&
+    parentElement.type !== 'object' &&
+    childrenOf(state, parent).length === 0
+  ) {
+    mapping.set(`${parent}.0`, parent)
+  }
+
   // 值路径 = 元素 code（`.0` 那一格也在 mapping 里），所以树键与链引用走同一张表
   const mapCode = (path: string): string | undefined => {
     if (removed.has(path) || [...removed].some((gone) => path.startsWith(`${gone}.`))) return undefined
@@ -346,15 +361,6 @@ export function removeNode(card: Card, tree: Tree, code: string): { card: Card; 
   for (const [path, value] of Object.entries(tree)) {
     const mapped = mapCode(path)
     if (mapped !== undefined) nextTree[mapped] = value
-  }
-
-  // 删光了孩子：自身值从 .0 搬回父 code（与 addChild 的搬运对称）
-  if (parent !== undefined) {
-    const parentElement = state.find((item) => item.code === parent)
-    if (parentElement && parentElement.type !== 'object' && childrenOf(state, parent).length === 0) {
-      nextTree[parent] = nextTree[`${parent}.0`]
-      delete nextTree[`${parent}.0`]
-    }
   }
 
   const chain = card.chain.map((node) => ({
@@ -414,7 +420,7 @@ function stateIssues(card: Card): CardIssue[] {
 
   // 根层也要 1..n（`0` 是时间，占第一格）：删顶层元素后的重排由这一条兜住
   const roots = state
-    .filter((item) => CODE.test(item.code) && !item.code.includes('.') && item.code !== '0')
+    .filter((item) => CODE.test(item.code) && parentOfCode(item.code) === undefined && item.code !== '0')
     .map((item) => Number(item.code))
     .sort((left, right) => left - right)
   const badRoot = roots.find((segment, index) => segment !== index + 1)

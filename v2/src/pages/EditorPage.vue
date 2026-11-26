@@ -527,6 +527,7 @@ function goBack(): void {
           <StateForm
             v-else-if="selectedElement"
             :element="selectedElement"
+            :initial-locked="editingSave"
             @edit="(element) => patchElement(selectedElement!.code, element)"
           />
           <PromptForm

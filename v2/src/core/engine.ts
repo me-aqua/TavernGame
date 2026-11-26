@@ -160,7 +160,12 @@ export function applyWrite({
   } else if (element.type === 'enum') {
     if (!enumValueFits(element, value)) throw reject()
   } else if (element.type === 'integer') {
-    if (!integerValueFits(element, value) || !integerStepFits(element, value, tree[path])) throw reject()
+    // 模型可能把 JSON 数字写成字符串（schema 的 `value` 两样都收）：数字字符串按整数收下，
+    // 落进 tree 的是**数字**；非数字串（`"abc"` / 空串）照旧拒，然后才查上下限与单次步幅。
+    const numeric = typeof value === 'string' ? Number(value.trim()) : value
+    if (typeof value === 'string' && value.trim() === '') throw reject()
+    if (!integerValueFits(element, numeric) || !integerStepFits(element, numeric, tree[path])) throw reject()
+    value = numeric
   }
   return { ...tree, [path]: value as Tree[string] }
 }
@@ -256,13 +261,15 @@ function runTool({
     })
   }
   const next = applyWrite({ card, node, tree, path, value })
+  // 事件记的是**真正落进 tree 的值**（数字字符串已被收成数字），不是模型原文
+  const written = next[path]
   return {
     tree: next,
     events: [
       { type: 'tool', text: name, detail: { name, args }, at },
-      { type: 'write', text: path, detail: { path, value }, at },
+      { type: 'write', text: path, detail: { path, value: written }, at },
     ],
-    result: String(value),
+    result: String(written),
   }
 }
 

@@ -316,13 +316,19 @@ describe('applyWrite：按元素类型收值（§2 / §4）', () => {
       [95, '步幅 15 > stepMax'],
       [101, '超上限'],
       [85.5, '不是整数'],
-      ['85', '字符串'],
+      ['abc', '不是数字字符串'],
       [80, '步幅 0 < stepMin'],
     ]) {
       const error = await writeError('2.2', bad)
       expect(error?.code, `${note} 应当被拒`).toBe('E_VALIDATION')
       expect(error.message).toMatch(CJK)
     }
+  })
+
+  it('数字字符串 "85" 也收：落成数字 85（模型可能把 JSON 数字写成字符串）', async () => {
+    const next = await write('2.2', '85')
+    expect(next['2.2']).toBe(85)
+    expect(typeof next['2.2']).toBe('number')
   })
 
   it('整数缺省上下限 -1e9 / 1e9、缺省步幅 0 / 1e9', async () => {
@@ -425,6 +431,22 @@ describe('增删孩子与删除节点（§2.3）', () => {
     expect(result.card.state.some((item) => item.code === '1.1.1')).toBe(false)
     expect(result.tree['1.1'], '自身值搬回 1.1').toBe('A1')
     expect('1.1.0' in result.tree).toBe(false)
+  })
+
+  it('节点失去最后一个孩子：.0 读写引用收成父 code（树上已经没有 .0 路径）', async () => {
+    const { removeNode } = await loadState()
+    const card = v5Card()
+    card.chain[1] = {
+      ...card.chain[1],
+      reads: ['1.1.0', '1.1.1'],
+      writable: ['1.1.0', '1.1.1'],
+    }
+
+    const result = removeNode(card, treeV5(), '1.1.1')
+    expect(result.tree['1.1'], '自身值搬到父 code').toBe('A1')
+    expect('1.1.0' in result.tree, '.0 路径已经不存在').toBe(false)
+    expect(result.card.chain[1].reads, '.0 引用要收成父 code').toEqual(['1.1'])
+    expect(result.card.chain[1].writable, '.0 引用要收成父 code').toEqual(['1.1'])
   })
 
   it('删掉 object 的最后一个孩子：草稿允许；保存时被拦（object 必须有孩子）', async () => {

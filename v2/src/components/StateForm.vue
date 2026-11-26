@@ -13,7 +13,7 @@ import { TIME_UNITS } from '../core/statetree'
 import type { StateElement, StateType, TimeUnit, TimeValue } from '../core/types'
 import { t } from '../i18n'
 
-const props = defineProps<{ element: StateElement }>()
+const props = defineProps<{ element: StateElement; initialLocked?: boolean }>()
 const emit = defineEmits<{ edit: [element: StateElement] }>()
 
 const TYPES: StateType[] = ['text', 'integer', 'enum', 'object', 'time']
@@ -90,10 +90,7 @@ function setText(key: 'name' | 'note', raw: string): void {
   emit('edit', { ...props.element, [key]: raw })
 }
 /** 数值格：空串 = 用缺省（把这一格删掉），其余按数字存（手打的中间态不写进草稿） */
-function setNumber(key: 'min' | 'max' | 'stepMin' | 'stepMax' | 'initial', raw: string): void {
-  // 数字初值不许清空：缺 `initial` 会让渲染期的 `initialTreeOf` 抛错、整页卡住（评审 P1-2）。
-  // 其它四个数值格清空是合法的 —— 它们有缺省值。
-  if (key === 'initial' && raw.trim() === '') return
+function setNumber(key: 'min' | 'max' | 'stepMin' | 'stepMax', raw: string): void {
   const next = { ...props.element }
   if (raw.trim() === '') {
     delete next[key]
@@ -104,6 +101,20 @@ function setNumber(key: 'min' | 'max' | 'stepMin' | 'stepMax' | 'initial', raw: 
   if (!Number.isFinite(value)) return
   next[key] = value
   emit('edit', next)
+}
+
+/**
+ * 数字初值：清空不许进草稿（缺 `initial` 会让渲染期的 `initialTreeOf` 抛错、整页卡住），
+ * 并且要把输入框的显示恢复成草稿里的旧值 —— 否则界面空白、草稿还是 80（N-5）。
+ */
+function setInitial(input: HTMLInputElement): void {
+  if (input.value.trim() === '') {
+    input.value = String(props.element.initial ?? '')
+    return
+  }
+  const value = Number(input.value)
+  if (!Number.isFinite(value)) return
+  emit('edit', { ...props.element, initial: value })
 }
 
 /** 下拉白名单：一行一个，空行不算一项；旧值不在新表里 ⇒ 重置为第一项（契约 §2.2） */
@@ -181,7 +192,7 @@ function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): voi
           @input="setValues(($event.target as HTMLTextAreaElement).value)"
         ></textarea>
       </label>
-      <label class="field-row">
+      <label v-if="!initialLocked" class="field-row">
         <span class="field-label">{{ t('editor.fieldInitial') }}</span>
         <select
           data-field="initial"
@@ -234,20 +245,20 @@ function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): voi
           @input="setNumber('stepMax', ($event.target as HTMLInputElement).value)"
         />
       </label>
-      <label class="field-row">
+      <label v-if="!initialLocked" class="field-row">
         <span class="field-label">{{ t('editor.fieldInitial') }}</span>
         <input
           type="number"
           class="num"
           data-field="initial"
           :value="element.initial ?? ''"
-          @input="setNumber('initial', ($event.target as HTMLInputElement).value)"
+          @input="setInitial($event.target as HTMLInputElement)"
         />
       </label>
     </template>
 
     <template v-if="element.type === 'text'">
-      <label class="field-row">
+      <label v-if="!initialLocked" class="field-row">
         <span class="field-label">{{ t('editor.fieldInitial') }}</span>
         <input
           data-field="initial"
@@ -278,7 +289,7 @@ function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): voi
           <option v-for="unit in TIME_UNITS" :key="unit" :value="unit">{{ unitLabel(unit) }}</option>
         </select>
       </label>
-      <div class="field-row time-row">
+      <div v-if="!initialLocked" class="field-row time-row">
         <span class="field-label">{{ t('editor.fieldInitial') }}</span>
         <input
           v-for="part in TIME_PARTS"

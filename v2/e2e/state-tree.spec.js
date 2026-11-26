@@ -41,6 +41,28 @@ async function openSample(page) {
   await expect(page.locator('[data-page="editor"]')).toBeVisible()
 }
 
+/** 顶层 0 / 1 / 2 / 3 的卡：用来在界面上删掉中间那个根 */
+function rootsCard() {
+  const base = v5Card()
+  const time = { ...base.state[0], initial: { ...base.state[0].initial } }
+  return v5Card({
+    id: 'c-roots-ui',
+    state: [
+      time,
+      { code: '1', name: 'one', note: '', type: 'text', initial: 'ONE' },
+      { code: '2', name: 'two', note: '', type: 'text', initial: 'TWO' },
+      { code: '3', name: 'three', note: '', type: 'text', initial: 'THREE' },
+    ],
+    chain: base.chain.map((node) =>
+      node.id === 'check'
+        ? { ...node, reads: ['1', '2', '3'], writable: ['1', '2', '3'] }
+        : node.id === 'output'
+          ? { ...node, reads: ['1'], readsUpstream: ['check'] }
+          : node,
+    ),
+  })
+}
+
 /** 选中工作流节点（S1）：眼睛才出现 */
 async function selectNode(page, nodeId) {
   await page.locator(`[data-node-id="${nodeId}"]`).click()
@@ -200,6 +222,33 @@ test('第 5 层不再显示「加子元素」；第 4 层还有', async ({ page 
   await expect(page.locator(addChild('1.1.1.1.1')), '第 5 层不许再加孩子').toHaveCount(0)
   await page.locator(row('1.1.1.1')).click()
   await expect(page.locator(addChild('1.1.1.1'))).toHaveCount(1)
+})
+
+test('界面上删顶层中间元素：0 不动、根重排 1..n、可保存、编辑器不楔死', async ({ page }) => {
+  const card = rootsCard()
+  await openEditor(page, card)
+  await selectElement(page, '2')
+  await page.locator(`${row('2')} [data-delete-state]`).click()
+
+  // 不楔死：页面还在、时间 0 还在、老的 3 已经没了
+  await expect(page.locator('[data-page="editor"]')).toBeVisible()
+  await expect(page.locator('[data-error]')).toHaveCount(0)
+  await expect(page.locator(row('0'))).toBeVisible()
+  await expect(page.locator(row('3')), '旧 3 应当已重排成 2').toHaveCount(0)
+
+  const codes = await page
+    .locator('[data-state-item]')
+    .evaluateAll((rows) => rows.map((item) => item.getAttribute('data-state-item')))
+  expect(codes, '顶层根号要重排成 0/1/2').toEqual(['0', '1', '2'])
+  for (const code of codes) expect(code, `根号不许变成 ${code}`).toMatch(/^\d+(\.\d+)*$/)
+  // 旧 3 的值要落到新的 2 上
+  await expect(page.locator(`${row('2')} [data-state-value]`)).toHaveText('THREE')
+
+  expect(await save(page), '删完的卡应当能保存').toBe(0)
+  const saved = (await readStorage(page, KEYS.cards))[0]
+  expect(saved.state.map((element) => element.code)).toEqual(['0', '1', '2'])
+  expect(saved.state[0]).toMatchObject({ code: '0', type: 'time' })
+  expect(saved.state.find((element) => element.code === '2').initial).toBe('THREE')
 })
 
 test('给标量加孩子：不转换类型、自身值仍是自身值（保存后读盘）', async ({ page }) => {

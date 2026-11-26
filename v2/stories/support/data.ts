@@ -117,7 +117,7 @@ export const TRACE_TIME: TraceDetail = {
   presetId: 'p-deepseek-v4-flash',
   prompt: '> act one\n\nday 1 hour 8',
   thinking: '',
-  toolCalls: [{ name: 'advance_time', args: { hours: 1 }, result: 'day 1 hour 9' }],
+  toolCalls: [{ name: 'advance_time', args: { amount: 1, unit: 'day' }, result: 'day 1 hour 9' }],
   output: '',
   usage: null,
   durationMs: 12,

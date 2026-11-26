@@ -120,6 +120,27 @@ test.describe('存档编辑器：禁用项', () => {
     await expect(page.locator('[data-card-rename]')).toHaveCount(0)
     await expect(page.locator('input[data-card-name]')).toHaveCount(0)
   })
+
+  test('存档编辑器不渲染初值编辑器：文本 initial 与时间六格都不出现', async ({ page }) => {
+    await boot(page, { storage: seeded() })
+    await openSaveEditor(page, SAVE_ID)
+
+    for (const code of ['1', '2']) {
+      await page.locator(`[data-state-item="${code}"]`).click()
+      await expect(page.locator('[data-field="name"]'), `选中 ${code} 后表单应当还在`).toBeVisible()
+      await expect(page.locator('[data-field="initial"]'), `存档编辑器不许改 ${code} 的初值`).toHaveCount(0)
+    }
+
+    await page.locator('[data-state-item="0"]').click()
+    await expect(page.locator('[data-field="name"]')).toBeVisible()
+    for (const field of ['time-year', 'time-month', 'time-day', 'time-hour', 'time-minute', 'time-second']) {
+      await expect(page.locator(`[data-field="${field}"]`), `存档编辑器不许改时间的 ${field}`).toHaveCount(0)
+    }
+
+    // 不做初始值编辑也要能正常保存
+    await page.locator('[data-save-card]').click()
+    await expect(page.locator('[data-save-ok]')).toBeVisible()
+  })
 })
 
 test.describe('存档编辑器：允许的编辑落到快照', () => {
