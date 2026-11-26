@@ -15,7 +15,7 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-/** 删卡带：连它的存档一起 */
+/** 删游戏卡：连它的存档一起 */
 export const DeleteCard: Story = {}
 
 /** 删存档：不动卡 */

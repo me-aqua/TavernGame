@@ -115,7 +115,7 @@ test('建卡 → 编内容 → 存档 → 三回合 → 刷新还在', async ({ 
   expect(saves[0].tree['2']).toBe('VAL_MOOD_B2')
 })
 
-test('存档行读得出「卡带名 · 第 N 回合」，刷新后还在', async ({ page }) => {
+test('存档行读得出「游戏卡名 · 第 N 回合」，刷新后还在', async ({ page }) => {
   await boot(page, { storage: { [KEYS.presets]: [MOCK_PRESET] } })
   await page.locator('[data-new-card]').click()
   const cardId = await page.locator('[data-card-id]').first().getAttribute('data-card-id')
@@ -135,6 +135,6 @@ test('存档行读得出「卡带名 · 第 N 回合」，刷新后还在', asyn
   const cardName = (await readStorage(page, KEYS.cards))[0].name
   const meta = await page.locator('[data-save-meta]').textContent()
   expect(meta).not.toBeNull()
-  expect(meta.includes(cardName), '存档行要带卡带名').toBe(true)
+  expect(meta.includes(cardName), '存档行要带游戏卡名').toBe(true)
   expect(meta.includes('1'), '存档行要带回合数').toBe(true)
 })

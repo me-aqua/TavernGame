@@ -4,7 +4,7 @@ import { AppError } from '../src/core/errors'
 
 /**
  * 错误条：码 + 中文一句话 + 中文下一步。
- * 三个故事对应玩家真会撞上的三类（上游连不上 / 数据坏了 / 卡带链坏了）。
+ * 三个故事对应玩家真会撞上的三类（上游连不上 / 数据坏了 / 游戏卡链坏了）。
  */
 const meta = {
   title: 'v2/ErrorPanel',

@@ -456,12 +456,12 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - 路由表在 `src/router.ts`（原生 `hashchange`，四个页面组件用 `<component :is>` 切），**不引入 vue-router**。
   页面组件用 `ref` / `reactive` + `core` 模块管状态，**不引入 pinia**。
 
-| hash                     | 页面       | 钩子                     |
-| ------------------------ | ---------- | ------------------------ |
-| `#/`                     | 首页       | `[data-page="home"]`     |
-| `#/edit/:cardId`         | 卡带编辑器 | `[data-page="editor"]`   |
-| `#/play/:cardId/:saveId` | 对话页     | `[data-page="play"]`     |
-| `#/settings`             | 设置       | `[data-page="settings"]` |
+| hash                     | 页面         | 钩子                     |
+| ------------------------ | ------------ | ------------------------ |
+| `#/`                     | 首页         | `[data-page="home"]`     |
+| `#/edit/:cardId`         | 游戏卡编辑器 | `[data-page="editor"]`   |
+| `#/play/:cardId/:saveId` | 对话页       | `[data-page="play"]`     |
+| `#/settings`             | 设置         | `[data-page="settings"]` |
 
 - 每条页面左上角有返回按钮 `[data-back]`；设置页返回到来源页（或 `#/`）。
 - id 不存在 / 卡存档对不上 ⇒ 错误页 `[data-error]`（§9.4），**不白屏**。
@@ -469,9 +469,9 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 
 ### 8.1 首页
 
-- 两栏并排：左卡带列表 `[data-card-list]`，右存档列表 `[data-save-list]`。
-- 卡带列表右上 `[data-new-card]`（点击立刻建卡并落盘，默认名 `card <n>`，不需要弹窗）；
-  存档列表右上 `[data-new-save]`（基于当前选中卡；没有选中卡时禁用）。
+- 两栏并排：左游戏卡列表 `[data-card-list]`，右存档列表 `[data-save-list]`。
+- 游戏卡列表右上 `[data-new-card]`（点击立刻建卡并落盘，默认名 `card <n>`，不需要弹窗）；
+  存档列表右上 `[data-new-save]`（基于当前选中的游戏卡；没有选中游戏卡时禁用）。
   新建存档：默认名 `save <n>`，**追加到列表末尾**、**不跳转**，
   `tree` 取卡的当前初值、`cardSnapshot` = 当时的整张卡深拷贝。
 - 卡行：`[data-card-id="<id>"]`（**点击 = 选中这张卡**，不跳页 —— 新建存档要靠它）、
@@ -488,7 +488,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   `[data-confirm]`，其中 `[data-confirm-ok]` 才真删、`[data-confirm-cancel]` 取消。
   **删卡连带删掉它的全部存档**（存档的 `cardId` 指向它）**和它的模型映射 `tg2.nodeModels[cardId]`**；
   删存档不动卡。判据：`v2/e2e/empty.spec.js` / `v2/e2e/snapshot.spec.js`。
-- 空态：没有卡时 `[data-empty-cards]` 可见（中文文案「还没有卡带」），没有存档时 `[data-empty-saves]` 可见。
+- 空态：没有卡时 `[data-empty-cards]` 可见（中文文案「还没有游戏卡」），没有存档时 `[data-empty-saves]` 可见。
 - **坏项逐行标记、不挡合法项与新建**（阶段 2 第一项）：列表来自逐条读，非法行带
   `[data-invalid-card]` / `[data-invalid-save]` + `[data-invalid-reason]`（中文 `error.message`），
   **没有任何入口**（不选中、不编辑 / 改名 / 删除、点了不跳页）；合法行照旧。
@@ -684,7 +684,7 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
 ⇒ 落地口径：
 
 1. **所有中文文案**（界面、错误 `message` / `nextStep`、默认名）写在 `v2/src/locales/zh-CN.json`，
-   形如 `{ "home.empty": "还没有卡带", ... }`；代码里只出现 key（`t('home.empty')`）。
+   形如 `{ "home.empty": "还没有游戏卡", ... }`；代码里只出现 key（`t('home.empty')`）。
    （这与钩子自己的提示「文案一律走 `t('some.key')`，然后加进 locale 文件」一致。）
    `.vue` 模板里的中文也走 `{{ t('key') }}`，不许直接写字面量。
 2. **`.ts` / `.vue` / `.html` / `.css` / `.js` 里不许出现中文字面量**（含 `index.html` 的 `<title>`），注释除外。

@@ -37,6 +37,7 @@ import { runTurn } from '../core/engine'
 import { OPENING_PROMPT_ID, validateCard, validateSave } from '../core/schema'
 import type { Preset, Save, SaveEvent, TraceDetail, TurnStatsDetail } from '../core/types'
 import { t } from '../i18n'
+import { REPO_URL } from '../repo'
 import { routeHash } from '../router'
 
 const props = defineProps<{ cardId: string; saveId: string }>()
@@ -183,7 +184,7 @@ function goBack(): void {
     <header class="page-bar">
       <button type="button" data-back @click="goBack">{{ t('nav.back') }}</button>
       <span class="page-title ellipsis">{{ save ? save.cardSnapshot.name : cardId }}</span>
-      <span class="muted">{{ save ? save.name : saveId }}</span>
+      <span class="muted ellipsis save-name">{{ save ? save.name : saveId }}</span>
       <span class="spacer"></span>
       <span class="turn" data-turn>{{ save ? save.turn : 0 }}</span>
       <span class="muted status ellipsis" data-status>{{ status }}</span>
@@ -195,6 +196,11 @@ function goBack(): void {
       >
         {{ t('play.debugToggle') }}
       </button>
+      <span class="repo-center">
+        <a class="repo-url" :href="REPO_URL" :data-repo-url="REPO_URL" target="_blank" rel="noopener">{{
+          REPO_URL
+        }}</a>
+      </span>
     </header>
 
     <ErrorPanel v-if="error" :error="error" />
@@ -223,6 +229,16 @@ function goBack(): void {
 </template>
 
 <style scoped>
+/*
+ * 页栏左组给正中的库址让位：标题与存档名各最多占页栏内容宽的四分之一再减 90
+ * （两段 + 8px 间隔 + 左起 63px + 链接半宽 101px 之后还留约 20px）。
+ * `.ellipsis` 提供 min-width:0 / overflow:hidden / text-overflow:ellipsis / white-space:nowrap。
+ */
+.page-title,
+.save-name {
+  max-width: calc(25% - 90px);
+}
+
 .spacer {
   flex: 1 1 auto;
 }

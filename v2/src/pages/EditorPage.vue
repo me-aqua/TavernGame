@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 卡带编辑器（SPEC §5）：左状态树（可拖宽）· 工作流细条（固定宽）· 中编辑（可拖）· 右公共提示词（可拖）。
+ * 游戏卡编辑器（SPEC §5）：左状态树（可拖宽）· 工作流细条（固定宽）· 中编辑（可拖）· 右公共提示词（可拖）。
  *
  * 三条口径：
  *   · **没有保存按钮**：字段一改就落 `tg2.cards`（切页、刷新都在）；
@@ -24,6 +24,7 @@ import { validateCard } from '../core/schema'
 import { DEFAULT_SETTINGS } from '../core/storage'
 import type { Card, ChainNode, NodeModels, Preset, PromptBlock, StateElement } from '../core/types'
 import { t } from '../i18n'
+import { REPO_URL } from '../repo'
 import { routeHash } from '../router'
 
 const props = defineProps<{ cardId: string }>()
@@ -306,6 +307,11 @@ function goBack(): void {
     <header class="page-bar">
       <button type="button" data-back @click="goBack">{{ t('nav.back') }}</button>
       <span class="page-title ellipsis">{{ card ? card.name : cardId }}</span>
+      <span class="repo-center">
+        <a class="repo-url" :href="REPO_URL" :data-repo-url="REPO_URL" target="_blank" rel="noopener">{{
+          REPO_URL
+        }}</a>
+      </span>
     </header>
 
     <ErrorPanel v-if="error" :error="error" />
@@ -395,6 +401,15 @@ function goBack(): void {
 </template>
 
 <style scoped>
+/*
+ * 页栏标题给正中的库址让位：链接半宽约 101px + 左起（内边距 12 + 返回 43 + 间隔 8 = 63）
+ * + 约 20px 间隙 ⇒ 最多占页栏内容宽的一半再减 172。名字再长就省略号（`.ellipsis` 已有
+ * min-width:0 / overflow:hidden / text-overflow:ellipsis / white-space:nowrap），不许伸进链接。
+ */
+.page-title {
+  max-width: calc(50% - 172px);
+}
+
 .editor-row {
   align-items: stretch;
 }

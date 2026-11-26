@@ -126,48 +126,9 @@ textarea {
 
 /* ---- 到处都用的小零件 ---- */
 
-/*
- * 全局库址条：每一页（首页 / 编辑器 / 对话 / 设置 / 启动失败 / 未知路由）顶上一条，
- * 里面只有一行居中、灰掉的项目仓库地址（`App.vue` 的 `.repo-strip`）。
- *
- * 为什么是「条」而不是贴在顶上的浮层：页栏 `.page-bar` 从 y=0 起就有 8px 内边距，
- * 任何固定浮层都会压在它的字上；这一条占的是自己的 19px，页栏整体下移一格，
- * 一个字都不被盖住。档位下界 1280×720 里扣掉这 19px 之后，各栏照旧自己滚。
- */
 .app-root {
-  display: flex;
-  flex-direction: column;
   height: 100%;
   overflow: hidden;
-}
-
-/* 库址条之外的全部内容（页面 / 竖屏遮罩）：吃掉条子剩下的高度 */
-.app-body {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.repo-strip {
-  flex: 0 0 auto;
-  display: block;
-  padding: 2px 8px;
-  font-size: var(--fs3);
-  line-height: 1.4;
-  color: var(--ink-soft);
-  text-align: center;
-  text-decoration: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.repo-strip:hover {
-  color: var(--accent);
-  text-decoration: underline;
 }
 
 .page {
@@ -178,14 +139,56 @@ textarea {
   overflow: hidden;
 }
 
+/*
+ * 页栏：每一屏顶上的那一行（左边品牌 / 返回 / 标题，右边设置 / 状态 / 按钮）。
+ * 高度由这一行定死（28 控件 + 8+8 内边距 + 1 下边框 = 45）—— 没有按钮的错误页也同高，
+ * 六屏的页栏才是同一条。`position: relative` 是给正中的库址浮层当定位基准。
+ */
 .page-bar {
+  position: relative;
   display: flex;
   gap: 8px;
   align-items: center;
+  min-height: calc(var(--control-h) + 17px);
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
   background: var(--panel-2);
   min-width: 0;
+}
+
+/*
+ * 库址：页栏正中那一行小字（`src/repo.ts` 的 `REPO_URL`）。
+ *
+ * `inset: 0` 铺满页栏只为拿到精确中心：纵向在 padding box 里居中 ⇒ 中线 8 + 14 = 22，
+ * 与两侧 28px 的控件同高；**它不占自己的行高**，页栏还是一行。这一层不接指针事件
+ * （`pointer-events: none`），只有链接本身接 —— 否则它会盖住两侧的按钮。
+ * 地址最宽 320px：1280 下整条地址实测 202.6px，不截断，两侧各留 350px 以上；
+ * 手机横屏（844×390）也留 150px 以上；再窄才按 320px 截断。
+ */
+.repo-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.repo-url {
+  max-width: 320px;
+  overflow: hidden;
+  font-size: var(--fs3);
+  line-height: 1.4;
+  color: var(--ink-soft);
+  text-decoration: none;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: auto;
+}
+
+.repo-url:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 
 .page-title {

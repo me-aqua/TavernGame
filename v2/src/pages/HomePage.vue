@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 首页（SPEC §5）：左边卡带、右边存档；建 / 选 / 打开 / 改名 / 删（删要确认）。
+ * 首页（SPEC §5）：左边游戏卡、右边存档；建 / 选 / 打开 / 改名 / 删（删要确认）。
  *
  * 三条容易做坏的：
  *   · **点卡行只是「选中」**，不跳页 —— 新建存档要用这个选中态（「编辑」才进编辑器）；
@@ -28,6 +28,7 @@ import type { AppError } from '../core/errors'
 import type { CardEntry, SaveEntry } from '../core/storage'
 import type { Save } from '../core/types'
 import { t } from '../i18n'
+import { REPO_URL } from '../repo'
 import { routeHash } from '../router'
 
 const cardEntries = ref<CardEntry[]>([])
@@ -205,6 +206,11 @@ function go(hash: string): void {
       <span class="page-title">{{ t('app.title') }}</span>
       <span class="spacer"></span>
       <button type="button" @click="go(routeHash({ name: 'settings' }))">{{ t('settings.title') }}</button>
+      <span class="repo-center">
+        <a class="repo-url" :href="REPO_URL" :data-repo-url="REPO_URL" target="_blank" rel="noopener">{{
+          REPO_URL
+        }}</a>
+      </span>
     </header>
 
     <ErrorPanel v-if="error" :error="error" />

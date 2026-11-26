@@ -14,6 +14,7 @@ import { asAppError, storage } from '../app-context'
 import type { AppError } from '../core/errors'
 import type { Preset } from '../core/types'
 import { t } from '../i18n'
+import { REPO_URL } from '../repo'
 import { routeHash } from '../router'
 import { setTheme, theme } from '../theme'
 
@@ -108,6 +109,11 @@ function goBack(): void {
       >
         {{ t('settings.dark') }}
       </button>
+      <span class="repo-center">
+        <a class="repo-url" :href="REPO_URL" :data-repo-url="REPO_URL" target="_blank" rel="noopener">{{
+          REPO_URL
+        }}</a>
+      </span>
     </header>
 
     <ErrorPanel v-if="error" :error="error" />

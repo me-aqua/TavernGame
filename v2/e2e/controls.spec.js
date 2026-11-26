@@ -116,7 +116,7 @@ test('编辑器两档高度：行内控件 28px、行/块容器 36px；36 里的
     '[data-delete-state]',
   ])
 
-  // 首页的列表行（卡带 / 存档）：它们也是 36 的行容器（控件 28 居中）
+  // 首页的列表行（游戏卡 / 存档）：它们也是 36 的行容器（控件 28 居中）
   await page.goto(`${APP_PATH}${route.home}`)
   await expect(page.locator('[data-page="home"]')).toBeVisible()
   const listRows = await measureHeights(page, ['[data-card-id]', '[data-save-id]'])

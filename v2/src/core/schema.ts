@@ -215,7 +215,7 @@ export function validateCard(card: Card): void {
 }
 
 /**
- * 存档校验。给了 `card` 就一并核对「状态树覆盖卡的每个 code」「卡带 id 对得上」——
+ * 存档校验。给了 `card` 就一并核对「状态树覆盖卡的每个 code」「游戏卡 id 对得上」——
  * 这是引擎入场那一步用的形态；存储层读盘时没有卡可比，只校验它自己那一半。
  */
 export function validateSave(save: Save, card?: Card): void {

@@ -65,7 +65,7 @@ async function openRenameInput(page, { rowSelector, renameSelector, homeUrl }) {
   return input
 }
 
-test('卡带重命名：回车提交并落盘，刷新后还在', async ({ page }) => {
+test('游戏卡重命名：回车提交并落盘，刷新后还在', async ({ page }) => {
   await boot(page, { storage: seed() })
   await page.locator(`[data-card-id="${CARD_ID}"] [data-card-rename]`).click()
   const input = page.locator('[data-rename-input]')
@@ -121,7 +121,7 @@ test('存档行点击进对话页；卡行点「编辑」进编辑器（点行�
   await expect(page.locator('[data-page="editor"]')).toBeVisible()
 })
 
-test('卡带重命名：点输入框不跳页、焦点与光标都在；回车提交，Esc 取消（含盘上字节）', async ({ page }) => {
+test('游戏卡重命名：点输入框不跳页、焦点与光标都在；回车提交，Esc 取消（含盘上字节）', async ({ page }) => {
   await boot(page, { storage: seed() })
   const homeUrl = page.url()
   const row = `[data-card-id="${CARD_ID}"]`
