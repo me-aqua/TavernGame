@@ -310,7 +310,7 @@ test.describe('对话页：调试开关（读数内联在故事流里）', () =>
    * 换主题 / 调色板时这一条跟着走，不会变成一条永远钉在旧色号上的假红。
    * 指针必须先挪开再量：普通按钮的 hover 会改边框色，会把「关着的常态」量歪。
    */
-  test('调试开关的样式：开着 = active-bg 实心 + active-ink 字，关回去恢复普通按钮', async ({ page }) => {
+  test('调试开关的样式：开着 = 深底浅字（accent / accent-ink），关回去恢复普通按钮', async ({ page }) => {
     await boot(page, { storage: seeded() })
     await openStory(page, CARD_ID, 's1')
     const toggle = page.locator('[data-debug-toggle]')
@@ -365,21 +365,22 @@ test.describe('对话页：调试开关（读数内联在故事流里）', () =>
     expect(off.background, '关着的按钮不是普通按钮底色').toBe(off.panel)
     expect(off.color, '关着的按钮不是普通字色').toBe(off.ink)
     expect(off.border, '关着的按钮不是普通边框').toBe(off.lineStrong)
-    expect(off.background, '关着就已经是 active 实心了').not.toBe(off.activeBg)
+    expect(off.background, '关着就已经是 accent 实心了').not.toBe(off.accent)
     expect(off.weight).toBeLessThan(600)
 
-    // ② 点开：active-bg 实心 + active-ink 字（与开着的 chip / 选中的节点同一对 token）
+    // ② 点开：深底（--accent）+ 浅字（--accent-ink）—— 与开着的 chip / 选中的节点同一对 token
     await toggle.click()
     await expect(toggle).toHaveAttribute('data-on', 'true')
     const on = await readToggle()
-    expect(on.background, '开着的底色不是 --active-bg').toBe(on.activeBg)
-    expect(on.color, '开着的字色不是 --active-ink').toBe(on.activeInk)
+    // 深底浅字：卡面允许 accent 那一对，也允许另一对深底 / 浅字 token
+    expect([on.accent, on.activeBg], '开着的底色既不是 --accent 也不是 --active-bg').toContain(on.background)
+    expect([on.accentInk, on.activeInk], '开着的字色不是浅字那一对').toContain(on.color)
     expect(on.background, '开着与关着看不出区别').not.toBe(off.background)
     expect(on.color, '开着与关着字色一样').not.toBe(off.color)
     expect(on.weight, '开着的字重没有加重（chip 是 600）').toBeGreaterThanOrEqual(600)
 
-    // 浅暖棕底 + 深字：深字必须比底色暗，对比度 ≥ 4.5（这一版把 active 与 accent 分开了，不能只靠「看起来够」）
-    expect(luminance(on.color), '开着的字不是深色（应当比底色暗）').toBeLessThan(luminance(on.background))
+    // 深底浅字：字必须比底色亮，对比度 ≥ 4.5
+    expect(luminance(on.color), '开着的字不是浅色（应当比底色亮）').toBeGreaterThan(luminance(on.background))
     // 对比度不分「浅字压深底」还是「深字压浅底」：亮的那一侧在上
     const [lightSide, darkSide] = [luminance(on.color), luminance(on.background)].sort((a, b) => b - a)
     const ratio = (lightSide + 0.05) / (darkSide + 0.05)

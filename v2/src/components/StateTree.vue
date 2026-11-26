@@ -138,13 +138,16 @@ function showsWrite(): boolean {
   cursor: pointer;
 }
 
+/* 悬停只把边框变深、不铺底色；这一条要在 .selected 之前，选中行的 accent 边框才不被盖掉 */
 .state-row:hover {
-  background: var(--panel-2);
+  border-color: var(--line-strong);
 }
 
+/* 选中 = 深强调底 + 浅字（与首页卡行 / 提示词块同一套三态） */
 .state-row.selected {
   border-color: var(--accent);
-  background: var(--panel-2);
+  background: var(--active-bg);
+  color: var(--active-ink);
 }
 
 .state-code {
@@ -152,6 +155,11 @@ function showsWrite(): boolean {
   font-size: var(--fs3);
   color: var(--ink-soft);
   min-width: 14px;
+}
+
+/* 编号是次要文字，深底上跟着换浅色（ink-soft 压在 accent 上只有 1.2:1） */
+.state-row.selected .state-code {
+  color: var(--active-ink);
 }
 
 .state-name {

@@ -32,12 +32,13 @@
   --accent: #8a6a44;
   --accent-ink: #fffaf1;
   /*
-   * 选中 / 开着 = 浅暖棕底 + 深字。accent 只画边框与焦点，不再做实心填充 ——
-   * 原来的 accent 实心（#8a6a44）太暗，玩家看不出「亮着的」是哪个。
-   * 这一对浅深两套主题共用：深色下它比任何面板都亮，仍然是「点亮」的那一个。
+   * 选中 / 开着 = **反色**：底用强调色本身（深底）、字用它的对比色（浅字），
+   * 与「关着 = 浅底（panel / panel-2）+ 深字（ink）」正好反过来。
+   * 这里只写 accent 那一对的别名、不写色号：深色主题把 accent 翻成浅的，反色的方向
+   * 跟着一起翻过去 —— 两套主题共用同一条规则，也不会再出现「两对颜色各自漂移」。
    */
-  --active-bg: #b08a5e;
-  --active-ink: #2b2118;
+  --active-bg: var(--accent);
+  --active-ink: var(--accent-ink);
   --danger: #9c3f2b;
   --shadow: 0 1px 2px rgb(59 47 36 / 12%);
 }
@@ -313,8 +314,9 @@ textarea {
 
 /*
  * 读 / 写开关：一眼看得见的 chip，不是一个若隐若现的幽灵按钮。
- * 开着 = active 实心 + 深字、边框仍是 accent（与工作流细条的选中态同一套语义）；
- * 关着也保留边框与底色，别让「没开」看起来像「没有这个控件」。
+ * 开着 = 深底浅字（`--active-bg` / `--active-ink`，即 accent 那一对）、边框仍是 accent，
+ * 与工作流细条的选中节点同一套语义；关着 = 浅底（panel-2）+ 深字（ink），
+ * 也保留边框与底色，别让「没开」看起来像「没有这个控件」。
  * 圆角与普通按钮共用 `--radius`（老板 2026-11-25 晚：chip 3px 太方；按钮与 chip 只留这一档）。
  */
 .chip {
@@ -330,15 +332,28 @@ textarea {
   border-radius: var(--radius);
 }
 
-/* 悬停只改「关着」的那一半：开着的 chip 必须一直是 active 实心（悬停只换 accent 边框，背景与字色不动） */
+/* 悬停只改「关着」的那一半，而且只换边框、不铺底色：开着的 chip 一直是 active 深底（背景与字色都不动） */
 .chip:hover:not([data-on='true']) {
   border-color: var(--accent);
-  background: var(--panel);
 }
 
 .chip[data-on='true'] {
   background: var(--active-bg);
   border-color: var(--accent);
+  color: var(--active-ink);
+  font-weight: 600;
+}
+
+/*
+ * 选项按钮的「开着」：带 `aria-pressed` 的按钮（设置页的浅色 / 深色两个主题按钮）
+ * 与读 / 写 chip 同一套语义 —— 开着 = 深底浅字（`--active-bg` / `--active-ink`）、字重 600。
+ * 边框用 `--active-ink`（不是 accent）：底已经是 accent，同色边框看不见，而且**悬停就没有「更深」可走**；
+ * 悬停由全局 `button:hover` 把边框压到 accent，底色与字色都不动。
+ * 关着不用另写：普通 `button` 那条就是「`--panel` 底 + `--ink` 字」，悬停同样只换边框。
+ */
+[aria-pressed='true'] {
+  background: var(--active-bg);
+  border-color: var(--active-ink);
   color: var(--active-ink);
   font-weight: 600;
 }

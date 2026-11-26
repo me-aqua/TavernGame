@@ -110,11 +110,11 @@ defineEmits<{
   border-color: var(--line-strong);
 }
 
-/* 选中 = 深强调底 + 浅字；悬停只换边框（与首页卡行 / 存档行同一套三态） */
+/* 选中 = 深强调底 + 浅字（与首页卡行 / 存档行 / 状态行同一套三态） */
 .block.selected {
   border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--active-bg);
+  color: var(--active-ink);
 }
 
 .name {

@@ -49,6 +49,7 @@ async function readStyle(page, selector) {
       accent: resolve('--accent'),
       accentInk: resolve('--accent-ink'),
       panel: resolve('--panel'),
+      ink: resolve('--ink'),
     }
   })()`)
 }
@@ -66,6 +67,8 @@ test('首页卡行 / 存档行：默认 panel 底，悬停边框更深，选中�
     const idle = await readStyle(page, selector)
     expect(idle.missing, `${selector} 不存在`).toBeUndefined()
     expect(idle.background, `${selector} 默认底色不是 --panel`).toBe(idle.panel)
+    expect(idle.color, `${selector} 默认字色不是 --ink（浅底深字）`).toBe(idle.ink)
+    expect(luminance(idle.color), `${selector} 默认不是「浅底深字」`).toBeLessThan(luminance(idle.background))
 
     await page.locator(selector).hover()
     const hovered = await readStyle(page, selector)
@@ -96,6 +99,8 @@ test('公共提示词块：默认 panel 底，悬停边框更深，选中 = 深�
   const block = '[data-prompt-block="pr1"]'
   const idle = await readStyle(page, block)
   expect(idle.background, '提示词块默认底色不是 --panel').toBe(idle.panel)
+  expect(idle.color, '提示词块默认字色不是 --ink（浅底深字）').toBe(idle.ink)
+  expect(luminance(idle.color), '提示词块默认不是「浅底深字」').toBeLessThan(luminance(idle.background))
 
   await page.locator(block).hover()
   const hovered = await readStyle(page, block)

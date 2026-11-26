@@ -1,18 +1,16 @@
 /**
- * 选中 / 开启态的配色（老板这一版）：**active = 浅暖棕底 + 深字**，与 `--accent`（强调色）分开。
+ * 选中 / 开启态的配色（**反色修正**）：active / selected = **深底浅字**，inactive = 浅底深字。
  *
- * 三处共用同一对 token：`--active-bg #b08a5e` · `--active-ink #2b2118`
+ * 三处共用强调色那一对：`--accent`（深底）+ `--accent-ink`（浅字）
  *   · 工作流细条的**选中节点**；
  *   · 状态树上**开着的**读 / 写 chip；
- *   · 对话页**开着的**调试开关（那条在 `play.spec.js` 里判，这里判前两处）。
+ *   · 对话页**开着的**调试开关（那条在 `play.spec.js` 里判）。
  *
- * 判据钉五样：开着 = 这对 token（解析后的计算值逐字相等）+ 对比度 ≥ 4.5；
- * 关着保持原样（panel-2 / ink）；悬停不许把开着的改回强调色；未选中的节点保持普通按钮色。
+ * 判据钉五样：开着 = `--accent` / `--accent-ink`（计算值逐字相等）+ 字底对比度 ≥ 4.5 + **字比底亮**；
+ * 关着 = 浅底（`panel-2` / `panel`）+ 深字（`ink`）；悬停不许把开着的改掉；未选中的节点保持普通按钮色。
  */
 import { expect, test } from '@playwright/test'
 import { boot, KEYS, makeCard, MOCK_PRESET, route } from './support/app.js'
-
-const CARD_ID = 'c1'
 
 /** WCAG 相对亮度（只看前三个通道） */
 function luminance(rgb) {
@@ -27,7 +25,7 @@ function luminance(rgb) {
   return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
 }
 
-/** 对比度（浅字压深底 / 深字压浅底 都按这个公式） */
+/** 对比度（不假设谁深谁浅：亮的一侧在上） */
 function contrast(a, b) {
   const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x)
   return (light + 0.05) / (dark + 0.05)
@@ -52,21 +50,30 @@ async function readStyle(page, selector) {
       color: style.color,
       border: style.borderTopColor,
       weight: Number(style.fontWeight),
+      accent: resolve('--accent'),
+      accentInk: resolve('--accent-ink'),
       activeBg: resolve('--active-bg'),
       activeInk: resolve('--active-ink'),
       panel: resolve('--panel'),
       panel2: resolve('--panel-2'),
       ink: resolve('--ink'),
-      accent: resolve('--accent'),
     }
   })()`)
 }
 
-/** 开着的那一格：底色 / 字色 / 边框都是 active 那对 token，且字底对比度 ≥ 4.5 */
+/** 开着的那一格：**深底浅字**。卡面允许 `--accent` 那一对，也允许另一对深底 / 浅字 token；两种都算对。 */
 function expectActive(reading, label) {
   expect(reading.missing, `${label}：元素不存在`).toBeUndefined()
-  expect(reading.background, `${label}：底色不是 --active-bg`).toBe(reading.activeBg)
-  expect(reading.color, `${label}：字色不是 --active-ink`).toBe(reading.activeInk)
+  expect([reading.accent, reading.activeBg], `${label}：底色既不是 --accent 也不是 --active-bg`).toContain(
+    reading.background,
+  )
+  expect(
+    [reading.accentInk, reading.activeInk],
+    `${label}：字色既不是 --accent-ink 也不是 --active-ink`,
+  ).toContain(reading.color)
+  expect(luminance(reading.color), `${label}：字不是浅色（应当比底色亮）`).toBeGreaterThan(
+    luminance(reading.background),
+  )
   const ratio = contrast(reading.color, reading.background)
   expect(ratio, `${label}：字底对比度只有 ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5)
 }
@@ -74,12 +81,12 @@ function expectActive(reading, label) {
 test.beforeEach(async ({ page }) => {
   await boot(page, {
     storage: { [KEYS.cards]: [makeCard()], [KEYS.presets]: [MOCK_PRESET] },
-    hash: route.edit(CARD_ID),
+    hash: route.edit('c1'),
   })
   await expect(page.locator('[data-page="editor"]')).toBeVisible()
 })
 
-test('读 / 写 chip：开着用 active 那对 token（对比度 ≥ 4.5），关着不变，悬停不覆盖', async ({ page }) => {
+test('读 / 写 chip：开着 = 深底浅字（对比度 ≥ 4.5），关着 = 浅底深字，悬停不覆盖', async ({ page }) => {
   // 选中判定节点：reads 为空（读 chip 全关）、writable ['1','2']（元素 1/2 的写 chip 开）
   await page.locator('[data-node-id="check"]').click()
 
@@ -89,12 +96,11 @@ test('读 / 写 chip：开着用 active 那对 token（对比度 ≥ 4.5），�
 
   const on = await readStyle(page, onChip)
   expectActive(on, '开着的写 chip')
-  expect(on.accent, '--active-bg 不该还是 --accent').not.toBe(on.activeBg)
 
   const off = await readStyle(page, offChip)
-  expect(off.background, '关着的 chip 底色被改了').toBe(off.panel2)
-  expect(off.color, '关着的 chip 字色被改了').toBe(off.ink)
-  expect(off.background, '关着的 chip 也用了 active 底色').not.toBe(off.activeBg)
+  expect(off.background, '关着的 chip 底色不是浅底').toBe(off.panel2)
+  expect(off.color, '关着的 chip 字色不是深字').toBe(off.ink)
+  expect(luminance(off.color), '关着的 chip 不是「浅底深字」').toBeLessThan(luminance(off.background))
 
   // 悬停：开着的不许被 hover 规则改掉
   await page.locator(onChip).hover()
@@ -103,7 +109,7 @@ test('读 / 写 chip：开着用 active 那对 token（对比度 ≥ 4.5），�
   expect(hovered.color, '悬停把开着的 chip 字色改了').toBe(on.color)
 })
 
-test('工作流选中节点：用 active 那对 token（对比度 ≥ 4.5），未选中的保持普通按钮色', async ({ page }) => {
+test('工作流选中节点：深底浅字（对比度 ≥ 4.5），未选中的保持普通按钮色', async ({ page }) => {
   await page.locator('[data-node-id="check"]').click()
   const selected = await readStyle(page, '[data-node-id="check"][data-selected="true"]')
   expectActive(selected, '选中的工作流节点')
@@ -111,5 +117,5 @@ test('工作流选中节点：用 active 那对 token（对比度 ≥ 4.5），�
   const idle = await readStyle(page, '[data-node-id="time"]')
   expect(idle.background, '未选中的节点底色被改了').toBe(idle.panel)
   expect(idle.color, '未选中的节点字色被改了').toBe(idle.ink)
-  expect(idle.background, '未选中的节点也用了 active 底色').not.toBe(idle.activeBg)
+  expect(luminance(idle.color), '未选中的节点不是「浅底深字」').toBeLessThan(luminance(idle.background))
 })

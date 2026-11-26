@@ -424,13 +424,13 @@ function go(hash: string): void {
 /* 选中 = 深强调底 + 浅字，与右栏公共提示词块同一套 */
 .item.selected {
   border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--active-bg);
+  color: var(--active-ink);
 }
 
 /* 深底上的次要文字（存档数 / 卡名与回合）跟着换浅色，否则那一行看不清 */
 .item.selected .muted {
-  color: var(--accent-ink);
+  color: var(--active-ink);
 }
 
 /* 坏项：虚线危险边框 + 手型取消（它没有任何入口），原因那一行与徽标同色 */
