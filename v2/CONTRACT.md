@@ -222,14 +222,19 @@ export function createStorage(backend = globalThis.localStorage) -> Storage
 
 `backend` 只需实现 `getItem(key) / setItem(key, value) / removeItem(key)`（与 `localStorage` 同形）。
 
-| 方法                                        | 语义                                                                                           |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `loadCards()`                               | 无键 ⇒ `[]`；否则解析数组并逐张 `validateCard`（结构；不校验模型），不合法 ⇒ 抛 `E_VALIDATION` |
-| `saveCards(cards)`                          | 整表写入（JSON 字符串），返回 `undefined`                                                      |
-| `loadSaves()` / `saveSaves(saves)`          | 同上（`validateSave`）                                                                         |
-| `loadPresets()` / `savePresets(presets)`    | 无键 ⇒ `[]`；不校验 provider 之外的字段                                                        |
-| `loadSettings()` / `saveSettings(settings)` | 无键 ⇒ `DEFAULT_SETTINGS`；有键时按默认值**深合并**（缺字段补默认，未知字段保留）              |
-| `loadNodeModels()` / `saveNodeModels(map)`  | 无键 ⇒ `{}`；有键时必须解析成「对象套对象套字符串」，否则 `E_VALIDATION`（不许静默当空）       |
+| 方法                                        | 语义                                                                                            |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `loadCards()`                               | 无键 ⇒ `[]`；否则解析数组并逐张 `validateCard`（结构；不校验模型），不合法 ⇒ 抛 `E_VALIDATION`  |
+| `loadCardEntries()`                         | 逐条读卡：按盘上顺序把每个元素映射成 `{ raw, card }` / `{ raw, error }`；一条坏的只影响它自己   |
+| `loadCardById(id)`                          | 按 `id` 找那一个元素并**只校验它**；找不到 / 不合法 ⇒ 中文 `E_VALIDATION`（旁边的坏项与它无关） |
+| `saveCards(cards)`                          | 整表写入（JSON 字符串），返回 `undefined`                                                       |
+| `saveCardsLoose(entries)`                   | 原样写 `entries`（不校验、不归一化、不丢项）；坏项的原始字节保持不变                            |
+| `loadSaves()` / `saveSaves(saves)`          | 同上（`validateSave`）                                                                          |
+| `loadSaveEntries()` / `loadSaveById(id)`    | 同上（`validateSave` **只校验存档自身那一半**）                                                 |
+| `saveSavesLoose(entries)`                   | 同上（`tg2.saves`）                                                                             |
+| `loadPresets()` / `savePresets(presets)`    | 无键 ⇒ `[]`；不校验 provider 之外的字段                                                         |
+| `loadSettings()` / `saveSettings(settings)` | 无键 ⇒ `DEFAULT_SETTINGS`；有键时按默认值**深合并**（缺字段补默认，未知字段保留）               |
+| `loadNodeModels()` / `saveNodeModels(map)`  | 无键 ⇒ `{}`；有键时必须解析成「对象套对象套字符串」，否则 `E_VALIDATION`（不许静默当空）        |
 
 硬性规定：
 
@@ -238,6 +243,9 @@ export function createStorage(backend = globalThis.localStorage) -> Storage
    （映射的「首次打开铺默认」是**编辑器**的动作，不是 `load*()` 的副作用，§2.5）。
 3. **坏 JSON / 坏 schemaVersion ⇒ 抛错，不许静默当空列表**。错误 `code = 'E_VALIDATION'`，中文 message 含原因。
 4. `saveCards([])` 之后 `loadCards()` 必须是 `[]`（删空后机制照常）。
+5. **不放松整表读**：`loadCards()` / `loadSaves()` 仍是整表逐条校验、坏一条就抛；逐条读与宽松写是
+   **另外的入口**（首页 / 编辑器 / 对话页用它们，§8.1–§8.3）。整表坏 JSON / 顶层不是数组，
+   逐条读也照样抛。
 
 ### 3.1 内置示例卡（`晨风镇`）—— 资产，不是玩家数据
 
@@ -481,6 +489,12 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   **删卡连带删掉它的全部存档**（存档的 `cardId` 指向它）**和它的模型映射 `tg2.nodeModels[cardId]`**；
   删存档不动卡。判据：`v2/e2e/empty.spec.js` / `v2/e2e/snapshot.spec.js`。
 - 空态：没有卡时 `[data-empty-cards]` 可见（中文文案「还没有卡带」），没有存档时 `[data-empty-saves]` 可见。
+- **坏项逐行标记、不挡合法项与新建**（阶段 2 第一项）：卡 / 存档列表来自逐条读
+  （`loadCardEntries()` / `loadSaveEntries()`）。非法行带 `[data-invalid-card]` / `[data-invalid-save]` +
+  `[data-invalid-reason]`（= 校验器的中文 `message`），**没有任何入口**（不选中、不编辑 / 改名 / 删除、
+  点了不跳页）；合法行完全照旧。新建 / 改名 / 删除走 `saveCardsLoose()` / `saveSavesLoose()`：
+  只替换合法项，坏项的 `raw` 原样带回盘上（原始 JSON 逐字不变）。整表坏 JSON / 顶层不是数组
+  仍是错误页 + 不给入口。判据：`v2/tests/invalid-items.test.js` + `v2/e2e/invalid-items.spec.js`。
 
 ### 8.2 编辑器
 
@@ -544,6 +558,9 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - **没有教程提示**：编辑器的中栏空态（`[data-empty-middle]`）里不写句子；没有预设时、
   设置页没有预设时、首页改名框上，都不再挂教程提示（旧文案与 `.hint` 一并清掉）。
   判据：`v2/e2e/editor-panels.spec.js`。
+- **只按 id 校验目标卡**（阶段 2 第一项）：`#/edit/:cardId` 用 `loadCardById()` 打开 —— 盘上别的坏卡
+  不挡；目标自己坏了照样中文 `E_VALIDATION`。字段改动写回时只替换这一张（`saveCardsLoose()`），
+  盘上别的卡（含坏卡）原样保留。
 - **没有「保存」按钮**：字段改动（input / change / blur）即时写 `tg2.cards`。
   切走页面再回来、刷新后都还在。（判据：`v2/e2e/loop.spec.js`。）
 
@@ -553,6 +570,9 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   **没有封面、没有开始按钮**（`[data-cover]` / `[data-start]` 不存在）：打开存档直接看到
   故事流 —— 第一段是**「开场」这一块公共提示词（`cardSnapshot.prompts` 里 `id === 'opening'`）的正文**，
   它后面才是历史回合与正在流的正文。
+- **只按 id 校验目标存档**（阶段 2 第一项）：`#/play/:cardId/:saveId` 用 `loadSaveById()` 打开 ——
+  盘上别的坏存档不挡；目标自己坏了（或它的 `cardSnapshot` 坏了）照样中文 `E_VALIDATION`。
+  回合结果写回时只替换这一份（`saveSavesLoose()`），盘上别的存档（含坏存档）原样保留。
 - **跑的一律是 `save.cardSnapshot`**（不是 `tg2.cards` 里那张现卡）：改卡 —— 含改提示词、改眼睛、
   改初值 —— **只影响之后新建的存档**。旧存档按它冻结时的那张卡跑（SPEC §2 / §9.4）。
   ⇒ 「关掉眼睛看 prompt 变化」的验收流程是：改眼睛 → **新建存档** → 跑一回合 → 看故事流里的 trace 卡片。
@@ -580,7 +600,9 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   故事流按 `save.events` 的顺序排成一条时间轴 —— `action` / `narration` **永远在**；
   `trace` 卡片**只在调试开着时**出现（一节点一张，段落顺序：提示词组装 → 思考 → 工具调用 → 输出 →
   tokens / t-s / ms / preset）；`turnStats` **永远在**（紧凑一行：回合 / 总 token / 总耗时 / t/s）。
-  - 开关：右上角 `[data-debug-toggle]`（带 `data-on`），`?debug=1` 只是它的**初始状态**，点它随时开 / 关。
+  - 开关：右上角 `[data-debug-toggle]`（带 `data-on="true"|"false"`），`?debug=1` 只是它的**初始状态**，
+    点它随时开 / 关。**开着 = `--accent` 实心 + `--accent-ink` 文字**（与 `.chip[data-on='true']` /
+    选中节点同一套语义），关着是普通按钮。
     **加载旧存档后打开开关，也要显示历史回合的 trace**（读数来自 `save.events`，不是内存里那一回合）。
   - trace 卡片：`[data-trace][data-trace-node="<id>"][data-trace-turn="<n>"]`，内含
     `[data-trace-name]`、`[data-trace-type]`、`[data-trace-prompt]`；
@@ -673,28 +695,29 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
 
 ### 9.4 判据清单（谁钉哪条 SPEC §9）
 
-| 验收                                                                                          | 判据                                                     |
-| --------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| §9.1 空态 / 删空后仍可用                                                                      | `v2/e2e/empty.spec.js`                                   |
-| 首次打开种「晨风镇」/ 删了不复种                                                              | `v2/e2e/sample.spec.js`（§3.1）                          |
-| 新装默认两条预设（顺序 / name=model / Key 空）                                                | `v2/e2e/settings.spec.js`（§8.4）                        |
-| §9.2 建卡→编 2 元素+初值+2 提示词→存档→3 回合→刷新还在                                        | `v2/e2e/loop.spec.js`                                    |
-| §9.3 眼睛控制提示词拼装                                                                       | `v2/e2e/eyes.spec.js` + `v2/tests/prompt.test.js`        |
-| §9.4 改卡后旧存档仍能跑                                                                       | `v2/e2e/snapshot.spec.js`                                |
-| §9.5 四类比例 + 4K 不溢出 / 手机竖屏遮罩                                                      | `v2/e2e/responsive.spec.js`                              |
-| §9.6 三栏可拖 / 细条固定 / 双击恢复 / 刷新保留                                                | `v2/e2e/editor-columns.spec.js`                          |
-| 6 项 UI 变更（右栏读眼睛+名字+× / 上游读眼睛在细条 / 无提示 / S2 的× / 时间 day-hour / 开场） | `v2/e2e/editor-panels.spec.js`                           |
-| §9.7 组件故事 + 像素基线                                                                      | **不在本契约**（stories 那一层由后续一票补，见 §10）     |
-| §9.8 流式可停止 / 错误中文                                                                    | `v2/e2e/stream-abort.spec.js` + `v2/e2e/errors.spec.js`  |
-| §9.9 线上 `/v2/` 可打开、旧站仍可用                                                           | 人工 + 发布流程（不在本契约）                            |
-| 链校验（输出数 / 时间上限 / 上游只能往前 / 类型写权限 / 不兼容旧格式）                        | `v2/tests/chain.test.js`                                 |
-| 错误码五条都有中文 + 下一步                                                                   | `v2/tests/errors.test.js`                                |
-| 存储五键 / 无种子 / 删空 / 坏 JSON / 坏映射                                                   | `v2/tests/storage.test.js`                               |
-| 模块边界（无旧站 / core 不碰 DOM 与 Vue）                                                     | `v2/tests/boundaries.test.js`                            |
-| 引擎语义（顺序、写入、流式、中止、快照）                                                      | `v2/tests/engine.test.js`                                |
-| 调试内联：trace / turnStats 落盘、开关翻面、加载旧存档后仍能回看                              | `v2/e2e/play.spec.js` + `v2/tests/engine.test.js`        |
-| 模型不进卡 / 逐节点解析 / 缺预设即报错 / 删卡清映射                                           | `v2/tests/engine.test.js` + `v2/e2e/node-models.spec.js` |
-| 夹具自身合法性（正控：夹具坏了下面每条红都不可信）                                            | `v2/tests/fixtures.selfcheck.test.js`                    |
+| 验收                                                                                          | 判据                                                              |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| §9.1 空态 / 删空后仍可用                                                                      | `v2/e2e/empty.spec.js`                                            |
+| 首次打开种「晨风镇」/ 删了不复种                                                              | `v2/e2e/sample.spec.js`（§3.1）                                   |
+| 新装默认两条预设（顺序 / name=model / Key 空）                                                | `v2/e2e/settings.spec.js`（§8.4）                                 |
+| §9.2 建卡→编 2 元素+初值+2 提示词→存档→3 回合→刷新还在                                        | `v2/e2e/loop.spec.js`                                             |
+| §9.3 眼睛控制提示词拼装                                                                       | `v2/e2e/eyes.spec.js` + `v2/tests/prompt.test.js`                 |
+| §9.4 改卡后旧存档仍能跑                                                                       | `v2/e2e/snapshot.spec.js`                                         |
+| §9.5 四类比例 + 4K 不溢出 / 手机竖屏遮罩                                                      | `v2/e2e/responsive.spec.js`                                       |
+| §9.6 三栏可拖 / 细条固定 / 双击恢复 / 刷新保留                                                | `v2/e2e/editor-columns.spec.js`                                   |
+| 6 项 UI 变更（右栏读眼睛+名字+× / 上游读眼睛在细条 / 无提示 / S2 的× / 时间 day-hour / 开场） | `v2/e2e/editor-panels.spec.js`                                    |
+| §9.7 组件故事 + 像素基线                                                                      | **不在本契约**（stories 那一层由后续一票补，见 §10）              |
+| §9.8 流式可停止 / 错误中文                                                                    | `v2/e2e/stream-abort.spec.js` + `v2/e2e/errors.spec.js`           |
+| §9.9 线上 `/v2/` 可打开、旧站仍可用                                                           | 人工 + 发布流程（不在本契约）                                     |
+| 链校验（输出数 / 时间上限 / 上游只能往前 / 类型写权限 / 不兼容旧格式）                        | `v2/tests/chain.test.js`                                          |
+| 错误码五条都有中文 + 下一步                                                                   | `v2/tests/errors.test.js`                                         |
+| 存储五键 / 无种子 / 删空 / 坏 JSON / 坏映射                                                   | `v2/tests/storage.test.js`                                        |
+| 非法卡 / 非法存档逐项标记：首页照常、坏项无入口、新建保留坏项字节、按 id 只校验目标           | `v2/tests/invalid-items.test.js` + `v2/e2e/invalid-items.spec.js` |
+| 模块边界（无旧站 / core 不碰 DOM 与 Vue）                                                     | `v2/tests/boundaries.test.js`                                     |
+| 引擎语义（顺序、写入、流式、中止、快照）                                                      | `v2/tests/engine.test.js`                                         |
+| 调试内联：trace / turnStats 落盘、开关翻面、加载旧存档后仍能回看                              | `v2/e2e/play.spec.js` + `v2/tests/engine.test.js`                 |
+| 模型不进卡 / 逐节点解析 / 缺预设即报错 / 删卡清映射                                           | `v2/tests/engine.test.js` + `v2/e2e/node-models.spec.js`          |
+| 夹具自身合法性（正控：夹具坏了下面每条红都不可信）                                            | `v2/tests/fixtures.selfcheck.test.js`                             |
 
 ### 9.5 第 2 关替实现钉下的、SPEC 没写死的决定（组长可否决）
 
@@ -762,6 +785,11 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
     中 `编辑·<选中的名字>`（节点名 / 元素名 / 提示词标题；没选 = `编辑`）/ 右 `公共提示词`；
     四条同版式（41px 高度 = `--control-h` + 13px、6px 8px 内边距、1px 实线下边框），
     各带 `data-panel-title`，加号按钮在标题条外。中栏字段表不再自带标题（§8.2）。
+19. 🔴 **逐条读 + 只校验目标 + 宽松写**（阶段 2 第一项；测试岗在契约 §4 钉下，组长可否决）：
+    `raw` 是解析值（坏项写回时 `JSON.stringify` 逐字相同，键序 / 值 / 类型都不重写）；entries 顺序 =
+    盘上数组顺序（坏项不挪位、不排序）；宽松写只写 `tg2.cards` / `tg2.saves`，读 API 不写盘；
+    按 id 只认**严格相等**的字符串 `id`；坏项**没有任何入口**（只「看得见、点不进」）；
+    **不做自动修复 / 迁移**（坏项原样留在盘上，下次读它还是坏的）。
 
 ### 9.6 本关不做（别在阶段 1 拿它们当判据）
 

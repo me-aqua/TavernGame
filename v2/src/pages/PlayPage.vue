@@ -96,10 +96,8 @@ const items = computed<StoryItem[]>(() => {
 
 onMounted(() => {
   try {
-    const saves = storage().loadSaves()
-    const found = saves.find((item) => item.id === props.saveId)
-    if (!found)
-      throw new AppError('E_VALIDATION', { message: t('error.missingSave'), nextStep: t('next.home') })
+    // 只按 id 校验要打开的这一份存档：盘上别的坏存档与它无关
+    const found = storage().loadSaveById(props.saveId)
     if (found.cardId !== props.cardId) {
       throw new AppError('E_VALIDATION', { message: t('error.cardIdMismatch'), nextStep: t('next.home') })
     }
@@ -116,10 +114,11 @@ onMounted(() => {
 })
 
 function persistSave(next: Save): void {
-  const saves = storage()
-    .loadSaves()
-    .map((item) => (item.id === next.id ? next : item))
-  storage().saveSaves(saves)
+  // 只替换这一份，别把盘上其它存档（包括坏掉的那些）洗掉
+  const entries = storage()
+    .loadSaveEntries()
+    .map((entry) => (entry.save?.id === next.id ? { raw: next, save: next } : entry))
+  storage().saveSavesLoose(entries.map((entry) => entry.raw))
 }
 
 async function send(): Promise<void> {
@@ -239,6 +238,14 @@ function goBack(): void {
 .status {
   flex: 0 1 auto;
   max-width: 220px;
+}
+
+/* 调试开着 = accent 实心 + accent-ink（与 `.chip[data-on='true']` / 选中节点同一套语义）；关着仍是普通按钮 */
+[data-debug-toggle][data-on='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
 }
 
 .play-main {

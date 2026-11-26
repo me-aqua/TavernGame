@@ -1,12 +1,16 @@
 /**
- * P1 · 旧数据安全（第 3 轮评审）—— 盘上有旧格式数据时，界面**不许**变成「一次点击就覆盖它」。
+ * P1 · 旧数据安全（第 3 轮评审）—— 盘上有旧格式数据时，界面**不许**把那一行改写 / 删掉。
  *
- * 为什么单开一份：这类坏数据的危险不在「报错」本身，而在**报错之后界面还留着可写的入口** ——
- * 玩家点一下「新建卡带」，`saveCards([新卡])` 就把盘上那张他再也拿不回来的旧卡覆盖掉了。
- * 所以每条判据都量三样：
- *   ① 中文 `E_VALIDATION`（不是白屏、不是英文）；
- *   ② **没有可写的入口**（首页的新建按钮、对话页的输入框 / 发送）；
- *   ③ 就算入口真的还在，点下去也**不许改盘**（`tg2.cards` / `tg2.saves` 的**原始字符串**逐字相同）。
+ * 现状（阶段 2 第一项）：整表读不再把首页挡在错误页后面 —— 旧格式那一条渲染成**非法行**
+ * （`[data-invalid-card]` + 中文原因），能点的入口只有「新建」，而新建**只追加**：
+ * 旧格式那一条的**原始 JSON 逐字不变**。所以这一份量四样：
+ *   ① 首页照常 + 坏项一行带中文原因（不是整页错误）；
+ *   ② 坏项行点不进去（不跳页、不被选中 ⇒「新建存档」仍然禁用）；
+ *   ③ 新建照常可用，而且只追加；
+ *   ④ 坏项那一条的序列化字节逐字不变（覆盖 / 归一化的痕迹一出现就红）。
+ *
+ * 对话页那两格仍然是错误现场：按 id 打开一份坏存档（本体坏 / 快照里的卡是旧格式）
+ * 照样中文 `E_VALIDATION`，且不给输入框 / 发送 —— 那两条留在本文件末尾。
  *
  * 覆盖两种旧形状：带校对节点、`readsUpstream` 是布尔（老板 2026-11-25：不迁移，直接拒）。
  */
@@ -20,6 +24,7 @@ import {
   makeSave,
   MOCK_PRESET,
   readRaw,
+  readStorage,
   route,
 } from './support/app.js'
 
@@ -47,47 +52,84 @@ async function expectValidationError(page) {
   await expect(page.locator('[data-error-next]')).toHaveText(CJK)
 }
 
-test.describe('P1 首页：旧卡读不出来时，不许给「新建」入口', () => {
-  test('旧卡（带校对节点）⇒ 中文 E_VALIDATION，且没有新建卡 / 新建存档 / 卡行', async ({ page }) => {
-    const card = legacyWithProof()
-    const raw = JSON.stringify([card])
-    await boot(page, { storage: { [KEYS.cards]: [card], [KEYS.presets]: [MOCK_PRESET] } })
+/** 盘上某个键的第 `index` 个元素，序列化后的字符串（「逐字不变」按它比） */
+async function rawEntry(page, key, index) {
+  const raw = await readRaw(page, key)
+  return JSON.stringify(JSON.parse(raw)[index])
+}
 
-    await expectValidationError(page)
-    await expect(page.locator('[data-new-card]')).toHaveCount(0)
-    await expect(page.locator('[data-new-save]')).toHaveCount(0)
-    await expect(page.locator('[data-card-id]')).toHaveCount(0)
-    // 一条能被点的行都不许留（否则「选中 + 新建存档」是另一条覆盖路）
-    await expect(page.locator('[data-card-rename], [data-card-delete], [data-card-edit]')).toHaveCount(0)
-    expect(await readRaw(page, KEYS.cards), '读失败之后盘上的字节变了').toBe(raw)
+/** 坏项行的公共断言：首页照常、恰好一行非法 + 中文原因、行内没有任何入口 */
+async function expectInvalidCardRow(page, cardId) {
+  await expect(page.locator('[data-page="home"]')).toBeVisible()
+  await expect(page.locator('[data-error]'), '旧卡又把首页挡成错误页了').toHaveCount(0)
+  await expect(page.locator('[data-invalid-card]')).toHaveCount(1)
+  await expect(page.locator(`[data-card-id="${cardId}"] [data-invalid-reason]`)).toHaveText(CJK)
+  await expect(
+    page.locator(
+      '[data-invalid-card] [data-card-edit], [data-invalid-card] [data-card-rename], [data-invalid-card] [data-card-delete]',
+    ),
+  ).toHaveCount(0)
+}
+
+test.describe('P1 首页：旧卡渲染成「非法」行，新建只追加、不许改写它', () => {
+  test('旧卡（带校对节点）⇒ 首页照常、坏项一行带中文原因、点不进去；新建后字节逐字不变', async ({ page }) => {
+    const card = legacyWithProof()
+    await boot(page, { storage: { [KEYS.cards]: [card], [KEYS.presets]: [MOCK_PRESET] } })
+    const homeUrl = page.url()
+    const before = await rawEntry(page, KEYS.cards, 0)
+
+    await expectInvalidCardRow(page, CARD_ID)
+    await expect(page.locator('[data-new-card]')).toBeEnabled()
+
+    // 坏项行点不进去：不跳页、也不被选中（所以「新建存档」仍然禁用）
+    await page.locator('[data-invalid-card]').click()
+    await expect(page, '点坏项行不许跳页').toHaveURL(homeUrl)
+    await expect(page.locator('[data-new-save]')).toBeDisabled()
+
+    // 新建照常可用，而且只追加
+    await page.locator('[data-new-card]').click()
+    const cards = await readStorage(page, KEYS.cards)
+    expect(cards).toHaveLength(2)
+    expect(cards[0].id).toBe(CARD_ID)
+    expect(cards[1].id).not.toBe(CARD_ID)
+    await expect(page.locator(`[data-card-id="${cards[1].id}"] [data-card-edit]`)).toBeVisible()
+    expect(await rawEntry(page, KEYS.cards, 0), '新建把旧卡改写了').toBe(before)
+
+    // 刷新后仍如此
+    await page.reload()
+    await expectInvalidCardRow(page, CARD_ID)
+    expect(await rawEntry(page, KEYS.cards, 0), '刷新之后旧卡被改写了').toBe(before)
   })
 
-  test('旧卡（readsUpstream 是布尔）⇒ 同样被拒、同样没有入口', async ({ page }) => {
+  test('旧卡（readsUpstream 是布尔）⇒ 同样照常：坏项一行带中文原因，新建可用且字节不变', async ({ page }) => {
     const card = legacyWithBooleanUpstream()
-    const raw = JSON.stringify([card])
     await boot(page, { storage: { [KEYS.cards]: [card], [KEYS.presets]: [MOCK_PRESET] } })
+    const before = await rawEntry(page, KEYS.cards, 0)
 
-    await expectValidationError(page)
-    await expect(page.locator('[data-new-card]')).toHaveCount(0)
-    await expect(page.locator('[data-new-save]')).toHaveCount(0)
-    expect(await readRaw(page, KEYS.cards)).toBe(raw)
+    await expectInvalidCardRow(page, CARD_ID)
+    await expect(page.locator('[data-new-card]')).toBeEnabled()
+
+    await page.locator('[data-new-card]').click()
+    expect((await readStorage(page, KEYS.cards)).length).toBe(2)
+    expect(await rawEntry(page, KEYS.cards, 0), '新建把旧卡改写了').toBe(before)
   })
 
-  test('数据安全兜底：哪怕页面上真有个新建按钮，点下去也不许改盘', async ({ page }) => {
+  test('数据安全兜底：新建卡 + 新建存档之后，旧卡那一条仍然逐字不变', async ({ page }) => {
     const card = legacyWithProof()
-    const raw = JSON.stringify([card])
     await boot(page, { storage: { [KEYS.cards]: [card], [KEYS.presets]: [MOCK_PRESET] } })
-    await expectValidationError(page)
+    const before = await rawEntry(page, KEYS.cards, 0)
 
-    // 这一条不依赖「按钮有没有被藏起来」：有就点，没有就跳过 —— 两种情况都不许动盘
-    for (const selector of ['[data-new-card]', '[data-new-save]']) {
-      const button = page.locator(selector)
-      if ((await button.count()) > 0) await button.first().click({ force: true })
-    }
-    await page.waitForTimeout(200)
-    expect(await readRaw(page, KEYS.cards), '一次点击把盘上的旧卡覆盖了').toBe(raw)
-    // 报错不许被那次点击「顺手清掉」
-    await expect(page.locator('[data-error-code]')).toHaveText('E_VALIDATION')
+    await page.locator('[data-new-card]').click()
+    // 新卡建完即被选中 ⇒ 新建存档可用；存档按新卡建，不碰旧卡那一条
+    await expect(page.locator('[data-new-save]')).toBeEnabled()
+    await page.locator('[data-new-save]').click()
+
+    const saves = await readStorage(page, KEYS.saves)
+    expect(saves).toHaveLength(1)
+    const cards = await readStorage(page, KEYS.cards)
+    expect(saves[0].cardId).toBe(cards[1].id)
+    expect(await rawEntry(page, KEYS.cards, 0), '一次新建把盘上的旧卡覆盖了').toBe(before)
+    await expect(page.locator('[data-invalid-card]')).toHaveCount(1)
   })
 })
 

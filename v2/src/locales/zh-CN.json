@@ -17,6 +17,7 @@
   "home.emptySaves": "还没有存档",
   "home.cardCount": "{count} 个存档",
   "home.saveMeta": "{card} · 第 {turn} 回合",
+  "home.invalidBadge": "非法",
   "home.deleteCardConfirm": "删掉这张卡带？它的全部存档也会一起消失，不能撤销。",
   "home.deleteSaveConfirm": "删掉这个存档？不能撤销。",
   "home.noCardSelected": "先在左边选中一张卡带",

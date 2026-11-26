@@ -35,7 +35,6 @@ const MIDDLE_MIN = 320
 const STRIP_WIDTH = 96
 const SPLITTER_WIDTH = 6
 
-const cards = ref<Card[]>([])
 const card = ref<Card | null>(null)
 const presets = ref<Preset[]>([])
 const models = ref<NodeModels>({})
@@ -75,11 +74,8 @@ function presetIdFor(nodeId: string): string {
 
 onMounted(() => {
   try {
-    cards.value = storage().loadCards()
-    const found = cards.value.find((item) => item.id === props.cardId)
-    if (!found) {
-      throw new AppError('E_VALIDATION', { message: t('error.missingCard'), nextStep: t('next.home') })
-    }
+    // 只按 id 校验要打开的这一张：盘上别的坏卡与它无关
+    const found = storage().loadCardById(props.cardId)
     card.value = found
     presets.value = storage().loadPresets()
     models.value = storage().loadNodeModels()
@@ -103,8 +99,8 @@ onMounted(() => {
 /**
  * 落盘一张卡：**先验后写** —— 不合法的中间态既不进内存、也不进 localStorage。
  *
- * 界面上会造出非法卡的开关已经藏起来了（写权限、上游、开场不可删……），这一层是兜底：
- * `saveCards()` 是整表覆盖，写进去之前必须确认这一张还合契约。
+ * 写的是**逐条读回来的整张表**（`loadCardEntries()`），只把这一张换掉再宽松写回：
+ * 盘上别的卡（包括不合法的那些）一个字节都不动。
  */
 function persist(next: Card): void {
   try {
@@ -113,9 +109,11 @@ function persist(next: Card): void {
     error.value = asAppError(cause)
     return
   }
+  const entries = storage()
+    .loadCardEntries()
+    .map((entry) => (entry.card?.id === next.id ? { raw: next, card: next } : entry))
+  storage().saveCardsLoose(entries.map((entry) => entry.raw))
   card.value = next
-  cards.value = cards.value.map((item) => (item.id === next.id ? next : item))
-  storage().saveCards(cards.value)
 }
 
 function updateCard(mutate: (current: Card) => Card): void {

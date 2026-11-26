@@ -293,6 +293,97 @@ test.describe('对话页：调试开关（读数内联在故事流里）', () =>
     await page.reload()
     await expect(page.locator('[data-debug-toggle]')).toHaveAttribute('data-on', 'false')
   })
+
+  /**
+   * 开关的**样子**：`data-on` 只是状态，玩家看得见的是颜色。
+   * 开着 = `--accent` 实心 + `--accent-ink` 字（与 `.chip[data-on='true']` 同一对 token，也同一套 600 字重）；
+   * 关着 = 普通按钮（`--panel` 底 + `--ink` 字 + `--line-strong` 边框）。
+   *
+   * 判据拿**解析后的计算值**比，不抄 hex：先把根上的 token 解析成 rgb，再与按钮的计算样式逐字相等 ——
+   * 换主题 / 调色板时这一条跟着走，不会变成一条永远钉在旧色号上的假红。
+   * 指针必须先挪开再量：普通按钮的 hover 会改边框色，会把「关着的常态」量歪。
+   */
+  test('调试开关的样式：开着 = accent 实心 + 浅字，关回去恢复普通按钮', async ({ page }) => {
+    await boot(page, { storage: seeded() })
+    await openStory(page, CARD_ID, 's1')
+    const toggle = page.locator('[data-debug-toggle]')
+
+    /** 读开关当前的计算样式 + 根上那几对 token 解析出来的 rgb */
+    const readToggle = async () => {
+      await page.mouse.move(2, 420)
+      return page.evaluate(`(() => {
+        const element = document.querySelector('[data-debug-toggle]')
+        const resolve = (name) => {
+          const probe = document.createElement('span')
+          probe.style.color = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+          document.body.appendChild(probe)
+          const value = getComputedStyle(probe).color
+          probe.remove()
+          return value
+        }
+        const style = getComputedStyle(element)
+        return {
+          on: element.getAttribute('data-on'),
+          background: style.backgroundColor,
+          color: style.color,
+          border: style.borderTopColor,
+          weight: Number(style.fontWeight),
+          accent: resolve('--accent'),
+          accentInk: resolve('--accent-ink'),
+          panel: resolve('--panel'),
+          ink: resolve('--ink'),
+          lineStrong: resolve('--line-strong'),
+        }
+      })()`)
+    }
+
+    /** WCAG 相对亮度（只看前三个通道；`rgb(...)` 与 `rgba(...)` 都能读） */
+    const luminance = (rgb) => {
+      const [r, g, b] = rgb
+        .match(/\d+(?:\.\d+)?/g)
+        .slice(0, 3)
+        .map(Number)
+      const channel = (value) => {
+        const c = value / 255
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+      }
+      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+    }
+
+    // ① 关着：普通按钮的样子
+    const off = await readToggle()
+    expect(off.on).toBe('false')
+    expect(off.background, '关着的按钮不是普通按钮底色').toBe(off.panel)
+    expect(off.color, '关着的按钮不是普通字色').toBe(off.ink)
+    expect(off.border, '关着的按钮不是普通边框').toBe(off.lineStrong)
+    expect(off.background, '关着就已经是 accent 实心了').not.toBe(off.accent)
+    expect(off.weight).toBeLessThan(600)
+
+    // ② 点开：accent 实心 + accent-ink 字（与开着的 chip 同一对 token）
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('data-on', 'true')
+    const on = await readToggle()
+    expect(on.background, '开着的底色不是 accent').toBe(on.accent)
+    expect(on.color, '开着的字色不是 accent-ink').toBe(on.accentInk)
+    expect(on.border, '开着的边框不是 accent').toBe(on.accent)
+    expect(on.background, '开着与关着看不出区别').not.toBe(off.background)
+    expect(on.color, '开着与关着字色一样').not.toBe(off.color)
+    expect(on.weight, '开着的字重没有加重（chip 是 600）').toBeGreaterThanOrEqual(600)
+
+    // 浅字压深底：字的亮度必须高于底色，对比度够看（实际比值也报出来）
+    const ratio = (luminance(on.color) + 0.05) / (luminance(on.background) + 0.05)
+    expect(luminance(on.color), '开着的字不是浅色（比底色还暗）').toBeGreaterThan(luminance(on.background))
+    expect(ratio, `开着的字底对比度只有 ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(3)
+
+    // ③ 点回去：恢复普通按钮（底色 / 字色 / 边框都回去，字重也回去）
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('data-on', 'false')
+    const back = await readToggle()
+    expect(back.background, '关回去没恢复普通按钮底色').toBe(off.background)
+    expect(back.color, '关回去没恢复普通按钮字色').toBe(off.color)
+    expect(back.border, '关回去没恢复普通按钮边框').toBe(off.border)
+    expect(back.weight).toBe(off.weight)
+  })
 })
 
 test.describe('对话页：发送即见（乐观行动 / 生成中）', () => {

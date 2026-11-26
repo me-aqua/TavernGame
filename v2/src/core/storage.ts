@@ -35,11 +35,36 @@ export interface StorageBackend {
   removeItem(key: string): void
 }
 
+/**
+ * 逐条读回来的一条：`raw` 是盘上那个元素的**解析值**（原样带着，写回时逐字序列化）。
+ * 合法则给 `card`，不合法则给校验器抛出的那个 `error` —— 两者恰好有一个。
+ */
+export interface CardEntry {
+  raw: unknown
+  card?: Card
+  error?: AppError
+}
+
+export interface SaveEntry {
+  raw: unknown
+  save?: Save
+  error?: AppError
+}
+
 export interface Storage {
   loadCards(): Card[]
+  // 逐条读：一条坏的只影响它自己（顺序 = 盘上数组顺序）
+  loadCardEntries(): CardEntry[]
+  // 按 id 取单条：只校验目标项，旁边的坏项与它无关
+  loadCardById(id: string): Card
   saveCards(cards: Card[]): void
+  // 宽松写：原样写回 entries，不校验、不归一化、不丢项
+  saveCardsLoose(entries: unknown[]): void
   loadSaves(): Save[]
+  loadSaveEntries(): SaveEntry[]
+  loadSaveById(id: string): Save
   saveSaves(saves: Save[]): void
+  saveSavesLoose(entries: unknown[]): void
   loadPresets(): Preset[]
   savePresets(presets: Preset[]): void
   loadSettings(): Settings
@@ -98,6 +123,11 @@ export function createStorage(backend: StorageBackend = browserBackend()): Stora
     backend.setItem(key, JSON.stringify(value))
   }
 
+  /** 元素上的 `id`：原样取出（只与字符串 id 严格比较，缺失 / 别的类型自然不匹配） */
+  function idOf(raw: unknown): unknown {
+    return (raw as { id?: unknown } | null)?.id
+  }
+
   return {
     // 读全部卡；逐张过结构校验，坏一张就抛（不静默丢）
     loadCards() {
@@ -105,8 +135,35 @@ export function createStorage(backend: StorageBackend = browserBackend()): Stora
       for (const card of cards) validateCard(card)
       return cards
     },
+    // 逐条读：坏元素只带自己的 error，不影响其它元素；顺序 = 盘上数组顺序
+    loadCardEntries(): CardEntry[] {
+      return parseArray(STORAGE_KEYS.cards).map((raw) => {
+        try {
+          validateCard(raw as Card)
+          return { raw, card: raw as Card }
+        } catch (cause) {
+          return { raw, error: cause as AppError }
+        }
+      })
+    },
+    // 按 id 只校验目标项：不存在 ⇒ 中文 E_VALIDATION；目标自己坏了 ⇒ 校验器那个错（中文）
+    loadCardById(id) {
+      const target = parseArray(STORAGE_KEYS.cards).find((raw) => idOf(raw) === id)
+      if (target === undefined) {
+        throw new AppError('E_VALIDATION', {
+          message: t('error.missingCard'),
+          nextStep: t('next.home'),
+        })
+      }
+      validateCard(target as Card)
+      return target as Card
+    },
     saveCards(cards) {
       write(STORAGE_KEYS.cards, cards)
+    },
+    // 宽松写：原样序列化 entries（坏项的字段 / 键序 / 值都不动）
+    saveCardsLoose(entries) {
+      write(STORAGE_KEYS.cards, entries)
     },
     // 读全部存档；逐份过结构校验
     loadSaves() {
@@ -114,8 +171,34 @@ export function createStorage(backend: StorageBackend = browserBackend()): Stora
       for (const save of saves) validateSave(save)
       return saves
     },
+    // 逐条读：只校验存档自己那一半（与 loadSaves 同口径）
+    loadSaveEntries(): SaveEntry[] {
+      return parseArray(STORAGE_KEYS.saves).map((raw) => {
+        try {
+          validateSave(raw as Save)
+          return { raw, save: raw as Save }
+        } catch (cause) {
+          return { raw, error: cause as AppError }
+        }
+      })
+    },
+    // 按 id 只校验目标项：不存在 ⇒ 中文 E_VALIDATION；目标自己坏了 ⇒ 校验器那个错（中文）
+    loadSaveById(id) {
+      const target = parseArray(STORAGE_KEYS.saves).find((raw) => idOf(raw) === id)
+      if (target === undefined) {
+        throw new AppError('E_VALIDATION', {
+          message: t('error.missingSave'),
+          nextStep: t('next.home'),
+        })
+      }
+      validateSave(target as Save)
+      return target as Save
+    },
     saveSaves(saves) {
       write(STORAGE_KEYS.saves, saves)
+    },
+    saveSavesLoose(entries) {
+      write(STORAGE_KEYS.saves, entries)
     },
     loadPresets() {
       return parseArray(STORAGE_KEYS.presets) as Preset[]
