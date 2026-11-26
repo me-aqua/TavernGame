@@ -45,6 +45,7 @@ async function readStyle(page, selector) {
       background: style.backgroundColor,
       color: style.color,
       border: style.borderTopColor,
+      weight: Number(style.fontWeight),
       accent: resolve('--accent'),
       accentInk: resolve('--accent-ink'),
       activeBg: resolve('--active-bg'),
@@ -65,6 +66,7 @@ function expectSelectedPair(reading, label) {
   expect([reading.accentInk, reading.activeInk], `${label}：字色不是浅字那一对`).toContain(reading.color)
   const ratio = contrast(reading.color, reading.background)
   expect(ratio, `${label}：字底对比度只有 ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5)
+  expect(reading.weight, `${label}：不是 600 字重`).toBeGreaterThanOrEqual(600)
 }
 
 /** 选中态：深底浅字（`--accent` / `--active-bg` 那一对都算），字比底亮，对比度 ≥ 4.5 */
@@ -83,6 +85,7 @@ function expectUnselected(reading, label) {
   expect(reading.color, `${label}：字色不是 --ink`).toBe(reading.ink)
   expect(luminance(reading.color), `${label}：不是「浅底深字」`).toBeLessThan(luminance(reading.background))
   expect(reading.background, `${label}：未选中却用了 active 深底`).not.toBe(reading.activeBg)
+  expect(reading.weight, `${label}：未选中不该加粗（应是 400）`).toBeLessThan(600)
 }
 
 test.beforeEach(async ({ page }) => {

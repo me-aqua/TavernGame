@@ -421,11 +421,12 @@ function go(hash: string): void {
   border-color: var(--line-strong);
 }
 
-/* 选中 = 深强调底 + 浅字，与右栏公共提示词块同一套 */
+/* 选中 = 深强调底 + 浅字，与右栏公共提示词块同一套；字重 600，与未选中行区分 */
 .item.selected {
   border-color: var(--accent);
   background: var(--active-bg);
   color: var(--active-ink);
+  font-weight: 600;
 }
 
 /* 深底上的次要文字（存档数 / 卡名与回合）跟着换浅色，否则那一行看不清 */

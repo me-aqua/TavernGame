@@ -96,11 +96,15 @@ test('读 / 写 chip：开着 = 深底浅字（对比度 ≥ 4.5），关着 = �
 
   const on = await readStyle(page, onChip)
   expectActive(on, '开着的写 chip')
+  expect(on.background, '开着的底色不是 --active-bg（这一版是 #927049）').toBe(on.activeBg)
+  expect(on.activeBg, '--active-bg 不是 #927049').toBe('rgb(146, 112, 73)')
+  expect(on.weight, '开着的 chip 不是 600 字重').toBeGreaterThanOrEqual(600)
 
   const off = await readStyle(page, offChip)
   expect(off.background, '关着的 chip 底色不是浅底').toBe(off.panel2)
   expect(off.color, '关着的 chip 字色不是深字').toBe(off.ink)
   expect(luminance(off.color), '关着的 chip 不是「浅底深字」').toBeLessThan(luminance(off.background))
+  expect(off.weight, '关着的 chip 不该加粗（应是 400）').toBeLessThan(600)
 
   // 悬停：开着的不许被 hover 规则改掉
   await page.locator(onChip).hover()
@@ -109,13 +113,31 @@ test('读 / 写 chip：开着 = 深底浅字（对比度 ≥ 4.5），关着 = �
   expect(hovered.color, '悬停把开着的 chip 字色改了').toBe(on.color)
 })
 
-test('工作流选中节点：深底浅字（对比度 ≥ 4.5），未选中的保持普通按钮色', async ({ page }) => {
+test('工作流选中节点：深底浅字 + 600（对比度 ≥ 4.5），未选中的保持普通按钮色 / 400', async ({ page }) => {
   await page.locator('[data-node-id="check"]').click()
   const selected = await readStyle(page, '[data-node-id="check"][data-selected="true"]')
   expectActive(selected, '选中的工作流节点')
+  expect(selected.weight, '选中的节点不是 600 字重').toBeGreaterThanOrEqual(600)
 
   const idle = await readStyle(page, '[data-node-id="time"]')
   expect(idle.background, '未选中的节点底色被改了').toBe(idle.panel)
   expect(idle.color, '未选中的节点字色被改了').toBe(idle.ink)
   expect(luminance(idle.color), '未选中的节点不是「浅底深字」').toBeLessThan(luminance(idle.background))
+  expect(idle.weight, '未选中的节点不该加粗（应是 400）').toBeLessThan(600)
+})
+
+test('状态树选中行：深底浅字 + 600（对比度 ≥ 4.5），未选中的保持浅底深字 / 400', async ({ page }) => {
+  await page.locator('[data-node-id="check"]').click()
+  // S2：点一行状态元素把它选中（状态行用 `.selected` 类标，不是 data 属性）
+  await page.locator('[data-state-item="1"]').click()
+  await expect(page.locator('[data-state-item="1"].selected')).toHaveCount(1)
+
+  const selected = await readStyle(page, '[data-state-item="1"].selected')
+  expectActive(selected, '选中的状态行')
+  expect(selected.weight, '选中的状态行不是 600 字重').toBeGreaterThanOrEqual(600)
+
+  const idle = await readStyle(page, '[data-state-item="2"]')
+  expect(idle.background, '未选中的状态行底色不是 --panel').toBe(idle.panel)
+  expect(idle.color, '未选中的状态行字色不是 --ink').toBe(idle.ink)
+  expect(idle.weight, '未选中的状态行不该加粗（应是 400）').toBeLessThan(600)
 })

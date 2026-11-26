@@ -110,11 +110,12 @@ defineEmits<{
   border-color: var(--line-strong);
 }
 
-/* 选中 = 深强调底 + 浅字（与首页卡行 / 存档行 / 状态行同一套三态） */
+/* 选中 = 深强调底 + 浅字（与首页卡行 / 存档行 / 状态行同一套三态）；字重 600，与未选中块区分 */
 .block.selected {
   border-color: var(--accent);
   background: var(--active-bg);
   color: var(--active-ink);
+  font-weight: 600;
 }
 
 .name {

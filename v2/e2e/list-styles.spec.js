@@ -46,8 +46,11 @@ async function readStyle(page, selector) {
       background: style.backgroundColor,
       color: style.color,
       border: style.borderTopColor,
+      weight: Number(style.fontWeight),
       accent: resolve('--accent'),
+      activeBg: resolve('--active-bg'),
       accentInk: resolve('--accent-ink'),
+      activeInk: resolve('--active-ink'),
       panel: resolve('--panel'),
       ink: resolve('--ink'),
     }
@@ -69,6 +72,7 @@ test('首页卡行 / 存档行：默认 panel 底，悬停边框更深，选中�
     expect(idle.background, `${selector} 默认底色不是 --panel`).toBe(idle.panel)
     expect(idle.color, `${selector} 默认字色不是 --ink（浅底深字）`).toBe(idle.ink)
     expect(luminance(idle.color), `${selector} 默认不是「浅底深字」`).toBeLessThan(luminance(idle.background))
+    expect(idle.weight, `${selector} 默认不该加粗（应是 400）`).toBeLessThan(600)
 
     await page.locator(selector).hover()
     const hovered = await readStyle(page, selector)
@@ -84,8 +88,9 @@ test('首页卡行 / 存档行：默认 panel 底，悬停边框更深，选中�
   // 选中卡行：深强调底 + 浅字
   await page.locator(row).click()
   const selected = await readStyle(page, row)
-  expect(selected.background, '选中的卡行底色不是 --accent').toBe(selected.accent)
-  expect(selected.color, '选中的卡行字色不是 --accent-ink').toBe(selected.accentInk)
+  expect(selected.background, '选中的卡行底色不是 active 那一对').toBe(selected.activeBg)
+  expect(selected.weight, '选中的卡行不是 600 字重').toBeGreaterThanOrEqual(600)
+  expect([selected.accentInk, selected.activeInk], '选中的卡行字色不是浅字那一对').toContain(selected.color)
   expect(contrast(selected.color, selected.background), '选中行对比度不足').toBeGreaterThanOrEqual(4.5)
 })
 
@@ -101,6 +106,7 @@ test('公共提示词块：默认 panel 底，悬停边框更深，选中 = 深�
   expect(idle.background, '提示词块默认底色不是 --panel').toBe(idle.panel)
   expect(idle.color, '提示词块默认字色不是 --ink（浅底深字）').toBe(idle.ink)
   expect(luminance(idle.color), '提示词块默认不是「浅底深字」').toBeLessThan(luminance(idle.background))
+  expect(idle.weight, '提示词块默认不该加粗（应是 400）').toBeLessThan(600)
 
   await page.locator(block).hover()
   const hovered = await readStyle(page, block)
@@ -110,7 +116,10 @@ test('公共提示词块：默认 panel 底，悬停边框更深，选中 = 深�
   await page.locator(block).click()
   await expect(page.locator(block)).toHaveAttribute('data-selected', 'true')
   const selected = await readStyle(page, block)
-  expect(selected.background, '选中的提示词块底色不是 --accent').toBe(selected.accent)
-  expect(selected.color, '选中的提示词块字色不是 --accent-ink').toBe(selected.accentInk)
+  expect(selected.background, '选中的提示词块底色不是 active 那一对').toBe(selected.activeBg)
+  expect([selected.accentInk, selected.activeInk], '选中的提示词块字色不是浅字那一对').toContain(
+    selected.color,
+  )
+  expect(selected.weight, '选中的提示词块不是 600 字重').toBeGreaterThanOrEqual(600)
   expect(contrast(selected.color, selected.background), '选中块对比度不足').toBeGreaterThanOrEqual(4.5)
 })

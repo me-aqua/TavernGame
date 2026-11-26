@@ -315,7 +315,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - 空态：无卡 `[data-empty-cards]` 可见（「还没有游戏卡」），无存档 `[data-empty-saves]` 可见。
 - 坏项逐行标记：非法行带 `[data-invalid-card]` / `[data-invalid-save]` + `[data-invalid-badge]` + `[data-invalid-name]` + `[data-invalid-reason]`（中文 `error.message`），**没有任何入口**（不选中 / 不编辑 / 不改名 / 不删除 / 点了不跳页）；合法行照旧。
 - 写走宽松写：只替换合法项，坏项 **JSON 值**不变；存档卡名按「现存卡名 → 快照名 → 中性回退」；快照缺名字 / 快照本身不是合法卡 ⇒ 坏项；整表坏 JSON / 顶层不是数组 ⇒ 错误页，且不渲染列表与新建按钮。
-- 列表三态（首页卡行 / 存档行 / 状态行 / 提示词块共用）：默认浅底（`--panel`）+ 深字（`--ink`）、悬停只把边框变深（不铺底色）、选中 = 深底浅字（`--active-bg` / `--active-ink`，对比度 ≥4.5）；坏项虚线 danger 边框。
+- 列表三态（首页卡行 / 存档行 / 状态行 / 提示词块共用）：默认浅底（`--panel`）+ 深字（`--ink`）、悬停只把边框变深（不铺底色）、选中 = 深底浅字（浅色主题 `--active-bg` #927049 / `--active-ink` #fff，深色主题反过来用 `--accent` / `--accent-ink`）+ 字重 600，对比度 ≥4.5；坏项虚线 danger 边框。
 - 判据：`lists.spec.js` / `empty.spec.js` / `snapshot.spec.js` / `invalid-items.spec.js` / `list-styles.spec.js`。
 
 ### 8.2 编辑器
@@ -338,7 +338,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - 存档模式 `#/edit-save/:saveId`（同一份 `EditorPage`）：编辑目标是这一份存档的 `cardSnapshot`（深拷贝）与 `save.nodeModels`，写回只替换 `tg2.saves` 那一行、`tg2.cards` 一个字节不动；**结构锁死** —— 没有 `[data-add-state]` / `[data-delete-state]`（不渲染，不是禁用）、没有节点增删排序、卡名不改，其余字段（名字 / 备注 / 初值 / 提示词块 / 节点名字 / 节点提示词 / 历史轮数 / 眼睛 / 模型预设）照常可改。
 - 存档模式打开时 `save.nodeModels` 缺省先按卡级映射显示，玩家真改了某一格才把整片写进存档（不迁移、不补写）。
 - 控件 / 行高：`--control-h: 28px` 用于 button / input / select / `.icon` / `.chip` / 工作流 `.node`；`--row-h: 36px` 用于 `[data-prompt-block]` / `[data-state-item]` / 首页卡行 / 存档行 / 设置页预设字段行；行内控件仍 28 且垂直居中；多行编辑器不在这一档（行动输入 44 / 节点提示词 120 / 提示词正文 160）。
-- 圆角只有 `--radius: 6px`（button 与 `.chip` 共用）；读 / 写 chip 三处（状态树、细条上游、右栏提示词）共用 `.chip`：关着也有底色（`--panel-2`）与边框，开着 = 深底浅字（`--active-bg` = `--accent`、`--active-ink` = `--accent-ink`；浅色主题深底浅字、深色主题反过来）、边框 `--accent`；悬停只换边框、不铺底色；高度 `--control-h`；文字「读 / 写」保留；按钮 / chip 里不再有 999px 或 3px 档。
+- 圆角只有 `--radius: 6px`（button 与 `.chip` 共用）；读 / 写 chip 三处（状态树、细条上游、右栏提示词）共用 `.chip`：关着也有底色（`--panel-2`）与边框，开着 = 深底浅字（浅色主题 `--active-bg` #927049 / `--active-ink` #fff、字重 600，深色主题反过来用 `--accent` / `--accent-ink`）、边框 `--accent`；悬停只换边框、不铺底色；高度 `--control-h`；文字「读 / 写」保留；按钮 / chip 里不再有 999px 或 3px 档。
 - 判据：`panel-chrome.spec.js` / `editor-panels.spec.js` / `node-models.spec.js` / `node-name.spec.js` / `controls.spec.js` / `save-editor.spec.js` / `editor-columns.spec.js` / `active-styles.spec.js`。
 
 ### 8.3 对话页
@@ -355,14 +355,14 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - 停止：点 `[data-stop]` ⇒ 中止本轮、丢弃本轮半截文本与乐观行动（故事流回到本轮开始前）、恢复输入、把刚才那句放回 `[data-action-input]`（输入框仍为空时才放）、存档不变。
 - 出错：`[data-error]` 出现，`[data-error-code]` = 错误码字符串、`[data-error-next]` = 下一步中文；乐观气泡撤掉、刚才那句放回输入框（仍为空时才放）、存档不变；界面不白屏、不丢卡。
 - 调试内联（**没有右侧调试面板**，`[data-debug]` / `[data-debug-node]` / `[data-debug-prompt]` / 旧表头 `[data-turn-ms]` 都不存在）：故事流按 `save.events` 顺序排成时间轴；`action` / `narration` **永远在**；`trace` 卡片**只在调试开着时**出现；`turnStats` **永远在**（紧凑一行：回合 / 总 token / 总耗时 / t/s）。
-- 开关：右上角 `[data-debug-toggle]`（带 `data-on`），`?debug=1` 只是它的初始状态，点它随时开 / 关；开着 = 深底浅字（`--active-bg` / `--active-ink`）、边框 `--accent`；加载旧存档后打开开关也要显示历史回合的 trace（读数来自 `save.events`，不是内存里那一回合）。
+- 开关：右上角 `[data-debug-toggle]`（带 `data-on`），`?debug=1` 只是它的初始状态，点它随时开 / 关；开着 = 深底浅字（`--active-bg` / `--active-ink`）+ 字重 600、边框 `--accent`；加载旧存档后打开开关也要显示历史回合的 trace（读数来自 `save.events`，不是内存里那一回合）。
 - trace 卡片：`[data-trace][data-trace-node="<id>"][data-trace-turn="<n>"]`，内含 `[data-trace-name]` / `[data-trace-type]` / `[data-trace-prompt]`；有思考时 `[data-trace-thinking]`；有工具调用时 `[data-trace-tools]`（每条 `[data-trace-tool]`，带执行结果的那条还有 `[data-trace-tool-result]`）；有正文时 `[data-trace-output]`；脚注 `[data-trace-tokens]` / `[data-trace-tps]` / `[data-trace-ms]` / `[data-trace-preset]`；**空段不画空框**。
 - 合计行：`[data-turn-stats][data-turn-stats-turn="<n>"]`，内含 `[data-turn-stats-turn]` / `[data-turn-stats-tokens]` / `[data-turn-stats-ms]` / `[data-turn-stats-tps]`；没有用量 / 速率时写「没有用量 / 没有速率」，不拿 0 冒充。
 - 判据：`play.spec.js` / `prompt-history.spec.js` / `stream-abort.spec.js` / `errors.spec.js` / `reasoning.spec.js` / `snapshot.spec.js` / `node-tools.spec.js`。
 
 ### 8.4 设置
 
-- 主题选项按钮 `button[data-theme="light"]` / `button[data-theme="dark"]`（带 `aria-pressed`）：点击切换，写 `tg2.settings.theme`，刷新保留；`document.documentElement` 上也要有 `data-theme`（**所以选按钮必须带 `button`**，否则撞 `<html>`）；开着 = 深底浅字（`--active-bg` / `--active-ink`）、边框 `--active-ink` 悬停压到 `--accent`，关着 = `--panel` / `--ink`；判据 `v2/e2e/settings-options.spec.js`。
+- 主题选项按钮 `button[data-theme="light"]` / `button[data-theme="dark"]`（带 `aria-pressed`）：点击切换，写 `tg2.settings.theme`，刷新保留；`document.documentElement` 上也要有 `data-theme`（**所以选按钮必须带 `button`**，否则撞 `<html>`）；开着 = 深底浅字（`--active-bg` / `--active-ink`）+ 字重 600、边框 `--active-ink` 悬停压到 `--accent`，关着 = `--panel` / `--ink`；判据 `v2/e2e/settings-options.spec.js`。
 - 预设列表 `[data-preset-list]`，每条 `[data-preset="<id>"]`：`[data-preset-name]` / `[data-preset-baseurl]` / `[data-preset-model]` / `[data-preset-key]` / `[data-preset-reasoning]` / `[data-delete-preset]`；`[data-add-preset]` 新增；改动即时落盘 `tg2.presets`。
 - 默认两条**本地**预设，只在新装（`tg2.presets` 这个键不存在）时由 `main.ts` 写一次，顺序固定：
 

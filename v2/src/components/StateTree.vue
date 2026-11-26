@@ -135,6 +135,7 @@ function showsWrite(): boolean {
   padding: 3px 4px;
   border: 1px solid transparent;
   border-radius: 6px;
+  background: var(--panel);
   cursor: pointer;
 }
 
@@ -143,11 +144,12 @@ function showsWrite(): boolean {
   border-color: var(--line-strong);
 }
 
-/* 选中 = 深强调底 + 浅字（与首页卡行 / 提示词块同一套三态） */
+/* 选中 = 深强调底 + 浅字（与首页卡行 / 提示词块同一套三态）；字重 600，与未选中行区分 */
 .state-row.selected {
   border-color: var(--accent);
   background: var(--active-bg);
   color: var(--active-ink);
+  font-weight: 600;
 }
 
 .state-code {
