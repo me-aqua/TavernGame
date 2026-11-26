@@ -5,10 +5,12 @@
  *   · **逐条读**：一条坏的不挡合法的，坏的那条自己带中文原因（`error`），顺序不变；
  *   · **按 id 取单条**：只校验目标项（旁边的坏项与它无关），目标是坏的 / 不存在就报错；
  *   · **宽松写**：`saveCardsLoose` / `saveSavesLoose` 原样保留坏项（不迁移、不丢项、不改字段）；
+ *     ⚠️ 判的是**值**不是字节：存储是「整个数组一个 JSON 字符串」，写回必然重新序列化，
+ *     所以判据两头都 `JSON.parse` 后深比较 —— 丢项 / 改字段 / 把旧格式归一化，都在这一层量得到。
  *   · **整表坏掉仍然出声**：坏 JSON / 顶层不是数组 —— 这一票不改那条口径。
  *
- * 为什么现在就该红：`storage` 还没有这一组 API（第 3 关的活）。每条用例各自红一条，
- * 红的位置直接点名「哪个能力缺」，而不是整个文件在收集阶段就炸掉。
+ * 每条用例各自独立失败（不靠整个文件在收集阶段炸掉）：第 2 关时它们要先红，
+ * 红的位置能直接点名「哪个能力缺」，而不是只丢一句「模块加载失败」。
  */
 import { describe, expect, it } from 'vitest'
 import { fakeBackend, makeCard, makeSave, OPENING_PROMPT } from './support/fixtures.js'
@@ -168,8 +170,8 @@ describe('存储：按 id 取单条 —— 只校验目标项', () => {
   })
 })
 
-describe('存储：宽松写 —— 坏项原样留在盘上', () => {
-  it('saveCardsLoose：合法卡 + 坏项一起写，坏项深度相等、字节逐字不变', async () => {
+describe('存储：宽松写 —— 坏项的值原样留在盘上（写入会重新序列化，判的是值）', () => {
+  it('saveCardsLoose：合法卡 + 坏项一起写，坏项的值与本机那份深相等（含只有坏项才有的字段）', async () => {
     const card = makeCard()
     const bad = brokenCard()
     const { storage, backend } = await storageWith({})
@@ -178,9 +180,8 @@ describe('存储：宽松写 —— 坏项原样留在盘上', () => {
 
     const written = JSON.parse(backend.getItem('tg2.cards'))
     expect(written).toEqual([card, bad])
-    // 键序 / 值 / 类型都没被重写：坏项的序列化字符串与种下去的那份逐字相同
-    expect(JSON.stringify(written[1])).toBe(JSON.stringify(bad))
-    expect(JSON.stringify(written[1])).toContain('KEEP_ME_VERBATIM')
+    // 深相等已经覆盖「字段没被洗掉 / 旧 schemaVersion 没被升级」；这里再点名那个标记字段
+    expect(written[1].extra).toBe('KEEP_ME_VERBATIM')
 
     const entries = storage.loadCardEntries()
     expect(entries.map((entry) => entry.card !== undefined)).toEqual([true, false])
@@ -194,7 +195,7 @@ describe('存储：宽松写 —— 坏项原样留在盘上', () => {
     expect(backend.keys().filter((key) => key.startsWith('tg.'))).toEqual([])
   })
 
-  it('saveSavesLoose：合法存档 + 坏项一起写，坏项逐字不变', async () => {
+  it('saveSavesLoose：合法存档 + 坏项一起写，坏项的值深相等', async () => {
     const card = makeCard()
     const save = makeSave(card)
     const bad = brokenSave(card)
@@ -204,11 +205,11 @@ describe('存储：宽松写 —— 坏项原样留在盘上', () => {
 
     const written = JSON.parse(backend.getItem('tg2.saves'))
     expect(written).toEqual([save, bad])
-    expect(JSON.stringify(written[1])).toBe(JSON.stringify(bad))
+    expect(written[1].extra).toBe('KEEP_ME_VERBATIM')
     expect(backend.writes).toEqual(['tg2.saves'])
   })
 
-  it('新建之后：坏项还在原位、字节不变；新建的那条排在末尾', async () => {
+  it('新建之后：坏项还在原位、值不变；新建的那条排在末尾', async () => {
     const card = makeCard()
     const bad = brokenCard()
     const { storage } = await storageWith({})
@@ -219,7 +220,7 @@ describe('存储：宽松写 —— 坏项原样留在盘上', () => {
 
     const entries = storage.loadCardEntries()
     expect(entries.map((entry) => entry.raw.id)).toEqual(['c1', 'c-bad', 'c2'])
-    expect(JSON.stringify(entries[1].raw)).toBe(JSON.stringify(bad))
+    expect(entries[1].raw).toEqual(bad)
   })
 
   it('宽松写之后整表读仍然出声（loadCards 的口径没被放宽）', async () => {

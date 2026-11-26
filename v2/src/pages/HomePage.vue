@@ -12,7 +12,8 @@
  * 只是没有任何入口（不能选中、不能编辑 / 改名 / 删除 / 进对话）。合法项完全照旧。
  *
  * 🔴 **写盘一律走宽松写**（`saveCardsLoose()` / `saveSavesLoose()`），且只替换 entries 里对应的
- * 那一条：坏项的 `raw` 原样带回盘上（原始 JSON 逐字不变）—— 这一票不修、不删、不迁移坏项。
+ * 那一条：坏项的 `raw` 原样带回盘上（**JSON 值不变**；解析 / 重新序列化会改空白与数字写法，
+ * 不承诺字节逐字相同）—— 这一票不修、不删、不迁移坏项。
  *
  * 🔴 **整表读失败时整页只留错误面板**（`loadFailed`）：坏 JSON / 顶层不是数组时，
  * 内存里那份列表是空的 / 半截的 —— 这时只要能点到「新建」，写盘就会把盘上那份整表覆盖。
@@ -185,8 +186,12 @@ function confirmDelete(): void {
 const confirmMessage = () =>
   confirming.value?.kind === 'card' ? t('home.deleteCardConfirm') : t('home.deleteSaveConfirm')
 
+/** 存档行上显示哪个卡名：现存卡 ?? 存档快照 ?? 中性回退（快照缺名字时不许当场崩） */
 function cardNameOf(save: Save): string {
-  return cards.value.find((card) => card.id === save.cardId)?.name ?? save.cardSnapshot.name
+  const card = cards.value.find((item) => item.id === save.cardId)
+  const snapshotName = (save.cardSnapshot as { name?: unknown } | undefined)?.name
+  const name = card?.name ?? snapshotName
+  return typeof name === 'string' && name !== '' ? name : t('home.unknownCard')
 }
 
 function go(hash: string): void {

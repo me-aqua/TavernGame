@@ -36,8 +36,9 @@ export interface StorageBackend {
 }
 
 /**
- * 逐条读回来的一条：`raw` 是盘上那个元素的**解析值**（原样带着，写回时逐字序列化）。
+ * 逐条读回来的一条：`raw` 是盘上那个元素的**解析值**（原样带着，写回时按 JSON 值重新序列化）。
  * 合法则给 `card`，不合法则给校验器抛出的那个 `error` —— 两者恰好有一个。
+ * ⚠️ 「原样」是**值**层面的：解析再序列化会改空白与数字写法，不承诺字节逐字相同。
  */
 export interface CardEntry {
   raw: unknown
@@ -128,6 +129,21 @@ export function createStorage(backend: StorageBackend = browserBackend()): Stora
     return (raw as { id?: unknown } | null)?.id
   }
 
+  /** 存档快照能不能在首页显示：只判显示需要的那一格（字符串 name），不是 validateCard */
+  function snapshotNameOf(raw: unknown): string | undefined {
+    const snapshot = (raw as { cardSnapshot?: { name?: unknown } } | null)?.cardSnapshot
+    return typeof snapshot?.name === 'string' ? snapshot.name : undefined
+  }
+
+  /**
+   * 校验器抛的 `AppError` 变成这一条的 `error`；别的异常原样抛 ——
+   * 校验器自己的 bug 不许伪装成「盘上有一条坏数据」。
+   */
+  function entryError(raw: unknown, cause: unknown): { raw: unknown; error: AppError } {
+    if (!(cause instanceof AppError)) throw cause
+    return { raw, error: cause }
+  }
+
   return {
     // 读全部卡；逐张过结构校验，坏一张就抛（不静默丢）
     loadCards() {
@@ -142,7 +158,7 @@ export function createStorage(backend: StorageBackend = browserBackend()): Stora
           validateCard(raw as Card)
           return { raw, card: raw as Card }
         } catch (cause) {
-          return { raw, error: cause as AppError }
+          return entryError(raw, cause)
         }
       })
     },
@@ -161,7 +177,7 @@ export function createStorage(backend: StorageBackend = browserBackend()): Stora
     saveCards(cards) {
       write(STORAGE_KEYS.cards, cards)
     },
-    // 宽松写：原样序列化 entries（坏项的字段 / 键序 / 值都不动）
+    // 宽松写：原样序列化 entries（JSON 值不变；空白 / 数字写法会按 JSON.stringify 重排）
     saveCardsLoose(entries) {
       write(STORAGE_KEYS.cards, entries)
     },
@@ -171,14 +187,20 @@ export function createStorage(backend: StorageBackend = browserBackend()): Stora
       for (const save of saves) validateSave(save)
       return saves
     },
-    // 逐条读：只校验存档自己那一半（与 loadSaves 同口径）
+    // 逐条读：校验存档自己那一半；另要求快照可显示（首页要拿它的名字）—— 不合法就只带自己的 error
     loadSaveEntries(): SaveEntry[] {
       return parseArray(STORAGE_KEYS.saves).map((raw) => {
         try {
           validateSave(raw as Save)
+          if (snapshotNameOf(raw) === undefined) {
+            throw new AppError('E_VALIDATION', {
+              message: t('error.snapshotMissing'),
+              nextStep: t('next.home'),
+            })
+          }
           return { raw, save: raw as Save }
         } catch (cause) {
-          return { raw, error: cause as AppError }
+          return entryError(raw, cause)
         }
       })
     },

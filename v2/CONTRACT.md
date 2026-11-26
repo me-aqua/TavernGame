@@ -228,9 +228,9 @@ export function createStorage(backend = globalThis.localStorage) -> Storage
 | `loadCardEntries()`                         | 逐条读卡：按盘上顺序把每个元素映射成 `{ raw, card }` / `{ raw, error }`；一条坏的只影响它自己   |
 | `loadCardById(id)`                          | 按 `id` 找那一个元素并**只校验它**；找不到 / 不合法 ⇒ 中文 `E_VALIDATION`（旁边的坏项与它无关） |
 | `saveCards(cards)`                          | 整表写入（JSON 字符串），返回 `undefined`                                                       |
-| `saveCardsLoose(entries)`                   | 原样写 `entries`（不校验、不归一化、不丢项）；坏项的原始字节保持不变                            |
+| `saveCardsLoose(entries)`                   | 原样写 `entries`（不校验、不归一化、不丢项）；坏项的 **JSON 值**不变（不承诺字节逐字相同）      |
 | `loadSaves()` / `saveSaves(saves)`          | 同上（`validateSave`）                                                                          |
-| `loadSaveEntries()` / `loadSaveById(id)`    | 同上（`validateSave` **只校验存档自身那一半**）                                                 |
+| `loadSaveEntries()` / `loadSaveById(id)`    | 同上（`validateSave` **只校验存档自身那一半**）；`Entries` 另要求 `cardSnapshot.name` 可显示    |
 | `saveSavesLoose(entries)`                   | 同上（`tg2.saves`）                                                                             |
 | `loadPresets()` / `savePresets(presets)`    | 无键 ⇒ `[]`；不校验 provider 之外的字段                                                         |
 | `loadSettings()` / `saveSettings(settings)` | 无键 ⇒ `DEFAULT_SETTINGS`；有键时按默认值**深合并**（缺字段补默认，未知字段保留）               |
@@ -245,7 +245,7 @@ export function createStorage(backend = globalThis.localStorage) -> Storage
 4. `saveCards([])` 之后 `loadCards()` 必须是 `[]`（删空后机制照常）。
 5. **不放松整表读**：`loadCards()` / `loadSaves()` 仍是整表逐条校验、坏一条就抛；逐条读与宽松写是
    **另外的入口**（首页 / 编辑器 / 对话页用它们，§8.1–§8.3）。整表坏 JSON / 顶层不是数组，
-   逐条读也照样抛。
+   逐条读也照样抛；逐条读只把 `AppError` 收成「这一条坏了」，其它异常原样抛。
 
 ### 3.1 内置示例卡（`晨风镇`）—— 资产，不是玩家数据
 
@@ -489,12 +489,12 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   **删卡连带删掉它的全部存档**（存档的 `cardId` 指向它）**和它的模型映射 `tg2.nodeModels[cardId]`**；
   删存档不动卡。判据：`v2/e2e/empty.spec.js` / `v2/e2e/snapshot.spec.js`。
 - 空态：没有卡时 `[data-empty-cards]` 可见（中文文案「还没有卡带」），没有存档时 `[data-empty-saves]` 可见。
-- **坏项逐行标记、不挡合法项与新建**（阶段 2 第一项）：卡 / 存档列表来自逐条读
-  （`loadCardEntries()` / `loadSaveEntries()`）。非法行带 `[data-invalid-card]` / `[data-invalid-save]` +
-  `[data-invalid-reason]`（= 校验器的中文 `message`），**没有任何入口**（不选中、不编辑 / 改名 / 删除、
-  点了不跳页）；合法行完全照旧。新建 / 改名 / 删除走 `saveCardsLoose()` / `saveSavesLoose()`：
-  只替换合法项，坏项的 `raw` 原样带回盘上（原始 JSON 逐字不变）。整表坏 JSON / 顶层不是数组
-  仍是错误页 + 不给入口。判据：`v2/tests/invalid-items.test.js` + `v2/e2e/invalid-items.spec.js`。
+- **坏项逐行标记、不挡合法项与新建**（阶段 2 第一项）：列表来自逐条读，非法行带
+  `[data-invalid-card]` / `[data-invalid-save]` + `[data-invalid-reason]`（中文 `error.message`），
+  **没有任何入口**（不选中、不编辑 / 改名 / 删除、点了不跳页）；合法行照旧。
+  写走宽松写：只替换合法项，坏项 **JSON 值**不变（不承诺字节逐字相同）。存档卡名按
+  「现存卡名 → 快照名 → 中性回退」；**快照缺名字的存档是坏项**（`error.snapshotMissing`）。
+  整表坏 JSON / 顶层不是数组仍是错误页。判据：`v2/tests/invalid-items.test.js` + `v2/e2e/invalid-items.spec.js`。
 
 ### 8.2 编辑器
 
@@ -712,7 +712,7 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
 | 链校验（输出数 / 时间上限 / 上游只能往前 / 类型写权限 / 不兼容旧格式）                        | `v2/tests/chain.test.js`                                          |
 | 错误码五条都有中文 + 下一步                                                                   | `v2/tests/errors.test.js`                                         |
 | 存储五键 / 无种子 / 删空 / 坏 JSON / 坏映射                                                   | `v2/tests/storage.test.js`                                        |
-| 非法卡 / 非法存档逐项标记：首页照常、坏项无入口、新建保留坏项字节、按 id 只校验目标           | `v2/tests/invalid-items.test.js` + `v2/e2e/invalid-items.spec.js` |
+| 非法卡 / 非法存档逐项标记：首页照常、坏项无入口、新建保留坏项 JSON 值、按 id 只校验目标       | `v2/tests/invalid-items.test.js` + `v2/e2e/invalid-items.spec.js` |
 | 模块边界（无旧站 / core 不碰 DOM 与 Vue）                                                     | `v2/tests/boundaries.test.js`                                     |
 | 引擎语义（顺序、写入、流式、中止、快照）                                                      | `v2/tests/engine.test.js`                                         |
 | 调试内联：trace / turnStats 落盘、开关翻面、加载旧存档后仍能回看                              | `v2/e2e/play.spec.js` + `v2/tests/engine.test.js`                 |
@@ -786,10 +786,10 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
     四条同版式（41px 高度 = `--control-h` + 13px、6px 8px 内边距、1px 实线下边框），
     各带 `data-panel-title`，加号按钮在标题条外。中栏字段表不再自带标题（§8.2）。
 19. 🔴 **逐条读 + 只校验目标 + 宽松写**（阶段 2 第一项；测试岗在契约 §4 钉下，组长可否决）：
-    `raw` 是解析值（坏项写回时 `JSON.stringify` 逐字相同，键序 / 值 / 类型都不重写）；entries 顺序 =
-    盘上数组顺序（坏项不挪位、不排序）；宽松写只写 `tg2.cards` / `tg2.saves`，读 API 不写盘；
-    按 id 只认**严格相等**的字符串 `id`；坏项**没有任何入口**（只「看得见、点不进」）；
-    **不做自动修复 / 迁移**（坏项原样留在盘上，下次读它还是坏的）。
+    `raw` 是解析值，写回后 **JSON 值不变（deep-equal）**，**不承诺字节逐字相同**（会改空白 / 数字写法）；
+    entries 顺序 = 盘上顺序（坏项不挪位）；宽松写只写 `tg2.cards` / `tg2.saves`，读 API 不写盘；
+    按 id 只认**严格相等的字符串 `id`**；坏项**没有任何入口**（只「看得见、点不进」）；
+    只把 `AppError` 当坏项（其它异常原样抛）；**不做自动修复 / 迁移**（坏项下次读还是坏的）。
 
 ### 9.6 本关不做（别在阶段 1 拿它们当判据）
 
