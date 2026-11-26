@@ -64,12 +64,12 @@ function sectionOf(text, marker) {
   return text.slice(start, end)
 }
 
-/** 一次性拼提示词（默认：输出节点，读两块提示词 / 两个元素 / 两个上游） */
-async function promptOf({ card = makeCard(), node, action = 'act four', outputs } = {}) {
+/** 一次性拼提示词（默认：三个已完成回合的存档、输出节点；`save` 可换成新存档 / 一回合存档） */
+async function promptOf({ card = makeCard(), save, node, action = 'act four', outputs } = {}) {
   const { buildPrompt } = await loadPrompt()
   return buildPrompt({
     card,
-    save: saveWithThreeTurns(card),
+    save: save ?? saveWithThreeTurns(card),
     node: node ?? outputOf(card),
     action,
     outputs: outputs ?? { check: 'UP_CHECK', extra: 'UP_EXTRA' },
@@ -181,5 +181,94 @@ describe('历史语义：historyTurns 数的是 narration，action 只留最近�
     expect(block).not.toContain('NARR_ONE')
     expect(block).not.toContain('act two')
     expect(block).not.toContain('act one')
+  })
+})
+
+describe('开场白作为历史的第一条（新存档 / 落在窗口里才带）', () => {
+  /** 把「开场」那块提示词的正文设成 `body`（其余不变） */
+  function cardWithOpening(body) {
+    const card = makeCard()
+    card.prompts = card.prompts.map((prompt) => (prompt.id === 'opening' ? { ...prompt, body } : prompt))
+    return card
+  }
+
+  /**
+   * 历史块里**逐条**的内容：去掉标记、按行切、剥掉行动前缀 `> `、丢掉空行。
+   * 只比「有哪些条目、什么顺序」，不钉行动行的前缀与分隔符（那是实现的自由）。
+   */
+  function entriesOf(block) {
+    return block
+      .replace('<游戏历史记录>', '')
+      .split('\n')
+      .map((line) => line.trim().replace(/^>\s*/, ''))
+      .filter((line) => line !== '')
+  }
+
+  it('新存档（没有事件）+ historyTurns=1 ⇒ 块里恰好是「开场白 → 本回合行动」', async () => {
+    const card = cardWithOpening('OPENING_OP')
+    const node = { ...outputOf(card), historyTurns: 1 }
+    const text = await promptOf({
+      card,
+      node,
+      action: 'ACT_CURRENT_4',
+      save: makeSave(card),
+    })
+    const block = sectionOf(text, '<游戏历史记录>')
+    expect(entriesOf(block), '新存档的历史块不是「开场白 + 本回合行动」').toEqual([
+      'OPENING_OP',
+      'ACT_CURRENT_4',
+    ])
+  })
+
+  it('新存档 + historyTurns=0 ⇒ 只有本回合行动（开场白不进块）', async () => {
+    const card = cardWithOpening('OPENING_OP')
+    const node = { ...outputOf(card), historyTurns: 0 }
+    const text = await promptOf({
+      card,
+      node,
+      action: 'ACT_CURRENT_4',
+      save: makeSave(card),
+    })
+    const block = sectionOf(text, '<游戏历史记录>')
+    expect(entriesOf(block)).toEqual(['ACT_CURRENT_4'])
+    expect(block, 'historyTurns=0 却带上了开场白').not.toContain('OPENING_OP')
+  })
+
+  it('跑完一回合后 historyTurns=1 ⇒ 最近一条 narration + 本回合行动，开场白不再出现', async () => {
+    const card = cardWithOpening('OPENING_OP')
+    const save = makeSave(card, { turn: 1, events: turnEvents(1, 'act one', 'NARR_ONE') })
+    const node = { ...outputOf(card), historyTurns: 1 }
+    const text = await promptOf({ card, node, save, action: 'ACT_CURRENT_4' })
+    const block = sectionOf(text, '<游戏历史记录>')
+    expect(entriesOf(block)).toEqual(['NARR_ONE', 'ACT_CURRENT_4'])
+    expect(block, 'historyTurns=1 不该再带开场白').not.toContain('OPENING_OP')
+    expect(block).not.toContain('act one')
+  })
+
+  it('跑完一回合后 historyTurns=2 ⇒ 开场白落在窗口里，按时间排在最前', async () => {
+    const card = cardWithOpening('OPENING_OP')
+    const save = makeSave(card, { turn: 1, events: turnEvents(1, 'act one', 'NARR_ONE') })
+    const node = { ...outputOf(card), historyTurns: 2 }
+    const text = await promptOf({ card, node, save, action: 'ACT_CURRENT_4' })
+    const block = sectionOf(text, '<游戏历史记录>')
+    expect(entriesOf(block), 'historyTurns=2 时开场白应当作为最旧的一条叙事进块').toEqual([
+      'OPENING_OP',
+      'act one',
+      'NARR_ONE',
+      'ACT_CURRENT_4',
+    ])
+  })
+
+  it('开场白正文为空 ⇒ 块里没有开头那一条（也不留空行）', async () => {
+    const card = cardWithOpening('')
+    const node = { ...outputOf(card), historyTurns: 1 }
+    const text = await promptOf({
+      card,
+      node,
+      action: 'ACT_CURRENT_4',
+      save: makeSave(card),
+    })
+    const block = sectionOf(text, '<游戏历史记录>')
+    expect(entriesOf(block), '开场白为空时不该多出一条空条目').toEqual(['ACT_CURRENT_4'])
   })
 })

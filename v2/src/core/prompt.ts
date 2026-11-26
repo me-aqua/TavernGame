@@ -3,7 +3,8 @@
  *
  *   1. `<公共提示词·{title}>` + 正文（`prompts[].id ∈ node.reads` 的那些，`body` 逐字，**一块一个标记**）
  *   2. `<世界状态树>` + 一行「`<code> <name> = <值>`」（`state[].code ∈ node.reads` 的那些）
- *   3. `<游戏历史记录>` + 历史条目（最近 `historyTurns` 条叙事 + 行动，按事件先后排；本回合行动在最后）
+ *   3. `<游戏历史记录>` + 历史条目（开场白打头，其后是最近 `historyTurns` 条叙事 + 行动，按事件先后排；
+ *      本回合行动在最后）
  *   4. `<上游输出·{nodeName}>` + 正文（`node.readsUpstream` 点名的那些节点，按**链顺序**取输出，逐字）
  *   5. `<节点提示词>` + 正文（逐字）
  *
@@ -11,6 +12,7 @@
  * 眼睛语义一句话：`reads` 里有它就读，没有就一个字符都不出现。
  */
 import type { Card, ChainNode, Save, SaveEvent, TimeValue } from './types'
+import { OPENING_PROMPT_ID } from './schema'
 
 interface BuildPromptArgs {
   card: Card
@@ -52,14 +54,22 @@ function turnsOf(events: SaveEvent[]): HistoryTurn[] {
 }
 
 /**
- * 历史块的行：最近 `turns` 条叙事 + 最近 `turns - 1` 条历史行动，**按事件原有的先后穿插**，
- * 本回合这一条行动由调用方传进来、**恒排最后**（第 `turns` 条行动就是它，所以事件流里的只取 `turns - 1` 条）。
+ * 历史块的行：**开场白**（非空时）排最前，然后是最近 `turns` 条叙事 + 最近 `turns - 1` 条历史行动，
+ * **按事件原有的先后穿插**，本回合这一条行动由调用方传进来、**恒排最后**（第 `turns` 条行动就是它，
+ * 所以事件流里的只取 `turns - 1` 条）。
+ *
+ * 开场白是**最早的一条叙事**，与事件流里的叙事共用同一个预算 —— 预算满了就让位给更近的那些：
+ *   · 新存档（没有事件）+ `turns = 1` ⇒ `开场白 · 本回合行动`（没有上一个行动可带）；
+ *   · 一个已完成回合 `a1 n1` + `turns = 1` ⇒ `n1 · 本回合行动`（开场白不进来）；
+ *   · 同样一条事件流、`turns = 2` ⇒ `开场白 · a1 · n1 · 本回合行动`；
+ *   · `turns = 0` ⇒ 一条叙事都不取（开场白也不取），只剩本回合行动。
  *
  * 例（`turns = 2`，三个已完成回合 `a1 n1 a2 n2 a3 n3`）：`n2 · a3 · n3 · 本回合行动`。
- * 行动行带 `> ` 前缀，叙事就是正文本身。
+ * 行动行带 `> ` 前缀，叙事（含开场白）就是正文本身。
  */
-function historyLines(events: SaveEvent[], turns: number, action: string): string[] {
+function historyLines(opening: string, events: SaveEvent[], turns: number, action: string): string[] {
   const entries: { isAction: boolean; text: string }[] = []
+  if (opening !== '') entries.push({ isAction: false, text: opening })
   for (const turn of turnsOf(events)) {
     entries.push({ isAction: true, text: turn.action })
     for (const narration of turn.narrations) entries.push({ isAction: false, text: narration })
@@ -104,8 +114,10 @@ export function buildPrompt({ card, save, node, action, outputs }: BuildPromptAr
     .map((element) => `${element.code} ${element.name} = ${renderValue(save.tree[element.code])}`)
   if (stateLines.length > 0) blocks.push(`<世界状态树>\n${stateLines.join('\n')}`)
 
-  // 历史块恒有正文（本回合行动总在里面），所以它没有「空段」这一档
-  blocks.push(`<游戏历史记录>\n${historyLines(save.events, node.historyTurns, action).join('\n')}`)
+  // 历史块恒有正文（本回合行动总在里面），所以它没有「空段」这一档。
+  // 开场白读卡上 `opening` 那一块（§6.1 保证每张卡都有），正文为空就是这张卡没有开场白。
+  const opening = card.prompts.find((prompt) => prompt.id === OPENING_PROMPT_ID)?.body ?? ''
+  blocks.push(`<游戏历史记录>\n${historyLines(opening, save.events, node.historyTurns, action).join('\n')}`)
 
   // 上游按**链顺序**拼（不是按点击/存储顺序）：谁先跑完，谁的话在前；一段一个标记
   for (const other of card.chain) {

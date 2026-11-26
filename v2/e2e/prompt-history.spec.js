@@ -30,6 +30,25 @@ function seeded() {
   return { [KEYS.cards]: [card], [KEYS.saves]: [makeSave(card)], [KEYS.presets]: [MOCK_PRESET] }
 }
 
+/**
+ * 一张「开场白有正文」的卡（`opening` 的 body = OP），输出节点的 `historyTurns` 由调用方给。
+ * 开场白不是公共提示词眼睛读的（输出节点只读 pr1/pr2），所以它在提示词里只可能从历史块来 ——
+ * 这正是这一组判据要量的东西。
+ */
+function cardWithOpening(historyTurns, body = 'OPENING_OP') {
+  const card = makeCard()
+  card.prompts = card.prompts.map((prompt) => (prompt.id === 'opening' ? { ...prompt, body } : prompt))
+  card.chain = card.chain.map((node) => (node.id === 'output' ? { ...node, historyTurns } : node))
+  return card
+}
+
+/** 读一次跑完回合之后、输出节点 trace 里的提示词 */
+async function tracePromptText(page) {
+  const prompt = page.locator(`${traceCard('output')} [data-trace-prompt]`)
+  await expect(prompt).toHaveCount(1)
+  return (await prompt.textContent()) ?? ''
+}
+
 test.describe('读取历史回合：标签与错误文案', () => {
   test('编辑器里那个数字框的标签逐字是「读取历史回合」', async ({ page }) => {
     await boot(page, { storage: seeded(), hash: route.edit(CARD_ID) })
@@ -86,5 +105,51 @@ test.describe('提示词标记：trace 里看得见，按固定顺序', () => {
     // mock 的 normal 节点只回工具调用、正文是空串 ⇒ 上游那一段没有正文，**连标记都不该出现**。
     // （上游标记本身由单测 `prompt-markers.test.js` 用非空输出钉着；这里钉的是「空段不留光标题」也到得了界面。）
     expect(text, '上游这一段是空的，不该留下 <上游输出·…> 标记').not.toContain('<上游输出')
+  })
+})
+
+/**
+ * 开场白作为历史的第一条：新存档第一次跑回合时，历史块应当是「开场白 → 本回合行动」。
+ * 这条只能在界面上看（提示词住 trace），所以放在 e2e：种一张开场白有正文的卡、跑一回合，读 trace。
+ */
+test.describe('开场白作为历史的第一条（trace 里看得见）', () => {
+  test('新存档 + historyTurns=1 ⇒ 历史块先是开场白、再是本回合行动（各一次）', async ({ page }) => {
+    const card = cardWithOpening(1)
+    await boot(page, {
+      storage: {
+        [KEYS.cards]: [card],
+        [KEYS.saves]: [makeSave(card)],
+        [KEYS.presets]: [MOCK_PRESET],
+      },
+    })
+    await openStory(page, CARD_ID, SAVE_ID, { debug: true })
+    // 故事流的第一段就是开场白，所以跑完一回合是 2 条 narration（开场 + 本回合正文）
+    await playTurn(page, 'act one', 2)
+
+    const text = await tracePromptText(page)
+    const at = (needle) => text.indexOf(needle)
+    expect(text, '开场白没有进历史块').toContain('OPENING_OP')
+    expect(text.split('OPENING_OP').length - 1, '开场白在提示词里出现了不止一次').toBe(1)
+    expect(at('OPENING_OP'), '开场白必须落在历史块里').toBeGreaterThan(at('<游戏历史记录>'))
+    expect(at('act one'), '本回合行动必须排在开场白之后').toBeGreaterThan(at('OPENING_OP'))
+    expect(at('OPENING_OP'), '开场白必须在节点提示词之前').toBeLessThan(at('<节点提示词>'))
+  })
+
+  test('新存档 + historyTurns=0 ⇒ 只有本回合行动，开场白不进提示词', async ({ page }) => {
+    const card = cardWithOpening(0)
+    await boot(page, {
+      storage: {
+        [KEYS.cards]: [card],
+        [KEYS.saves]: [makeSave(card)],
+        [KEYS.presets]: [MOCK_PRESET],
+      },
+    })
+    await openStory(page, CARD_ID, SAVE_ID, { debug: true })
+    await playTurn(page, 'act one', 2)
+
+    const text = await tracePromptText(page)
+    expect(text, 'historyTurns=0 不该把开场白带进提示词').not.toContain('OPENING_OP')
+    expect(text).toContain('<游戏历史记录>')
+    expect(text.indexOf('act one')).toBeGreaterThan(text.indexOf('<游戏历史记录>'))
   })
 })
