@@ -3,7 +3,7 @@ import NodeForm from '../src/components/NodeForm.vue'
 import { OUTPUT_NODE, PRESETS, TIME_NODE } from './support/data'
 
 /**
- * 中栏 · 选中节点时的那张表：模型预设（本地映射，不进卡）、历史回合数、节点提示词。
+ * 中栏 · 选中节点时的那张表：模型预设（本地映射，不进卡）、读取历史回合、节点提示词。
  * 读哪几块提示词在右栏、读哪些上游节点在细条 —— 这张表里不再有眼睛。
  */
 const meta = {

@@ -117,7 +117,7 @@ describe('提示词拼装：没有独立的玩家行动段', () => {
     expectBefore(text, 'ACT_MARKER_9Z', 'NODE_OUT')
   })
 
-  it('historyTurns=1 ⇒ 只带最近一个已完成回合 + 本回合行动', async () => {
+  it('historyTurns=1 ⇒ 只带最近一条 narration + 本回合行动（上一个 action 不进块）', async () => {
     const card = makeCard()
     const node = { ...outputOf(card), historyTurns: 1, readsUpstream: [], prompt: 'NODE_OUT' }
     const text = await promptOf({ card, node, action: 'ACT_MARKER_9Z', outputs: {} })
@@ -193,14 +193,14 @@ describe('提示词拼装：上游（按节点点名的名单）', () => {
 })
 
 describe('提示词拼装：历史（含本回合）', () => {
-  it('historyTurns=3 ⇒ 最近三个已完成回合 + 本回合行动（旧的在前）', async () => {
+  it('historyTurns=3 ⇒ 最近三条 narration 按时间在前、本回合行动在最后', async () => {
     const text = await promptOf()
     expectBefore(text, 'NARR_ONE', 'NARR_TWO')
     expectBefore(text, 'NARR_TWO', 'NARR_THREE')
     expectBefore(text, 'NARR_THREE', 'act four')
   })
 
-  it('historyTurns=2 ⇒ 只留最近两个已完成回合 + 本回合行动', async () => {
+  it('historyTurns=2 ⇒ 只留最近两条 narration（更旧的 narr1 不进块）', async () => {
     const card = makeCard()
     const node = { ...outputOf(card), historyTurns: 2 }
     const text = await promptOf({ card, node })

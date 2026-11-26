@@ -69,7 +69,7 @@ runTurn({ card, save, presets, nodePresets, action, onEvent }) → { save, event
 ```
 
 - 顺序执行链；time 节点 `advance_time({hours})` 写 `tree['0']`；normal 节点 `write_state({ path, value })` 只能写 `writable` 里的元素；output 节点产故事。
-- 提示词拼装顺序：公共提示词（按 reads）→ 状态树（按 reads）→ **历史（最近 N 回合，含本回合玩家行动；行动就是历史最后一条）** → 上游输出（`readsUpstream` 里点名的前序节点，按链顺序拼接）→ 本节点提示词。**不单列「玩家行动」段**。
+- 提示词拼装顺序：公共提示词（按 reads，每块带 `<公共提示词·标题>`）→ 状态树（按 reads，带 `<世界状态树>`）→ **历史（带 `<游戏历史记录>`；`读取历史回合=0` 只带当前 action，`=1` 带最近 1 条输出 + 当前 action，`=n` 带最近 n 条输出 + 含当前在内的最近 n 次 action）** → 上游输出（`readsUpstream` 里点名的前序节点，每段带 `<上游输出·节点名>`，按链顺序拼接）→ 本节点提示词（带 `<节点提示词>`）。空段连标记一起省略。
 - 流式：output 节点流式回调 `onEvent({type:'chunk', text})`；可中止。
 - 错误：`E_PROVIDER`（网络/key/额度）· `E_VALIDATION`（卡/存档不合法）· `E_CHAIN`（链不合法）· `E_UNKNOWN`；中文提示 + 下一步。
 
