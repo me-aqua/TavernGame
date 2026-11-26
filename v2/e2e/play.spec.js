@@ -310,14 +310,14 @@ test.describe('对话页：调试开关（读数内联在故事流里）', () =>
    * 换主题 / 调色板时这一条跟着走，不会变成一条永远钉在旧色号上的假红。
    * 指针必须先挪开再量：普通按钮的 hover 会改边框色，会把「关着的常态」量歪。
    */
-  test('调试开关的样式：开着 = accent 实心 + 浅字，关回去恢复普通按钮', async ({ page }) => {
+  test('调试开关的样式：开着 = active-bg 实心 + active-ink 字，关回去恢复普通按钮', async ({ page }) => {
     await boot(page, { storage: seeded() })
     await openStory(page, CARD_ID, 's1')
     const toggle = page.locator('[data-debug-toggle]')
 
-    /** 读开关当前的计算样式 + 根上那几对 token 解析出来的 rgb */
-    const readToggle = async () => {
-      await page.mouse.move(2, 420)
+    /** 读开关当前的计算样式 + 根上那几对 token 解析出来的 rgb（`keepHover` = 量悬停态，别把指针挪走） */
+    const readToggle = async ({ keepHover = false } = {}) => {
+      if (!keepHover) await page.mouse.move(2, 420)
       return page.evaluate(`(() => {
         const element = document.querySelector('[data-debug-toggle]')
         const resolve = (name) => {
@@ -337,6 +337,8 @@ test.describe('对话页：调试开关（读数内联在故事流里）', () =>
           weight: Number(style.fontWeight),
           accent: resolve('--accent'),
           accentInk: resolve('--accent-ink'),
+          activeBg: resolve('--active-bg'),
+          activeInk: resolve('--active-ink'),
           panel: resolve('--panel'),
           ink: resolve('--ink'),
           lineStrong: resolve('--line-strong'),
@@ -363,24 +365,31 @@ test.describe('对话页：调试开关（读数内联在故事流里）', () =>
     expect(off.background, '关着的按钮不是普通按钮底色').toBe(off.panel)
     expect(off.color, '关着的按钮不是普通字色').toBe(off.ink)
     expect(off.border, '关着的按钮不是普通边框').toBe(off.lineStrong)
-    expect(off.background, '关着就已经是 accent 实心了').not.toBe(off.accent)
+    expect(off.background, '关着就已经是 active 实心了').not.toBe(off.activeBg)
     expect(off.weight).toBeLessThan(600)
 
-    // ② 点开：accent 实心 + accent-ink 字（与开着的 chip 同一对 token）
+    // ② 点开：active-bg 实心 + active-ink 字（与开着的 chip / 选中的节点同一对 token）
     await toggle.click()
     await expect(toggle).toHaveAttribute('data-on', 'true')
     const on = await readToggle()
-    expect(on.background, '开着的底色不是 accent').toBe(on.accent)
-    expect(on.color, '开着的字色不是 accent-ink').toBe(on.accentInk)
-    expect(on.border, '开着的边框不是 accent').toBe(on.accent)
+    expect(on.background, '开着的底色不是 --active-bg').toBe(on.activeBg)
+    expect(on.color, '开着的字色不是 --active-ink').toBe(on.activeInk)
     expect(on.background, '开着与关着看不出区别').not.toBe(off.background)
     expect(on.color, '开着与关着字色一样').not.toBe(off.color)
     expect(on.weight, '开着的字重没有加重（chip 是 600）').toBeGreaterThanOrEqual(600)
 
-    // 浅字压深底：字的亮度必须高于底色，对比度够看（实际比值也报出来）
-    const ratio = (luminance(on.color) + 0.05) / (luminance(on.background) + 0.05)
-    expect(luminance(on.color), '开着的字不是浅色（比底色还暗）').toBeGreaterThan(luminance(on.background))
-    expect(ratio, `开着的字底对比度只有 ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(3)
+    // 浅暖棕底 + 深字：深字必须比底色暗，对比度 ≥ 4.5（这一版把 active 与 accent 分开了，不能只靠「看起来够」）
+    expect(luminance(on.color), '开着的字不是深色（应当比底色暗）').toBeLessThan(luminance(on.background))
+    // 对比度不分「浅字压深底」还是「深字压浅底」：亮的那一侧在上
+    const [lightSide, darkSide] = [luminance(on.color), luminance(on.background)].sort((a, b) => b - a)
+    const ratio = (lightSide + 0.05) / (darkSide + 0.05)
+    expect(ratio, `开着的字底对比度只有 ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5)
+
+    // 悬停不许覆盖开着的样子
+    await toggle.hover()
+    const hoveredOn = await readToggle({ keepHover: true })
+    expect(hoveredOn.background, '悬停把开着的开关底色改了').toBe(on.background)
+    expect(hoveredOn.color, '悬停把开着的开关字色改了').toBe(on.color)
 
     // ③ 点回去：恢复普通按钮（底色 / 字色 / 边框都回去，字重也回去）
     await toggle.click()

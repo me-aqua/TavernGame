@@ -261,11 +261,11 @@ function goBack(): void {
   max-width: 220px;
 }
 
-/* 调试开着 = accent 实心 + accent-ink（与 `.chip[data-on='true']` / 选中节点同一套语义）；关着仍是普通按钮 */
+/* 调试开着 = active 实心 + 深字、边框仍是 accent（与 `.chip[data-on='true']` / 选中节点同一套语义）；悬停只换边框 */
 [data-debug-toggle][data-on='true'] {
-  background: var(--accent);
+  background: var(--active-bg);
   border-color: var(--accent);
-  color: var(--accent-ink);
+  color: var(--active-ink);
   font-weight: 600;
 }
 

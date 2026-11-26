@@ -97,10 +97,11 @@ const isUpstream = (index: number): boolean => selectedIndex.value >= 0 && index
   white-space: nowrap;
 }
 
+/* 选中 = active 实心 + 深字，边框仍是 accent。悬停只换边框（全局 button:hover），背景与字色不动 */
 .node.selected {
   border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--active-bg);
+  color: var(--active-ink);
   font-weight: 600;
 }
 </style>

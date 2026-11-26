@@ -526,7 +526,8 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   - **S2**（选中元素）：栏顶出现 `[data-add-state]`（裸 `+`），**每一行**出现 `[data-delete-state]`
     （裸 `×`；`'0'` 这一行永远没有它）。眼睛在 S2 不出现。
 - **读 / 写是看得见的 chip**（老板 2026-11-25）：所有读/写按钮共用全局 `.chip`
-  —— 关着时也有底色与边框（不是幽灵按钮），**开着 = `--accent` 实心 + `--accent-ink` 文字**；
+  —— 关着时也有底色与边框（不是幽灵按钮），**开着 = `--active-bg`（浅暖棕 #b08a5e）实心 +
+  `--active-ink`（深字 #2b2118）文字、边框仍是 `--accent`**（`--accent` 自此只画边框与焦点，不做实心填充）；
   高度 = `--control-h`（28px，与普通按钮 / 输入框同一档），文字标签「读 / 写」保留。
   三处：状态树读/写、细条上游读、右栏提示词读（行容器见 §9.5 #17）。
   **圆角与普通按钮共用同一个 `--radius`（6px）**（老板 2026-11-25 晚：chip 3px 太方；按钮与 chip 只留这一档）；
@@ -603,8 +604,8 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   `trace` 卡片**只在调试开着时**出现（一节点一张，段落顺序：提示词组装 → 思考 → 工具调用 → 输出 →
   tokens / t-s / ms / preset）；`turnStats` **永远在**（紧凑一行：回合 / 总 token / 总耗时 / t/s）。
   - 开关：右上角 `[data-debug-toggle]`（带 `data-on="true"|"false"`），`?debug=1` 只是它的**初始状态**，
-    点它随时开 / 关。**开着 = `--accent` 实心 + `--accent-ink` 文字**（与 `.chip[data-on='true']` /
-    选中节点同一套语义），关着是普通按钮。
+    点它随时开 / 关。**开着 = `--active-bg` 实心 + `--active-ink` 文字、边框仍是 `--accent`**（与
+    `.chip[data-on='true']` / 选中节点同一套语义，`--accent` 只画边框与焦点），关着是普通按钮。
     **加载旧存档后打开开关，也要显示历史回合的 trace**（读数来自 `save.events`，不是内存里那一回合）。
   - trace 卡片：`[data-trace][data-trace-node="<id>"][data-trace-turn="<n>"]`，内含
     `[data-trace-name]`、`[data-trace-type]`、`[data-trace-prompt]`；
