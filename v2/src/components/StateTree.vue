@@ -7,6 +7,9 @@
  *     **写**（`writable` 里有它才许写）；
  *   · **S2**（选中了某个元素）：栏顶出现 `+`（加元素），**每一行**出现 `×`（删这一行）。
  *
+ * `structureLocked`（存档编辑器，`#/edit-save/:saveId`）把 `+` 与 `×` **整块拿掉**（不渲染、
+ * 不是禁用）：那一侧的卡结构是冻结的，只许改名字 / 备注 / 初值与眼睛。
+ *
  * **写眼睛只看 `node.writable`，不按节点类型收窄**（老板 2026-11-26）：时间元素 `0` 与文字元素一样，
  * 每一行都有那只 chip —— 勾上它，这个节点就拿到对应的工具（时间 ⇒ `advance_time`，
  * 文字 ⇒ `write_state`，规则见 `schema.toolsForNode`）。唯一没有写眼睛的是**输出节点**：
@@ -21,6 +24,8 @@ const props = defineProps<{
   elements: StateElement[]
   node: ChainNode | null
   selectedCode: string | null
+  /** 结构锁死：不渲染 `+` / `×`（默认 false = 卡编辑器） */
+  structureLocked?: boolean
 }>()
 
 defineEmits<{
@@ -44,7 +49,7 @@ function showsWrite(): boolean {
         <span class="ellipsis">{{ t('editor.stateTitle') }}</span>
       </div>
       <button
-        v-if="selectedCode !== null"
+        v-if="!structureLocked && selectedCode !== null"
         type="button"
         class="icon panel-head-action"
         data-add-state
@@ -90,7 +95,7 @@ function showsWrite(): boolean {
           </button>
         </template>
         <button
-          v-if="selectedCode !== null && element.code !== '0'"
+          v-if="!structureLocked && selectedCode !== null && element.code !== '0'"
           type="button"
           class="icon"
           data-delete-state

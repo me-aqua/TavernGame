@@ -1,5 +1,5 @@
 /**
- * hash 路由（CONTRACT §8）。**不引入 vue-router**：四条路由、一个 `hashchange` 监听就够。
+ * hash 路由（CONTRACT §8）。**不引入 vue-router**：五条路由、一个 `hashchange` 监听就够。
  *
  * 为什么要解析成对象而不是在各页面里切字符串：页面只关心「我是谁、我的 id 是什么」，
  * 而「这个 hash 到底认不认」只有一处需要判断。
@@ -7,6 +7,7 @@
 export type Route =
   | { name: 'home' }
   | { name: 'editor'; cardId: string }
+  | { name: 'saveEditor'; saveId: string }
   | { name: 'play'; cardId: string; saveId: string }
   | { name: 'settings' }
   | { name: 'unknown'; hash: string }
@@ -19,6 +20,8 @@ export function parseRoute(hash: string): Route {
   if (parts.length === 1 && parts[0] === 'settings') return { name: 'settings' }
   if (parts.length === 2 && parts[0] === 'edit')
     return { name: 'editor', cardId: decodeURIComponent(parts[1]) }
+  if (parts.length === 2 && parts[0] === 'edit-save')
+    return { name: 'saveEditor', saveId: decodeURIComponent(parts[1]) }
   if (parts.length === 3 && parts[0] === 'play') {
     return { name: 'play', cardId: decodeURIComponent(parts[1]), saveId: decodeURIComponent(parts[2]) }
   }
@@ -34,6 +37,8 @@ export function routeHash(route: Route): string {
       return '#/settings'
     case 'editor':
       return `#/edit/${encodeURIComponent(route.cardId)}`
+    case 'saveEditor':
+      return `#/edit-save/${encodeURIComponent(route.saveId)}`
     case 'play':
       return `#/play/${encodeURIComponent(route.cardId)}/${encodeURIComponent(route.saveId)}`
     default:

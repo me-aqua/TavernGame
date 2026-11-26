@@ -2,7 +2,10 @@
 /**
  * 中栏 · 选中工作流节点时的那张表（SPEC §5）。
  *
- * 三样东西：**模型预设**、读取历史回合、节点提示词。
+ * 四样东西：**名字**、**模型预设**、读取历史回合、节点提示词。
+ *
+ * 名字是这个节点的展示名（工作流细条、中栏标题、提示词里的 `<上游输出·名字>` 都用它），
+ * 卡模式与存档模式都能改 —— 改的是卡（或存档快照）里的 `node.name`，不动链结构。
  *
  * 眼睛不在这张表里：读哪几块公共提示词在右栏（`PromptList`），读哪些上游节点在工作流细条
  * （`WorkflowStrip`）—— 两处都是「眼睛挨着被读的东西」，不用先在脑子里对上名字。
@@ -35,6 +38,16 @@ function onHistory(event: Event): void {
 
 <template>
   <div class="form stack">
+    <label class="field-row">
+      <span class="field-label">{{ t('editor.fieldName') }}</span>
+      <input
+        type="text"
+        data-node-name
+        :value="node.name"
+        @input="emit('patch', { name: ($event.target as HTMLInputElement).value })"
+      />
+    </label>
+
     <label class="field-row">
       <span class="field-label">{{ t('editor.nodePreset') }}</span>
       <select

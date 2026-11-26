@@ -83,6 +83,11 @@ function unknownRoute(): AppError {
         :key="`editor:${route.cardId}`"
         :card-id="route.cardId"
       />
+      <EditorPage
+        v-else-if="route.name === 'saveEditor'"
+        :key="`save-editor:${route.saveId}`"
+        :save-id="route.saveId"
+      />
       <PlayPage
         v-else-if="route.name === 'play'"
         :key="`play:${route.cardId}:${route.saveId}`"

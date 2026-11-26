@@ -1,12 +1,20 @@
 <script setup lang="ts">
 /**
- * 游戏卡编辑器（SPEC §5）：左状态树（可拖宽）· 工作流细条（固定宽）· 中编辑（可拖）· 右公共提示词（可拖）。
+ * 编辑器（SPEC §5）：左状态树（可拖宽）· 工作流细条（固定宽）· 中编辑（可拖）· 右公共提示词（可拖）。
+ *
+ * **一份文件两种模式**，因为表单、栏宽、状态机都该是同一套：
+ *   · 卡模式 `#/edit/:cardId`：改 `tg2.cards` 里这张卡，模型写 `tg2.nodeModels[cardId]`；
+ *   · 存档模式 `#/edit-save/:saveId`：改的是**这一份存档的 `cardSnapshot`（深拷贝）**与它自己的
+ *     `save.nodeModels`，`tg2.cards` 一个字节都不动。**结构锁死**：状态元素不能加 / 删（`+` / `×`
+ *     都不渲染）、没有节点增删排序、卡名不可改；名字 / 备注 / 初值 / 提示词块 / 节点提示词 /
+ *     历史轮数 / 眼睛 / 模型预设照常可改。
  *
  * 三条口径：
- *   · **没有保存按钮**：字段一改就落 `tg2.cards`（切页、刷新都在）；
- *   · **模型不进卡**：中栏那一格改的是本机映射 `tg2.nodeModels[cardId][nodeId]`；
- *     这张卡第一次打开时会铺一条「每个节点 → 池子里第一个预设」的映射（没有预设就不铺，
- *     写空串只会制造假数据）；
+ *   · **没有保存按钮**：字段一改就落盘（卡模式写卡表，存档模式写存档表）；
+ *   · **模型不进卡**：中栏那一格改的是节点映射 —— 卡模式 `tg2.nodeModels[cardId][nodeId]`，
+ *     存档模式 `save.nodeModels[nodeId]`。卡模式第一次打开会铺一条「每个节点 → 池子里第一个预设」
+ *     的映射（没有预设就不铺，写空串只会制造假数据）；存档没有自己的映射时先按卡级那一片显示，
+ *     玩家真改哪一格才把整片写进存档；
  *   · **自由度只有两个**（左宽、右宽），中栏恒为余量；细条宽度固定，不参与拖拽。
  */
 import { computed, onMounted, reactive, ref } from 'vue'
@@ -18,16 +26,22 @@ import StateForm from '../components/StateForm.vue'
 import StateTree from '../components/StateTree.vue'
 import WorkflowStrip from '../components/WorkflowStrip.vue'
 import { asAppError, storage } from '../app-context'
-import { nextPromptId, nextStateCode } from '../cards'
+import { cloneCard, nextPromptId, nextStateCode } from '../cards'
 import { AppError } from '../core/errors'
-import { validateCard } from '../core/schema'
+import { validateCard, validateSave } from '../core/schema'
 import { DEFAULT_SETTINGS } from '../core/storage'
-import type { Card, ChainNode, NodeModels, Preset, PromptBlock, StateElement } from '../core/types'
+import type { Card, ChainNode, NodeModels, Preset, PromptBlock, Save, StateElement } from '../core/types'
 import { t } from '../i18n'
 import { REPO_URL } from '../repo'
 import { routeHash } from '../router'
 
-const props = defineProps<{ cardId: string }>()
+const props = defineProps<{ cardId?: string; saveId?: string }>()
+
+/** 两个 id 只来一个（路由层保证）；页面按 key 重挂，所以 setup 时定死 */
+const cardId = props.cardId
+const saveId = props.saveId
+/** 存档模式：编辑目标是这一份存档，不是卡带库 */
+const editingSave = saveId !== undefined
 
 const LEFT = { min: 200, max: 480 }
 const RIGHT = { min: 240, max: 560 }
@@ -37,8 +51,13 @@ const STRIP_WIDTH = 96
 const SPLITTER_WIDTH = 6
 
 const card = ref<Card | null>(null)
+/** 存档模式：正在编辑的那一份（`cardSnapshot` 就是中栏改的东西） */
+const save = ref<Save | null>(null)
 const presets = ref<Preset[]>([])
+/** 卡模式：整张 `tg2.nodeModels`（写回时要带上别的卡那几片） */
 const models = ref<NodeModels>({})
+/** 当前正在编辑的节点映射：卡模式 = `tg2.nodeModels[cardId]`；存档模式 = `save.nodeModels`（没有就看卡级那一片） */
+const nodePresets = ref<Record<string, string>>({})
 const error = ref<AppError | null>(null)
 const selectedNodeId = ref<string | null>(null)
 const selectedCode = ref<string | null>(null)
@@ -58,6 +77,9 @@ const selectedPrompt = computed(
   () => card.value?.prompts.find((prompt) => prompt.id === selectedPromptId.value) ?? null,
 )
 
+/** 页栏标题：卡名（存档模式是快照里的名字）；还没读出来时显示目标 id */
+const title = computed(() => card.value?.name ?? saveId ?? cardId)
+
 /** 中栏标题：编辑·<当前选中对象的名字>；什么都没选就是「编辑」 */
 const middleTitle = computed(() => {
   if (selectedNode.value) return t('editor.editTitle', { name: selectedNode.value.name })
@@ -66,55 +88,91 @@ const middleTitle = computed(() => {
   return t('editor.editTitleEmpty')
 })
 
-const sliceOf = (cardId: string): Record<string, string> => models.value[cardId] ?? {}
-
 /** 某一格当前用的预设 id：映射里有就用它，没有就是池子第一个（`''` = 一个预设都没有） */
 function presetIdFor(nodeId: string): string {
-  return sliceOf(props.cardId)[nodeId] ?? presets.value[0]?.id ?? ''
+  return nodePresets.value[nodeId] ?? presets.value[0]?.id ?? ''
+}
+
+/** 打开卡模式：只按 id 校验要打开的这一张（盘上别的坏卡与它无关），首次打开把模型映射铺上 */
+function openCard(id: string): void {
+  const found = storage().loadCardById(id)
+  card.value = found
+  models.value = storage().loadNodeModels()
+  if (!models.value[id] && presets.value.length > 0) {
+    const first = presets.value[0].id
+    models.value = {
+      ...models.value,
+      [id]: Object.fromEntries(found.chain.map((node) => [node.id, first])),
+    }
+    storage().saveNodeModels(models.value)
+  }
+  nodePresets.value = models.value[id] ?? {}
+}
+
+/**
+ * 打开存档模式：读这一份存档，把它的 `cardSnapshot` **深拷贝**出来当编辑对象（盘上那张卡不参与）。
+ *
+ * 存档还没有自己的映射时（本票之前建的存档）先按卡级 `tg2.nodeModels[cardId]` 显示 —— 与对话页
+ * 用的是同一份解析结果；玩家真改了某一格，才把整片写进 `save.nodeModels`（不迁移、不补写）。
+ */
+function openSave(id: string): void {
+  const found = storage().loadSaveById(id)
+  validateCard(found.cardSnapshot)
+  validateSave(found, found.cardSnapshot)
+  save.value = found
+  card.value = cloneCard(found.cardSnapshot)
+  nodePresets.value = { ...(found.nodeModels ?? storage().loadNodeModels()[found.cardId] ?? {}) }
 }
 
 onMounted(() => {
   try {
-    // 只按 id 校验要打开的这一张：盘上别的坏卡与它无关
-    const found = storage().loadCardById(props.cardId)
-    card.value = found
     presets.value = storage().loadPresets()
-    models.value = storage().loadNodeModels()
     const settings = storage().loadSettings()
     columns.left = settings.editorColumns.left
     columns.right = settings.editorColumns.right
-
-    if (!models.value[props.cardId] && presets.value.length > 0) {
-      const first = presets.value[0].id
-      models.value = {
-        ...models.value,
-        [props.cardId]: Object.fromEntries(found.chain.map((node) => [node.id, first])),
-      }
-      storage().saveNodeModels(models.value)
-    }
+    if (saveId !== undefined) openSave(saveId)
+    else if (cardId !== undefined) openCard(cardId)
   } catch (cause) {
     error.value = asAppError(cause)
   }
 })
 
-/**
- * 落盘一张卡：**先验后写** —— 不合法的中间态既不进内存、也不进 localStorage。
- *
- * 写的是**逐条读回来的整张表**（`loadCardEntries()`），只把这一张换掉再宽松写回：
- * 盘上别的卡（包括不合法的那些）**JSON 值**不变（空白 / 数字写法会被重新序列化，不承诺字节逐字相同）。
- */
-function persist(next: Card): void {
-  try {
-    validateCard(next)
-  } catch (cause) {
-    error.value = asAppError(cause)
-    return
-  }
+/** 卡模式：把这张卡换进 `tg2.cards` 那一行，别的行（含坏项）原样带回 */
+function writeCard(next: Card): void {
   const entries = storage()
     .loadCardEntries()
     .map((entry) => (entry.card?.id === next.id ? { raw: next, card: next } : entry))
   storage().saveCardsLoose(entries.map((entry) => entry.raw))
-  card.value = next
+}
+
+/** 存档模式：快照 + 这一份自己的模型映射一起换进 `tg2.saves` 那一行，别的存档原样带回 */
+function writeSave(next: Card): void {
+  const current = save.value
+  if (!current) return
+  const nextSave: Save = { ...current, cardSnapshot: next, nodeModels: { ...nodePresets.value } }
+  validateSave(nextSave, next)
+  const entries = storage()
+    .loadSaveEntries()
+    .map((entry) => (entry.save?.id === nextSave.id ? { raw: nextSave, save: nextSave } : entry))
+  storage().saveSavesLoose(entries.map((entry) => entry.raw))
+  save.value = nextSave
+}
+
+/**
+ * 落盘一次卡内容改动：**先验后写** —— 不合法的中间态既不进内存、也不进 localStorage。
+ *
+ * 两种模式都只替换「这一个对象」那一行、宽松写回整表：盘上别的卡 / 存档（包括不合法的那些）
+ * **JSON 值**不变（空白 / 数字写法会被重新序列化，不承诺字节逐字相同）。
+ */
+function persist(next: Card): void {
+  try {
+    validateCard(next)
+    if (editingSave) writeSave(next)
+    else writeCard(next)
+    card.value = next
+  } catch (cause) {
+    error.value = asAppError(cause)
+  }
 }
 
 function updateCard(mutate: (current: Card) => Card): void {
@@ -224,9 +282,20 @@ function removePrompt(id: string): void {
   if (selectedPromptId.value === id) selectedPromptId.value = null
 }
 
+/**
+ * 改某一格的模型预设：卡模式写 `tg2.nodeModels[cardId]`（整张表连别的卡那几片一起写回）；
+ * 存档模式写进**这一份存档自己的** `nodeModels`，卡的映射一个字不动。
+ */
 function choosePreset(nodeId: string, presetId: string): void {
   try {
-    models.value = { ...models.value, [props.cardId]: { ...sliceOf(props.cardId), [nodeId]: presetId } }
+    nodePresets.value = { ...nodePresets.value, [nodeId]: presetId }
+    if (editingSave) {
+      const current = card.value
+      if (current) writeSave(current)
+      return
+    }
+    if (cardId === undefined) return
+    models.value = { ...models.value, [cardId]: nodePresets.value }
     storage().saveNodeModels(models.value)
   } catch (cause) {
     error.value = asAppError(cause)
@@ -306,7 +375,7 @@ function goBack(): void {
   <div class="page" data-page="editor">
     <header class="page-bar">
       <button type="button" data-back @click="goBack">{{ t('nav.back') }}</button>
-      <span class="page-title ellipsis">{{ card ? card.name : cardId }}</span>
+      <span class="page-title ellipsis">{{ title }}</span>
       <span class="repo-center">
         <a class="repo-url" :href="REPO_URL" :data-repo-url="REPO_URL" target="_blank" rel="noopener">{{
           REPO_URL
@@ -322,6 +391,7 @@ function goBack(): void {
           :elements="card.state"
           :node="selectedNode"
           :selected-code="selectedCode"
+          :structure-locked="editingSave"
           @add="addState"
           @select="selectElement"
           @remove="removeState"

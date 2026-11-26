@@ -4,7 +4,8 @@
  *
  * 三条容易做坏的：
  *   · **点卡行只是「选中」**，不跳页 —— 新建存档要用这个选中态（「编辑」才进编辑器）；
- *   · **新建存档落在列表末尾**、**不跳转**，`tree` 取卡的初值、`cardSnapshot` 是整张卡的深拷贝；
+ *   · **新建存档落在列表末尾**、**不跳转**，`tree` 取卡的初值、`cardSnapshot` 是整张卡的深拷贝，
+ *     **`nodeModels` 从卡级映射 `tg2.nodeModels[cardId]` 拷一份**（此后这一份存档自己说了算）；
  *   · **删卡只删这张卡**：存档一条都不删（每份存档带完整的 `cardSnapshot`，独立可玩），
  *     模型映射 `tg2.nodeModels[cardId]` 也保留（孤儿存档跑回合要用它）；删存档只删那一份。
  *
@@ -116,6 +117,7 @@ function createSave(): void {
       id: newId('s'),
       cardId: card.id,
       cardSnapshot: cloneCard(card),
+      nodeModels: { ...(storage().loadNodeModels()[card.id] ?? {}) },
       name: t('save.defaultName', { count: saveEntries.value.length + 1 }),
       turn: 0,
       tree: treeOf(card),
@@ -326,6 +328,13 @@ function go(hash: string): void {
                 <span class="actions">
                   <button
                     type="button"
+                    data-save-edit
+                    @click.stop="go(routeHash({ name: 'saveEditor', saveId: entry.save.id }))"
+                  >
+                    {{ t('home.editSaveCard') }}
+                  </button>
+                  <button
+                    type="button"
                     data-save-rename
                     @pointerdown.stop
                     @click.stop="startRename('save', entry.save.id)"
@@ -403,16 +412,25 @@ function go(hash: string): void {
   padding: 3px 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--panel-2);
+  background: var(--panel);
   cursor: pointer;
 }
 
-.item.selected {
-  border-color: var(--accent);
-}
-
+/* 悬停只把边框变深（底色不动）；这一条要在 .selected 之前，选中行的 accent 边框才不被盖掉 */
 .item:hover {
   border-color: var(--line-strong);
+}
+
+/* 选中 = 深强调底 + 浅字，与右栏公共提示词块同一套 */
+.item.selected {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* 深底上的次要文字（存档数 / 卡名与回合）跟着换浅色，否则那一行看不清 */
+.item.selected .muted {
+  color: var(--accent-ink);
 }
 
 /* 坏项：虚线危险边框 + 手型取消（它没有任何入口），原因那一行与徽标同色 */

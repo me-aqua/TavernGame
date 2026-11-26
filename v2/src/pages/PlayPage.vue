@@ -5,6 +5,7 @@
  * 三条最要紧的语义：
  *   · **跑的一律是 `save.cardSnapshot`**（不是 `tg2.cards` 里那张现卡）——
  *     改卡只影响之后新建的存档，旧存档按它冻结时的那张卡跑（SPEC §9.4）；
+ *     模型同理：**优先用这一份存档自己的 `nodeModels`**，没有这一格才回落卡级映射；
  *   · **停止 = 什么都不写**：本轮半截文本丢掉、故事流回到回合开始前、存档一个字节没动；
  *   · **写盘成功才认账**：回合结果先校验、再写回盘，最后才更新内存里的 `save` ——
  *     校验不过或存储写不进去就整回合按出错处理，`[data-turn]` 与故事流停在上一回合；
@@ -108,7 +109,8 @@ onMounted(() => {
     validateSave(found, found.cardSnapshot)
     save.value = found
     presets.value = storage().loadPresets()
-    nodePresets.value = storage().loadNodeModels()[props.cardId] ?? {}
+    // 模型映射：这一份存档自己的（`save.nodeModels`）优先；没有这一格就是旧存档，回落卡级那一片
+    nodePresets.value = found.nodeModels ?? storage().loadNodeModels()[props.cardId] ?? {}
     if (found.turn > 0) status.value = t('play.status', { turn: found.turn })
   } catch (cause) {
     loadFailed.value = true

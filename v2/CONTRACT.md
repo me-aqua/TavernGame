@@ -142,6 +142,7 @@ v2/
   id: 's-<string>',
   cardId: string,
   cardSnapshot: Card,          // 新建存档那一刻整张卡的深拷贝（此后不随卡改动）
+  nodeModels?: { [nodeId]: presetId }, // 这一份存档自己的模型映射（§2.5）；缺省 = 旧存档，播放回落卡级
   name: string,
   turn: number,                // 已完成的回合数；新建为 0
   tree: { [code]: string | { day, hour } },
@@ -163,6 +164,7 @@ totalTokens } | null, durationMs, tps: number | null, turn }`；`text = node.nam
   - `turnStats`（每回合一条，回合末尾）：`detail = { turn, totalMs, usage, tps }`；`text = 'turn <n>'`。
     `usage` 是本回合各节点用量之和，`tps` 是本回合整体吞吐（量不出为 `null`）。
 - 改卡不影响旧存档：引擎**一律读 `save.cardSnapshot`**，不读 `tg2.cards`。判据：`v2/e2e/snapshot.spec.js`。
+- **模型映射**：新建存档把卡级 `tg2.nodeModels[cardId]` 整片拷进 `save.nodeModels`；播放优先用它，没有这一格才回落卡级映射（**不迁移**旧存档）；存档编辑器改的是它，卡的映射一个字不动。判据：`v2/e2e/save-editor.spec.js`。
 
 ### 2.3 Preset
 
@@ -464,6 +466,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 | ------------------------ | ------------ | ------------------------ |
 | `#/`                     | 首页         | `[data-page="home"]`     |
 | `#/edit/:cardId`         | 游戏卡编辑器 | `[data-page="editor"]`   |
+| `#/edit-save/:saveId`    | 存档编辑器   | `[data-page="editor"]`   |
 | `#/play/:cardId/:saveId` | 对话页       | `[data-page="play"]`     |
 | `#/settings`             | 设置         | `[data-page="settings"]` |
 
@@ -486,8 +489,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   **`[data-rename-input]` 与重命名按钮上的 pointerdown / click 不许冒泡到行**
   （点输入框只是放光标：卡行不许变选中、存档行不许跳对话页），Enter / Esc 照旧。
   判据：`v2/e2e/lists.spec.js`。
-- 存档行：`[data-save-id="<id>"]`（点击 = 进入对话页）、`[data-save-name]`、
-  `[data-save-meta]`（文本里必须含卡名与回合数数字）、`[data-save-rename]`、`[data-save-delete]`。
+- 存档行：`[data-save-id="<id>"]`（点击 = 进入对话页）、`[data-save-name]`、`[data-save-meta]`（文本里必须含卡名与回合数数字）、`[data-save-edit]`（「编辑游戏卡」，在改名 / 删除左边，进 `#/edit-save/:saveId`）、`[data-save-rename]`、`[data-save-delete]`。
 - 删除必须确认：`[data-card-delete]` / `[data-save-delete]` 点击后出现确认层
   `[data-confirm]`，其中 `[data-confirm-ok]` 才真删、`[data-confirm-cancel]` 取消。
   **删卡只删 `tg2.cards` 里这一张**：存档一条都不删（每份存档带完整的 `cardSnapshot`，独立可玩），
@@ -536,7 +538,8 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - 状态树 `[data-state-tree]`：每行 `[data-state-item="<code>"]`，行内 `[data-state-code]`（显示编码）、
   `[data-state-name]`。
 - 中栏四形态（互斥，按选中对象切换）：
-  - S1 选中节点：`[data-node-preset]`（select）、`[data-node-history]`（number）、
+  - S1 选中节点：`[data-node-name]`（input，改 `node.name`；工作流细条 / 中栏标题都跟着变，卡与存档两种模式都可改）、
+    `[data-node-preset]`（select）、`[data-node-history]`（number）、
     `[data-node-prompt]`（textarea，本节点提示词）。**这一形态没有眼睛** ——
     读公共提示词在右栏、读上游在细条。
   - S2 选中元素：`[data-state-type]`（只读展示：`0` = 时间，其余 = 文字）、`[data-field="name"]`、
@@ -568,6 +571,8 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   盘上别的卡（含坏卡）原样保留。
 - **没有「保存」按钮**：字段改动（input / change / blur）即时写 `tg2.cards`。
   切走页面再回来、刷新后都还在。（判据：`v2/e2e/loop.spec.js`。）
+- **存档模式 `#/edit-save/:saveId`**（同一份 `EditorPage`）：编辑目标是这一份存档的 `cardSnapshot`（深拷贝）与它自己的 `nodeModels`，写回只替换 `tg2.saves` 那一行、`tg2.cards` 一个字节不动；**结构锁死** —— 状态元素没有
+  `[data-add-state]` / `[data-delete-state]`（不渲染，不是禁用），没有节点增删排序、卡名不改，其余字段（名字 / 备注 / 初值 / 提示词块 / 节点名字 / 节点提示词 / 历史轮数 / 眼睛 / 模型预设）照常可改。判据：`v2/e2e/save-editor.spec.js`。
 
 ### 8.3 对话页
 
@@ -707,7 +712,7 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
 | §9.2 建卡→编 2 元素+初值+2 提示词→存档→3 回合→刷新还在                                        | `v2/e2e/loop.spec.js`                                             |
 | §9.3 眼睛控制提示词拼装                                                                       | `v2/e2e/eyes.spec.js` + `v2/tests/prompt.test.js`                 |
 | §9.4 改卡后旧存档仍能跑                                                                       | `v2/e2e/snapshot.spec.js`                                         |
-| §9.5 四类比例 + 4K 不溢出 / 手机竖屏遮罩                                                      | `v2/e2e/responsive.spec.js`                                       |
+| SPEC §9.5 四类比例 + 4K 不溢出 / 手机竖屏遮罩                                                 | `v2/e2e/responsive.spec.js`                                       |
 | §9.6 三栏可拖 / 细条固定 / 双击恢复 / 刷新保留                                                | `v2/e2e/editor-columns.spec.js`                                   |
 | 6 项 UI 变更（右栏读眼睛+名字+× / 上游读眼睛在细条 / 无提示 / S2 的× / 时间 day-hour / 开场） | `v2/e2e/editor-panels.spec.js`                                    |
 | §9.7 组件故事 + 像素基线                                                                      | **不在本契约**（stories 那一层由后续一票补，见 §10）              |
@@ -723,72 +728,9 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
 | 模型不进卡 / 逐节点解析 / 缺预设即报错 / 删卡不删映射                                         | `v2/tests/engine.test.js` + `v2/e2e/node-models.spec.js`          |
 | 夹具自身合法性（正控：夹具坏了下面每条红都不可信）                                            | `v2/tests/fixtures.selfcheck.test.js`                             |
 
-### 9.5 第 2 关替实现钉下的、SPEC 没写死的决定（组长可否决）
+### 9.5 第 2 关替实现钉下的、SPEC 没写死的决定
 
-1. 一节点**一次** provider 调用（不做多步工具循环）——阶段 1 够用，多步留给阶段 3。
-2. `applyWrite` 越权写 ⇒ **`E_CHAIN`**（不是 `E_VALIDATION`）：它违反的是链里的 `writable` 声明。
-3. 新增错误码 **`E_ABORTED`**（SPEC §4 已同步为第五个码）：停止是正常路径，不能与 `E_PROVIDER` 混。
-4. 时间元素初值 `{day:1,hour:8}`，界面用 `[data-field="initial-day"]` / `[data-field="initial-hour"]`
-   两个数字框**可编辑**并即时落盘（原「只读」口径作废）。
-5. 栏宽只存 `{left, right}`（中栏 = 余量），默认 280 / 320。
-6. 编辑器**无保存按钮**，改动即时落盘。
-7. mock 提供方的输出文本格式（§7）——只给测试用，玩家看不到。
-8. `runTurn` 返回 `{ save, events }`；调试读数**不另开载荷**，走 `trace` / `turnStats` 事件（§2.2 / §9.5 #14）。
-9. **不引入 vue-router / pinia**（原生 hashchange）；`v2/tsconfig.json` 是必需文件（§1.1）。
-10. 单测文件是 `.js`、不进类型检查；组件故事与组件级单测留到 stories 那一票。
-11. 🔴 **模型绑定不进卡**（组长 2026-11-25 决定，**覆盖 SPEC §2**）：SPEC 里 `chain[]` 带 `presetId`、
-    `runTurn({ preset })` 取一个预设；本契约改为 `chain[]` **没有** `presetId`，模型住在本地映射
-    `tg2.nodeModels = { [cardId]: { [nodeId]: presetId } }`（§2.5），引擎收 `presets` + `nodePresets`。
-    理由：Key / Base URL / 模型是玩家本机的东西，不该跟着卡和存档走；卡要能原样带走。
-    ⇒ **SPEC.md §2 / §4 那段需要组长同步改**（我不改他的文件）。
-12. 🔴 **提示词里没有独立的「玩家行动」段；`historyTurns` 数的是叙事**（老板 2026-11-26 改口径，覆盖 SPEC §4 的六段顺序）：
-    行动恒为历史块的**最后一条**；`N` 含本回合 ⇒ 最近 N 条叙事 + 最近 N 条行动（历史行动只有 N−1 条），
-    `0` ⇒ 只有本回合行动。**开场白算最早的那条叙事**，与事件流里的叙事共用 `N` 这个预算（§5）。判据：§5 与 `v2/tests/prompt-markers.test.js`。
-13. 🔴 **校对节点整块删除 + 上游改成节点 id 数组 + 不做旧数据兼容**（老板 2026-11-25）：
-    `NodeType` 只剩 `'time' | 'normal' | 'output'`；链要求**恰好 1 个 output、最多 1 个 time**；
-    `readsUpstream` 从 `boolean` 改成 `string[]`（id 必须排在它前面）；写权限只由 `writable` 决定（2026-11-26 更正，§4.3）。
-    老卡 / 老存档**不迁移**：缺新字段、带 `proof`、`readsUpstream` 是布尔值的，都直接报错（§2.1）。
-    界面不再有「读上游输出」「读公共提示词」两节：上游读眼睛在细条上、公共提示词读眼睛在右栏（§8.2）。
-14. 🔴 **调试内联 + 落盘 + 读/写 chip**（老板 2026-11-25，覆盖 §4.1 / §8.2 / §8.3 的旧口径）：
-    - 右侧调试面板（`DebugPanel`）**整块删除**；逐节点读数改成故事流里的 trace 卡片、回合合计改成
-      turnStats 行（§8.3）。`DebugPayload` 一并删除 —— 同一批读数**只有一份真源**（`save.events`）。
-    - trace / turnStats 是**持久事件**，所以加载旧存档再打开调试也能看见历史每一步；中止的回合一条不写。
-    - provider 若发 `reasoning-delta` 就记进 trace 的 `thinking`；没有就是空串，**不造假**。
-    - 读/写按钮统一成 `.chip`（关着有底色边框、开着 accent 实心），三处共用一份样式（§8.2）。
-      ⇒ SPEC.md §5 里「调试面板」那段与 §9 的 `[data-debug-*]` 钩子已过时，待组长同步。
-15. 🔴 **统一圆角 + 发送时的乐观行动 + 重命名不触发行**（老板 2026-11-25 晚）：
-    - **一档圆角**：`:root` 新增 `--radius: 6px`，全局 `button` 与 `.chip` 都用它 ——
-      chip 不再单独 3px，按钮 / chip 里不再有 999px 那一档；尺寸、配色与「开着 = accent 实心」不变。
-    - 发送即见：行动先以 `[data-pending-action]` 的 action 气泡乐观显示；第一段正文未到时
-      下面一行 `[data-generating]`「生成中……」；正文一到换成流式 narration、行动气泡保留。
-    - 回合成功 ⇒ 撤掉乐观副本（`save.events` 里已有这条 action，不许出现两个气泡）；
-      停止 / 出错 ⇒ 副本与半截正文一起撤掉，存档不变（输入框的即时清空 / 放回见 #16）。
-    - 行内重命名的 `[data-rename-input]` / 重命名按钮**不许把 pointerdown / click 冒泡到行**
-      （点输入框只是放光标；卡行不变选中、存档行不跳对话页），Enter 提交 / Esc 取消不变（§8.1）。
-16. 🔴 **思考走原始分片 + 输入框即时清空 + 故事块版式**（老板 2026-11-25 晚）：
-    - `streamText({ includeRawChunks: true })`；从 `fullStream` 的 `raw` 分片里读
-      `choices[0].delta.reasoning_content` / `delta.reasoning`，拼进 `ProviderReply.reasoning`
-      （`reasoning-delta` 照旧累加），进 `trace.thinking`；**不绕过 AI SDK 自建 fetch**。
-    - 发送时**立刻清空输入框**（与乐观气泡同一刻）；停止 / 出错时若输入框仍为空，把刚才那句放回（§8.3）。
-    - 行动不再是右侧气泡：与叙事同为**左对齐、同字号、无气泡底**；块间（含 trace 卡片）用
-      `border-top: 1px dashed` 分隔；`[data-line="action"]` / `[data-line="narration"]` 钩子不变（§8.3）。
-17. 🔴 **控件 / 行容器两档高度**（老板 2026-11-25 晚）：
-    - `--control-h: 28px`：全局 `button` / `input` / `select` / `.icon` / `.chip` / 工作流 `.node`
-      —— 同一行里的节点按钮与上游读 chip 都是 28（`box-sizing: border-box`，量出来就是 28）。
-    - `--row-h: 36px`：`[data-prompt-block]` / `[data-state-item]` / 首页 `[data-card-id]` / `[data-save-id]` /
-      设置页预设的字段行（`.preset .row`）；**行内控件仍是 28 并竖直居中**，不把整行压成 28。
-    - `textarea` 与多行编辑器**不在这一档**：行动输入 44 / 节点提示词 120 / 提示词正文 160 各自保留。
-    - 判据：`v2/e2e/controls.spec.js`。
-18. 🔴 **编辑器四个面板标题**（老板 2026-11-25 晚）：左 `状态树` / 细条 `工作流` /
-    中 `编辑·<选中的名字>`（节点名 / 元素名 / 提示词标题；没选 = `编辑`）/ 右 `公共提示词`；
-    四条同版式（41px 高度 = `--control-h` + 13px、6px 8px 内边距、1px 实线下边框），
-    各带 `data-panel-title`，加号按钮在标题条外。中栏字段表不再自带标题（§8.2）。
-19. 🔴 **逐条读 + 只校验目标 + 宽松写**（阶段 2 第一项；测试岗在契约 §4 钉下，组长可否决）：
-    `raw` 是解析值，写回后 **JSON 值不变（deep-equal）**，**不承诺字节逐字相同**（会改空白 / 数字写法）；
-    entries 顺序 = 盘上顺序（坏项不挪位）；存档条目要求快照本身是合法卡；宽松写只写
-    `tg2.cards` / `tg2.saves`，读 API 不写盘；按 id 只认**严格相等的字符串 `id`**；
-    坏项**没有任何入口**（只「看得见、点不进」）；只把 `AppError` 当坏项（其它异常原样抛）；
-    **不做自动修复 / 迁移**（坏项下次读还是坏的）。
+19 条逐条决定（含「组长可否决」的原始措辞）已整段搬到 `.team/dev/2026-11-26/CONTRACT-9.5-决定存档.md`（**逐字，未改**）；**本文别处写的「§9.5 第 N 条 / #N」都指那个文件里的第 N 条**，其中仍然生效的语义在 §2–§8 各自那一节里都有正面表述，本节不再复述。
 
 ### 9.6 本关不做（别在阶段 1 拿它们当判据）
 

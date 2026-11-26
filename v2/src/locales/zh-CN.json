@@ -16,6 +16,7 @@
   "home.emptyCards": "还没有游戏卡",
   "home.emptySaves": "还没有存档",
   "home.cardCount": "{count} 个存档",
+  "home.editSaveCard": "编辑游戏卡",
   "home.saveMeta": "{card} · 第 {turn} 回合",
   "home.invalidBadge": "非法",
   "home.unknownCard": "未知游戏卡",

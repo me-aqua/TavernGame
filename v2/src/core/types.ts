@@ -85,6 +85,12 @@ export interface Save {
   id: string
   cardId: string
   cardSnapshot: Card
+  /**
+   * 这一份存档自己的节点映射（`{ [nodeId]: presetId }`）。新建存档时从卡级
+   * `tg2.nodeModels[cardId]` 拷一份；**没有这一格就是本票之前的存档** —— 播放时回落卡级那一片，
+   * 不迁移、不补写。存档编辑器改的是它，卡的映射一个字不动。
+   */
+  nodeModels?: Record<string, string>
   name: string
   turn: number
   tree: Tree
