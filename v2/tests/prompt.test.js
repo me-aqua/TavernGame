@@ -10,7 +10,7 @@
  * 断言用 `indexOf` 比位置，不用整串相等：分隔符与段标题归实现，顺序与内容归契约。
  */
 import { describe, expect, it } from 'vitest'
-import { makeCard, makeSave, OPENING_PROMPT, turnEvents } from './support/fixtures.js'
+import { makeCard, makeSave, OPENING_PROMPT, TIME_VALUE, turnEvents } from './support/fixtures.js'
 import { loadModule } from './support/load.js'
 
 const loadPrompt = () => loadModule('core/prompt.ts', () => import('../src/core/prompt.ts'))
@@ -81,11 +81,12 @@ describe('提示词拼装：顺序', () => {
     expect(text).toContain('BODY_LONG first line\nsecond line\twith tab')
   })
 
-  it('时间元素渲染成 day <n> hour <n>', async () => {
+  it('时间元素按 v5 格式渲染（YYYY-MM-DD HH:mm:ss（周X）），不是 day/hour 两格', async () => {
     const card = makeCard()
     const node = { ...card.chain[0], reads: ['0'] }
     const text = await promptOf({ card, node, outputs: {} })
-    expect(text).toContain('0 time = day 1 hour 8')
+    expect(text).toContain('「time」')
+    expect(text).toContain('2024-01-01 08:05:00（周一）')
   })
 })
 
@@ -96,11 +97,10 @@ describe('提示词拼装：状态取的是传进来的 tree', () => {
     const save = makeSave(card)
     save.tree['1'] = 'WRITTEN_THIS_TURN'
     const text = await promptOf({ card, save, node, outputs: {} })
-    expect(text, 'buildPrompt 是纯函数：它只负责把 tree 里的当前值写进去').toContain(
-      '1 place = WRITTEN_THIS_TURN',
-    )
+    expect(text, 'buildPrompt 是纯函数：它只负责把 tree 里的当前值写进去').toContain('WRITTEN_THIS_TURN')
+    expect(text).toContain('「place」')
     expect(text).not.toContain('VAL_PLACE_A1')
-    expect(text).toContain('2 mood = VAL_MOOD_B2')
+    expect(text).toContain('VAL_MOOD_B2')
   })
 })
 
@@ -235,7 +235,17 @@ describe('提示词拼装：空的东西不炸也不留空标题', () => {
   it('只带开场、什么都读不到的卡也拼得出：只剩本回合行动与本节点提示词', async () => {
     const card = makeCard({
       prompts: [{ ...OPENING_PROMPT }],
-      state: [{ code: '0', name: 'time', note: '', type: 'string', initial: { day: 1, hour: 8 } }],
+      state: [
+        {
+          code: '0',
+          name: 'time',
+          note: '',
+          type: 'time',
+          granularityUpper: 'day',
+          granularityLower: 'minute',
+          initial: { ...TIME_VALUE },
+        },
+      ],
     })
     const node = { ...outputOf(card), reads: [], historyTurns: 1, readsUpstream: [], prompt: 'NODE_OUT' }
     const text = await promptOf({ card, save: makeSave(card), node, outputs: {} })

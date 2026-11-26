@@ -17,6 +17,7 @@ import {
   MOCK_PRESET,
   MOCK_PRESET_B,
   nodeModelsFor,
+  TIME_VALUE,
 } from './support/fixtures.js'
 import { loadModule } from './support/load.js'
 
@@ -83,7 +84,8 @@ describe('引擎：一回合的形状', () => {
   it('三个回合连跑：turn / 时间 / 写入 / 故事正文都跟着走', async () => {
     const { save, results } = await runTurns(3)
     expect(results.map((result) => result.save.turn)).toEqual([1, 2, 3])
-    expect(save.tree['0']).toEqual({ day: 1, hour: 11 })
+    // mock 每回合推进一个「最粗的允许单位」（颗粒度上界 = day）⇒ 三天
+    expect(save.tree['0']).toEqual({ ...TIME_VALUE, day: 4 })
     expect(save.tree['1']).toBe('mock-t3')
     const narrations = save.events.filter((event) => event.type === 'narration')
     expect(narrations).toHaveLength(3)
@@ -209,10 +211,15 @@ describe('引擎：写入与工具', () => {
 
   it('advanceTime 推小时、跨天进位、非整数报 E_VALIDATION', async () => {
     const { advanceTime } = await loadEngine()
-    expect(advanceTime({ day: 1, hour: 8 }, 1)).toEqual({ day: 1, hour: 9 })
-    expect(advanceTime({ day: 1, hour: 23 }, 2)).toEqual({ day: 2, hour: 1 })
-    expect(advanceTime({ day: 3, hour: 0 }, 24)).toEqual({ day: 4, hour: 0 })
-    expect(() => advanceTime({ day: 1, hour: 8 }, 1.5)).toThrowError(
+    // v5 §5：`advanceTime(value, amount, unit, bounds?)`，amount 是正整数
+    expect(advanceTime({ ...TIME_VALUE }, 1, 'hour')).toEqual({ ...TIME_VALUE, hour: 9 })
+    expect(advanceTime({ ...TIME_VALUE, hour: 23 }, 2, 'hour')).toEqual({ ...TIME_VALUE, day: 2, hour: 1 })
+    expect(advanceTime({ ...TIME_VALUE, day: 3, hour: 0 }, 24, 'hour')).toEqual({
+      ...TIME_VALUE,
+      day: 4,
+      hour: 0,
+    })
+    expect(() => advanceTime({ ...TIME_VALUE }, 1.5, 'hour')).toThrowError(
       expect.objectContaining({ code: 'E_VALIDATION' }),
     )
   })
@@ -272,7 +279,13 @@ describe('引擎：调试读数落盘（trace / turnStats）', () => {
     expect(time.presetId).toBe(MOCK_PRESET.id)
     expect(time.prompt).toContain('NODE_TIME')
     expect(time.thinking, 'mock 不吐思考，也不许编一个').toBe('')
-    expect(time.toolCalls).toEqual([{ name: 'advance_time', args: { hours: 1 }, result: 'day 1 hour 9' }])
+    expect(time.toolCalls).toEqual([
+      {
+        name: 'advance_time',
+        args: { amount: 1, unit: 'day' },
+        result: '2024-01-02 08:05:00（周二）',
+      },
+    ])
     expect(time.output).toBe('')
     expect(time.usage).toBeNull()
     expect(time.tps).toBeNull()
@@ -360,17 +373,17 @@ describe('引擎：同一回合内的写入立刻可见（P2）', () => {
     const result = await turn({ card, save: makeSave(card), action: 'act one' })
     const prompt = traceOf(result, 'output').prompt
 
-    // 时间节点先跑：8 点 → 9 点，输出节点读到的必须是 9 点
-    expect(prompt, '时间节点推进后的钟要进输出节点的提示词').toContain('0 time = day 1 hour 9')
+    // 时间节点先跑：01-01 → 01-02（mock 推最粗允许单位 day），输出节点读到的必须是新的一天
+    expect(prompt, '时间节点推进后的钟要进输出节点的提示词').toContain('2024-01-02 08:05:00（周二）')
     // 判定节点先跑：元素 1 被写成 mock-t1，输出节点读到的必须是新值
-    expect(prompt, '判定节点这一回合写的值要立刻可见').toContain('1 place = mock-t1')
-    expect(prompt, '旧值不该还留在提示词里').not.toContain('1 place = VAL_PLACE_A1')
+    expect(prompt, '判定节点这一回合写的值要立刻可见').toContain('mock-t1')
+    expect(prompt, '旧值不该还留在提示词里').not.toContain('VAL_PLACE_A1')
     // 没被写过的元素照旧
-    expect(prompt).toContain('2 mood = VAL_MOOD_B2')
+    expect(prompt).toContain('VAL_MOOD_B2')
 
     // 正向控制：判定节点自己（链上第 2 个）看到的还是**它写之前**的值 ——
     // 说明这确实是「同一回合、逐节点」的时序，而不是「全部节点都用回合末的 tree」
-    expect(traceOf(result, 'check').prompt, '判定节点在写入之前拼提示词').toContain('1 place = VAL_PLACE_A1')
+    expect(traceOf(result, 'check').prompt, '判定节点在写入之前拼提示词').toContain('VAL_PLACE_A1')
     expect(result.save.tree['1']).toBe('mock-t1')
   })
 
@@ -382,7 +395,7 @@ describe('引擎：同一回合内的写入立刻可见（P2）', () => {
     // 把判定节点挪到输出节点后面：于是输出节点看到的是**初值**（还没人写）
     const card = { ...base, chain: [chain[0], chain[2], chain[3], chain[1]] }
     const result = await turn({ card, save: makeSave(card), action: 'act one' })
-    expect(traceOf(result, 'output').prompt).toContain('1 place = VAL_PLACE_A1')
+    expect(traceOf(result, 'output').prompt).toContain('VAL_PLACE_A1')
     expect(result.save.tree['1']).toBe('mock-t1')
   })
 })
@@ -621,8 +634,8 @@ describe('引擎：writable 决定拿到哪个工具（不分节点类型）', (
       onEvent,
     })
 
-    // mock 对该节点回 advance_time(hours:1) ⇒ 时间格推进 1 小时，且仍是 {day,hour}
-    expect(result.save.tree['0']).toEqual({ day: 1, hour: 9 })
+    // mock 对该节点回 advance_time 【amount: 1, unit: 'day'】（颗粒度上界）⇒ 日期 +1
+    expect(result.save.tree['0']).toEqual({ ...TIME_VALUE, day: 2 })
     expect(() => validateSave(result.save, card), '写完之后存档必须仍然合法').not.toThrow()
     expect(result.save.turn).toBe(1)
   })
@@ -644,7 +657,7 @@ describe('引擎：writable 决定拿到哪个工具（不分节点类型）', (
     })
 
     expect(result.save.tree['1'], '时间节点要能写文本元素').toBe('mock-t1')
-    expect(result.save.tree['0'], '没有 0 的写权限就不该推进时间').toEqual({ day: 1, hour: 8 })
+    expect(result.save.tree['0'], '没有 0 的写权限就不该推进时间').toEqual(TIME_VALUE)
   })
 
   it('applyWrite 拒绝写时间元素 0（write_state 不能改时间，中文报错）', async () => {
@@ -664,6 +677,6 @@ describe('引擎：writable 决定拿到哪个工具（不分节点类型）', (
     expect(['E_CHAIN', 'E_VALIDATION']).toContain(error.code)
     expect(error.message).toMatch(CJK)
     expect(tree).toEqual(before)
-    expect(tree['0']).toEqual({ day: 1, hour: 8 })
+    expect(tree['0']).toEqual(TIME_VALUE)
   })
 })

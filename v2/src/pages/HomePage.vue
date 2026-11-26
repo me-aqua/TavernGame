@@ -25,7 +25,8 @@ import { computed, onMounted, ref } from 'vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ErrorPanel from '../components/ErrorPanel.vue'
 import { asAppError, storage } from '../app-context'
-import { cloneCard, freshCard, treeOf } from '../cards'
+import { cloneCard, freshCard } from '../cards'
+import { initialTreeOf } from '../core/statetree'
 import type { AppError } from '../core/errors'
 import type { CardEntry, SaveEntry } from '../core/storage'
 import type { Save } from '../core/types'
@@ -120,7 +121,7 @@ function createSave(): void {
       nodeModels: { ...(storage().loadNodeModels()[card.id] ?? {}) },
       name: t('save.defaultName', { count: saveEntries.value.length + 1 }),
       turn: 0,
-      tree: treeOf(card),
+      tree: initialTreeOf(card),
       events: [],
       updatedAt: new Date().toISOString(),
     }

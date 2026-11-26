@@ -1,16 +1,24 @@
 /**
  * 第 2 关的共用夹具：卡 / 存档 / 预设 / 内存版存储后端。
  *
- * 形状照 `v2/CONTRACT.md` §2 写；契约改了这里要跟着改（夹具不是第二份真源，
- * 它是同一份形状的一份可执行副本 —— 判据与夹具对不上时，先怀疑夹具）。
+ * 形状照 `.team/leader/2026-11-26/阶段2.1-状态树-契约草案-v5.md`（下称「v5 契约」）写 ——
+ * 阶段 2.1 起状态元素有五种类型，时间值是公历六格；契约改了这里要跟着改
+ * （夹具不是第二份真源，它是同一份形状的一份可执行副本 —— 判据与夹具对不上时，先怀疑夹具）。
  *
- * 🔴 **这里只有一种格式：契约 §2.1 的新格式**（老板 2026-11-25：不做旧卡兼容、不做迁移）。
+ * 🔴 **这里只有一种格式：v5 契约的形状**（老板 2026-11-25：不做旧卡兼容、不做迁移）。
  *    没有校对节点（`NodeType` 只有 time / normal / output）、`readsUpstream` 是**节点 id 数组**、
- *    每张卡都带 `opening` 提示词块。旧格式的卡在 `validateCard` 就该被拒 —— 那是判据，不是夹具的活。
+ *    每张卡都带 `opening` 提示词块。旧格式（`type:'string'` / `{day,hour}`）的卡在 `validateCard`
+ *    就该被拒 —— 那是判据，不是夹具的活。
+ *
+ * ⚠️ 这两张夹具卡都是**扁平**的（没有「自身值 + 孩子」的节点）：`tree` 与 `state[]` 一一对应。
+ *    带 `.0` 自身值的形状归 `support/state-fixtures.js`（v5 新增判据吃那一份）。
  *
  * ⚠️ 这里只有纯数据与纯函数：不 import 产品代码、不碰 DOM、不发网络。
  *    vitest（node）与 Playwright（浏览器侧）都用它。
  */
+import { TIME_VALUE } from './state-fixtures.js'
+
+export { TIME_VALUE }
 
 /** 契约 §7：mock 提供方。测试里一切「跑一回合」都用它，不联外网。 */
 export const MOCK_PRESET = {
@@ -57,12 +65,25 @@ export function nodeModelsFor(card, presetId = MOCK_PRESET.id) {
   return Object.fromEntries(card.chain.map((node) => [node.id, presetId]))
 }
 
+/** 一个时间元素（v5：公历六格 + 颗粒度上下界） */
+function timeElement() {
+  return {
+    code: '0',
+    name: 'time',
+    note: '',
+    type: 'time',
+    granularityUpper: 'day',
+    granularityLower: 'minute',
+    initial: { ...TIME_VALUE },
+  }
+}
+
 /** 三个元素：`0` 时间 + 两个文本，初值用**只会出现在初值里**的记号（眼睛断言要能不歧义地找它） */
 function baseState() {
   return [
-    { code: '0', name: 'time', note: '', type: 'string', initial: { day: 1, hour: 8 } },
-    { code: '1', name: 'place', note: '', type: 'string', initial: 'VAL_PLACE_A1' },
-    { code: '2', name: 'mood', note: '', type: 'string', initial: 'VAL_MOOD_B2' },
+    timeElement(),
+    { code: '1', name: 'place', note: '', type: 'text', initial: 'VAL_PLACE_A1' },
+    { code: '2', name: 'mood', note: '', type: 'text', initial: 'VAL_MOOD_B2' },
   ]
 }
 
@@ -109,7 +130,7 @@ export function freshCard(over = {}) {
     schemaVersion: 1,
     id: 'c-fresh',
     name: 'card fresh',
-    state: [{ code: '0', name: 'time', note: '', type: 'string', initial: { day: 1, hour: 8 } }],
+    state: [timeElement()],
     prompts: [{ ...OPENING_PROMPT }],
     chain: [
       makeNode('time', 'time', { writable: ['0'] }),
@@ -120,12 +141,11 @@ export function freshCard(over = {}) {
   }
 }
 
-/** 存档：`tree` 由卡的初值逐个拷出来（深拷贝；`0` 是对象） */
+/** 存档：`tree` 由卡的初值逐个拷出来（深拷贝；`0` 是六格时间值） */
 export function makeSave(card, over = {}) {
   const tree = {}
   for (const element of card.state) {
-    tree[element.code] =
-      element.code === '0' ? { day: element.initial.day, hour: element.initial.hour } : element.initial
+    tree[element.code] = element.code === '0' ? { ...element.initial } : element.initial
   }
   return {
     schemaVersion: 1,

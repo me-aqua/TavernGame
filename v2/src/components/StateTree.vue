@@ -1,30 +1,34 @@
 <script setup lang="ts">
 /**
- * 左栏 · 状态树（SPEC §5「编辑器」）：单层元素，控件按 S0–S3 一步步露出来。
+ * 左栏 · 状态树（CONTRACT §8.2）：按 code 缩进的一棵扁平树，一行一个**可见**元素。
  *
- *   · **S0**（什么都没选）：只有行 —— 编码 + 名字；
- *   · **S1**（选中了工作流节点）：每行两只眼睛 —— **读**（`reads` 里有它才进提示词）、
- *     **写**（`writable` 里有它才许写）；
- *   · **S2**（选中了某个元素）：栏顶出现 `+`（加元素），**每一行**出现 `×`（删这一行）。
+ * 一条铁律：**`.0` 不单独出行** —— 它是节点自身值的保留槽，属于父行那一行。
+ * 所以「有自身值的行」显示的就是它的值：有孩子时取 `<code>.0`，没孩子时取 `<code>`；
+ * 结构体（`object`）没有自身值，那一格不渲染。
  *
- * `structureLocked`（存档编辑器，`#/edit-save/:saveId`）把 `+` 与 `×` **整块拿掉**（不渲染、
- * 不是禁用）：那一侧的卡结构是冻结的，只许改名字 / 备注 / 初值与眼睛。
+ * 眼睛按 S1 / S2 露出来：
+ *   · **S1**（选中工作流节点）：每行两只**文字按钮**【读】【写】；`data-on` 是「这一行整段都被读到 / 写到」，
+ *     `data-tri` 是父行的三态（`all` 满 / `some` 半 / `none` 未）—— 父行覆盖**自身值 + 整棵子树**，
+ *     所以只点了孩子时父行是「半」；子节点按钮只切自己。手写 / 导入的卡里可能直接写了 `<code>.0`
+ *     （只取自身值）—— 那时父行就是「半」，`.0` 自己不占一行。
+ *   · **S2**（选中状态元素）：栏顶 `[data-add-state]`（新顶层元素）、每行 `[data-add-child]`（加子元素，
+ *     第 5 层不出现、时间没有）与 `[data-delete-state]`（删这一棵，时间没有）。
  *
- * **写眼睛只看 `node.writable`，不按节点类型收窄**（老板 2026-11-26）：时间元素 `0` 与文字元素一样，
- * 每一行都有那只 chip —— 勾上它，这个节点就拿到对应的工具（时间 ⇒ `advance_time`，
- * 文字 ⇒ `write_state`，规则见 `schema.toolsForNode`）。唯一没有写眼睛的是**输出节点**：
- * 它只产故事，`writable` 必须是空的（卡校验会拒）。
- *
- * `0`（时间元素）永远不许删，它不带 `×`。
+ * `structureLocked`（存档编辑器）把 `+` / 加子元素 / 删除**整块拿掉**（不渲染、不是禁用）：
+ * 那一侧的卡结构是冻结的，只许改名字 / 备注 / 初值与眼睛。
  */
-import type { ChainNode, StateElement } from '../core/types'
+import { computed } from 'vue'
+import { codeDepth, formatTime, pathsOf } from '../core/statetree'
+import type { ChainNode, StateElement, TimeValue, Tree } from '../core/types'
 import { t } from '../i18n'
 
 const props = defineProps<{
   elements: StateElement[]
+  /** 每一行要显示的自身值（卡模式 = 初值树；存档模式 = 存档的树） */
+  values: Tree
   node: ChainNode | null
   selectedCode: string | null
-  /** 结构锁死：不渲染 `+` / `×`（默认 false = 卡编辑器） */
+  /** 结构锁死：不渲染新元素 / 加子元素 / 删除（默认 false = 卡编辑器） */
   structureLocked?: boolean
 }>()
 
@@ -32,11 +36,54 @@ defineEmits<{
   add: []
   select: [code: string]
   remove: [code: string]
-  'toggle-read': [code: string]
-  'toggle-write': [code: string]
+  'add-child': [code: string]
+  'toggle-read': [code: string, tri: 'all' | 'some' | 'none']
+  'toggle-write': [code: string, tri: 'all' | 'some' | 'none']
 }>()
 
-/** 这一行要不要露「写」眼睛：输出节点一只都没有，其余节点每一行都有 */
+/** 第 5 层（可见深度 5）不再加孩子 */
+const MAX_DEPTH = 5
+
+/** 一个 code 的自身值路径；结构体没有自身值（`undefined` ⇒ 不渲染那一格） */
+function ownValuePath(element: StateElement): string | undefined {
+  return element.type === 'object' ? undefined : pathsOf(props.elements, element.code)[0]
+}
+
+/** 行里显示的值：时间走公历格式，其余按原样 */
+function ownValueOf(element: StateElement): string | undefined {
+  const path = ownValuePath(element)
+  if (path === undefined) return undefined
+  const value = props.values[path]
+  if (value === undefined) return undefined
+  return typeof value === 'object' ? formatTime(value as TimeValue) : String(value)
+}
+
+/**
+ * 节点这一只眼睛覆盖到的值路径。引用可能是元素 code（覆盖自身值 + 整棵子树），也可能是
+ * `<code>.0`（只覆盖那个自身值）；`reads` 里还有提示词 id —— `pathsOf` 对这两类之外的输入返回 `[]`。
+ */
+const coveredPaths = computed(() => {
+  const node = props.node
+  const covered: Record<'read' | 'write', Set<string>> = { read: new Set(), write: new Set() }
+  if (!node) return covered
+  for (const [field, list] of [
+    ['read', node.reads],
+    ['write', node.writable],
+  ] as const) {
+    for (const ref of list) for (const path of pathsOf(props.elements, ref)) covered[field].add(path)
+  }
+  return covered
+})
+
+/** 三态：这一行的值路径全被覆盖 = `all`，都没 = `none`，只覆盖一部分 = `some` */
+function triOf(field: 'read' | 'write', code: string): 'all' | 'some' | 'none' {
+  const paths = pathsOf(props.elements, code)
+  const hit = paths.filter((path) => coveredPaths.value[field].has(path)).length
+  if (hit === 0) return 'none'
+  return hit === paths.length ? 'all' : 'some'
+}
+
+/** 输出节点不写状态：它一只写眼睛都没有（`writable` 必须是空的） */
 function showsWrite(): boolean {
   return props.node !== null && props.node.type !== 'output'
 }
@@ -67,18 +114,24 @@ function showsWrite(): boolean {
         class="state-row"
         :class="{ selected: element.code === selectedCode }"
         :data-state-item="element.code"
+        :data-depth="codeDepth(element.code)"
+        :style="{ marginLeft: `${(codeDepth(element.code) - 1) * 12}px` }"
         @click="$emit('select', element.code)"
       >
         <span class="state-code" data-state-code>{{ element.code }}</span>
         <span class="state-name ellipsis" data-state-name>{{ element.name }}</span>
+        <span v-if="ownValueOf(element) !== undefined" class="state-value ellipsis" data-state-value>
+          {{ ownValueOf(element) }}
+        </span>
         <template v-if="node">
           <button
             type="button"
             class="chip"
             data-eyes="read"
-            :data-on="node.reads.includes(element.code) ? 'true' : 'false'"
+            :data-on="triOf('read', element.code) === 'all' ? 'true' : 'false'"
+            :data-tri="triOf('read', element.code)"
             :title="t('editor.readEye')"
-            @click.stop="$emit('toggle-read', element.code)"
+            @click.stop="$emit('toggle-read', element.code, triOf('read', element.code))"
           >
             {{ t('editor.eyeRead') }}
           </button>
@@ -87,15 +140,32 @@ function showsWrite(): boolean {
             type="button"
             class="chip"
             data-eyes="write"
-            :data-on="node.writable.includes(element.code) ? 'true' : 'false'"
+            :data-on="triOf('write', element.code) === 'all' ? 'true' : 'false'"
+            :data-tri="triOf('write', element.code)"
             :title="t('editor.writeEye')"
-            @click.stop="$emit('toggle-write', element.code)"
+            @click.stop="$emit('toggle-write', element.code, triOf('write', element.code))"
           >
             {{ t('editor.eyeWrite') }}
           </button>
         </template>
         <button
-          v-if="!structureLocked && selectedCode !== null && element.code !== '0'"
+          v-if="
+            !structureLocked &&
+            selectedCode !== null &&
+            element.type !== 'time' &&
+            codeDepth(element.code) < MAX_DEPTH
+          "
+          type="button"
+          class="icon"
+          :data-add-child="element.code"
+          :title="t('editor.addChild')"
+          :aria-label="t('editor.addChild')"
+          @click.stop="$emit('add-child', element.code)"
+        >
+          +
+        </button>
+        <button
+          v-if="!structureLocked && selectedCode !== null && element.type !== 'time'"
           type="button"
           class="icon"
           data-delete-state
@@ -167,5 +237,17 @@ function showsWrite(): boolean {
 .state-name {
   flex: 1 1 auto;
   font-size: var(--fs2);
+}
+
+/* 自身值是次要读数：占一行里剩下的位置，长了省略号 */
+.state-value {
+  flex: 0 1 auto;
+  max-width: 40%;
+  font-size: var(--fs3);
+  color: var(--ink-soft);
+}
+
+.state-row.selected .state-value {
+  color: var(--active-ink);
 }
 </style>

@@ -4,7 +4,7 @@
  * 单独一份的原因：**首页建卡**与**首页建存档**都要它，而这两件事必须给出同一张卡、同一棵树的形状 ——
  * 抄两份迟早会分叉（一份改了初值默认，另一份没改）。
  */
-import type { Card, PromptBlock, StateElement, Tree } from './core/types'
+import type { Card, PromptBlock, StateElement } from './core/types'
 import { OPENING_PROMPT_ID } from './core/schema'
 import { t } from './i18n'
 
@@ -54,7 +54,15 @@ export function freshCard(id: string, name: string): Card {
     id,
     name,
     state: [
-      { code: '0', name: t('default.state.time'), note: '', type: 'string', initial: { day: 1, hour: 8 } },
+      {
+        code: '0',
+        name: t('default.state.time'),
+        note: '',
+        type: 'time',
+        initial: { year: 1024, month: 1, day: 1, hour: 8, minute: 0, second: 0 },
+        granularityUpper: 'day',
+        granularityLower: 'minute',
+      },
     ],
     chain: DEFAULT_CHAIN.map((node) => ({
       ...node,
@@ -64,18 +72,6 @@ export function freshCard(id: string, name: string): Card {
     })),
     prompts: [openingBlock()],
   }
-}
-
-/** 新建存档的状态树：逐个从卡的初值拷出来（时间那一格是对象，必须深拷贝） */
-export function treeOf(card: Card): Tree {
-  const tree: Tree = {}
-  for (const element of card.state) {
-    tree[element.code] =
-      typeof element.initial === 'string'
-        ? element.initial
-        : { day: element.initial.day, hour: element.initial.hour }
-  }
-  return tree
 }
 
 /**

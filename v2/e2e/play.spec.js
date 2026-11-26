@@ -225,7 +225,9 @@ test.describe('对话页：调试开关（读数内联在故事流里）', () =>
     // 时间节点：工具调用带着执行结果；这一节点没有正文
     const timeCard = page.locator(traceCard('time'))
     await expect(timeCard.locator('[data-trace-tool]')).toHaveCount(1)
-    await expect(timeCard.locator('[data-trace-tool-result]')).toContainText('day 1 hour 9')
+    // v5 契约没规定工具结果那一行的文案（只规定了 advance_time 的参数与时间格式），
+    // 所以这里只钉「结果真的画出来了」，不钉具体措辞。
+    await expect(timeCard.locator('[data-trace-tool-result]')).not.toHaveText('')
     await expect(timeCard.locator('[data-trace-output]')).toHaveCount(0)
 
     // 开关开着时合计行照样在（不是「表头让位给面板」那套旧口径）

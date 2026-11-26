@@ -1,19 +1,20 @@
 /**
  * 卡 / 存档的结构校验（CONTRACT §6.1），外加数据类型与工具的派生规则（§4.3）。
  *
- * 两种错分得很清：**结构坏了**是 `E_VALIDATION`（缺字段、悬空引用、schemaVersion 不认），
- * **链的规矩坏了**是 `E_CHAIN`（输出个数、时间上限、id 重复、上游只能往前读、历史轮数）。
+ * 两种错分得很清：**结构坏了**是 `E_VALIDATION`（缺字段、悬空引用、状态树形状），
+ * **链的规矩坏了**是 `E_CHAIN`（输出个数、时间上限、id 重复、上游只能往前读）。
  * 分这么细是因为下一步不一样：前者回首页重开，后者回编辑器改链。
+ *
+ * 状态树那半的规则**不在这里重写**：它们住在 `core/statetree.ts` 的 `cardIssues`（保存按钮与这里共用
+ * 同一份清单），这一份只做形状层的收窄（数组 / 字符串 / 记录），然后抛第一条问题。
  *
  * 对多出来的字段**宽容**：卡里带 `presetId` 之类不报错 —— 模型绑定住在 `tg2.nodeModels`（§2.5），
  * 这里不认它，也不拦它。
- *
- * 除了校验，这里还住两条**数据类型 / 工具**的派生规则（`dataTypeOf` / `toolsForNode`）：
- * 它们跟卡格式绑在一起，而引擎与 mock 必须拿到同一份（§4.3）。
  */
 import { t } from '../i18n'
 import { AppError } from './errors'
-import type { Card, ChainNode, Save, TimeValue } from './types'
+import { cardIssues, pathsOf } from './statetree'
+import type { Card, ChainNode, Save, StateElement, TimeValue } from './types'
 
 const NODE_TYPES = ['time', 'normal', 'output'] as const
 
@@ -21,40 +22,74 @@ const NODE_TYPES = ['time', 'normal', 'output'] as const
 export const OPENING_PROMPT_ID = 'opening'
 
 /**
- * 一个状态元素的**数据类型**（CONTRACT §2.1）：`'0'` 是时间（值是 `{ day, hour }`），其余是文字。
+ * 一个节点拿到哪些工具 —— **由 `writable` 里每个引用覆盖到的值路径派生**（CONTRACT §4.3）。
+ * 引用可以是元素 code（覆盖自身值 + 整棵子树），也可以是 `<code>.0`（只覆盖那个自身值）。
  *
- * 时间就是一种数据类型，跟文字没有高下之分 —— 它是哪种，只看卡里 `state[].code` 是不是 `'0'`
- * （格式把时间槽钉在 `state[0]`，见 `validateState`）。节点类型不参与这件事。
- */
-export function dataTypeOf(code: string): 'time' | 'string' {
-  return code === '0' ? 'time' : 'string'
-}
-
-/**
- * 一个节点拿到哪些工具 —— **由 `writable` 里每个元素的数据类型派生**（SPEC §4 / CONTRACT §4.3）。
- *
- *   写时间元素 ⇒ `advance_time`（推进时间）；写文字元素 ⇒ `write_state`（写字符串）；
- *   两样都写 ⇒ 两个工具；一样都不写 ⇒ 没有工具。**时间节点与普通节点都按这条派生**。
+ *   覆盖到时间元素的自身值 ⇒ `advance_time`（推进时间）；覆盖到任何非时间、非结构体的值 ⇒
+ *   `write_state`（文字 / 数字 / 下拉）；两样都覆盖 ⇒ 两个工具；一样都没有 ⇒ 没有工具。
  *   **输出节点一个工具都没有**（它只产故事；`validateChain` 要求它的 `writable` 是空的）。
  *
  * 这是工具权限的唯一真源：引擎执行工具（`runTool`）与 provider 拿到的工具表都从它来。
- * `advance_time` 因此只在 `'0' ∈ node.writable` 时才存在；`write_state` 只在有文字元素时存在，
- * 而且它写不了时间槽（`applyWrite` 拒 `'0'`，提示改用 `advance_time`）。
+ * 看**值路径**而不是看 `code === '0'`：v5 里哪些 code 是时间由元素类型决定。
  */
-export function toolsForNode(node: ChainNode): string[] {
+export function toolsForNode(card: Card, node: ChainNode): string[] {
   if (node.type === 'output') return []
   const tools: string[] = []
-  if (node.writable.some((code) => dataTypeOf(code) === 'time')) tools.push('advance_time')
-  if (node.writable.some((code) => dataTypeOf(code) === 'string')) tools.push('write_state')
+  const covered = node.writable.flatMap((ref) => pathsOf(card.state, ref))
+  const [timePath] = pathsOf(card.state, '0')
+  if (timePath !== undefined && covered.includes(timePath)) tools.push('advance_time')
+  if (covered.some((path) => writableValueAt(card, path))) tools.push('write_state')
   return tools
+}
+
+/** 一条值路径是不是 `write_state` 能写的（有自身值、且不是时间） */
+function writableValueAt(card: Card, path: string): boolean {
+  const element = elementOfPath(card.state, path)
+  return element !== undefined && element.type !== 'time' && element.type !== 'object'
+}
+
+/**
+ * 一条**值路径**属于哪个元素：叶子就是自己的 code，有孩子的节点是 `<code>.0`。
+ * `object` 的自身 code / 它的 `.0` 都不返回值路径，所以这里也返回 `undefined`
+ * （引擎据此把「写结构体自身」与「路径不存在」都判成链的错）。
+ */
+export function elementOfPath(state: StateElement[], path: string): StateElement | undefined {
+  const own = state.find((element) => element.code === path)
+  if (own) return own
+  if (!path.endsWith('.0')) return undefined
+  const base = state.find((element) => element.code === path.slice(0, -2))
+  if (!base) return undefined
+  return pathsOf(state, base.code).includes(path) ? base : undefined
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-/** `{ day, hour }` 形状（时间元素的值） */
+/**
+ * 时间值是不是「六格」（`tree['0']` / 存档里的时间）。
+ * 这里只判形状与逐格范围：**2 月 30 日这种日历细节由卡的校验（`cardIssues`）与推进器把关**，
+ * 存档里出现它只可能是手改过的盘。
+ */
 export function isTimeValue(value: unknown): value is TimeValue {
-  return isRecord(value) && typeof value.day === 'number' && typeof value.hour === 'number'
+  if (!isRecord(value)) return false
+  const keys = Object.keys(value).sort().join(',')
+  if (keys !== 'day,hour,minute,month,second,year') return false
+  const time = value as unknown as TimeValue
+  return (
+    Object.values(time).every((part) => Number.isInteger(part)) &&
+    time.year >= 1 &&
+    time.year <= 9999 &&
+    time.month >= 1 &&
+    time.month <= 12 &&
+    time.day >= 1 &&
+    time.day <= 31 &&
+    time.hour >= 0 &&
+    time.hour <= 23 &&
+    time.minute >= 0 &&
+    time.minute <= 59 &&
+    time.second >= 0 &&
+    time.second <= 59
+  )
 }
 
 function badField(field: string): AppError {
@@ -71,28 +106,19 @@ function requireArray(value: unknown, field: string): unknown[] {
   return value
 }
 
+/**
+ * 状态元素的**形状**（只判数组 / 字符串这类外壳）。编号、深度、类型字段、初始值这些规矩住在
+ * `cardIssues` —— 保存按钮与这里共用同一份，别在这儿重写一遍。
+ */
 function validateState(card: Card): void {
   const state = requireArray(card.state, 'card.state')
-  if (state.length === 0)
-    throw new AppError('E_VALIDATION', { message: t('error.field', { field: 'card.state' }) })
   state.forEach((raw, index) => {
     if (!isRecord(raw)) throw badField(`card.state[${index}]`)
-    const code = requireString(raw.code, `card.state[${index}].code`)
+    requireString(raw.code, `card.state[${index}].code`)
     requireString(raw.name, `card.state[${index}].name`)
     requireString(raw.note, `card.state[${index}].note`)
-    if (raw.type !== 'string') throw badField(`card.state[${index}].type`)
-    if (code === '0') {
-      if (!isTimeValue(raw.initial)) throw badField(`card.state[${index}].initial`)
-    } else {
-      requireString(raw.initial, `card.state[${index}].initial`)
-    }
+    requireString(raw.type, `card.state[${index}].type`)
   })
-  const time = state[0] as Record<string, unknown>
-  if (time.code !== '0')
-    throw new AppError('E_VALIDATION', { message: t('error.field', { field: 'card.state[0].code' }) })
-  if (new Set(state.map((element) => (element as Record<string, unknown>).code)).size !== state.length) {
-    throw new AppError('E_VALIDATION', { message: t('error.field', { field: 'card.state.code' }) })
-  }
 }
 
 function validatePrompts(card: Card): void {
@@ -142,88 +168,19 @@ function validateNode(raw: unknown, index: number): ChainNode {
 }
 
 /**
- * 链的规矩（SPEC §2）：恰好一个输出、最多一个时间、至少一个节点、id 不重复、
- * 上游只能往前读、引用的 code 必须存在。
+ * 只收节点的字段形状（数组 / 字符串 / 历史轮数）。链的**规矩**（恰好一个输出、最多一个时间、
+ * id 唯一、上游只能往前读、引用必须存在、输出节点不许写）住在 `cardIssues` ——
+ * 与保存按钮共用那一份清单，这里不重写。
  *
- * 🔴 **写权限只由 `writable` 决定，不按节点类型收窄**（老板 2026-11-26）：时间节点与普通节点
- * 都可以写时间元素 `'0'`，也都可以写文字元素 —— 拿到哪个工具由数据类型派生（`toolsForNode`）。
- * 唯一的例外是**输出节点**：它只产故事，`writable` 必须是空的。
+ * 写权限只由 `writable` 决定，不按节点类型收窄：时间节点与普通节点都可以写时间元素 `'0'`，
+ * 也都可以写普通元素 —— 拿到哪个工具由 code 覆盖到的值路径派生（`toolsForNode`）。
  */
 function validateChain(card: Card): void {
   const chain = requireArray(card.chain, 'card.chain') as unknown[]
-  if (chain.length === 0) {
-    throw new AppError('E_CHAIN', { message: t('error.chainEmpty'), nextStep: t('next.editor') })
-  }
-  const nodes = chain.map((raw, index) => validateNode(raw, index))
-
-  const countOf = (type: string) => nodes.filter((node) => node.type === type).length
-  const outputs = countOf('output')
-  if (outputs !== 1) {
-    throw new AppError('E_CHAIN', {
-      message: t('error.chainOutput', { count: outputs }),
-      nextStep: t('next.editor'),
-      detail: { outputs },
-    })
-  }
-  if (countOf('time') > 1) {
-    throw new AppError('E_CHAIN', { message: t('error.chainTime'), nextStep: t('next.editor') })
-  }
-  const ids = nodes.map((node) => node.id)
-  const duplicate = ids.find((id, index) => ids.indexOf(id) !== index)
-  if (duplicate !== undefined) {
-    throw new AppError('E_CHAIN', {
-      message: t('error.chainDuplicate', { node: duplicate }),
-      nextStep: t('next.editor'),
-      detail: { nodeId: duplicate },
-    })
-  }
-
-  // 引用必须存在：reads 指向提示词 id 或状态 code，writable 只指向状态 code
-  const promptIds = new Set((card.prompts as { id: string }[]).map((prompt) => prompt.id))
-  const codes = new Set((card.state as { code: string }[]).map((element) => element.code))
-  const indexOf = new Map(nodes.map((node, index) => [node.id, index]))
-  for (const [index, node] of nodes.entries()) {
-    // 上游只能往前读：引用必须存在，且排在它前面（自己与下游都不算上游）
-    for (const ref of node.readsUpstream) {
-      const at = indexOf.get(ref)
-      if (at === undefined || at >= index) {
-        throw new AppError('E_CHAIN', {
-          message: t('error.upstreamNotBefore', { node: node.id, ref }),
-          nextStep: t('next.editor'),
-          detail: { nodeId: node.id, ref },
-        })
-      }
-    }
-    // 输出节点只产故事：它没有任何写权限（`toolsForNode` 也为它返回空）
-    if (node.type === 'output' && node.writable.length > 0) {
-      throw new AppError('E_CHAIN', {
-        message: t('error.outputWritable', { node: node.id }),
-        nextStep: t('next.editor'),
-        detail: { nodeId: node.id, writable: node.writable },
-      })
-    }
-    for (const ref of node.reads) {
-      if (!promptIds.has(ref) && !codes.has(ref)) {
-        throw new AppError('E_VALIDATION', {
-          message: t('error.readsMissing', { node: node.id, ref }),
-          nextStep: t('next.editor'),
-          detail: { nodeId: node.id, ref },
-        })
-      }
-    }
-    for (const code of node.writable) {
-      if (!codes.has(code)) {
-        throw new AppError('E_VALIDATION', {
-          message: t('error.writesMissing', { node: node.id, ref: code }),
-          nextStep: t('next.editor'),
-          detail: { nodeId: node.id, code },
-        })
-      }
-    }
-  }
+  chain.forEach((raw, index) => validateNode(raw, index))
 }
 
-/** 卡的结构 + 链的规矩；不合法就抛 `AppError` */
+/** 卡的结构 + 链的规矩；不合法就抛 `AppError`（第一条问题的错误码） */
 export function validateCard(card: Card): void {
   if (!isRecord(card)) throw new AppError('E_VALIDATION', { message: t('error.field', { field: 'card' }) })
   if (card.schemaVersion !== 1) {
@@ -238,11 +195,19 @@ export function validateCard(card: Card): void {
   validateState(card)
   validatePrompts(card)
   validateChain(card)
+  const [first] = cardIssues(card)
+  if (first) {
+    throw new AppError(first.errorCode, {
+      message: first.message,
+      nextStep: t('next.editor'),
+      detail: { code: first.code, path: first.path },
+    })
+  }
 }
 
 /**
- * 存档校验。给了 `card` 就一并核对「状态树覆盖卡的每个 code」「游戏卡 id 对得上」——
- * 这是引擎入场那一步用的形态；存储层读盘时没有卡可比，只校验它自己那一半。
+ * 存档校验。给了 `card` 就一并核对「游戏卡 id 对得上」「状态树**覆盖全部值路径**且没有多余键」——
+ * 这是引擎入场那一步用的形态；存储层读盘时没有卡可比，只校验它自己那一半（时间必须是六格）。
  */
 export function validateSave(save: Save, card?: Card): void {
   if (!isRecord(save)) throw new AppError('E_VALIDATION', { message: t('error.field', { field: 'save' }) })
@@ -266,8 +231,16 @@ export function validateSave(save: Save, card?: Card): void {
     throw new AppError('E_VALIDATION', { message: t('error.events'), nextStep: t('next.home') })
   }
   if (!isRecord(save.tree)) throw badField('save.tree')
-  if ('0' in save.tree && !isTimeValue(save.tree['0'])) {
-    throw new AppError('E_VALIDATION', { message: t('error.timeTree'), nextStep: t('next.home') })
+  // 值只有三种形状：文字、数字、公历六格。旧的 `{ day, hour }` 就死在这一格。
+  for (const [path, value] of Object.entries(save.tree)) {
+    if (typeof value === 'string' || (typeof value === 'number' && Number.isSafeInteger(value))) continue
+    if (!isTimeValue(value)) {
+      throw new AppError('E_VALIDATION', {
+        message: t('error.timeTree'),
+        nextStep: t('next.home'),
+        detail: { path, value },
+      })
+    }
   }
   if (!card) return
   if (save.cardId !== card.id) {
@@ -277,13 +250,55 @@ export function validateSave(save: Save, card?: Card): void {
       detail: { cardId: save.cardId, card: card.id },
     })
   }
-  for (const element of card.state) {
-    if (!(element.code in save.tree)) {
+  // 值路径 = 每个 code 覆盖到的路径；有孩子的节点自身值是 `<code>.0`，`object` 的自身 code 不是值路径
+  const paths = new Set(card.state.flatMap((element) => pathsOf(card.state, element.code)))
+  for (const path of paths) {
+    if (!(path in save.tree)) {
       throw new AppError('E_VALIDATION', {
-        message: t('error.treeMissing', { code: element.code }),
+        message: t('error.treeMissing', { code: path }),
+        nextStep: t('next.home'),
+        detail: { code: path },
+      })
+    }
+  }
+  for (const path of Object.keys(save.tree)) {
+    if (!paths.has(path)) {
+      throw new AppError('E_VALIDATION', {
+        message: t('error.treeExtra', { path }),
+        nextStep: t('next.home'),
+        detail: { path },
+      })
+    }
+  }
+  for (const element of card.state) {
+    if (element.type === 'object') continue
+    if (!valueFits(element, save.tree[ownPathIn(card, element)])) {
+      throw new AppError('E_VALIDATION', {
+        message: t('error.treeValue', { path: ownPathIn(card, element) }),
         nextStep: t('next.home'),
         detail: { code: element.code },
       })
     }
+  }
+}
+
+/** 元素在树里的自身值路径（`pathsOf` 的首项就是它；结构体没有自身值，调用方先跳过） */
+function ownPathIn(card: Card, element: StateElement): string {
+  return pathsOf(card.state, element.code)[0]
+}
+
+/** 树里的一条值是不是这个元素认的形状（范围由写入方保证：`applyWrite` 会拦） */
+function valueFits(element: StateElement, value: unknown): boolean {
+  switch (element.type) {
+    case 'time':
+      return isTimeValue(value)
+    case 'text':
+      return typeof value === 'string'
+    case 'integer':
+      return typeof value === 'number' && Number.isSafeInteger(value)
+    case 'enum':
+      return typeof value === 'string' && (element.values ?? []).includes(value)
+    default:
+      return true
   }
 }

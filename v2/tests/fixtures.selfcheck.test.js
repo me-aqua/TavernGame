@@ -63,11 +63,18 @@ describe('夹具自检：链的形状是契约 §2.1 那一份', () => {
     }
   })
 
-  it('freshCard 就是契约 §2.1 的默认值（三节点 + 只有一个时间元素 + 自带开场）', () => {
+  it('freshCard 就是契约的默认值（三节点 + 只有一个时间元素 + 自带开场）', () => {
     const card = freshCard()
     expect(card.chain.map((node) => node.id)).toEqual(['time', 'check', 'output'])
     expect(card.chain.map((node) => node.type)).toEqual(['time', 'normal', 'output'])
     expect(card.state.map((element) => element.code)).toEqual(['0'])
+    // v5 状态元素：`0` 是 time（公历六格 + 颗粒度），不是阶段 1 的 type:'string'
+    expect(card.state[0]).toMatchObject({
+      type: 'time',
+      granularityUpper: 'day',
+      granularityLower: 'minute',
+      initial: { year: 2024, month: 1, day: 1, hour: 8, minute: 5, second: 0 },
+    })
     expect(card.prompts.map((prompt) => prompt.id)).toEqual([OPENING_PROMPT.id])
     expect(card.chain[2].historyTurns).toBe(3)
     expect(card.chain[2].readsUpstream).toEqual(['check'])
@@ -107,10 +114,10 @@ describe('夹具自检：值', () => {
     const save = makeSave(card)
     expect(Object.keys(save.tree).sort()).toEqual(card.state.map((element) => element.code).sort())
     expect(save.tree['1']).toBe('VAL_PLACE_A1')
-    expect(save.tree['0']).toEqual({ day: 1, hour: 8 })
+    expect(save.tree['0']).toEqual({ year: 2024, month: 1, day: 1, hour: 8, minute: 5, second: 0 })
     card.state[0].initial.hour = 23
     card.state[1].initial = 'MUTATED'
-    expect(save.tree['0']).toEqual({ day: 1, hour: 8 })
+    expect(save.tree['0']).toEqual({ year: 2024, month: 1, day: 1, hour: 8, minute: 5, second: 0 })
     expect(save.tree['1']).toBe('VAL_PLACE_A1')
     expect(save.cardSnapshot.state[1].initial).toBe('VAL_PLACE_A1')
   })

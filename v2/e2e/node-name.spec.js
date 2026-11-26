@@ -52,6 +52,9 @@ test.describe('节点显示名：卡带编辑器', () => {
     await expect(input, '节点编辑区要有显示名输入框').toBeVisible()
     await expect(input, '输入框里应该是节点当前的显示名').toHaveValue('check')
     await input.fill('CHECK_RENAMED')
+    // v5：编辑只改草稿 ⇒ 点【保存】才写 tg2.cards
+    await page.locator('[data-save-card]').click()
+    await expect(page.locator('[data-save-ok]')).toBeVisible()
 
     const after = (await readStorage(page, KEYS.cards))[0]
     const node = after.chain.find((item) => item.id === 'check')
@@ -77,6 +80,9 @@ test.describe('节点显示名：存档编辑器', () => {
     await expect(input, '存档编辑器也要有节点显示名输入框').toBeVisible()
     await expect(input).toHaveValue('check')
     await input.fill('SAVE_NODE_NAME')
+    // 存档编辑器同样是草稿 + 保存
+    await page.locator('[data-save-card]').click()
+    await expect(page.locator('[data-save-ok]')).toBeVisible()
 
     const after = (await readStorage(page, KEYS.saves))[0]
     const node = after.cardSnapshot.chain.find((item) => item.id === 'check')

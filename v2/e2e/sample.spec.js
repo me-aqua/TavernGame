@@ -3,7 +3,8 @@
  *
  * 三件事非钉不可：
  *   ① **首次打开**（`tg2.settings.sampleSeeded` 还没落盘的机器）首页就有一张 `晨风镇`，
- *      结构完整：5 个状态元素、3 个固定节点（id 是 `time/check/output`）、卡里**没有** `presetId`；
+ *      结构是 v5 契约 §7 那棵树：时间 / 世界 / 玩家（`1.1` 区域 + `1.1.1` 地点）、
+ *      3 个固定节点（id 是 `time/check/output`）、卡里**没有** `presetId`；
  *   ② **能删**：删掉之后列表真的空了，`tg2.cards` 也空了；
  *   ③ **不许复种**：刷新 / 再打开都不许把它种回来（标记一旦落盘就是一次性的）——
  *      这一条是「数据与项目本体分离」的实测口径：卡是数据、能被玩家彻底删掉。
@@ -15,13 +16,15 @@
  * ⚠️ 这是唯一用 `boot(page, { sample: true })` 的用例（它不写标记 = 模拟真·首次打开）。
  *    其它所有用例靠 `boot()` 的默认标记躲开这张卡。
  */
+import { URL } from 'node:url'
 import { expect, test } from '@playwright/test'
 import { APP_PATH, boot, KEYS, readStorage, route } from './support/app.js'
 
 /** 内置样例的事实（来自 `v2/src/data/sample-card.json`；文案与结构都在这儿对一遍） */
 const SAMPLE = {
   name: '晨风镇',
-  stateCodes: ['0', '1', '2', '3', '4'],
+  // v5 §7.1：时间 / 世界（1.1 区域 + 1.1.1 地点 / 1.2 天气 / 1.3 氛围）/ 玩家（2.1–2.4）
+  stateCodes: ['0', '1', '1.1', '1.1.1', '1.2', '1.3', '2', '2.1', '2.2', '2.3', '2.4'],
   nodeIds: ['time', 'check', 'output'],
 }
 
@@ -64,6 +67,26 @@ test('首次打开就有「晨风镇」：结构完整、卡里没有 presetId',
   expect(cards[0].state.map((element) => element.code)).toEqual(SAMPLE.stateCodes)
   expect(cards[0].chain.map((node) => node.id)).toEqual(SAMPLE.nodeIds)
   expect(cards[0].chain.map((node) => node.type)).toEqual(['time', 'normal', 'output'])
+  // v5 §7.1 的树：时间 / 世界 / 玩家；1.1 是「区域」（enum + 自身值），1.1.1 是它下面的「地点」
+  const stateOf = (code) => cards[0].state.find((element) => element.code === code)
+  expect(stateOf('0')).toMatchObject({
+    type: 'time',
+    granularityUpper: 'day',
+    granularityLower: 'minute',
+    initial: { year: 1024, month: 9, day: 17, hour: 18, minute: 30, second: 0 },
+  })
+  expect(stateOf('1'), '世界是 object').toMatchObject({ type: 'object' })
+  expect(stateOf('2'), '玩家是 object').toMatchObject({ type: 'object' })
+  expect(stateOf('1')).not.toHaveProperty('initial')
+  expect(stateOf('2')).not.toHaveProperty('initial')
+  expect(stateOf('1.1')).toMatchObject({
+    type: 'enum',
+    values: ['晨风镇', '镇郊', '地牢', '官道', '码头'],
+    initial: '晨风镇',
+  })
+  expect(stateOf('1.1.1')).toMatchObject({ type: 'text', initial: '醉猫旅店 · 一楼' })
+  // 人物（字典）与线索不在 2.1 里：不许换个 code 偷偷留着
+  expect(cards[0].state.map((element) => element.name)).not.toEqual(expect.arrayContaining(['人物', '线索']))
   for (const node of cards[0].chain) expect(Object.keys(node)).not.toContain('presetId')
   // 也带了「开场」那一块（§2.1：缺它就是不合法的卡）
   expect(cards[0].prompts.some((prompt) => prompt.id === 'opening')).toBe(true)

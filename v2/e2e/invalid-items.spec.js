@@ -32,13 +32,13 @@ function badCard() {
   }
 }
 
-/** 一份 `tree['0']` 不是 `{day,hour}` 的存档（契约 §6.1 ⇒ E_VALIDATION） */
+/** 一份 `tree['0']` 还是阶段 1 的 `{day,hour}` 的存档（v5 契约 §6.1 ⇒ E_VALIDATION） */
 function badSave(card) {
   return {
     ...makeSave(card),
     id: BAD_SAVE_ID,
     name: 'BAD_SAVE',
-    tree: { ...makeSave(card).tree, 0: 'day 1 hour 8' },
+    tree: { ...makeSave(card).tree, 0: { day: 1, hour: 8 } },
     extra: VERBATIM,
   }
 }
@@ -248,10 +248,12 @@ test.describe('写回只替换这一条：改合法项之后，坏项的值不�
     const before = await readArray(page, KEYS.cards)
     await expect(page.locator('[data-page="editor"]')).toBeVisible()
 
-    // 选中输出节点，改它的提示词（`@input` 即时落盘）
+    // 选中输出节点，改它的提示词（v5：编辑只改草稿，点【保存】才落盘）
     await page.locator('[data-node-id="output"]').click()
     await page.locator('[data-node-prompt]').fill('WRITE_BACK_LEG')
     await expect(page.locator('[data-node-prompt]')).toHaveValue('WRITE_BACK_LEG')
+    await page.locator('[data-save-card]').click()
+    await expect(page.locator('[data-save-ok]')).toBeVisible()
 
     const after = await readArray(page, KEYS.cards)
     expect(after, '编辑器写回把坏卡弄丢了').toHaveLength(2)

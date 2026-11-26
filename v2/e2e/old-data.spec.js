@@ -150,11 +150,11 @@ test.describe('P1 对话页：存档里的卡是旧格式时，不许给输入�
     expect(await readStorage(page, KEYS.saves), '打开坏存档不许改盘').toEqual([save])
   })
 
-  test('坏存档本身（tree 的 0 不是 {day,hour}）⇒ 中文 E_VALIDATION，且没有输入框 / 发送按钮', async ({
+  test('坏存档本身（tree 的 0 还是阶段 1 的 {day,hour}）⇒ 中文 E_VALIDATION，且没有输入框 / 发送按钮', async ({
     page,
   }) => {
     const card = makeCard()
-    const save = { ...makeSave(card), tree: { ...makeSave(card).tree, 0: 'day 1 hour 8' } }
+    const save = { ...makeSave(card), tree: { ...makeSave(card).tree, 0: { day: 1, hour: 8 } } }
     await boot(page, {
       storage: { [KEYS.cards]: [card], [KEYS.saves]: [save], [KEYS.presets]: [MOCK_PRESET] },
       hash: route.play(CARD_ID, save.id),

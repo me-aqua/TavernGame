@@ -49,7 +49,7 @@ function offendersIn(files, patterns) {
 }
 
 describe('模块边界：核心模块在不在', () => {
-  it('入口 + 路由 + 六个 core 模块 + 文案表都在', async () => {
+  it('入口 + 路由 + 七个 core 模块 + 文案表都在', async () => {
     const files = sourceFiles()
     expect(files.length, 'v2/src 下一个源文件都没有 —— 这一层什么也没验').toBeGreaterThan(0)
     for (const required of [
@@ -60,6 +60,7 @@ describe('模块边界：核心模块在不在', () => {
       'core/prompt.ts',
       'core/engine.ts',
       'core/schema.ts',
+      'core/statetree.ts',
       'locales/zh-CN.json',
     ]) {
       expect(files, `缺 ${required}（CONTRACT §1）`).toContain(required)
@@ -82,12 +83,13 @@ describe('模块边界：core 层不碰界面（node 里能单测）', () => {
     ).toEqual([])
   })
 
-  it('五个核心模块都能在 node 里 import（没有依赖 DOM 的副作用）', async () => {
+  it('六个核心模块都能在 node 里 import（没有依赖 DOM 的副作用）', async () => {
     await loadModule('core/storage.ts', () => import('../src/core/storage.ts'))
     await loadModule('core/errors.ts', () => import('../src/core/errors.ts'))
     await loadModule('core/prompt.ts', () => import('../src/core/prompt.ts'))
     await loadModule('core/engine.ts', () => import('../src/core/engine.ts'))
     await loadModule('core/schema.ts', () => import('../src/core/schema.ts'))
+    await loadModule('core/statetree.ts', () => import('../src/core/statetree.ts'))
   })
 })
 

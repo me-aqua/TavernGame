@@ -36,13 +36,15 @@ function seedWithSave() {
 test('改初值与节点提示词之后：旧存档仍按旧卡跑，新存档吃新值', async ({ page }) => {
   await boot(page, { storage: seedWithSave() })
 
-  // ---- 改卡：元素 1 的初值 + 输出节点的提示词
+  // ---- 改卡：元素 1 的初值 + 输出节点的提示词（v5：编辑只改草稿，点【保存】才落盘）
   await page.goto(`${APP_PATH}${route.edit(CARD_ID)}`)
   await expect(page.locator('[data-page="editor"]')).toBeVisible()
   await page.locator('[data-state-item="1"]').click()
   await page.locator('[data-field="initial"]').fill('VAL_PLACE_NEW')
   await page.locator('[data-node-id="output"]').click()
   await page.locator('[data-node-prompt]').fill('NODE_OUT_EDITED')
+  await page.locator('[data-save-card]').click()
+  await expect(page.locator('[data-save-ok]')).toBeVisible()
 
   // ---- 旧存档：跑一回合，prompt 里还是旧卡（trace 卡片按节点分 ⇒ 读输出节点那一张）
   await openStory(page, CARD_ID, 's1', { debug: true })

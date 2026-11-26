@@ -19,7 +19,7 @@ test('建卡 → 编内容 → 存档 → 三回合 → 刷新还在', async ({ 
   await expect(page.locator('[data-card-id]')).toHaveCount(1)
   const cardId = await page.locator('[data-card-id]').first().getAttribute('data-card-id')
 
-  // ---- 编辑器：两个文本元素 + 初值（`0` 是时间元素，初值在中栏用两个数字框改）
+  // ---- 编辑器：两个文本元素 + 初值（`0` 是时间元素，这一条不改它的初值）
   await page.goto(`${APP_PATH}${route.edit(cardId)}`)
   await expect(page.locator('[data-page="editor"]')).toBeVisible()
   await expect(page.locator('[data-state-item="0"]')).toBeVisible()
@@ -53,7 +53,9 @@ test('建卡 → 编内容 → 存档 → 三回合 → 刷新还在', async ({ 
   await page.locator('[data-state-item="1"] [data-eyes="write"]').click()
   await expect(page.locator('[data-state-item="1"] [data-eyes="write"]')).toHaveAttribute('data-on', 'true')
 
-  // ---- 编辑器没有保存按钮：改动必须已经落盘
+  // ---- v5 编辑器：编辑只改内存草稿，顶栏【保存】才校验 + 落盘
+  await page.locator('[data-save-card]').click()
+  await expect(page.locator('[data-save-ok]'), '合法草稿点保存后要给成功提示').toBeVisible()
   await page.reload()
   const cards = await readStorage(page, KEYS.cards)
   expect(cards).toHaveLength(1)
@@ -82,12 +84,13 @@ test('建卡 → 编内容 → 存档 → 三回合 → 刷新还在', async ({ 
   expect(Object.keys(slice).sort()).toEqual(['check', 'output', 'time'])
   expect(Object.values(slice)).toEqual(Array(3).fill(MOCK_PRESET.id))
 
-  // ---- 新建存档（基于选中的卡）
+  // ---- 新建存档（基于选中的卡）；先记下新卡的时间初值，回合之后按它判推进
   await page.goto(`${APP_PATH}${route.home}`)
   await page.locator(`[data-card-id="${cardId}"]`).click()
   await page.locator('[data-new-save]').click()
   await expect(page.locator('[data-save-id]')).toHaveCount(1)
   const saveId = await page.locator('[data-save-id]').first().getAttribute('data-save-id')
+  const startTime = (await readStorage(page, KEYS.saves)).find((save) => save.id === saveId).tree['0']
 
   // ---- 三回合（流式；mock 提供方）
   await openStory(page, cardId, saveId)
@@ -110,7 +113,21 @@ test('建卡 → 编内容 → 存档 → 三回合 → 刷新还在', async ({ 
   expect(saves).toHaveLength(1)
   expect(saves[0].turn).toBe(3)
   expect(saves[0].cardId).toBe(cardId)
-  expect(saves[0].tree['0']).toEqual({ day: 1, hour: 11 })
+  // v5 的 tree['0'] 是公历六格：mock 每回合推进一个「最粗的允许单位」（默认卡 = day）
+  // ⇒ 三回合 = 日期 +3，时分秒不变。用 UTC 日历算期望，跨月也有确定答案。
+  const endTime = saves[0].tree['0']
+  // 用 2000 年做锚再 setUTCFullYear：`Date.UTC(1, …)` 会把 0..99 当 1900+year（默认卡是 1 年）
+  const expectedDay = new Date(Date.UTC(2000, startTime.month - 1, startTime.day))
+  expectedDay.setUTCFullYear(startTime.year)
+  expectedDay.setUTCDate(expectedDay.getUTCDate() + 3)
+  expect({ year: endTime.year, month: endTime.month, day: endTime.day }).toEqual({
+    year: expectedDay.getUTCFullYear(),
+    month: expectedDay.getUTCMonth() + 1,
+    day: expectedDay.getUTCDate(),
+  })
+  expect(endTime.hour).toBe(startTime.hour)
+  expect(endTime.minute).toBe(startTime.minute)
+  expect(endTime.second).toBe(startTime.second)
   expect(saves[0].tree['1']).toBe('mock-t3')
   expect(saves[0].tree['2']).toBe('VAL_MOOD_B2')
 })

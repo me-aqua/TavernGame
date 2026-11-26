@@ -238,10 +238,10 @@ describe('存储：旧格式的卡读出来就是错（不迁移、不改盘）'
     expect(backend.writes, '读盘不该写盘').toEqual([])
   })
 
-  it('存档自身坏掉（tree 的 0 不是 {day,hour}）⇒ 中文 E_VALIDATION，盘上字节不变', async () => {
+  it('存档自身坏掉（tree 的 0 还是旧的 {day,hour}）⇒ 中文 E_VALIDATION，盘上字节不变', async () => {
     const { createStorage } = await loadStorage()
     const save = makeSave(makeCard())
-    const badTree = { ...save, tree: { ...save.tree, 0: 'day 1 hour 8' } }
+    const badTree = { ...save, tree: { ...save.tree, 0: { day: 1, hour: 8 } } }
     const raw = JSON.stringify([badTree])
     const backend = fakeBackend({ 'tg2.saves': raw })
     try {

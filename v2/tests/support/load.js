@@ -16,6 +16,7 @@ const WHERE = {
   'core/engine.ts': 'CONTRACT §4',
   'core/schema.ts': 'CONTRACT §6.1',
   'core/mock.ts': 'CONTRACT §7',
+  'core/statetree.ts': '阶段 2.1 契约 v5 §1–§6（CONTRACT §2.1 尚未补）',
 }
 
 /**

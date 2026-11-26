@@ -35,13 +35,13 @@ function brokenCard() {
   }
 }
 
-/** 一份「形状像存档、但 `tree['0']` 不是 `{day,hour}`」的存档（契约 §6.1 ⇒ E_VALIDATION） */
+/** 一份「形状像存档、但 `tree['0']` 还是阶段 1 的 `{day,hour}`」的存档（v5 契约 §6.1 ⇒ E_VALIDATION） */
 function brokenSave(card) {
   return {
     ...makeSave(card),
     id: 's-bad',
     name: 'BAD_SAVE',
-    tree: { ...makeSave(card).tree, 0: 'day 1 hour 8' },
+    tree: { ...makeSave(card).tree, 0: { day: 1, hour: 8 } },
     extra: 'KEEP_ME_VERBATIM',
   }
 }

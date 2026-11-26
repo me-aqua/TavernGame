@@ -5,16 +5,17 @@
  * **一份文件两种模式**，因为表单、栏宽、状态机都该是同一套：
  *   · 卡模式 `#/edit/:cardId`：改 `tg2.cards` 里这张卡，模型写 `tg2.nodeModels[cardId]`；
  *   · 存档模式 `#/edit-save/:saveId`：改的是**这一份存档的 `cardSnapshot`（深拷贝）**与它自己的
- *     `save.nodeModels`，`tg2.cards` 一个字节都不动。**结构锁死**：状态元素不能加 / 删（`+` / `×`
- *     都不渲染）、没有节点增删排序、卡名不可改；名字 / 备注 / 初值 / 提示词块 / 节点提示词 /
+ *     `save.nodeModels`，`tg2.cards` 一个字节都不动。**结构锁死**：状态元素不能加 / 删（新元素、加子元素、
+ *     删除都不渲染）、没有节点增删排序、卡名不可改；名字 / 备注 / 初值 / 提示词块 / 节点提示词 /
  *     历史轮数 / 眼睛 / 模型预设照常可改。
  *
  * 三条口径：
- *   · **没有保存按钮**：字段一改就落盘（卡模式写卡表，存档模式写存档表）；
+ *   · **编辑只改内存草稿**：字段一改只动草稿，顶栏【保存】才校验 + 落盘（`[data-save-card]`）。
+ *     校验不过 ⇒ 不写盘、草稿保留、中文错误清单可点回那一格；修好再点保存。
  *   · **模型不进卡**：中栏那一格改的是节点映射 —— 卡模式 `tg2.nodeModels[cardId][nodeId]`，
- *     存档模式 `save.nodeModels[nodeId]`。卡模式第一次打开会铺一条「每个节点 → 池子里第一个预设」
- *     的映射（没有预设就不铺，写空串只会制造假数据）；存档没有自己的映射时先按卡级那一片显示，
- *     玩家真改哪一格才把整片写进存档；
+ *     存档模式 `save.nodeModels[nodeId]`；映射**不属于卡草稿**，所以它照旧即时写。
+ *     卡模式第一次打开会铺一条「每个节点 → 池子里第一个预设」的映射（没有预设就不铺）；
+ *     存档没有自己的映射时先按卡级那一片显示，玩家真改哪一格才把整片写进存档；
  *   · **自由度只有两个**（左宽、右宽），中栏恒为余量；细条宽度固定，不参与拖拽。
  */
 import { computed, onMounted, reactive, ref } from 'vue'
@@ -27,10 +28,21 @@ import StateTree from '../components/StateTree.vue'
 import WorkflowStrip from '../components/WorkflowStrip.vue'
 import { asAppError, storage } from '../app-context'
 import { cloneCard, nextPromptId, nextStateCode } from '../cards'
-import { AppError } from '../core/errors'
+import type { AppError } from '../core/errors'
 import { validateCard, validateSave } from '../core/schema'
+import { addChild, cardIssues, initialTreeOf, removeNode } from '../core/statetree'
+import type { CardIssue } from '../core/statetree'
 import { DEFAULT_SETTINGS } from '../core/storage'
-import type { Card, ChainNode, NodeModels, Preset, PromptBlock, Save, StateElement } from '../core/types'
+import type {
+  Card,
+  ChainNode,
+  NodeModels,
+  Preset,
+  PromptBlock,
+  Save,
+  StateElement,
+  Tree,
+} from '../core/types'
 import { t } from '../i18n'
 import { REPO_URL } from '../repo'
 import { routeHash } from '../router'
@@ -59,6 +71,9 @@ const models = ref<NodeModels>({})
 /** 当前正在编辑的节点映射：卡模式 = `tg2.nodeModels[cardId]`；存档模式 = `save.nodeModels`（没有就看卡级那一片） */
 const nodePresets = ref<Record<string, string>>({})
 const error = ref<AppError | null>(null)
+/** 上一次点保存的问题清单（空 = 没拦下来）与成功提示 */
+const saveIssues = ref<CardIssue[]>([])
+const savedOk = ref(false)
 const selectedNodeId = ref<string | null>(null)
 const selectedCode = ref<string | null>(null)
 const selectedPromptId = ref<string | null>(null)
@@ -86,6 +101,12 @@ const middleTitle = computed(() => {
   if (selectedElement.value) return t('editor.editTitle', { name: selectedElement.value.name })
   if (selectedPrompt.value) return t('editor.editTitle', { name: selectedPrompt.value.title })
   return t('editor.editTitleEmpty')
+})
+
+/** 左栏每行要显示的自身值：卡模式读**初值树**（编辑初值当场反映），存档模式读存档自己的树 */
+const stateValues = computed<Tree>(() => {
+  if (editingSave) return save.value?.tree ?? {}
+  return card.value ? initialTreeOf(card.value) : {}
 })
 
 /** 某一格当前用的预设 id：映射里有就用它，没有就是池子第一个（`''` = 一个预设都没有） */
@@ -159,30 +180,46 @@ function writeSave(next: Card): void {
 }
 
 /**
- * 落盘一次卡内容改动：**先验后写** —— 不合法的中间态既不进内存、也不进 localStorage。
+ * 落盘草稿：**先验后写**。
  *
+ * `cardIssues` 给出中文问题清单（状态树 + 链的规矩，一条一个可点回的 code）；一条都没有才写盘。
  * 两种模式都只替换「这一个对象」那一行、宽松写回整表：盘上别的卡 / 存档（包括不合法的那些）
  * **JSON 值**不变（空白 / 数字写法会被重新序列化，不承诺字节逐字相同）。
  */
-function persist(next: Card): void {
+function saveCard(): void {
+  const draft = card.value
+  if (!draft) return
+  const issues = cardIssues(draft)
+  if (issues.length > 0) {
+    saveIssues.value = issues
+    savedOk.value = false
+    return
+  }
   try {
-    validateCard(next)
-    if (editingSave) writeSave(next)
-    else writeCard(next)
-    card.value = next
+    // 清单空 ⇒ 只剩形状层（数组 / 字符串）；校验器抛的错按一条「卡级」问题显示
+    validateCard(draft)
+    if (editingSave) writeSave(draft)
+    else writeCard(draft)
+    saveIssues.value = []
+    savedOk.value = true
   } catch (cause) {
-    error.value = asAppError(cause)
+    saveIssues.value = [{ code: '', path: '', message: asAppError(cause).message, errorCode: 'E_VALIDATION' }]
+    savedOk.value = false
   }
 }
 
+/** 点错误清单里的一条：有 code 就选中那一格（卡级问题只清掉成功提示） */
+function selectIssue(issue: CardIssue): void {
+  savedOk.value = false
+  if (issue.code === '') return
+  selectElement(issue.code)
+}
+
+/** 草稿改动：只动内存，不写盘 */
 function updateCard(mutate: (current: Card) => Card): void {
   const current = card.value
   if (!current) return
-  try {
-    persist(mutate(current))
-  } catch (cause) {
-    error.value = asAppError(cause)
-  }
+  card.value = mutate(current)
 }
 
 function patchNode(nodeId: string, patch: Partial<ChainNode>): void {
@@ -192,21 +229,39 @@ function patchNode(nodeId: string, patch: Partial<ChainNode>): void {
   }))
 }
 
-function patchElement(code: string, patch: Partial<StateElement>): void {
+/** 中栏交回来的是**整份元素**（换类型要能删掉旧类型的字段），所以这里是替换不是合并 */
+function patchElement(code: string, element: StateElement): void {
   updateCard((current) => ({
     ...current,
-    state: current.state.map((element) => (element.code === code ? { ...element, ...patch } : element)),
+    state: current.state.map((item) => (item.code === code ? element : item)),
   }))
 }
 
-/** 眼睛：把某个引用塞进/拿出当前节点的 `reads` / `writable` / `readsUpstream` */
-function toggleRef(field: 'reads' | 'writable' | 'readsUpstream', ref0: string): void {
+/**
+ * 眼睛：把某个引用塞进/拿出当前节点的 `reads` / `writable` / `readsUpstream`。
+ *
+ * 状态元素的【读】/【写】是按**三态**切的：`all` ⇒ 把这一 code 连同它下面已经不用的引用一起摘掉
+ * （父行的「全反选」），`some` / `none` ⇒ 加上这一 code（父行加上它 = 自身值 + 整棵子树全选）。
+ * 叶子只有 all / none 两态，所以它的按钮永远只切自己。
+ */
+function toggleRef(
+  field: 'reads' | 'writable' | 'readsUpstream',
+  ref0: string,
+  tri?: 'all' | 'some' | 'none',
+): void {
   const node = selectedNode.value
   if (!node) return
   const list = node[field]
-  patchNode(node.id, {
-    [field]: list.includes(ref0) ? list.filter((item) => item !== ref0) : [...list, ref0],
-  })
+  // 提示词块 / 上游节点那两种眼睛不是三态的：它们只翻自己这一条
+  if (tri === undefined) {
+    patchNode(node.id, {
+      [field]: list.includes(ref0) ? list.filter((item) => item !== ref0) : [...list, ref0],
+    })
+    return
+  }
+  const inside = (ref: string) => ref === ref0 || ref.startsWith(`${ref0}.`)
+  const next = tri === 'all' ? list.filter((item) => !inside(item)) : [...new Set([...list, ref0])]
+  patchNode(node.id, { [field]: next })
 }
 
 function selectNode(nodeId: string): void {
@@ -236,24 +291,31 @@ function addState(): void {
     code,
     name: t('editor.newStateName', { code }),
     note: '',
-    type: 'string',
+    type: 'text',
     initial: '',
   }
   updateCard((card0) => ({ ...card0, state: [...card0.state, element] }))
   selectElement(code)
 }
 
-/** 删元素要顺手把引用它的 `reads` / `writable` 一起摘掉，否则卡会变成「悬空引用」 */
+/** 给某个元素加孩子：标量不换类型，自身值搬到 `.0`（`statetree.addChild` 负责树，这里只留卡） */
+function addChildOf(code: string): void {
+  const current = card.value
+  if (!current) return
+  const result = addChild(current, initialTreeOf(current), code)
+  updateCard(() => result.card)
+  const added = result.card.state.find((element) => !current.state.some((old) => old.code === element.code))
+  if (added) selectElement(added.code)
+}
+
+/**
+ * 删一个元素（连同子树）：同层兄弟重排为 `1..n`、树值键与链上的 `reads` / `writable` 一起映射 ——
+ * 这些规则住在 `statetree.removeNode`，编辑器只把结果当新草稿。
+ */
 function removeState(code: string): void {
-  updateCard((current) => ({
-    ...current,
-    state: current.state.filter((element) => element.code !== code),
-    chain: current.chain.map((node) => ({
-      ...node,
-      reads: node.reads.filter((ref0) => ref0 !== code),
-      writable: node.writable.filter((item) => item !== code),
-    })),
-  }))
+  const current = card.value
+  if (!current) return
+  updateCard((card0) => removeNode(card0, initialTreeOf(card0), code).card)
   if (selectedCode.value === code) selectedCode.value = null
 }
 
@@ -290,8 +352,15 @@ function choosePreset(nodeId: string, presetId: string): void {
   try {
     nodePresets.value = { ...nodePresets.value, [nodeId]: presetId }
     if (editingSave) {
-      const current = card.value
-      if (current) writeSave(current)
+      // 映射不属于卡草稿：只换存档那一份的 nodeModels，快照一个字不动
+      const current = save.value
+      if (!current) return
+      const nextSave: Save = { ...current, nodeModels: { ...nodePresets.value } }
+      const entries = storage()
+        .loadSaveEntries()
+        .map((entry) => (entry.save?.id === nextSave.id ? { raw: nextSave, save: nextSave } : entry))
+      storage().saveSavesLoose(entries.map((entry) => entry.raw))
+      save.value = nextSave
       return
     }
     if (cardId === undefined) return
@@ -381,22 +450,45 @@ function goBack(): void {
           REPO_URL
         }}</a>
       </span>
+      <button type="button" data-save-card :disabled="!card" @click="saveCard">{{ t('editor.save') }}</button>
+      <span v-if="savedOk" class="save-ok" data-save-ok>{{ t('editor.saveOk') }}</span>
     </header>
 
     <ErrorPanel v-if="error" :error="error" />
+
+    <div v-if="saveIssues.length > 0" class="save-errors" data-save-errors>
+      <span class="save-failed">{{ t('editor.saveFailed') }}</span>
+      <button
+        v-for="(issue, at) in saveIssues"
+        :key="`${issue.code}-${issue.path}-${at}`"
+        type="button"
+        class="save-error"
+        data-save-error
+        :data-save-error-code="issue.code"
+        @click="selectIssue(issue)"
+      >
+        {{
+          issue.code === ''
+            ? issue.message
+            : t('editor.saveErrorLine', { code: issue.code, message: issue.message })
+        }}
+      </button>
+    </div>
 
     <div v-if="card" ref="rowEl" class="page-body editor-row">
       <section class="col" data-col="left" :style="{ width: `${columns.left}px` }">
         <StateTree
           :elements="card.state"
+          :values="stateValues"
           :node="selectedNode"
           :selected-code="selectedCode"
           :structure-locked="editingSave"
           @add="addState"
           @select="selectElement"
           @remove="removeState"
-          @toggle-read="(code) => toggleRef('reads', code)"
-          @toggle-write="(code) => toggleRef('writable', code)"
+          @add-child="addChildOf"
+          @toggle-read="(code, tri) => toggleRef('reads', code, tri)"
+          @toggle-write="(code, tri) => toggleRef('writable', code, tri)"
         />
       </section>
 
@@ -435,7 +527,7 @@ function goBack(): void {
           <StateForm
             v-else-if="selectedElement"
             :element="selectedElement"
-            @patch="(patch) => patchElement(selectedElement!.code, patch)"
+            @edit="(element) => patchElement(selectedElement!.code, element)"
           />
           <PromptForm
             v-else-if="selectedPrompt"
@@ -482,6 +574,32 @@ function goBack(): void {
 
 .editor-row {
   align-items: stretch;
+}
+
+/* 保存成功的提示：页栏里的一小行次要文字 */
+.save-ok {
+  font-size: var(--fs3);
+  color: var(--ink-soft);
+}
+
+/* 保存失败：页栏下面一条可换行的清单，每条都能点回那一格 */
+.save-errors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.save-failed {
+  font-size: var(--fs2);
+  color: var(--danger);
+}
+
+.save-error {
+  text-align: left;
 }
 
 .col {

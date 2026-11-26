@@ -19,7 +19,7 @@ v2/
   tsconfig.json  strict + include src/**/*.ts|vue + stories/**/*.ts + .storybook/**/*.ts
   scripts/check-lines.mjs  v2 文件长度闸（800 行）
   src/  main.ts  router.ts  i18n.ts  env.d.ts
-    core/  storage.ts errors.ts prompt.ts engine.ts schema.ts mock.ts (+ provider.ts deadline.ts types.ts)
+    core/  storage.ts errors.ts prompt.ts engine.ts schema.ts statetree.ts mock.ts (+ provider.ts deadline.ts types.ts)
     components/*.vue  pages/ HomePage.vue EditorPage.vue PlayPage.vue SettingsPage.vue  locales/zh-CN.json  data/sample-card.json  styles/*.css
   tests/  vitest（node，被测 src/core/**）  e2e/  Playwright（dist/v2）  stories/ .storybook/  组件故事与巡检
 ```
@@ -45,7 +45,8 @@ v2/
 {
   schemaVersion: 1,
   id: 'c-<string>', name: string,        // id 创建时生成且稳定；name 非空，重命名只改它
-  state: [{ code, name, note, type: 'string', initial: string | { day: number, hour: number } }], // 单层
+  state: [{ code, name, note, type, values?, min?, max?, stepMin?, stepMax?,
+            granularityUpper?, granularityLower?, initial? }],
   chain: [{ id, type: 'time' | 'normal' | 'output', name,
             reads: string[], writable: string[], readsUpstream: string[],
             historyTurns: number, prompt: string }], // 顺序即执行顺序
@@ -53,11 +54,14 @@ v2/
 }
 ```
 
-- **卡里不许存模型绑定**（没有 `presetId` 字段）：模型住在 `tg2.nodeModels`（§2.5），不进卡、不进存档、不随导入导出走。
-- `validateCard` 对多余字段宽容：卡里残留 `presetId` 不报错，但引擎一个字节都不看；判据 `v2/tests/engine.test.js`。
-- `state[0].code` 固定 `'0'`（时间元素），它在 `tree` 里的值是 `{ day, hour }`，其余元素是字符串；`'0'` 不可删除。
-- 时间初值界面是两个数字框（`[data-field="initial-day"]` ≥1 / `[data-field="initial-hour"]` 0–23），可改并即时落盘；其余元素初值是字符串。
-- `reads` 是混合数组：`prompts[].id` = 读这块公共提示词，`state[].code` = 读这个元素；创建方保证同一字符串不同时是两者。
+- **状态树是扁平的、键是完整 code**（v5）：`state[]` 只是**声明**，值住在存档的 `tree` 里（§2.2）。
+- `type ∈ 'time' | 'text' | 'integer' | 'enum' | 'object'`；`type` 描述的是**自身值**，所以标量节点也可以有孩子、不会因此变成 `object`。
+- **编号铁律**：`state[0].code === '0'` 且 `type === 'time'`（整张卡只能有一个 `time`，它不能有孩子）；节点自己的值住在**隐式**的 `<code>.0`（**不进 `state[]`**），可见孩子从 `<code>.1` 起连续编号；父 code 必须存在；深度（`.0` 不计）最大 5（`1.1.1.1.1` 合法）。
+- **自身值**：`object` 没有 `initial`（必须有孩子）；其余类型必须带 `initial`（带孩子的标量也一样）。`initial` 永远是「这个元素自己的值」，落到树里的 `<code>.0` 是派生（`initialTreeOf`），卡里不存 `.0` 键。
+- 各类型的格子：`enum` 的 `values` 非空 / 不重复 / 都是字符串，初始值必须是其中一项；`integer` 的 `min`/`max`（缺省 ∓1e9）与 `stepMin`/`stepMax`（缺省 0 / 1e9）是值范围与**单次写入的步幅**（`|new − old|`），初始值只受上下限约束；`time` 的 `granularityUpper`/`granularityLower` 是单次推进的最粗 / 最细单位（顺序：year > month > week > day > hour > minute > second，upper 不细于 lower），值永远是合法公历六格。
+- `validateCard` 对多余字段宽容（卡里残留 `presetId` 不报错，引擎一个字节都不看），但对**旧形状不迁移**：`type: 'string'`、`tree['0']` 是 `{ day, hour }`、缺 `opening`、布尔 `readsUpstream`、带校对节点的卡一律中文 `E_VALIDATION`。
+- `reads` 是混合数组：`prompts[].id` = 读这块公共提示词，**元素 code** = 读这个元素（自身值 + 整棵子树），**`<code>.0`** = 只读这个元素的自身值；创建方保证同一字符串不同时是两者。
+- **`.0` 引用**：只有「真的有自身值、而且住在 `.0`」的节点才有这一格 —— 有孩子的标量（`1.1` 是 enum 且有孩子 ⇒ `1.1.0` 合法）；叶子自己就是 `<code>`，所以 `2.1.0` 非法；`object` 没有自身值 ⇒ `2.4.0` 非法；时间元素没有孩子 ⇒ `0.0` 非法；父 code 不存在 ⇒ 非法。`reads` 与 `writable` 都按这一条判（悬空 ⇒ `E_VALIDATION`）。
 - 新建卡默认三节点（顺序 / id / name / reads / writable / readsUpstream / historyTurns / prompt）：
 
 | #   | id       | type     | name | reads | writable                               | readsUpstream | historyTurns | prompt |
@@ -68,9 +72,9 @@ v2/
 
 `id` 是结构（选择器 / 链引用 / 测试），必须 ASCII 且稳定；`name` 是展示文案，住 `locales/zh-CN.json`。
 
-- 新建卡 `state = [{ code:'0', name:'时间', note:'', type:'string', initial:{day:1,hour:8} }]`，`prompts = [{ id:'opening', title:'开场', body:'' }]`；每张卡都带 `opening`，标题来自 `card.openingTitle`，永远排第一。
+- 新建卡 `state = [{ code:'0', name:'时间', note:'', type:'time', initial:{year:1024,month:1,day:1,hour:8,minute:0,second:0}, granularityUpper:'day', granularityLower:'minute' }]`，`prompts = [{ id:'opening', title:'开场', body:'' }]`；每张卡都带 `opening`（新建 / 删不掉 / 排第一，标题来自 `card.openingTitle`）。
 - 新增状态元素 / 提示词块不自动进入任何节点的 `reads` / `writable`，作者用眼睛打开。
-- **不做旧卡兼容 / 迁移**：没有 `normalizeCard`；缺 `opening`、带 `proof`、`readsUpstream` 是布尔的老卡，`validateCard` 直接报中文 `E_VALIDATION`（链规矩坏了是 `E_CHAIN`），不补字段。
+- **不做旧卡兼容 / 迁移**：没有 `normalizeCard`；`type:'string'`、`{day,hour}` 时间、缺 `opening`、带 `proof`、`readsUpstream` 是布尔的老卡，`validateCard` 直接报中文 `E_VALIDATION`（链规矩坏了是 `E_CHAIN`），不补字段。
 - `readsUpstream` 是节点 id 数组，只能引用链上排在它前面的节点（自己与下游 ⇒ `E_CHAIN`）；空数组 = 不读上游。
 - `historyTurns`：最近 N 条叙事 + 最近 N 条行动（含本回合）；本回合行动恒为历史块最后一条（详见 §5）。
 
@@ -82,12 +86,13 @@ v2/
   cardSnapshot: Card,                    // 新建时整张卡深拷贝，此后不随卡改动
   nodeModels?: { [nodeId]: presetId },   // 这一份存档自己的映射；缺省 = 回落卡级
   name: string, turn: number,            // 已完成回合数；新建为 0
-  tree: { [code]: string | { day, hour } },
+  tree: { [path]: string | number | { year, month, day, hour, minute, second } },
   events: Event[], updatedAt: string     // ISO 时间戳
 }
 ```
 
-- `tree` 新建时从 `cardSnapshot.state[].initial` 逐个深拷贝；`tree['0']` 恒为 `{ day, hour }`，其余键恒为字符串。
+- `tree` 是**扁平完整 code 的值表**，新建时由 `initialTreeOf(cardSnapshot)` 展开：没孩子的元素用自身 `code`，有孩子的元素自身值放 `<code>.0`，`object` 一条键都不产出。时间永远是六格公历（深拷贝），其余是字符串或整数。
+- `validateSave(save, card)` 要求 `tree` **覆盖全部值路径**（`pathsOf`）且**没有多余键**：`object` 的自身 code（`2`）与「拿父 code 顶替 `<code>.0`」都被拒；`tree['0']` 不是六格（旧的 `{day,hour}`）⇒ `E_VALIDATION`。
 - `Event = { type, text, detail?, at }`，`type` 允许 `'action' | 'narration' | 'node' | 'request' | 'tool' | 'write' | 'toolResult' | 'error' | 'trace' | 'turnStats'`；`chunk` 不是持久事件（只走 `onEvent`）。
 - `trace` 每节点一条、按链顺序：`detail = { nodeId, nodeName, nodeType, presetId, prompt, thinking, toolCalls: [{ name, args, result? }], output, usage: { inputTokens, outputTokens, totalTokens } | null, durationMs, tps: number | null, turn }`，`text = node.name`。
 - `turnStats` 每回合一条、回合末尾：`detail = { turn, totalMs, usage, tps }`，`text = 'turn <n>'`；`usage` 是各节点之和，`tps` 量不出为 `null`。
@@ -159,6 +164,7 @@ export function createStorage(backend) -> Storage   // backend 由调用方注�
 ### 3.1 内置示例卡（`晨风镇`）—— 资产，不是玩家数据
 
 - 卡片本体住在 `v2/src/data/sample-card.json`（**资产**，随构建发布）；代码里不写死它的内容，只有 `main.ts` 引入它。
+- 资产形状 = 阶段 2.1 的 v5 样例：时间（`0`，颗粒度 day / minute）+ `1 世界`（`object`；`1.1 区域` 下拉自身值 + `1.1.1 地点` 文字；`1.2 天气` 下拉；`1.3 氛围` 文字）+ `2 玩家`（`object`；名字 / 体力 0..100 步幅 1..10 / 状态下拉 / 携带文字）。人物与线索不在 2.1 里。
 - 种下去的是克隆 + 运行时不透明 id：克隆后 `id = c-<uuid>`（与首页新建卡同一套生成器）；资产 id 不进 URL / 存档；存档 `cardSnapshot.id` 用运行时 id。
 - 首次打开：`main.ts` 看 `tg2.settings.sampleSeeded`；不是 `true` ⇒ 若 `tg2.cards` 为空就写入示例卡，并把标记置 `true`（卡表非空也置 `true`、不种；一次性，不新增第六个键）。
 - 删了不复种：玩家删掉示例卡后再打开，列表就是空的（标记已落盘；删卡不动标记）。
@@ -173,8 +179,20 @@ export function createStorage(backend) -> Storage   // backend 由调用方注�
 export async function runTurn({ card, save, presets, nodePresets, action, onEvent, signal }) -> { save, events }
 export function resolveNodePreset({ presets, nodePresets, nodeId }) -> Preset
 export function applyWrite({ card, node, tree, path, value }) -> Tree
-export function advanceTime(time, hours) -> TimeValue
-// src/core/schema.ts: export function toolsForNode(node) -> string[]
+export { advanceTime }   // 语义见 src/core/statetree.ts：advanceTime(value, amount, unit, bounds?)
+// src/core/statetree.ts（阶段 2.1 的新模块）:
+export const TIME_UNITS
+export function codeDepth(code) -> number
+export function pathsOf(state, ref) -> string[]   // ref = 元素 code（自身值 + 子树）或 `<code>.0`（只有自身值）；认不出 ⇒ []
+export function initialTreeOf(card) -> Tree
+export function formatTime(value) -> string
+export function advanceTime(value, amount, unit, bounds?) -> TimeValue
+export function addChild(card, tree, code) -> { card, tree }
+export function removeNode(card, tree, code) -> { card, tree }
+export function cardIssues(card) -> CardIssue[]
+// src/core/schema.ts:
+export function toolsForNode(card, node) -> string[]
+export function elementOfPath(state, path) -> StateElement | undefined
 ```
 
 - `runTurn` **不修改入参**（`save` / `card` / `presets` / `nodePresets` 只读），返回**新的** `save`；失败一律 `throw AppError`，不返回 `{ error }` 混合形状。
@@ -193,11 +211,11 @@ export function advanceTime(time, hours) -> TimeValue
 
 ### 4.3 工具与写入（`writable` 是唯一的权限来源）
 
-- **节点类型不决定能写什么**：`time` / `normal` 的 `writable` 里都可以有 `'0'` 和文字元素；工具由 `writable` 里每个元素的数据类型派生：写着时间 ⇒ `advance_time`，写着文字 ⇒ `write_state`，两样都写 ⇒ 两个工具。
+- **节点类型不决定能写什么**：`time` / `normal` 的 `writable` 里都可以有时间元素 `'0'` 与普通元素（也可以写 `<code>.0`，只拿自身值的写权限）；工具由**每个引用覆盖到的值路径**（`pathsOf`）派生：覆盖到时间 ⇒ `advance_time`，覆盖到任何非时间 / 非结构体的值 ⇒ `write_state`，两样都覆盖 ⇒ 两个工具。
 - 唯一例外是 `output`：它只产故事，`writable` 必须是空的（卡校验 `E_CHAIN`），`toolsForNode` 给它 `[]`。
-- `advance_time({ hours })` 写 `tree['0'] = advanceTime(tree['0'], hours)`；`hours` 必须是整数，否则 `E_VALIDATION`；`advanceTime(time, hours)` 的算法：`hour += hours`；`day += Math.floor(hour / 24)`；`hour = ((hour % 24) + 24) % 24`。
-- `write_state({ path, value })` 只能写 `node.writable` 里的文字 code，`value` 必须是字符串；写 `'0'` ⇒ `E_CHAIN`（提示改用 `advance_time`）。
-- `applyWrite`：时间元素 `'0'` ⇒ `E_CHAIN`；不在 `node.writable` ⇒ `E_CHAIN`（`detail = { path, writable }`）；不在 `card.state` ⇒ `E_CHAIN`（`detail = { path }`）；`value` 不是字符串 ⇒ `E_VALIDATION`；合法返回**新** tree（入参 tree 一个字都不改）。
+- `advance_time({ amount, unit })`：`amount` 是**正整数**，`unit` 必须在时间元素的颗粒度界内（`granularityUpper` ≤ unit ≤ `granularityLower`），否则 `E_VALIDATION`；按公历推进（年 / 月月底夹取、`week` = 7 × amount 天、越过 1..9999 年 ⇒ `E_VALIDATION`），写回该时间元素自己的值路径。
+- `write_state({ path, value })` 只能写 `node.writable` 覆盖到的值路径（**完整 code**；有孩子的节点自身值是 `<code>.0`）；值按元素类型收：`text` 字符串、`integer` 安全整数 + 上下限 + 单次步幅、`enum` 白名单；写时间 ⇒ `E_CHAIN`（提示改用 `advance_time`）。`writable` 写的是 `<code>.0` 时，只有那一格可写，孩子不在权限里。
+- `applyWrite`：时间 ⇒ `E_CHAIN`；不在覆盖范围（越权 / 路径不存在 / 父 code 本身 / 结构体自身 code）⇒ `E_CHAIN`；结构体没有自身值 ⇒ `E_VALIDATION`；值类型或范围不符 ⇒ `E_VALIDATION`；合法返回**新** tree（入参 tree 一个字都不改）。
 - 工具调用被引擎执行时记两条事件：`tool`（`detail = { name, args }`）与 `write`（`detail = { path, value }`）；同一次调用还进该节点的 `trace.toolCalls`（带 `result`）；模型正文里的工具调用**一律不认**。
 - 节点文本：`output` 节点的文本 → `narration` 事件；所有节点的文本都进自己的 `trace.output`。
 
@@ -225,7 +243,7 @@ export function buildPrompt({ card, save, node, action, outputs }) -> string
 `outputs` = 本回合**已执行节点**的输出，按节点 id 索引（`{ [nodeId]: text }`）。拼接顺序固定，**每段自带标记，空段连标记一起省略**：
 
 1. **公共提示词**：`card.prompts` 顺序里 `id ∈ node.reads` 且 `body !== ''` 的，每块 `<公共提示词·{title}>`，下一行起 `body` **逐字**。
-2. **状态树**：`<世界状态树>` + `card.state` 顺序里 `code ∈ node.reads` 的一行一个 `<code> <name> = <值>`；时间元素渲染成 `day <n> hour <n>`。
+2. **状态树**：`<世界状态树>` + 读到的每个引用**一行**：`- <code>「<name>」：<JSON>`（`.0` 引用那一行的 `<code>` 写的是值路径，名字仍是元素的 `name`）。**读元素 code** ⇒ 时间输出 `formatTime` 的 `YYYY-MM-DD HH:mm:ss（周X）`；有孩子的节点输出「自身值 + 整棵子树」的 JSON（自身值在 `"0"`，孩子用自己最后一段做键，**嵌套**；结构体没有 `"0"`）；叶子输出自己的值（JSON 形态）。**读 `<code>.0`** ⇒ 只输出这个元素自己的值，不出孩子、不出整棵树。读父 code 时子孙不再单独出行；只读 `.0` 时孩子照旧可以单独读。不输出形状表 / 类型清单；一个引用都没读 ⇒ 连标记都不出现。
 3. **历史**：`<游戏历史记录>` + 最近 `node.historyTurns` 条叙事与最近 `node.historyTurns − 1` 条历史行动，按事件原有先后穿插；本回合 `action` **恒为最后一条**。
 4. **上游输出**：`node.readsUpstream` 点名的、排在它前面的节点，按**链顺序**，一段一个 `<上游输出·{nodeName}>`，下一行起正文逐字（空串跳过）。
 5. **本节点提示词**：`<节点提示词>`，下一行起 `node.prompt` 逐字（空则整段省略）；它永远是最后一段。
@@ -269,21 +287,22 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - `chain` 至少 1 个节点；`type === 'output'` 恰好 1 个（0 个 / ≥2 个都错）；`type === 'time'` 最多 1 个。
 - 节点 `type` 只能是 `'time' | 'normal' | 'output'`（别的值 ⇒ `E_VALIDATION`）；节点 `id` 唯一；`historyTurns` 是 ≥0 的整数。
 - `readsUpstream` 里的每个 id 都必须在链上，且**排在它前面**（首节点只能为空）。
-- `reads` 引用必须存在（提示词 id 或状态 code）；`writable` 引用必须是状态 code；悬空引用 ⇒ `E_VALIDATION`（点名那个引用）。
-- **写权限只由 `writable` 决定**：`time` / `normal` 都可以写任意 code（含 `'0'`），工具按数据类型派生；`output` 的必须是 `[]`。
+- `reads` 引用必须存在（提示词 id、元素 code，或合法的 `<code>.0` 自身值路径）；`writable` 引用必须是元素 code 或合法的 `<code>.0`；悬空 / 叶子 `.0` / `object` 的 `.0` / 时间 `0.0` ⇒ `E_VALIDATION`（点名那个引用）。
+- **写权限只由 `writable` 决定**：`time` / `normal` 都可以写任意 code（含 `'0'`），工具按 code 覆盖到的值路径派生；`output` 的必须是 `[]`。
+- **状态树那半的规矩**由 `core/statetree.ts` 的 `cardIssues(card)` 给出（`code` / `path` / 中文 `message`，外加 `validateCard` 抛第一条时用的 `errorCode`）：编号铁律、深度 ≤ 5、`object` 有孩子且没有自身值、非 `object` 必须有初始值、enum / integer / time 各类型的约束、父 code 存在、孩子连续编号；保存按钮与 `validateCard` 共用这一份清单，不各判一套。
 - **`prompts` 里必须有 `id === 'opening'` 的那一块**（缺 ⇒ `E_VALIDATION`，不补）。
 - **`presetId` 不在这里校验**：卡可以带着空 / 已失效的 `presetId` 存着，到 `runTurn` 取预设那一步才报 `E_VALIDATION`。
 
-`validateSave(save, card)`：`schemaVersion === 1`；`id` / `cardId` 非空；`turn` 是 ≥0 整数；`events` 是数组；`tree` 是记录且 `'0'` 为 `{ day, hour }`；给了 `card` 时 `cardId` 相等且 `tree` 覆盖 `card.state` 的全部 code。
+`validateSave(save, card)`：`schemaVersion === 1`；`id` / `cardId` 非空；`turn` 是 ≥0 整数；`events` 是数组；`tree` 是记录、每个值只能是文字 / 安全整数 / 公历六格；给了 `card` 时 `cardId` 相等，`tree` **恰好覆盖** `pathsOf` 的全部值路径（不缺 `1.1.0` 这类自身值路径、不许多出 `object` 自身 code 这类键），且每个值符合它元素的类型。
 
 ## 7. mock 提供方（`src/core/mock.ts`）—— 测试替身
 
-`preset.provider === 'mock'` 时**不发任何网络请求**，回确定的响应（同一输入同一输出）；工具按 `writable` 派生（§4.3），节点类型只决定它吐不吐正文：
+`preset.provider === 'mock'` 时**不发任何网络请求**，回确定的响应（同一输入同一输出）；工具按 `writable` 覆盖到的值派生（§4.3），节点类型只决定它吐不吐正文：
 
-| 节点              | 回什么                                                                                                                                                                               |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `time` / `normal` | `writable` 含 `'0'` ⇒ 一次 `advance_time({ hours: 1 })`；含文字 code ⇒ 一次 `write_state({ path: <第一个文字 code>, value: 'mock-t<turn>' })`（两样都写就两个调用）；都没有 ⇒ 空响应 |
-| `output`          | 文本 `[mock] turn <turn>: <action>`，**流式**：块长 `floor(len/6)` 夹到 1..8（每块 ≤8 字符），块数 ≥3；块间等 `mockChunkDelayMs`（缺省 0）                                           |
+| 节点              | 回什么                                                                                                                                                                                                                |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `time` / `normal` | 覆盖到时间 ⇒ 一次 `advance_time({ amount: 1, unit: <时间元素的 granularityUpper> })`；覆盖到文字值 ⇒ 一次 `write_state({ path: <第一个文字值路径>, value: 'mock-t<turn>' })`（两样都覆盖就两个调用）；都没有 ⇒ 空响应 |
+| `output`          | 文本 `[mock] turn <turn>: <action>`，**流式**：块长 `floor(len/6)` 夹到 1..8（每块 ≤8 字符），块数 ≥3；块间等 `mockChunkDelayMs`（缺省 0）                                                                            |
 
 - mock 走的**是同一套事件 / 流式代码路径**（`chunk` → `narration`），不是另一条捷径。
 - `usage` / `tps` 为 `null`，`reasoning` 为空串；输出整串**逐字**可断言。
@@ -307,7 +326,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 ### 8.1 首页
 
 - 两栏并排：左游戏卡列表 `[data-card-list]`，右存档列表 `[data-save-list]`；卡列表右上 `[data-new-card]`（点击立刻建卡、默认名 `card <n>`、落盘，无弹窗）、存档列表右上 `[data-new-save]`（基于当前选中卡；没有选中时 disabled）。
-- 新建存档：默认名 `save <n>`，**追加到列表末尾、不跳转**，`tree` 取卡初值、`cardSnapshot` 深拷贝、`nodeModels` 从卡级映射拷一份。
+- 新建存档：默认名 `save <n>`，**追加到列表末尾、不跳转**，`tree = initialTreeOf(cardSnapshot)`（扁平完整 code，自身值在 `<code>.0`）、`cardSnapshot` 深拷贝、`nodeModels` 从卡级映射拷一份。
 - 卡行：`[data-card-id="<id>"]`（点击只选中，不跳页）、`[data-card-name]`、`[data-card-edit]`（进 `#/edit/:cardId`）、`[data-card-rename]`、`[data-card-delete]`、`[data-card-count]`（存档数）。
 - 行内重命名：`[data-rename-input]` 回车提交 / Esc 取消 / blur 提交，提交后立即落盘；输入框与重命名按钮的 pointerdown / click 不许冒泡到行（点输入框不变选中、不跳对话页）。
 - 存档行：`[data-save-id="<id>"]`（点击进对话页）、`[data-save-name]`、`[data-save-meta]`（含卡名与回合数数字）、`[data-save-edit]`（在改名 / 删除左边，进 `#/edit-save/:saveId`）、`[data-save-rename]`、`[data-save-delete]`。
@@ -324,19 +343,21 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - 四个面板标题共用 `.col-title` 同版式（41px = `--control-h` + 13px、`padding: 6px 8px`、1px 实线下边框），各带 `data-panel-title`；加号按钮在标题条外（绝对定位）；中栏标题：节点 / 元素 / 提示词 → `编辑·<name>`，没选 → `编辑`；中栏字段表不自带标题。
 - 分隔条：`[data-splitter="left"]` 在左栏右缘（往右拖 = 左栏变宽），`[data-splitter="right"]` 在右栏左缘（往左拖 = 右栏变宽）；双击恢复默认 280 / 320；夹取左 `[200, 480]`、右 `[240, 560]`，中栏不得小于 320；拖完落盘 `tg2.settings.editorColumns`（整数 px），刷新保留。
 - 选中态互斥：S0 什么都没选 · S1 选中工作流节点 · S2 选中状态元素 · S3 选中公共提示词块；两个 `ref` 互相清空，任一时刻最多一格。
-- 左栏：S0 只有 `[data-state-code]` + `[data-state-name]`；S1 每行 `[data-eyes="read"]` / `[data-eyes="write"]`（`data-on`，切换当前节点的 `reads` / `writable`），写眼睛只看 `node.writable`、`output` 没有写眼睛；S2 栏顶 `[data-add-state]`（裸 `+`）、每行 `[data-delete-state]`（裸 `×`，`'0'` 永远没有），S2 不出现眼睛。
-- 状态树 `[data-state-tree]`：每行 `[data-state-item="<code>"]`，行内 `[data-state-code]` / `[data-state-name]`。
+- 左栏：S0 只有 `[data-state-code]` + `[data-state-name]` + 自身值；S1 每行 `[data-eyes="read"]` / `[data-eyes="write"]`（**文字按钮**「读」/「写」，带 `data-on` 与三态 `data-tri="all|some|none"`，切换当前节点的 `reads` / `writable`），写眼睛只看 `node.writable`、`output` 没有写眼睛；S2 栏顶 `[data-add-state]`（裸 `+`）、每行 `[data-add-child="<code>"]`（第 5 层不渲染、时间没有）与 `[data-delete-state]`（裸 `×`，时间没有），S2 不出现眼睛。
+- 状态树 `[data-state-tree]`：每行 `[data-state-item="<code>"]` + `data-depth="<可见深度>"`（`0` ⇒ 1、`1.1` ⇒ 2），行内 `[data-state-code]` / `[data-state-name]` / `[data-state-value]`（**自身值**：有孩子时取 `<code>.0`，没孩子取自己；`object` 与没值的行不渲染这一格）；`.0` 永远不单独出行。
+- 眼睛的三态：一个**元素 code** 覆盖**自身值 + 整棵子树**，所以父行「满」= 整段都被读到、「半」= 只覆盖了一部分、「未」= 没有；点父行 = 全选 / 全反选（全反选会把这一 code 连同它下面已经单独的引用一起摘掉），子节点按钮只切自己。`reads` / `writable` 里手写 / 导入的 `<code>.0`（只取自身值）也进覆盖 —— 父行变「半」、`.0` 自己不占一行。提示词块与上游节点的眼睛**不是三态**，只翻自己那一条。
 - 中栏 S1：`[data-node-name]`（input，改 `node.name`；细条 / 中栏标题跟着变，卡与存档两种模式都可改）、`[data-node-preset]`（select）、`[data-node-history]`（number）、`[data-node-prompt]`（textarea）；**这一形态没有眼睛**。
-- 中栏 S2：`[data-state-type]`（只读：`0` = 时间，其余 = 文字）、`[data-field="name"]`、`[data-field="note"]`、初值；时间元素是 `[data-field="initial-day"]`（≥1）+ `[data-field="initial-hour"]`（0–23），其余是 `[data-field="initial"]`。
+- 中栏 S2：`[data-state-type]`（select，`value ∈ text|integer|enum|object|time`，时间元素 `disabled`）、`[data-field="name"]`、`[data-field="note"]`；各类型的格子：enum 的 `[data-field="values"]`（textarea，一行一个）+ `[data-field="initial"]`（select）、integer 的 `[data-field="min"]` / `max` / `step-min` / `step-max` + `[data-field="initial"]`（number）、text 的 `[data-field="initial"]`、time 的 `[data-field="granularity-upper"]` / `granularity-lower`（select）+ `[data-field="time-year|time-month|time-day|time-hour|time-minute|time-second"]`（六格）；`object` 没有初始值那一格。换类型时清掉旧类型的字段（`object` 删 `initial`），整份元素替换而不是合并。
 - 中栏 S3：`[data-prompt-title]` + `[data-prompt-body]`（textarea）；没选：`[data-empty-middle]`（空壳，不写句子）。
 - `[data-node-preset]`：选项 = `tg2.presets` 全部；当前值 = 这个节点解析出的预设 id（映射没有就是 `presets[0].id`）；改动写 `tg2.nodeModels[cardId][nodeId]`，**不动卡**；一个预设都没有时为空、`aria-disabled="true"`（不另挂提示）。
 - 工作流细条 `[data-workflow-strip]`：每节点 `[data-node-id="<id>"]`（点击选中，带 `data-selected`）；选中节点时，排在它前面的每个节点旁有 `[data-read-upstream][data-upstream-id="<id>"]`（带 `data-on`，切换 `readsUpstream`）；自己与下游没有。
 - 右栏 `[data-prompt-list]`：每块 `[data-prompt-block="<id>"]`（点击选中，带 `data-selected`）、`[data-prompt-name]`、`[data-delete-prompt]`（裸 `×`）；`[data-add-prompt]`（裸 `+`，新 id 由创建方生成并当场选中）；选中节点时每块有 `[data-prompt-read][data-prompt-id="<id>"]`（带 `data-on`，切换 `reads`）；没选节点时它不出现；右栏没有输入框。
 - 每张卡都有一块 `id: 'opening'`（标题「开场」）：新建卡自带、示例卡也有一份；右栏不给它 `[data-delete-prompt]`。
+- **保存按钮**：编辑只改内存草稿，顶栏 `[data-save-card]` 才校验 + 落盘。校验不过 ⇒ **不写盘**、草稿保留、中文错误清单 `[data-save-errors]`（每条 `[data-save-error]` 带 `data-save-error-code`，点了选中那一格）；成功 ⇒ 写盘 + `[data-save-ok]` 提示。清单来自 `cardIssues`（状态树 + 链的规矩）。
 - 不挂教程提示：中栏空态、没有预设时、设置页没有预设时、首页改名框上都没有 `.hint` / 教程文案。
-- 只按 id 校验目标卡：`#/edit/:cardId` 用 `loadCardById()` 打开 —— 盘上别的坏卡不挡；目标自己坏了照样中文 `E_VALIDATION`；字段改动写回时只替换这一张（`saveCardsLoose()`），盘上别的卡（含坏卡）原样保留；没有「保存」按钮，字段改动（input / change / blur）即时写 `tg2.cards`。
-- 存档模式 `#/edit-save/:saveId`（同一份 `EditorPage`）：编辑目标是这一份存档的 `cardSnapshot`（深拷贝）与 `save.nodeModels`，写回只替换 `tg2.saves` 那一行、`tg2.cards` 一个字节不动；**结构锁死** —— 没有 `[data-add-state]` / `[data-delete-state]`（不渲染，不是禁用）、没有节点增删排序、卡名不改，其余字段（名字 / 备注 / 初值 / 提示词块 / 节点名字 / 节点提示词 / 历史轮数 / 眼睛 / 模型预设）照常可改。
-- 存档模式打开时 `save.nodeModels` 缺省先按卡级映射显示，玩家真改了某一格才把整片写进存档（不迁移、不补写）。
+- 只按 id 校验目标卡：`#/edit/:cardId` 用 `loadCardById()` 打开 —— 盘上别的坏卡不挡；目标自己坏了照样中文 `E_VALIDATION`；保存时只替换这一张（`saveCardsLoose()`），盘上别的卡（含坏卡）原样保留。
+- 存档模式 `#/edit-save/:saveId`（同一份 `EditorPage`）：编辑目标是这一份存档的 `cardSnapshot`（深拷贝）与 `save.nodeModels`，写回只替换 `tg2.saves` 那一行、`tg2.cards` 一个字节不动；**结构锁死** —— 没有 `[data-add-state]` / `[data-add-child]` / `[data-delete-state]`（不渲染，不是禁用）、没有节点增删排序、卡名不改，其余字段（名字 / 备注 / 初值 / 提示词块 / 节点名字 / 节点提示词 / 历史轮数 / 眼睛 / 模型预设）照常可改；保存按钮与错误清单行为同卡模式。
+- 存档模式打开时 `save.nodeModels` 缺省先按卡级映射显示，玩家真改了某一格才把整片写进存档（不迁移、不补写）；模型映射不属于卡草稿，所以它**即时写**（卡模式写 `tg2.nodeModels`，存档模式只换 `save.nodeModels`、快照不动）。
 - 控件 / 行高：`--control-h: 28px` 用于 button / input / select / `.icon` / `.chip` / 工作流 `.node`；`--row-h: 36px` 用于 `[data-prompt-block]` / `[data-state-item]` / 首页卡行 / 存档行 / 设置页预设字段行；行内控件仍 28 且垂直居中；多行编辑器不在这一档（行动输入 44 / 节点提示词 120 / 提示词正文 160）。
 - 圆角只有 `--radius: 6px`（button 与 `.chip` 共用）；读 / 写 chip 三处（状态树、细条上游、右栏提示词）共用 `.chip`：关着也有底色（`--panel-2`）与边框，开着 = 深底浅字（浅色主题 `--active-bg` #927049 / `--active-ink` #fff、字重 600，深色主题反过来用 `--accent` / `--accent-ink`）、边框 `--accent`；悬停只换边框、不铺底色；高度 `--control-h`；文字「读 / 写」保留；按钮 / chip 里不再有 999px 或 3px 档。
 - 判据：`panel-chrome.spec.js` / `editor-panels.spec.js` / `node-models.spec.js` / `node-name.spec.js` / `controls.spec.js` / `save-editor.spec.js` / `editor-columns.spec.js` / `active-styles.spec.js`。
@@ -413,30 +434,34 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 
 ### 9.4 判据清单
 
-| 验收 / 行为                                                      | 判据                                                                                                                                 |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| 空态 / 删空后仍可用                                              | `v2/e2e/empty.spec.js`                                                                                                               |
-| 首次打开种「晨风镇」/ 删了不复种                                 | `v2/e2e/sample.spec.js`                                                                                                              |
-| 新装默认两条预设（顺序 / name=model / Key 空）                   | `v2/e2e/settings.spec.js`                                                                                                            |
-| 建卡 → 编 2 元素 + 初值 + 2 提示词 → 存档 → 3 回合 → 刷新还在    | `v2/e2e/loop.spec.js`                                                                                                                |
-| 眼睛控制提示词拼装                                               | `v2/e2e/eyes.spec.js` + `v2/tests/prompt.test.js`                                                                                    |
-| 改卡后旧存档仍能跑                                               | `v2/e2e/snapshot.spec.js`                                                                                                            |
-| 四类比例 + 4K 不溢出 / 手机竖屏遮罩                              | `v2/e2e/responsive.spec.js`                                                                                                          |
-| 三栏可拖 / 细条固定 / 双击恢复 / 刷新保留                        | `v2/e2e/editor-columns.spec.js`                                                                                                      |
-| 编辑器面板标题 / 无教程提示 / S0–S3                              | `v2/e2e/editor-panels.spec.js` + `v2/e2e/panel-chrome.spec.js`                                                                       |
-| 控件 / 行容器两档高度                                            | `v2/e2e/controls.spec.js`                                                                                                            |
-| 读 / 写 chip 与选中态 token                                      | `v2/e2e/active-styles.spec.js` + `v2/e2e/list-styles.spec.js`                                                                        |
-| 首页列表 / 改名 / 删除确认 / 三态                                | `v2/e2e/lists.spec.js` + `v2/e2e/list-styles.spec.js`                                                                                |
-| 存档编辑器（快照 / 结构锁死 / 节点改名）                         | `v2/e2e/save-editor.spec.js` + `v2/e2e/node-name.spec.js`                                                                            |
-| 非法卡 / 非法存档逐项标记、按 id 只校验目标                      | `v2/tests/invalid-items.test.js` + `v2/e2e/invalid-items.spec.js` + `v2/e2e/invalid-snapshot.spec.js` + `v2/e2e/orphan-save.spec.js` |
-| 旧格式卡 / 不迁移                                                | `v2/tests/chain.test.js` + `v2/e2e/old-data.spec.js`                                                                                 |
-| 流式可停止 / 错误中文 / 思考                                     | `v2/e2e/stream-abort.spec.js` + `v2/e2e/errors.spec.js` + `v2/e2e/reasoning.spec.js`                                                 |
-| 调试内联：trace / turnStats 落盘、开关翻面、加载旧存档后仍能回看 | `v2/e2e/play.spec.js` + `v2/tests/engine.test.js`                                                                                    |
-| 模型不进卡 / 逐节点解析 / 缺预设即报错 / 删卡不删映射            | `v2/tests/engine.test.js` + `v2/e2e/node-models.spec.js`                                                                             |
-| 错误码五条都有中文 + 下一步                                      | `v2/tests/errors.test.js`                                                                                                            |
-| 夹具自身合法性（正控：夹具坏了下面每条红都不可信）               | `v2/tests/fixtures.selfcheck.test.js`                                                                                                |
-| 库址条六屏                                                       | `v2/e2e/repo-url.spec.js`                                                                                                            |
-| 组件故事 / 像素基线（另两层，不属本文行为判据）                  | `npm run v2:stories` / `npm run v2:visual`                                                                                           |
+| 验收 / 行为                                                             | 判据                                                                                                                                 |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| 空态 / 删空后仍可用                                                     | `v2/e2e/empty.spec.js`                                                                                                               |
+| 首次打开种「晨风镇」/ 删了不复种                                        | `v2/e2e/sample.spec.js`                                                                                                              |
+| 新装默认两条预设（顺序 / name=model / Key 空）                          | `v2/e2e/settings.spec.js`                                                                                                            |
+| 建卡 → 编 2 元素 + 初值 + 2 提示词 → 存档 → 3 回合 → 刷新还在           | `v2/e2e/loop.spec.js`                                                                                                                |
+| 眼睛控制提示词拼装                                                      | `v2/e2e/eyes.spec.js` + `v2/tests/prompt.test.js`                                                                                    |
+| 改卡后旧存档仍能跑                                                      | `v2/e2e/snapshot.spec.js`                                                                                                            |
+| 四类比例 + 4K 不溢出 / 手机竖屏遮罩                                     | `v2/e2e/responsive.spec.js`                                                                                                          |
+| 三栏可拖 / 细条固定 / 双击恢复 / 刷新保留                               | `v2/e2e/editor-columns.spec.js`                                                                                                      |
+| 编辑器面板标题 / 无教程提示 / S0–S3                                     | `v2/e2e/editor-panels.spec.js` + `v2/e2e/panel-chrome.spec.js`                                                                       |
+| 控件 / 行容器两档高度                                                   | `v2/e2e/controls.spec.js`                                                                                                            |
+| 读 / 写 chip 与选中态 token                                             | `v2/e2e/active-styles.spec.js` + `v2/e2e/list-styles.spec.js`                                                                        |
+| 首页列表 / 改名 / 删除确认 / 三态                                       | `v2/e2e/lists.spec.js` + `v2/e2e/list-styles.spec.js`                                                                                |
+| 存档编辑器（快照 / 结构锁死 / 节点改名）                                | `v2/e2e/save-editor.spec.js` + `v2/e2e/node-name.spec.js`                                                                            |
+| 非法卡 / 非法存档逐项标记、按 id 只校验目标                             | `v2/tests/invalid-items.test.js` + `v2/e2e/invalid-items.spec.js` + `v2/e2e/invalid-snapshot.spec.js` + `v2/e2e/orphan-save.spec.js` |
+| 旧格式卡 / 不迁移                                                       | `v2/tests/chain.test.js` + `v2/e2e/old-data.spec.js`                                                                                 |
+| 流式可停止 / 错误中文 / 思考                                            | `v2/e2e/stream-abort.spec.js` + `v2/e2e/errors.spec.js` + `v2/e2e/reasoning.spec.js`                                                 |
+| 调试内联：trace / turnStats 落盘、开关翻面、加载旧存档后仍能回看        | `v2/e2e/play.spec.js` + `v2/tests/engine.test.js`                                                                                    |
+| 模型不进卡 / 逐节点解析 / 缺预设即报错 / 删卡不删映射                   | `v2/tests/engine.test.js` + `v2/e2e/node-models.spec.js`                                                                             |
+| 错误码五条都有中文 + 下一步                                             | `v2/tests/errors.test.js`                                                                                                            |
+| 夹具自身合法性（正控：夹具坏了下面每条红都不可信）                      | `v2/tests/fixtures.selfcheck.test.js`                                                                                                |
+| 库址条六屏                                                              | `v2/e2e/repo-url.spec.js`                                                                                                            |
+| 状态树 v5：形状 / 编号 / 深度 / 五类型 / 时间 / 扁平值 / 增删重排       | `v2/tests/state-shape.test.js` + `state-tree.test.js` + `state-time.test.js` + `state-fixtures.selfcheck.test.js`                    |
+| 状态段的提示词投影（父 JSON / 叶子 / 时间 / 不输出形状表）              | `v2/tests/prompt-state.test.js`                                                                                                      |
+| 晨风镇 v5 资产 + 初始值展开                                             | `v2/tests/sample-card-v5.test.js`                                                                                                    |
+| 编辑器状态树（`.0` 不出行 / 三态 / 第 5 层 / 加孩子 / 保存与 5 类拦截） | `v2/e2e/state-tree.spec.js`                                                                                                          |
+| 组件故事 / 像素基线（另两层，不属本文行为判据）                         | `npm run v2:stories` / `npm run v2:visual`                                                                                           |
 
 ### 9.5 历史决定
 
@@ -444,5 +469,5 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 
 ### 9.6 本契约不覆盖
 
-- 组件故事 / 像素基线（`v2:stories` / `v2:visual` 是另外两层）· 导入导出 · 节点增删排序 · 状态树类型与嵌套 · 重生成 / 撤销 · 连接测试 · token 费用 · 多语言 · 自定义主题色 · 显示面板。
+- 组件故事 / 像素基线（`v2:stories` / `v2:visual` 是另外两层）· 导入导出 · 节点增删排序 · 数组 / 字典 / 键字段 / 运行期容器增删 / 整表替换（阶段 2.1 明确整块推迟）· 重生成 / 撤销 · 连接测试 · token 费用 · 多语言 · 自定义主题色 · 显示面板。
 - 线上 `/v2/` 可打开、旧站根路径仍可用：人工 + 发布流程，不属本文行为判据。

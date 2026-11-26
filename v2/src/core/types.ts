@@ -1,28 +1,59 @@
 /**
- * 阶段 1 的数据形状（CONTRACT §2）。只有类型，没有运行时代码。
+ * 阶段 2.1 的数据形状（CONTRACT §2）。只有类型，没有运行时代码。
  *
  * 一句话记住边界：**卡与存档里没有模型绑定** —— 用哪个预设、Key 是多少，住在
  * `tg2.nodeModels` / `tg2.presets`（玩家本机的东西），不进卡。
  */
 
+/** 时间的颗粒度单位，粗 → 细（`week` 不存，按日期算） */
+export type TimeUnit = 'year' | 'month' | 'week' | 'day' | 'hour' | 'minute' | 'second'
+
 /**
- * 时间元素的值（`tree['0']`）；其余元素是字符串。
+ * 时间元素的值（`tree['0']`）—— 公历六格。
  * 时间是**一种数据类型**（元素编码 `'0'`），不是一种特权节点 —— 谁能推进它只看 `writable`。
  */
 export interface TimeValue {
+  year: number
+  month: number
   day: number
   hour: number
+  minute: number
+  second: number
 }
 
-export type NodeType = 'time' | 'normal' | 'output'
+export type StateType = 'time' | 'text' | 'integer' | 'enum' | 'object'
 
+/** 一个状态元素自己的值；结构体（`object`）没有这一格 */
+export type StateValue = string | number | TimeValue
+
+/**
+ * 一个状态元素。
+ *
+ * 编号铁律（CONTRACT §2.1）：`0` 只给时间；节点自己的值住在**隐式**的 `<code>.0`（不进 `state[]`），
+ * 可见孩子从 `<code>.1` 起连续编号；深度（`.0` 不计）最大 5。
+ * `type` 描述的是**自身值**：标量节点可以有孩子，不会因此变成 `object`。
+ */
 export interface StateElement {
   code: string
   name: string
   note: string
-  type: 'string'
-  initial: string | TimeValue
+  type: StateType
+  /** 仅 enum：取值白名单（非空、不重复、都是字符串） */
+  values?: string[]
+  /** 仅 integer：值上下限（缺省 -1e9 / 1e9） */
+  min?: number
+  max?: number
+  /** 仅 integer：**单次更新**的绝对值步幅区间（缺省 0 / 1e9） */
+  stepMin?: number
+  stepMax?: number
+  /** 仅 time：单次推进最粗 / 最细的单位 */
+  granularityUpper?: TimeUnit
+  granularityLower?: TimeUnit
+  /** 自身值；`object` 没有这一格 */
+  initial?: StateValue
 }
+
+export type NodeType = 'time' | 'normal' | 'output'
 
 export interface ChainNode {
   id: string
@@ -78,7 +109,11 @@ export interface SaveEvent {
   at: string
 }
 
-export type Tree = Record<string, string | TimeValue>
+/**
+ * 状态树的值：**扁平、键是完整 code**。
+ * 没孩子的节点用自身 `code`；有孩子的节点自身值住 `<code>.0`；`object` 一条键都不产出。
+ */
+export type Tree = Record<string, StateValue>
 
 export interface Save {
   schemaVersion: 1

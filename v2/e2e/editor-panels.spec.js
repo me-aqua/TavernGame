@@ -89,6 +89,9 @@ test.describe('右栏：名字 + 读眼睛 + ×，没有输入框', () => {
     await expect(pr1).toHaveAttribute('data-on', 'true')
     await pr1.click()
     await expect(pr1).toHaveAttribute('data-on', 'false')
+    // v5：眼睛改动是草稿，点【保存】才落盘
+    await page.locator('[data-save-card]').click()
+    await expect(page.locator('[data-save-ok]')).toBeVisible()
 
     const cards = await readStorage(page, KEYS.cards)
     const output = cards[0].chain.find((node) => node.id === 'output')
@@ -162,35 +165,55 @@ test.describe('S2：每行都有 ×，除了 0', () => {
   })
 })
 
-test.describe('时间元素：类型显示「时间」，day/hour 可编辑并落盘', () => {
-  test('类型是「时间」，初值是两个数字框；改完落盘、刷新还在', async ({ page }) => {
+test.describe('时间元素：类型只读为 time，六格初值可编辑并保存', () => {
+  test('类型是只读的 time；初值是公历六格；改完点保存才落盘、刷新还在', async ({ page }) => {
     await openEditor(page)
     await page.locator('[data-state-item="0"]').click()
 
-    await expect(page.locator('[data-state-type]')).toHaveText('时间')
-    // 时间元素用 day/hour 两个框，不再有单一字符串框
+    await expect(page.locator('[data-state-type]')).toHaveValue('time')
+    await expect(page.locator('[data-state-type]'), '时间类型不许在界面上改').toBeDisabled()
+    // v5 §8：时间用六格字段，没有单一字符串框、也没有阶段 1 的 initial-day / initial-hour
     await expect(page.locator('[data-field="initial"]')).toHaveCount(0)
-    const day = page.locator('[data-field="initial-day"]')
-    const hour = page.locator('[data-field="initial-hour"]')
-    await expect(day).toHaveValue('1')
-    await expect(hour).toHaveValue('8')
+    await expect(page.locator('[data-field="initial-day"]')).toHaveCount(0)
+    await expect(page.locator('[data-field="initial-hour"]')).toHaveCount(0)
+    await expect(page.locator('[data-field="time-year"]')).toHaveValue('2024')
+    await expect(page.locator('[data-field="time-day"]')).toHaveValue('1')
+    await expect(page.locator('[data-field="time-hour"]')).toHaveValue('8')
 
-    await day.fill('3')
-    await hour.fill('21')
-    expect((await readStorage(page, KEYS.cards))[0].state[0].initial).toEqual({ day: 3, hour: 21 })
+    await page.locator('[data-field="time-day"]').fill('3')
+    await page.locator('[data-field="time-hour"]').fill('21')
+    // 草稿：没点保存之前盘上还是旧值
+    expect((await readStorage(page, KEYS.cards))[0].state[0].initial).toEqual({
+      year: 2024,
+      month: 1,
+      day: 1,
+      hour: 8,
+      minute: 5,
+      second: 0,
+    })
+    await page.locator('[data-save-card]').click()
+    await expect(page.locator('[data-save-ok]')).toBeVisible()
+    expect((await readStorage(page, KEYS.cards))[0].state[0].initial).toEqual({
+      year: 2024,
+      month: 1,
+      day: 3,
+      hour: 21,
+      minute: 5,
+      second: 0,
+    })
 
     await page.reload()
     await page.locator('[data-state-item="0"]').click()
-    await expect(page.locator('[data-field="initial-day"]')).toHaveValue('3')
-    await expect(page.locator('[data-field="initial-hour"]')).toHaveValue('21')
+    await expect(page.locator('[data-field="time-day"]')).toHaveValue('3')
+    await expect(page.locator('[data-field="time-hour"]')).toHaveValue('21')
   })
 
-  test('文字元素的类型显示「文字」，初值仍是单个输入框', async ({ page }) => {
+  test('文字元素的类型是 text（select），初值仍是单个输入框', async ({ page }) => {
     await openEditor(page)
     await page.locator('[data-state-item="1"]').click()
-    await expect(page.locator('[data-state-type]')).toHaveText('文字')
+    await expect(page.locator('[data-state-type]')).toHaveValue('text')
     await expect(page.locator('[data-field="initial"]')).toHaveCount(1)
-    await expect(page.locator('[data-field="initial-day"]')).toHaveCount(0)
+    await expect(page.locator('[data-field="time-year"]')).toHaveCount(0)
   })
 })
 
@@ -257,6 +280,9 @@ test.describe('开场：每张卡都有、排第一、删不掉', () => {
 
     await page.locator('[data-prompt-title]').fill('开场白')
     await page.locator('[data-prompt-body]').fill('OPENING_BODY')
+    // v5：编辑只改草稿，点【保存】才落盘
+    await page.locator('[data-save-card]').click()
+    await expect(page.locator('[data-save-ok]')).toBeVisible()
     const stored = (await readStorage(page, KEYS.cards))[0]
     expect(stored.prompts[0]).toMatchObject({ id: 'opening', title: '开场白', body: 'OPENING_BODY' })
     // 开场仍然排第一、仍然没有 ×
@@ -285,6 +311,9 @@ test.describe('写眼睛：普通 / 时间节点能勾任意元素，输出节�
     await expect(zeroChip).toHaveAttribute('data-on', 'false')
     await zeroChip.click()
     await expect(zeroChip).toHaveAttribute('data-on', 'true')
+    // v5：眼睛改动是草稿，点【保存】才落盘
+    await page.locator('[data-save-card]').click()
+    await expect(page.locator('[data-save-ok]')).toBeVisible()
 
     const stored = await readStorage(page, KEYS.cards)
     const check = stored[0].chain.find((node) => node.id === 'check')

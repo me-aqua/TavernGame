@@ -64,6 +64,9 @@ async function toggleEye(page, { nodeId, selector }) {
   const before = await eye.getAttribute('data-on')
   await eye.click()
   await expect(eye).toHaveAttribute('data-on', before === 'true' ? 'false' : 'true')
+  // v5 §6.1：编辑只改草稿 ⇒ 眼睛翻面后要保存，后面的新建存档 / 读盘才看得到
+  await page.locator('[data-save-card]').click()
+  await expect(page.locator('[data-save-ok]')).toBeVisible()
   return before
 }
 
@@ -243,6 +246,9 @@ test.describe('眼睛：细条上的上游眼睛只长在「前面」的节点�
     await expect(eye).toHaveAttribute('data-on', 'true')
     await eye.click()
     await expect(eye).toHaveAttribute('data-on', 'false')
+    // v5：编辑只改草稿 ⇒ 先保存再读盘
+    await page.locator('[data-save-card]').click()
+    await expect(page.locator('[data-save-ok]')).toBeVisible()
 
     let stored = (await readStorage(page, KEYS.cards))[0]
     let output = stored.chain.find((node) => node.id === 'output')
@@ -251,6 +257,8 @@ test.describe('眼睛：细条上的上游眼睛只长在「前面」的节点�
 
     await eye.click()
     await expect(eye).toHaveAttribute('data-on', 'true')
+    await page.locator('[data-save-card]').click()
+    await expect(page.locator('[data-save-ok]')).toBeVisible()
     stored = (await readStorage(page, KEYS.cards))[0]
     output = stored.chain.find((node) => node.id === 'output')
     expect(output.readsUpstream).toContain('check')

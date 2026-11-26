@@ -266,9 +266,9 @@ describe('存档校验', () => {
     expect((await saveRejectionOf(save, card)).code).toBe('E_VALIDATION')
   })
 
-  it("tree['0'] 不是 {day,hour} ⇒ E_VALIDATION", async () => {
+  it("tree['0'] 还是旧的 {day,hour}（v5 要求公历六格）⇒ E_VALIDATION", async () => {
     const card = makeCard()
-    const save = makeSave(card, { tree: { ...makeSave(card).tree, 0: 'day 1 hour 8' } })
+    const save = makeSave(card, { tree: { ...makeSave(card).tree, 0: { day: 1, hour: 9 } } })
     expect((await saveRejectionOf(save, card)).code).toBe('E_VALIDATION')
   })
 

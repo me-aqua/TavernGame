@@ -2,7 +2,7 @@
  * 提示词拼装（CONTRACT §5）。一个节点拼一次，五段按固定顺序进来，每段自带标记：
  *
  *   1. `<公共提示词·{title}>` + 正文（`prompts[].id ∈ node.reads` 的那些，`body` 逐字，**一块一个标记**）
- *   2. `<世界状态树>` + 一行「`<code> <name> = <值>`」（`state[].code ∈ node.reads` 的那些）
+ *   2. `<世界状态树>` + 读到的每个状态元素一行 `- <code>「<name>」：<JSON>`（`state[].code ∈ node.reads`）
  *   3. `<游戏历史记录>` + 历史条目（开场白打头，其后是最近 `historyTurns` 条叙事 + 行动，按事件先后排；
  *      本回合行动在最后）
  *   4. `<上游输出·{nodeName}>` + 正文（`node.readsUpstream` 点名的那些节点，按**链顺序**取输出，逐字）
@@ -11,8 +11,10 @@
  * 空段连标记一起省略：那一段没有正文，就不留一行光秃秃的标题。
  * 眼睛语义一句话：`reads` 里有它就读，没有就一个字符都不出现。
  */
-import type { Card, ChainNode, Save, SaveEvent, TimeValue } from './types'
+import type { Card, ChainNode, Save, SaveEvent, TimeValue, Tree } from './types'
 import { OPENING_PROMPT_ID } from './schema'
+import { formatTime, pathsOf } from './statetree'
+import { t } from '../i18n'
 
 interface BuildPromptArgs {
   card: Card
@@ -24,11 +26,40 @@ interface BuildPromptArgs {
   outputs: Record<string, string>
 }
 
-/** 时间元素渲染成 `day <n> hour <n>`；其余元素就是它的字符串值 */
-function renderValue(value: string | TimeValue | undefined): string {
-  if (typeof value === 'string') return value
-  if (value === undefined) return ''
-  return `day ${value.day} hour ${value.hour}`
+/**
+ * 一个节点下面那棵子树，**按相对段**拼成 JSON：自身值在 `"0"`，孩子用自己最后一段做键；
+ * 孩子还有孩子就继续嵌套。结构体没有 `"0"`。
+ *
+ * 值的路径来自 `pathsOf`（本身是「自身值在前、深度优先」），所以这里只做「按段插进对象」。
+ */
+function subtreeJson(state: Card['state'], tree: Tree, code: string): Record<string, unknown> {
+  const root: Record<string, unknown> = {}
+  const base = `${code}.`
+  for (const path of pathsOf(state, code)) {
+    const segments = path.slice(base.length).split('.')
+    let node = root
+    for (const [index, segment] of segments.entries()) {
+      if (index === segments.length - 1) {
+        node[segment] = tree[path]
+      } else {
+        node[segment] = (node[segment] as Record<string, unknown> | undefined) ?? {}
+        node = node[segment] as Record<string, unknown>
+      }
+    }
+  }
+  return root
+}
+
+/**
+ * 一个元素投影成提示词里的那一段：时间是 `YYYY-MM-DD HH:mm:ss（周X）`；
+ * 有孩子的节点是「自身值 + 整棵子树」的 JSON；叶子就是自己的值（JSON 形态）。
+ */
+function projectOf(card: Card, tree: Tree, element: Card['state'][number]): string {
+  const [ownPath] = pathsOf(card.state, element.code)
+  if (element.type === 'time') return formatTime(tree[ownPath] as TimeValue)
+  // 自身值的路径不是它自己的 code ⇒ 它有孩子（或它是结构体）⇒ 出子树
+  if (ownPath !== element.code) return JSON.stringify(subtreeJson(card.state, tree, element.code))
+  return JSON.stringify(tree[ownPath])
 }
 
 /** 历史里的一个回合：一个 `action` 开一个回合，后面跟着它的 `narration`（可能不止一条） */
@@ -98,6 +129,47 @@ function historyLines(opening: string, events: SaveEvent[], turns: number, actio
   return lines
 }
 
+/**
+ * 这个元素的**祖先** code 里有没有被读到的：有的话，子孙不再单独出行（父那一行已经把它们包进去了）。
+ * 例：读了 `1.1` ⇒ `1.1.1` 不出行；只读 `1.1.0`（自身值）不算读了父，孩子照旧出行。
+ */
+function underReadParent(code: string, reads: string[]): boolean {
+  const segments = code.split('.')
+  for (let at = segments.length - 1; at > 0; at -= 1) {
+    if (reads.includes(segments.slice(0, at).join('.'))) return true
+  }
+  return false
+}
+
+/**
+ * 状态段的几行。三类读法各出各的：
+ *   · 读**元素 code** ⇒ 一行：自己这个节点（有孩子就是自身值 + 整棵子树的 JSON，`object` 没有 `"0"`）；
+ *   · 读 **`<code>.0`** ⇒ 一行：只输出这个元素自己的值（`code` 那一格写的是值路径）；
+ *   · 读**叶子 code** ⇒ 一行：就是它自己的值。
+ * 父 code 读到时，子孙不再单独出行；只读了 `.0` 时孩子照旧可以单独读。
+ */
+function stateLinesOf(card: Card, tree: Tree, reads: string[]): string[] {
+  const lines: string[] = []
+  for (const element of card.state) {
+    if (underReadParent(element.code, reads)) continue
+    if (reads.includes(element.code)) {
+      lines.push(
+        `${t('prompt.stateLine', { code: element.code, name: element.name })}${projectOf(card, tree, element)}`,
+      )
+      continue
+    }
+    // 结构体没有自身值：`.0` 那一支与它无关（`pathsOf` 的首项在它身上是孩子的路径）
+    if (element.type === 'object') continue
+    const [ownPath] = pathsOf(card.state, element.code)
+    if (ownPath !== undefined && ownPath !== element.code && reads.includes(ownPath)) {
+      lines.push(
+        `${t('prompt.stateLine', { code: ownPath, name: element.name })}${JSON.stringify(tree[ownPath])}`,
+      )
+    }
+  }
+  return lines
+}
+
 // 拼一个节点的提示词：五段按契约顺序接起来，眼睛没打开的段一个字都不放
 export function buildPrompt({ card, save, node, action, outputs }: BuildPromptArgs): string {
   const blocks: string[] = []
@@ -105,29 +177,30 @@ export function buildPrompt({ card, save, node, action, outputs }: BuildPromptAr
   // 公共提示词：一块一个标记；正文为空的那一块没有东西可读，标记也不留
   for (const prompt of card.prompts) {
     if (node.reads.includes(prompt.id) && prompt.body !== '') {
-      blocks.push(`<公共提示词·${prompt.title}>\n${prompt.body}`)
+      blocks.push(`<${t('prompt.publicBlock', { title: prompt.title })}>\n${prompt.body}`)
     }
   }
 
-  const stateLines = card.state
-    .filter((element) => node.reads.includes(element.code))
-    .map((element) => `${element.code} ${element.name} = ${renderValue(save.tree[element.code])}`)
-  if (stateLines.length > 0) blocks.push(`<世界状态树>\n${stateLines.join('\n')}`)
+  // 状态段：读到的每个引用一行；**正文逐字接在格式后面**（不经过插值，JSON 里的花括号不会被吃掉）
+  const stateLines = stateLinesOf(card, save.tree, node.reads)
+  if (stateLines.length > 0) blocks.push(`<${t('prompt.stateBlock')}>\n${stateLines.join('\n')}`)
 
   // 历史块恒有正文（本回合行动总在里面），所以它没有「空段」这一档。
   // 开场白读卡上 `opening` 那一块（§6.1 保证每张卡都有），正文为空就是这张卡没有开场白。
   const opening = card.prompts.find((prompt) => prompt.id === OPENING_PROMPT_ID)?.body ?? ''
-  blocks.push(`<游戏历史记录>\n${historyLines(opening, save.events, node.historyTurns, action).join('\n')}`)
+  blocks.push(
+    `<${t('prompt.historyBlock')}>\n${historyLines(opening, save.events, node.historyTurns, action).join('\n')}`,
+  )
 
   // 上游按**链顺序**拼（不是按点击/存储顺序）：谁先跑完，谁的话在前；一段一个标记
   for (const other of card.chain) {
     const text = node.readsUpstream.includes(other.id) ? outputs[other.id] : undefined
     if (text !== undefined && text !== '') {
-      blocks.push(`<上游输出·${other.name}>\n${text}`)
+      blocks.push(`<${t('prompt.upstreamBlock', { name: other.name })}>\n${text}`)
     }
   }
 
-  if (node.prompt !== '') blocks.push(`<节点提示词>\n${node.prompt}`)
+  if (node.prompt !== '') blocks.push(`<${t('prompt.nodeBlock')}>\n${node.prompt}`)
 
   return blocks.join('\n\n')
 }

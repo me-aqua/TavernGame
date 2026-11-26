@@ -21,7 +21,8 @@ import { PROVIDER_TIMEOUT_MS, startDeadline } from './deadline'
 import { AppError } from './errors'
 import { mockReply } from './mock'
 import { buildPrompt } from './prompt'
-import { dataTypeOf, isTimeValue, toolsForNode, validateCard, validateSave } from './schema'
+import { elementOfPath, isTimeValue, toolsForNode, validateCard, validateSave } from './schema'
+import { advanceTime, formatTime, pathsOf } from './statetree'
 import type {
   Card,
   ChainNode,
@@ -29,12 +30,17 @@ import type {
   ProviderReply,
   Save,
   SaveEvent,
+  StateElement,
+  TimeUnit,
   TimeValue,
   TokenUsage,
   TraceDetail,
   TraceToolCall,
   Tree,
 } from './types'
+
+// `advanceTime` 的语义是公历推进（`statetree.ts`），这里转出一份：老的调用方写的还是 `engine.ts`
+export { advanceTime }
 
 /** 流式回调看到的事件：落盘事件 + 只在内存里过的 `chunk` */
 export type StreamEvent = SaveEvent | { type: 'chunk'; text: string }
@@ -58,9 +64,8 @@ export interface RunTurnResult {
 
 const now = () => new Date().toISOString()
 
-/** `tree['0']` 一定是个时间；不是就报结构错（校验之后不该发生，但类型上必须收窄） */
-function timeOf(tree: Tree): TimeValue {
-  const value = tree['0']
+function timeAt(card: Card, tree: Tree): TimeValue {
+  const value = tree[timePathOf(card)]
   if (!isTimeValue(value)) {
     throw new AppError('E_VALIDATION', { message: t('error.timeTree'), nextStep: t('next.home') })
   }
@@ -72,29 +77,28 @@ function aborted(): AppError {
 }
 
 /**
- * 推进时间：`hour += hours`，跨天进位，负数也按同一套取模。
- * 小时数必须是整数（非整数说明卡或模型给的参数坏了）。
+ * 时间元素（卡里唯一的那一个，`state[0]`）。引擎这一层只负责从卡里取出它和它的颗粒度上下界；
+ * 推进本身住在 `statetree.ts`。
  */
-export function advanceTime(time: TimeValue, hours: number): TimeValue {
-  if (!Number.isInteger(hours)) {
-    throw new AppError('E_VALIDATION', {
-      message: t('error.hoursInvalid'),
-      nextStep: t('next.editor'),
-      detail: { hours },
-    })
+function timeElementOf(card: Card): StateElement {
+  const time = card.state[0]
+  if (!time || time.type !== 'time') {
+    throw new AppError('E_VALIDATION', { message: t('issue.timeFirst'), nextStep: t('next.editor') })
   }
-  const hour = time.hour + hours
-  const day = time.day + Math.floor(hour / 24)
-  return { day, hour: ((hour % 24) + 24) % 24 }
+  return time
+}
+
+/** 时间元素的值路径：`tree` 里它永远是自己的 code（时间没有孩子） */
+function timePathOf(card: Card): string {
+  return pathsOf(card.state, timeElementOf(card).code)[0]
 }
 
 /**
- * 往状态树写一个字符串，返回**新** tree（入参一个字都不改）。
+ * 往状态树写一个值，返回**新** tree（入参一个字都不改）。
  *
- * 时间元素 `'0'` 的值是 `{ day, hour }`，**只能走 `advance_time`**（`runTool` 里直接写对象）；
- * 这里一律拒 —— 一个字符串覆盖进去，整份存档就再也打不开了。
- * 越权（不在 `node.writable`）与悬空路径都算链的错（`E_CHAIN`）—— 它们违反的是
- * 卡里声明的 `writable`；值不是字符串则是数据错误（`E_VALIDATION`）。
+ * 合法路径 = `node.writable` 里某个引用覆盖的值路径之一（`pathsOf`；引用可以是元素 code，也可以是
+ * `<code>.0` 自身值）；其余一律 `E_CHAIN`。时间只能走 `advance_time`；结构体没有自身值；值的类型由
+ * 元素决定（文字 / 整数含上下限与单次步幅 / 下拉白名单），不符合 ⇒ `E_VALIDATION`。
  */
 export function applyWrite({
   card,
@@ -109,35 +113,61 @@ export function applyWrite({
   path: string
   value: unknown
 }): Tree {
-  if (dataTypeOf(path) === 'time') {
+  const element = elementOfPath(card.state, path)
+  if (element?.type === 'time') {
     throw new AppError('E_CHAIN', {
       message: t('error.writeTime', { node: node.id }),
       nextStep: t('next.editor'),
       detail: { nodeId: node.id, path },
     })
   }
-  if (!node.writable.includes(path)) {
+  const covered = node.writable.flatMap((ref) => pathsOf(card.state, ref)).includes(path)
+  if (!covered) {
     throw new AppError('E_CHAIN', {
-      message: t('error.writeNotAllowed', { node: node.id, path }),
+      message: element
+        ? t('error.writeNotAllowed', { node: node.id, path })
+        : t('error.writeMissing', { path }),
       nextStep: t('next.editor'),
-      detail: { path, writable: node.writable },
+      detail: { nodeId: node.id, path, writable: node.writable },
     })
   }
-  if (!card.state.some((element) => element.code === path)) {
+  if (!element) {
     throw new AppError('E_CHAIN', {
       message: t('error.writeMissing', { path }),
       nextStep: t('next.editor'),
       detail: { path },
     })
   }
-  if (typeof value !== 'string') {
+  if (element.type === 'object') {
     throw new AppError('E_VALIDATION', {
-      message: t('error.valueNotString'),
+      message: t('issue.objectInitial', { code: element.code }),
       nextStep: t('next.editor'),
-      detail: { path, value },
+      detail: { path },
     })
   }
-  return { ...tree, [path]: value }
+  /** 值 / 范围不合就报这一条（中文，带上路径与类型，方便排障） */
+  const reject = () =>
+    new AppError('E_VALIDATION', {
+      message: t('error.valueNotFit', { path }),
+      nextStep: t('next.editor'),
+      detail: { path, value, type: element.type },
+    })
+  if (element.type === 'text') {
+    if (typeof value !== 'string') throw reject()
+  } else if (element.type === 'enum') {
+    if (typeof value !== 'string' || !(element.values ?? []).includes(value)) throw reject()
+  } else if (element.type === 'integer') {
+    const min = element.min ?? -1e9
+    const max = element.max ?? 1e9
+    const stepMin = element.stepMin ?? 0
+    const stepMax = element.stepMax ?? 1e9
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || Math.abs(value) > 1e9) throw reject()
+    if (value < min || value > max) throw reject()
+    const before = tree[path]
+    const step = typeof before === 'number' ? Math.abs(value - before) : 0
+    if (step < stepMin || step > stepMax) throw reject()
+  }
+  return { ...tree, [path]: value as Tree[string] }
 }
 
 /**
@@ -194,7 +224,7 @@ function runTool({
   name: string
   args: Record<string, unknown>
 }): { tree: Tree; events: SaveEvent[]; result: string } {
-  if (!toolsForNode(node).includes(name)) {
+  if (!toolsForNode(card, node).includes(name)) {
     throw new AppError('E_CHAIN', {
       message: t('error.toolNotAllowed', { node: node.id, tool: name }),
       nextStep: t('next.editor'),
@@ -203,16 +233,21 @@ function runTool({
   }
   const at = now()
   if (name === 'advance_time') {
-    // 能走到这里就说明 `'0'` 在 `node.writable` 里（`toolsForNode` 只在这种情况下发这个工具），
-    // 所以这一分支只看小时数，不再问一遍权限。
-    const next = advanceTime(timeOf(tree), args.hours as number)
+    // 能走到这里就说明时间元素在 `node.writable` 里（`toolsForNode` 只在这种情况下发这个工具），
+    // 所以这一分支只看参数与颗粒度，不再问一遍权限。
+    const element = timeElementOf(card)
+    const path = timePathOf(card)
+    const next = advanceTime(timeAt(card, tree), args.amount as number, args.unit as TimeUnit, {
+      upper: element.granularityUpper,
+      lower: element.granularityLower,
+    })
     return {
-      tree: { ...tree, '0': next },
+      tree: { ...tree, [path]: next },
       events: [
         { type: 'tool', text: name, detail: { name, args }, at },
-        { type: 'write', text: '0', detail: { path: '0', value: next }, at },
+        { type: 'write', text: path, detail: { path, value: next }, at },
       ],
-      result: `day ${next.day} hour ${next.hour}`,
+      result: formatTime(next),
     }
   }
   const path = args.path
@@ -223,8 +258,9 @@ function runTool({
       detail: { nodeId: node.id, args },
     })
   }
+  const next = applyWrite({ card, node, tree, path, value: args.value })
   return {
-    tree: applyWrite({ card, node, tree, path, value: args.value }),
+    tree: next,
     events: [
       { type: 'tool', text: name, detail: { name, args }, at },
       { type: 'write', text: path, detail: { path, value: args.value }, at },
@@ -298,6 +334,7 @@ export async function runTurn({
     let reply: ProviderReply
     if (preset.provider === 'mock') {
       reply = await mockReply({
+        card,
         node,
         turn,
         action,
@@ -315,8 +352,8 @@ export async function runTurn({
         reply = await callProvider({
           preset,
           prompt,
-          // 工具表**按 writable 的数据类型派生**（与 runTool 的许可同一份名单）
-          tools: toolsForNode(node),
+          // 工具表**按 writable 覆盖到的值派生**（与 runTool 的许可同一份名单）
+          tools: toolsForNode(card, node),
           onChunk,
           signal,
           deadline,

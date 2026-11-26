@@ -49,7 +49,7 @@ async function openSaveEditor(page, saveId) {
 test.describe('存档编辑器：入口', () => {
   test('首页存档行有「编辑游戏卡」，在重命名左边；非法存档行没有', async ({ page }) => {
     const card = makeCard()
-    const bad = { ...makeSave(card), id: 's-bad', tree: { ...makeSave(card).tree, 0: 'day 1 hour 8' } }
+    const bad = { ...makeSave(card), id: 's-bad', tree: { ...makeSave(card).tree, 0: { day: 1, hour: 8 } } }
     await boot(page, {
       storage: {
         [KEYS.cards]: [card],
@@ -148,6 +148,10 @@ test.describe('存档编辑器：允许的编辑落到快照', () => {
     // ⑤ 眼睛：给判定节点开「读元素 2」
     await page.locator('[data-node-id="check"]').click()
     await page.locator('[data-state-item="2"] [data-eyes="read"]').click()
+
+    // 存档编辑器与卡编辑器同一套语义：点【保存】才校验 + 落盘
+    await page.locator('[data-save-card]').click()
+    await expect(page.locator('[data-save-ok]')).toBeVisible()
 
     const saved = (await readStorage(page, KEYS.saves))[0]
     expect(saved.cardSnapshot.prompts.find((prompt) => prompt.id === 'pr1').body).toBe('SAVE_BODY_EDIT')
