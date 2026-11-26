@@ -21,7 +21,7 @@ import { PROVIDER_TIMEOUT_MS, startDeadline } from './deadline'
 import { AppError } from './errors'
 import { mockReply } from './mock'
 import { buildPrompt } from './prompt'
-import { isTimeValue, validateCard, validateSave } from './schema'
+import { dataTypeOf, isTimeValue, toolsForNode, validateCard, validateSave } from './schema'
 import type {
   Card,
   ChainNode,
@@ -35,17 +35,6 @@ import type {
   TraceToolCall,
   Tree,
 } from './types'
-
-/**
- * 每种节点允许调用哪些工具（阶段 1 就这两个）。
- * 写在这里而不是 provider 里：provider 是**按需加载**的（见 `runTurn` 里那句动态 import），
- * 这张表却要随时可用 —— 校验工具权限不该为了拿一张常量表把整个 SDK 拉进来。
- */
-const TOOLS_FOR_NODE: Record<ChainNode['type'], string[]> = {
-  time: ['advance_time'],
-  normal: ['write_state'],
-  output: [],
-}
 
 /** 流式回调看到的事件：落盘事件 + 只在内存里过的 `chunk` */
 export type StreamEvent = SaveEvent | { type: 'chunk'; text: string }
@@ -102,7 +91,7 @@ export function advanceTime(time: TimeValue, hours: number): TimeValue {
 /**
  * 往状态树写一个字符串，返回**新** tree（入参一个字都不改）。
  *
- * 时间元素 `'0'` **只能走时间工具**（`advance_time` 在 `runTool` 里直接写 `{ day, hour }`），
+ * 时间元素 `'0'` 的值是 `{ day, hour }`，**只能走 `advance_time`**（`runTool` 里直接写对象）；
  * 这里一律拒 —— 一个字符串覆盖进去，整份存档就再也打不开了。
  * 越权（不在 `node.writable`）与悬空路径都算链的错（`E_CHAIN`）—— 它们违反的是
  * 卡里声明的 `writable`；值不是字符串则是数据错误（`E_VALIDATION`）。
@@ -120,7 +109,7 @@ export function applyWrite({
   path: string
   value: unknown
 }): Tree {
-  if (path === '0') {
+  if (dataTypeOf(path) === 'time') {
     throw new AppError('E_CHAIN', {
       message: t('error.writeTime', { node: node.id }),
       nextStep: t('next.editor'),
@@ -188,6 +177,9 @@ export function resolveNodePreset({
 /**
  * 执行一个被允许的工具调用，返回新 tree、两条事件（`tool` + `write`）与一句执行结果。
  * `result` 只进 trace 的「工具调用」那一格（给人看），不参与任何状态。
+ *
+ * 工具权限**只看 `toolsForNode`**（由 `writable` 的数据类型派生）—— 它同时也是喂给模型的工具表，
+ * 所以「模型能叫什么」与「引擎许不许可」是同一份名单。
  */
 function runTool({
   card,
@@ -202,7 +194,7 @@ function runTool({
   name: string
   args: Record<string, unknown>
 }): { tree: Tree; events: SaveEvent[]; result: string } {
-  if (!TOOLS_FOR_NODE[node.type].includes(name)) {
+  if (!toolsForNode(node).includes(name)) {
     throw new AppError('E_CHAIN', {
       message: t('error.toolNotAllowed', { node: node.id, tool: name }),
       nextStep: t('next.editor'),
@@ -211,6 +203,8 @@ function runTool({
   }
   const at = now()
   if (name === 'advance_time') {
+    // 能走到这里就说明 `'0'` 在 `node.writable` 里（`toolsForNode` 只在这种情况下发这个工具），
+    // 所以这一分支只看小时数，不再问一遍权限。
     const next = advanceTime(timeOf(tree), args.hours as number)
     return {
       tree: { ...tree, '0': next },
@@ -321,7 +315,8 @@ export async function runTurn({
         reply = await callProvider({
           preset,
           prompt,
-          tools: TOOLS_FOR_NODE[node.type],
+          // 工具表**按 writable 的数据类型派生**（与 runTool 的许可同一份名单）
+          tools: toolsForNode(node),
           onChunk,
           signal,
           deadline,

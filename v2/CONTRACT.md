@@ -8,6 +8,7 @@
 > 已落进本文 §2.1 · §4.1 · §5 · §6.1 · §8.2 · §8.3 · §9.5 #13；这几处以本文为准，SPEC 的旧段待同步。
 > 追加（老板 2026-11-25 晚）：**读/写按钮改成看得见的 chip**（§8.2）· **调试读数内联进故事流并落盘**
 > （§2.2 / §4.1–§4.3 / §8.3）· **provider 捕获思考**（§4.5）—— 以本文为准，SPEC 的旧段待同步。
+> 更正（老板 2026-11-26）：**写权限只由 `writable` 决定，工具按数据类型派生**（§4.3 / §6.1 / §8.2）；「按节点类型收窄」那套**整块作废**，SPEC 旧段待同步。
 
 ## 0. 四条总则
 
@@ -271,6 +272,7 @@ export async function runTurn({ card, save, presets, nodePresets, action, onEven
 export function resolveNodePreset({ presets, nodePresets, nodeId }) -> Preset   // 纯函数：单个节点的模型解析
 export function applyWrite({ card, node, tree, path, value }) -> tree           // 纯函数，返回新 tree
 export function advanceTime(tree, hours) -> tree                               // 纯函数
+export function toolsForNode(node) -> string[]                                 // 纯函数：这个节点拿到哪些工具（§4.3）
 ```
 
 - `runTurn` **不修改入参**（`save` / `card` / `presets` / `nodePresets` 只读），返回**新的** `save` 对象。
@@ -302,21 +304,21 @@ export function advanceTime(tree, hours) -> tree                               /
 4. 回合收尾：追加一条 `turnStats` 事件、`turn += 1`、`updatedAt` 刷新；**提交前再跑一次 `validateSave(nextSave, card)`**（本回合写进 tree 的东西必须让整份存档仍然合法），通过后返回 `{ save, events }`。
    `save.events` = 旧事件 + 本回合新事件；返回的 `events` = **只有本回合新事件**（同一批对象）。
 
-### 4.3 节点类型语义
+### 4.3 工具与写入（`writable` 是唯一的权限来源）
 
-| type     | 允许的工具调用                 | 时间 / 状态的落点                                      | 进故事流吗               |
-| -------- | ------------------------------ | ------------------------------------------------------ | ------------------------ |
-| `time`   | `advance_time({ hours })`      | `tree['0'] = advanceTime(tree['0'], hours)`            | 否                       |
-| `normal` | `write_state({ path, value })` | 只能写 `node.writable` 里的 code；`value` 必须是字符串 | 否                       |
-| `output` | 无                             | 无（`writable` 必须为空）                              | **是**（只有它进故事流） |
+**节点类型不决定能写什么**（老板 2026-11-26 修正，覆盖曾经按类型收窄的那套规则）：`time` / `normal` 节点的
+`writable` 里都可以有时间元素 `'0'`，也都可以有文字元素；**工具由 `writable` 里每个元素的数据类型派生**
+（`schema.ts` 的 `toolsForNode`）：写着时间 ⇒ `advance_time`；写着文字 ⇒ `write_state`；两样都写 ⇒ 两个工具。
+唯一的例外是 `output`：它只产故事，`writable` 必须是空的（卡校验 `E_CHAIN`），`toolsForNode` 给它 `[]`。
 
-- `advanceTime(tree, hours)`：`hour += hours`；`day += Math.floor(hour / 24)`；`hour = ((hour % 24) + 24) % 24`。
-  `hours` 必须是整数，否则 `E_VALIDATION`。
-- `applyWrite`：`path === '0'` ⇒ `E_CHAIN`（时间元素只能由 `advance_time` 推进）；`path` 不在 `node.writable` ⇒ `E_CHAIN`（`detail = { path, writable }`）；
+- `advance_time({ hours })` 写 `tree['0'] = advanceTime(tree['0'], hours)`；`write_state({ path, value })` 只能写
+  `node.writable` 里的文字 code，`value` 必须是字符串。**只有 `output` 节点的文本进故事流**（§8.3）。
+- `advanceTime(tree, hours)`：`hour += hours`；`day += Math.floor(hour / 24)`；`hour = ((hour % 24) + 24) % 24`。`hours` 必须是整数，否则 `E_VALIDATION`。
+- `applyWrite`：`path` 是时间元素 `'0'` ⇒ `E_CHAIN`（时间格只能经 `advance_time` 推进，中文提示点名它）；
+  `path` 不在 `node.writable` ⇒ `E_CHAIN`（`detail = { path, writable }`）；
   `path` 不在 `card.state` ⇒ `E_CHAIN`（`detail = { path }`）；`value` 不是字符串 ⇒ `E_VALIDATION`。合法则返回**新** tree（浅拷贝改一个键，入参 tree 一个字都不改）。
 - 工具调用被引擎执行时各记两条事件：`tool`（`detail = { name, args }`）与 `write`（`detail = { path, value }`）；
-  同一次调用还进该节点的 `trace.toolCalls`（带 `result`）。
-  模型回文本里的工具调用（非原生 `tool_calls`）**一律不认**。
+  同一次调用还进该节点的 `trace.toolCalls`（带 `result`）。模型回文本里的工具调用（非原生 `tool_calls`）**一律不认**。
 - 节点文本：`output` 节点的文本 → `narration` 事件（`text` 为整段）；所有节点的文本都进自己的 `trace.output`。
 
 ### 4.4 流式与中止
@@ -405,13 +407,13 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - 所有面向玩家的错误都必须是这个类的实例（`instanceof Error` 且带 `code`），
   `detail` 里放上游原文，**正文不许只给英文**。
 
-| 码             | 什么时候                                                                | message 要说清什么           | nextStep 要指向              |
-| -------------- | ----------------------------------------------------------------------- | ---------------------------- | ---------------------------- |
-| `E_PROVIDER`   | 网络 / key / 额度 / 上游 4xx-5xx                                        | 哪一步连不上（不填英文原文） | 设置页检查 Key 与 Base URL   |
-| `E_VALIDATION` | 卡或存档结构不合法、坏 JSON、schemaVersion 不认、id 不存在              | 哪个字段/对象坏了            | 回首页重开或重建存档         |
-| `E_CHAIN`      | 链不合法（输出数、时间数、上游只能往前、写权限按类型）、写非 `writable` | 哪一条链规则、哪个节点 id    | 回编辑器改链                 |
-| `E_UNKNOWN`    | 兜底（不许用来吞掉已知错误）                                            | 发生了什么                   | 刷新/看控制台                |
-| `E_ABORTED`    | 用户点「停止」                                                          | 你中止了本回合               | 无（界面按停止处理，不弹错） |
+| 码             | 什么时候                                                                    | message 要说清什么           | nextStep 要指向              |
+| -------------- | --------------------------------------------------------------------------- | ---------------------------- | ---------------------------- |
+| `E_PROVIDER`   | 网络 / key / 额度 / 上游 4xx-5xx                                            | 哪一步连不上（不填英文原文） | 设置页检查 Key 与 Base URL   |
+| `E_VALIDATION` | 卡或存档结构不合法、坏 JSON、schemaVersion 不认、id 不存在                  | 哪个字段/对象坏了            | 回首页重开或重建存档         |
+| `E_CHAIN`      | 链不合法（输出数、时间数、上游只能往前、输出节点的写权限）、写非 `writable` | 哪一条链规则、哪个节点 id    | 回编辑器改链                 |
+| `E_UNKNOWN`    | 兜底（不许用来吞掉已知错误）                                                | 发生了什么                   | 刷新/看控制台                |
+| `E_ABORTED`    | 用户点「停止」                                                              | 你中止了本回合               | 无（界面按停止处理，不弹错） |
 
 **判据**：五个码的 `message` 与 `nextStep` 都必须含中文（正则 `[\u4e00-\u9fff]`），且 `nextStep` 非空。
 
@@ -423,8 +425,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - `type === 'time'` 最多 1 个；`chain.length ≥ 1`；
 - 节点 `type` 只能是 `'time' | 'normal' | 'output'`（别的值 ⇒ `E_VALIDATION`）；
 - `readsUpstream` 里的每个 id 都必须在链上，且**排在它前面**（首节点只能为空）；
-- **写权限按类型收窄**（唯一规则：`schema.ts` 的 `canWrite(type, code)`，卡校验 / 左栏写眼睛 / `applyWrite` 三处都从它派生）：
-  `time` 的 `writable ⊆ ['0']`；`output` 的必须是 `[]`；`normal` **不许含 `'0'`**（时间元素只能由时间节点经 `advance_time` 推进）。
+- **写权限只由 `writable` 决定**（§4.3）：`time` / `normal` 都可以写任意 code（含 `'0'`），工具按数据类型派生；`output` 的必须是 `[]`。
 - **`prompts` 里必须有 `id === 'opening'` 的那一块**（缺 ⇒ `E_VALIDATION`，不补）；
 - 节点 `id` 唯一；`historyTurns` 是 ≥0 的整数；
 - `reads` / `writable` 里的引用必须存在（提示词 id 或状态 code），否则 `E_VALIDATION`（指名悬空引用）。
@@ -438,13 +439,12 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 
 ## 7. mock 提供方（`src/core/mock.js`）—— 测试替身
 
-`preset.provider === 'mock'` 时**不发任何网络请求**，按节点类型回确定的响应（同一输入同一输出）：
+`preset.provider === 'mock'` 时**不发任何网络请求**，回确定的响应（同一输入同一输出）；**工具调用按 `writable` 派生**（§4.3），节点类型只决定它吐不吐正文：
 
-| 节点     | 回什么                                                                                                                                      |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `time`   | 一次原生工具调用 `advance_time({ hours: 1 })`，文本空                                                                                       |
-| `normal` | 若 `node.writable` 非空：一次原生工具调用 `write_state({ path: <writable[0]>, value: 'mock-t<turn>' })`；否则空响应                         |
-| `output` | 文本 `[mock] turn <turn>: <action>`，**流式**：按 ≤8 字符切块，每块之间等 `mockChunkDelayMs`（缺省 0），块数 ≥3（文本短时也一样切成 ≥3 块） |
+| 节点              | 回什么                                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `time` / `normal` | `writable` 含 `'0'` ⇒ 一次 `advance_time({ hours: 1 })`；含文字 code ⇒ 一次 `write_state({ path: <第一个文字 code>, value: 'mock-t<turn>' })`（两样都写就两个调用）；都没有 ⇒ 空响应 |
+| `output`          | 文本 `[mock] turn <turn>: <action>`，**流式**：按 ≤8 字符切块，每块之间等 `mockChunkDelayMs`（缺省 0），块数 ≥3（文本短时也一样切成 ≥3 块）                                          |
 
 - mock 走的**是同一套事件/流式代码路径**（`chunk` → `narration`），不是另一条捷径。
 - `[mock] turn 2: act two` 这种整串是**逐字**可断言的（`turn` 用阿拉伯数字）。
@@ -522,8 +522,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   - **S0**（什么都没选）：只有行 —— `[data-state-code]` + `[data-state-name]`，没有任何按钮；
   - **S1**（选中节点）：每行两只眼睛 `[data-eyes="read"]` / `[data-eyes="write"]`（带
     `data-on="true"|"false"`，点击切换「当前选中节点」读/写这个元素）；
-    **写眼睛按节点类型收窄**（与 §6.1 的链规矩同一套）：`time` 只在 `[data-state-item="0"]` 那一行有，
-    `output` 一只都没有，`normal` 每一行都有；
+    **写眼睛只看 `node.writable`**（§4.3）：时间元素 `0` 与文字元素一样，每行都有；`output` 一只都没有；
   - **S2**（选中元素）：栏顶出现 `[data-add-state]`（裸 `+`），**每一行**出现 `[data-delete-state]`
     （裸 `×`；`'0'` 这一行永远没有它）。眼睛在 S2 不出现。
 - **读 / 写是看得见的 chip**（老板 2026-11-25）：所有读/写按钮共用全局 `.chip`
@@ -712,7 +711,7 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
 | §9.7 组件故事 + 像素基线                                                                      | **不在本契约**（stories 那一层由后续一票补，见 §10）              |
 | §9.8 流式可停止 / 错误中文                                                                    | `v2/e2e/stream-abort.spec.js` + `v2/e2e/errors.spec.js`           |
 | §9.9 线上 `/v2/` 可打开、旧站仍可用                                                           | 人工 + 发布流程（不在本契约）                                     |
-| 链校验（输出数 / 时间上限 / 上游只能往前 / 类型写权限 / 不兼容旧格式）                        | `v2/tests/chain.test.js`                                          |
+| 链校验（输出数 / 时间上限 / 上游只能往前 / 输出节点无写权限 / 不兼容旧格式）                  | `v2/tests/chain.test.js`                                          |
 | 错误码五条都有中文 + 下一步                                                                   | `v2/tests/errors.test.js`                                         |
 | 存储五键 / 无种子 / 删空 / 坏 JSON / 坏映射                                                   | `v2/tests/storage.test.js`                                        |
 | 非法卡 / 非法存档逐项标记：首页照常、坏项无入口、新建保留坏项 JSON 值、按 id 只校验目标       | `v2/tests/invalid-items.test.js` + `v2/e2e/invalid-items.spec.js` |
@@ -745,7 +744,7 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
     `0` ⇒ 只有本回合行动。**开场白算最早的那条叙事**，与事件流里的叙事共用 `N` 这个预算（§5）。判据：§5 与 `v2/tests/prompt-markers.test.js`。
 13. 🔴 **校对节点整块删除 + 上游改成节点 id 数组 + 不做旧数据兼容**（老板 2026-11-25）：
     `NodeType` 只剩 `'time' | 'normal' | 'output'`；链要求**恰好 1 个 output、最多 1 个 time**；
-    `readsUpstream` 从 `boolean` 改成 `string[]`（id 必须排在它前面）；写权限按类型收窄（§6.1）。
+    `readsUpstream` 从 `boolean` 改成 `string[]`（id 必须排在它前面）；写权限只由 `writable` 决定（2026-11-26 更正，§4.3）。
     老卡 / 老存档**不迁移**：缺新字段、带 `proof`、`readsUpstream` 是布尔值的，都直接报错（§2.1）。
     界面不再有「读上游输出」「读公共提示词」两节：上游读眼睛在细条上、公共提示词读眼睛在右栏（§8.2）。
 14. 🔴 **调试内联 + 落盘 + 读/写 chip**（老板 2026-11-25，覆盖 §4.1 / §8.2 / §8.3 的旧口径）：

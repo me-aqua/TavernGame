@@ -7,14 +7,14 @@
  *     **写**（`writable` 里有它才许写）；
  *   · **S2**（选中了某个元素）：栏顶出现 `+`（加元素），**每一行**出现 `×`（删这一行）。
  *
- * **写眼睛按节点类型收窄**（与 `schema.canWrite` 同一套，不在这里另写一份 `if`）：
- * 时间节点只有时间元素 `0` 那只，输出节点一只都没有，普通节点每行都有**除了 `0`**。
- * 界面上不该露出一个点了会被引擎拒的开关（尤其是 `normal` 写 `0` —— 那会毁存档）。
+ * **写眼睛只看 `node.writable`，不按节点类型收窄**（老板 2026-11-26）：时间元素 `0` 与文字元素一样，
+ * 每一行都有那只 chip —— 勾上它，这个节点就拿到对应的工具（时间 ⇒ `advance_time`，
+ * 文字 ⇒ `write_state`，规则见 `schema.toolsForNode`）。唯一没有写眼睛的是**输出节点**：
+ * 它只产故事，`writable` 必须是空的（卡校验会拒）。
  *
  * `0`（时间元素）永远不许删，它不带 `×`。
  */
 import type { ChainNode, StateElement } from '../core/types'
-import { canWrite } from '../core/schema'
 import { t } from '../i18n'
 
 const props = defineProps<{
@@ -31,9 +31,9 @@ defineEmits<{
   'toggle-write': [code: string]
 }>()
 
-/** 这一行要不要露「写」眼睛（唯一规则见 `schema.canWrite`） */
-function showsWrite(code: string): boolean {
-  return props.node !== null && canWrite(props.node.type, code)
+/** 这一行要不要露「写」眼睛：输出节点一只都没有，其余节点每一行都有 */
+function showsWrite(): boolean {
+  return props.node !== null && props.node.type !== 'output'
 }
 </script>
 
@@ -78,7 +78,7 @@ function showsWrite(code: string): boolean {
             {{ t('editor.eyeRead') }}
           </button>
           <button
-            v-if="showsWrite(element.code)"
+            v-if="showsWrite()"
             type="button"
             class="chip"
             data-eyes="write"

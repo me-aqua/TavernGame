@@ -266,32 +266,49 @@ test.describe('开场：每张卡都有、排第一、删不掉', () => {
 })
 
 /**
- * 写眼睛按类型收窄（评审 P1-1）：**时间元素 `0` 只有 `time` 节点能写**。
- * 旧 UI 给 `normal` 的每一行都露写 chip（含 `0`）⇒ 玩家点一下、跑一回合，存档的时间格就被写成字符串，
- * 这份存档当场变成非法。所以这一格必须在**露出 chip 的那一刻**就关掉，不能等引擎拒。
+ * 写眼睛**不按节点类型收窄**（设计更正）：`writable` 决定这个节点拿到哪个工具 ——
+ * 含 `'0'` ⇒ `advance_time`；含文本 code ⇒ `write_state`。所以：
+ *   · 普通节点在「0 时间」那行**有**写 chip，勾上要落进 `writable`；
+ *   · 时间节点在文本元素那行**也有**写 chip；
+ *   · **例外：输出节点什么也不写** —— 一行写 chip 都不许有。
  */
-test.describe('写眼睛按类型收窄', () => {
-  test('判定节点在「0 时间」那行没有写 chip；时间节点仍然有', async ({ page }) => {
+test.describe('写眼睛：普通 / 时间节点能勾任意元素，输出节点一只都没有', () => {
+  test('判定节点在「0 时间」有写 chip、勾上会落进 writable；时间节点文本行也有', async ({ page }) => {
     await boot(page, { storage: { [KEYS.cards]: [makeCard()], [KEYS.presets]: [MOCK_PRESET] } })
     await page.goto(`${APP_PATH}${route.edit(CARD_ID)}`)
     await expect(page.locator('[data-page="editor"]')).toBeVisible()
 
-    // S1：选中判定节点（normal）
+    // S1：选中判定节点（normal）—— 0 那一行要有写 chip，勾上会落进 writable
     await page.locator('[data-node-id="check"]').click()
-    await expect(
-      page.locator('[data-state-item="0"] [data-eyes="write"]'),
-      '判定节点不该能写时间元素 0',
-    ).toHaveCount(0)
-    await expect(
-      page.locator('[data-state-item="1"] [data-eyes="write"]'),
-      '判定节点仍然可以写普通元素',
-    ).toHaveCount(1)
+    const zeroChip = page.locator('[data-state-item="0"] [data-eyes="write"]')
+    await expect(zeroChip, '普通节点也看得见时间元素那一行的写 chip').toHaveCount(1)
+    await expect(zeroChip).toHaveAttribute('data-on', 'false')
+    await zeroChip.click()
+    await expect(zeroChip).toHaveAttribute('data-on', 'true')
 
-    // S1：选中时间节点（time）—— 0 那一行的写 chip 必须还在
+    const stored = await readStorage(page, KEYS.cards)
+    const check = stored[0].chain.find((node) => node.id === 'check')
+    expect(check.writable, '勾上写眼睛要落进 writable').toContain('0')
+
+    // S1：选中时间节点（time）—— 文本元素那行也要有写 chip
     await page.locator('[data-node-id="time"]').click()
     await expect(
-      page.locator('[data-state-item="0"] [data-eyes="write"]'),
-      '时间节点必须还能写时间元素 0',
+      page.locator('[data-state-item="1"] [data-eyes="write"]'),
+      '时间节点也看得见文本元素的写 chip',
     ).toHaveCount(1)
+    await expect(page.locator('[data-state-item="0"] [data-eyes="write"]')).toHaveCount(1)
+  })
+
+  test('输出节点：状态树一行写 chip 都没有（例外）', async ({ page }) => {
+    await boot(page, { storage: { [KEYS.cards]: [makeCard()], [KEYS.presets]: [MOCK_PRESET] } })
+    await page.goto(`${APP_PATH}${route.edit(CARD_ID)}`)
+    await expect(page.locator('[data-page="editor"]')).toBeVisible()
+
+    await page.locator('[data-node-id="output"]').click()
+    await expect(page.locator('[data-eyes="write"]'), '输出节点什么也不写，一行写 chip 都不该有').toHaveCount(
+      0,
+    )
+    // 读眼睛不受影响：0 那一行仍然可以点「读」
+    await expect(page.locator('[data-eyes="read"]').first()).toBeVisible()
   })
 })

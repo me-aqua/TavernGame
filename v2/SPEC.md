@@ -33,7 +33,7 @@
 
 - `type`: 阶段 1 只允许 `'string'`；`chain[].type`: `'time' | 'normal' | 'output'`（**没有校对节点**）。
 - 链约束：**恰好 1 个 output、最多 1 个 time**；首节点不能读上游。
-- 读写语义：`prompts[].id ∈ reads` 表示节点读这一块公共提示词；`state[].code ∈ reads` 表示读该元素；`readsUpstream: string[]` 表示读哪些**前序节点**的输出（只能指当前节点之前的节点）；`writable` 表示可写该元素。
+- 读写语义：`prompts[].id ∈ reads` 表示节点读这一块公共提示词；`state[].code ∈ reads` 表示读该元素；`readsUpstream: string[]` 表示读哪些**前序节点**的输出（只能指当前节点之前的节点）；`writable` 表示可写该元素，**它是唯一的写权限来源**（节点类型不限制能写哪个元素，`output` 除外 —— 它什么也不写）。
 
 ### Save
 
@@ -68,7 +68,7 @@
 runTurn({ card, save, presets, nodePresets, action, onEvent }) → { save, events }
 ```
 
-- 顺序执行链；time 节点 `advance_time({hours})` 写 `tree['0']`；normal 节点 `write_state({ path, value })` 只能写 `writable` 里的元素；output 节点产故事。
+- 顺序执行链；**工具由 `writable` 里每个元素的数据类型派生**（节点类型不限制写什么，`output` 除外）：`writable` 含时间元素 `'0'` ⇒ `advance_time({hours})` 写 `tree['0']`；含文字 code ⇒ `write_state({ path, value })` 只能写 `writable` 里的文字元素（写 `'0'` 会被拒，提示改用 `advance_time`）；两样都写 ⇒ 两个工具。只有 `output` 节点产故事。
 - 提示词拼装顺序：公共提示词（按 reads，每块带 `<公共提示词·标题>`）→ 状态树（按 reads，带 `<世界状态树>`）→ **历史（带 `<游戏历史记录>`；卡里的「开场」正文是第 0 条输出，`读取历史回合=0` 只带当前 action，`=1` 带最近 1 条输出 + 当前 action，`=n` 带最近 n 条输出 + 含当前在内的最近 n 次 action）** → 上游输出（`readsUpstream` 里点名的前序节点，每段带 `<上游输出·节点名>`，按链顺序拼接）→ 本节点提示词（带 `<节点提示词>`）。空段连标记一起省略。
 - 流式：output 节点流式回调 `onEvent({type:'chunk', text})`；可中止。
 - 错误：`E_PROVIDER`（网络/key/额度）· `E_VALIDATION`（卡/存档不合法）· `E_CHAIN`（链不合法）· `E_UNKNOWN` · `E_ABORTED`（用户点停止）；中文提示 + 下一步。
@@ -88,7 +88,7 @@ runTurn({ card, save, presets, nodePresets, action, onEvent }) → { save, event
 - 初始值编辑区：选中根元素时，中栏下半段编辑该元素初值（阶段 1 每个元素都是根）。
 - 工作流：固定三节点（时间 / 判定 / 输出）；选中节点后，**前序节点**旁出现「读」按钮（读它的输出），自己与下游没有；中栏编辑提示词、**模型预设（本地映射，不写卡）**、历史轮数。
 - 右栏：公共提示词块，块前有眼睛（节点是否读它），可增/删/改。
-- 左栏元素前有眼睛（读）和笔（写），仅选中节点时显示。
+- 左栏元素前有眼睛（读）和笔（写），仅选中节点时显示；写只看 `writable`（时间元素 `0` 也有），`output` 节点没有写。
 - 栏宽拖拽：左/中/右可拖，双击恢复默认，存本地；细条固定。
 
 ### 对话页

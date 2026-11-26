@@ -5,7 +5,10 @@
  * `tg2.nodeModels` / `tg2.presets`（玩家本机的东西），不进卡。
  */
 
-/** 时间元素的值（`tree['0']`）；其余元素是字符串 */
+/**
+ * 时间元素的值（`tree['0']`）；其余元素是字符串。
+ * 时间是**一种数据类型**（元素编码 `'0'`），不是一种特权节点 —— 谁能推进它只看 `writable`。
+ */
 export interface TimeValue {
   day: number
   hour: number
@@ -26,6 +29,7 @@ export interface ChainNode {
   type: NodeType
   name: string
   reads: string[]
+  /** 能写哪些状态元素 —— **写权限的唯一来源**；工具由这些元素的数据类型派生（`schema.toolsForNode`） */
   writable: string[]
   /** 读哪些上游节点的输出；id 必须在链上、且排在它前面 */
   readsUpstream: string[]

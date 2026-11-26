@@ -5,9 +5,13 @@
  * 眼睛生效」。它走的是和真 provider **同一条**代码路径（chunk -> narration），
  * 不是另一条捷径 —— 否则测试绿了、真路还是坏的。
  *
+ * **工具调用跟真模型一样从 `writable` 派生**（`toolsForNode`）：写着时间就推进时间，
+ * 写着文字就写第一个文字元素。节点类型只决定它吐不吐故事正文（只有 `output` 吐）。
+ *
  * 输出格式是逐字可断言的（`[mock] turn 2: act two`），单测与 e2e 都靠它。
  */
-import type { ChainNode, ProviderReply } from './types'
+import { dataTypeOf, toolsForNode } from './schema'
+import type { ChainNode, ProviderReply, ProviderToolCall } from './types'
 
 /**
  * 把正文切成若干块：**每块 ≤8 字符、至少 3 块**。
@@ -37,7 +41,7 @@ export interface MockArgs {
   delayMs?: number
 }
 
-// mock 的一节点响应：按节点类型回确定的文本与工具调用，output 边切块边回调
+// mock 的一节点响应：工具调用按 writable 的数据类型派生，output 节点边切块边回调
 export async function mockReply({
   node,
   turn,
@@ -46,25 +50,23 @@ export async function mockReply({
   signal,
   delayMs = 0,
 }: MockArgs): Promise<ProviderReply> {
-  if (node.type === 'time') {
-    return { text: '', reasoning: '', toolCalls: [{ name: 'advance_time', args: { hours: 1 } }], usage: null }
-  }
-  if (node.type === 'normal') {
-    if (node.writable.length === 0) return { text: '', reasoning: '', toolCalls: [], usage: null }
-    return {
-      text: '',
-      reasoning: '',
-      toolCalls: [{ name: 'write_state', args: { path: node.writable[0], value: `mock-t${turn}` } }],
-      usage: null,
-    }
+  const tools = toolsForNode(node)
+  const toolCalls: ProviderToolCall[] = []
+  if (tools.includes('advance_time')) toolCalls.push({ name: 'advance_time', args: { hours: 1 } })
+  // 一次只写一个元素（测试要能断言写的是哪一个）：取 writable 里第一个文字元素
+  const writePath = node.writable.find((code) => dataTypeOf(code) === 'string')
+  if (tools.includes('write_state') && writePath !== undefined) {
+    toolCalls.push({ name: 'write_state', args: { path: writePath, value: `mock-t${turn}` } })
   }
 
+  if (node.type !== 'output') return { text: '', reasoning: '', toolCalls, usage: null }
+
   const text = `[mock] turn ${turn}: ${action}`
-  if (!onChunk) return { text, reasoning: '', toolCalls: [], usage: null }
+  if (!onChunk) return { text, reasoning: '', toolCalls, usage: null }
   for (const [index, chunk] of chunksOf(text).entries()) {
     if (index > 0 && delayMs > 0) await sleep(delayMs)
     if (signal?.aborted) break
     onChunk(chunk)
   }
-  return { text, reasoning: '', toolCalls: [], usage: null }
+  return { text, reasoning: '', toolCalls, usage: null }
 }

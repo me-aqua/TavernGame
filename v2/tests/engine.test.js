@@ -22,6 +22,7 @@ import { loadModule } from './support/load.js'
 
 const CJK = /[\u4e00-\u9fff]/
 const loadEngine = () => loadModule('core/engine.ts', () => import('../src/core/engine.ts'))
+const loadSchema = () => loadModule('core/schema.ts', () => import('../src/core/schema.ts'))
 
 /** 夹具卡的节点 id（链顺序）：time → check → extra → output */
 const NODE_IDS = ['time', 'check', 'extra', 'output']
@@ -599,43 +600,69 @@ describe('引擎：预设与错误', () => {
   })
 })
 
-describe('引擎：普通节点写时间元素 0 一律拒绝', () => {
-  it('卡片声明 normal.writable 含 0 ⇒ runTurn 入场即 E_CHAIN，存档一个字段都不动', async () => {
+describe('引擎：writable 决定拿到哪个工具（不分节点类型）', () => {
+  it('普通节点的 writable 含 0 ⇒ 拿到 advance_time：时间被推进、存档仍合法', async () => {
     const { runTurn } = await loadEngine()
+    const { validateSave } = await loadSchema()
     const chain = makeCard().chain
-    chain[1] = { ...chain[1], writable: ['0', '1'] }
+    // 把时间节点的写权限摘掉：这样这一回合只有「判定」节点能推进时间，读数只归它
+    chain[0] = { ...chain[0], writable: [] }
+    chain[1] = { ...chain[1], writable: ['0'] }
     const card = makeCard({ chain })
     const save = makeSave(card)
-    const before = JSON.parse(JSON.stringify(save))
-    const { events, onEvent } = collect()
+    const { onEvent } = collect()
 
-    await expect(
-      runTurn({
-        card,
-        save,
-        presets: [MOCK_PRESET],
-        nodePresets: nodeModelsFor(card),
-        action: 'act one',
-        onEvent,
-      }),
-    ).rejects.toMatchObject({ code: 'E_CHAIN' })
+    const result = await runTurn({
+      card,
+      save,
+      presets: [MOCK_PRESET],
+      nodePresets: nodeModelsFor(card),
+      action: 'act one',
+      onEvent,
+    })
 
-    // 一回合都没开始：存档逐字段与调用前相同，时间格还是 {day,hour}
-    expect(save).toEqual(before)
-    expect(save.tree['0']).toEqual({ day: 1, hour: 8 })
-    expect(events, '入场就拒了，不该发出任何回合事件').toEqual([])
+    // mock 对该节点回 advance_time(hours:1) ⇒ 时间格推进 1 小时，且仍是 {day,hour}
+    expect(result.save.tree['0']).toEqual({ day: 1, hour: 9 })
+    expect(() => validateSave(result.save, card), '写完之后存档必须仍然合法').not.toThrow()
+    expect(result.save.turn).toBe(1)
   })
 
-  it('applyWrite 直接拒绝普通节点写 0（就算绕过卡片校验，也写不进时间格）', async () => {
+  it('时间节点的 writable 是文本 code ⇒ 拿到 write_state：写文本、时间不推进', async () => {
+    const { runTurn } = await loadEngine()
+    const chain = makeCard().chain
+    chain[0] = { ...chain[0], writable: ['1'] }
+    const card = makeCard({ chain })
+    const { onEvent } = collect()
+
+    const result = await runTurn({
+      card,
+      save: makeSave(card),
+      presets: [MOCK_PRESET],
+      nodePresets: nodeModelsFor(card),
+      action: 'act one',
+      onEvent,
+    })
+
+    expect(result.save.tree['1'], '时间节点要能写文本元素').toBe('mock-t1')
+    expect(result.save.tree['0'], '没有 0 的写权限就不该推进时间').toEqual({ day: 1, hour: 8 })
+  })
+
+  it('applyWrite 拒绝写时间元素 0（write_state 不能改时间，中文报错）', async () => {
     const { applyWrite } = await loadEngine()
     const card = makeCard()
     const node = { ...card.chain[1], writable: ['0', '1'] }
     const tree = makeSave(card).tree
     const before = JSON.parse(JSON.stringify(tree))
 
-    expect(() => applyWrite({ card, node, tree, path: '0', value: 'OCCUPY_TIME' })).toThrowError(
-      expect.objectContaining({ code: 'E_CHAIN' }),
-    )
+    let error = null
+    try {
+      applyWrite({ card, node, tree, path: '0', value: 'OCCUPY_TIME' })
+    } catch (cause) {
+      error = cause
+    }
+    expect(error, 'write_state 不该能写时间元素').not.toBeNull()
+    expect(['E_CHAIN', 'E_VALIDATION']).toContain(error.code)
+    expect(error.message).toMatch(CJK)
     expect(tree).toEqual(before)
     expect(tree['0']).toEqual({ day: 1, hour: 8 })
   })

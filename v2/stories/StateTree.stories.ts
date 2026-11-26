@@ -4,7 +4,7 @@ import { CHECK_NODE, ELEMENTS, OUTPUT_NODE } from './support/data'
 
 /**
  * 左栏状态树：控件按 S0–S3 的矩阵出现 —— S1（选中节点）有眼睛，S2（选中元素）有 + 和 ×。
- * 写眼睛按节点类型收窄：时间节点只有 `0` 那一行，输出节点一只都没有。
+ * 写眼睛只看 `node.writable`：普通节点与时间节点每行都有（含时间元素 `0`），输出节点一只都没有。
  */
 const meta = {
   title: 'v2/StateTree',

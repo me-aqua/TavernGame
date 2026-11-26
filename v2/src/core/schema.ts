@@ -1,16 +1,19 @@
 /**
- * 卡 / 存档的结构校验（CONTRACT §6.1）。
+ * 卡 / 存档的结构校验（CONTRACT §6.1），外加数据类型与工具的派生规则（§4.3）。
  *
  * 两种错分得很清：**结构坏了**是 `E_VALIDATION`（缺字段、悬空引用、schemaVersion 不认），
- * **链的规矩坏了**是 `E_CHAIN`（输出个数、时间上限、id 重复、上游只能往前读、各类型的写权限、
- * 历史轮数）。分这么细是因为下一步不一样：前者回首页重开，后者回编辑器改链。
+ * **链的规矩坏了**是 `E_CHAIN`（输出个数、时间上限、id 重复、上游只能往前读、历史轮数）。
+ * 分这么细是因为下一步不一样：前者回首页重开，后者回编辑器改链。
  *
  * 对多出来的字段**宽容**：卡里带 `presetId` 之类不报错 —— 模型绑定住在 `tg2.nodeModels`（§2.5），
  * 这里不认它，也不拦它。
+ *
+ * 除了校验，这里还住两条**数据类型 / 工具**的派生规则（`dataTypeOf` / `toolsForNode`）：
+ * 它们跟卡格式绑在一起，而引擎与 mock 必须拿到同一份（§4.3）。
  */
 import { t } from '../i18n'
 import { AppError } from './errors'
-import type { Card, ChainNode, NodeType, Save, TimeValue } from './types'
+import type { Card, ChainNode, Save, TimeValue } from './types'
 
 const NODE_TYPES = ['time', 'normal', 'output'] as const
 
@@ -18,17 +21,32 @@ const NODE_TYPES = ['time', 'normal', 'output'] as const
 export const OPENING_PROMPT_ID = 'opening'
 
 /**
- * 谁能写哪个状态元素 —— **写权限的唯一真源**（SPEC §2 / CONTRACT §6.1）。
+ * 一个状态元素的**数据类型**（CONTRACT §2.1）：`'0'` 是时间（值是 `{ day, hour }`），其余是文字。
  *
- * 时间元素 `'0'` 只能由时间节点经 `advance_time` 推进（它不是字符串，是 `{ day, hour }`）；
- * 输出节点一个都不写；普通节点写除 `'0'` 以外的元素。
- * 三个载体都从这里派生：卡校验（`validateChain`）、左栏的「写」眼睛（`StateTree.vue`）、
- * 引擎的写入（`applyWrite`）—— 别再各写一份 `if`。
+ * 时间就是一种数据类型，跟文字没有高下之分 —— 它是哪种，只看卡里 `state[].code` 是不是 `'0'`
+ * （格式把时间槽钉在 `state[0]`，见 `validateState`）。节点类型不参与这件事。
  */
-export function canWrite(type: NodeType, code: string): boolean {
-  if (type === 'output') return false
-  if (type === 'time') return code === '0'
-  return code !== '0'
+export function dataTypeOf(code: string): 'time' | 'string' {
+  return code === '0' ? 'time' : 'string'
+}
+
+/**
+ * 一个节点拿到哪些工具 —— **由 `writable` 里每个元素的数据类型派生**（SPEC §4 / CONTRACT §4.3）。
+ *
+ *   写时间元素 ⇒ `advance_time`（推进时间）；写文字元素 ⇒ `write_state`（写字符串）；
+ *   两样都写 ⇒ 两个工具；一样都不写 ⇒ 没有工具。**时间节点与普通节点都按这条派生**。
+ *   **输出节点一个工具都没有**（它只产故事；`validateChain` 要求它的 `writable` 是空的）。
+ *
+ * 这是工具权限的唯一真源：引擎执行工具（`runTool`）与 provider 拿到的工具表都从它来。
+ * `advance_time` 因此只在 `'0' ∈ node.writable` 时才存在；`write_state` 只在有文字元素时存在，
+ * 而且它写不了时间槽（`applyWrite` 拒 `'0'`，提示改用 `advance_time`）。
+ */
+export function toolsForNode(node: ChainNode): string[] {
+  if (node.type === 'output') return []
+  const tools: string[] = []
+  if (node.writable.some((code) => dataTypeOf(code) === 'time')) tools.push('advance_time')
+  if (node.writable.some((code) => dataTypeOf(code) === 'string')) tools.push('write_state')
+  return tools
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -125,7 +143,11 @@ function validateNode(raw: unknown, index: number): ChainNode {
 
 /**
  * 链的规矩（SPEC §2）：恰好一个输出、最多一个时间、至少一个节点、id 不重复、
- * 上游只能往前读、写权限按节点类型收窄。
+ * 上游只能往前读、引用的 code 必须存在。
+ *
+ * 🔴 **写权限只由 `writable` 决定，不按节点类型收窄**（老板 2026-11-26）：时间节点与普通节点
+ * 都可以写时间元素 `'0'`，也都可以写文字元素 —— 拿到哪个工具由数据类型派生（`toolsForNode`）。
+ * 唯一的例外是**输出节点**：它只产故事，`writable` 必须是空的。
  */
 function validateChain(card: Card): void {
   const chain = requireArray(card.chain, 'card.chain') as unknown[]
@@ -172,18 +194,10 @@ function validateChain(card: Card): void {
         })
       }
     }
-    // 写权限按类型收窄：一条规则 `canWrite`，三个载体共用（CONTRACT §6.1）
-    const forbidden = node.writable.filter((code) => !canWrite(node.type, code))
-    if (forbidden.length > 0) {
-      const extra = forbidden[0]
-      const message =
-        node.type === 'normal'
-          ? t('error.normalTimeWritable', { node: node.id, ref: extra })
-          : node.type === 'time'
-            ? t('error.timeWritable', { node: node.id, ref: extra })
-            : t('error.outputWritable', { node: node.id })
+    // 输出节点只产故事：它没有任何写权限（`toolsForNode` 也为它返回空）
+    if (node.type === 'output' && node.writable.length > 0) {
       throw new AppError('E_CHAIN', {
-        message,
+        message: t('error.outputWritable', { node: node.id }),
         nextStep: t('next.editor'),
         detail: { nodeId: node.id, writable: node.writable },
       })
