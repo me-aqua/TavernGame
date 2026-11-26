@@ -187,7 +187,8 @@ export function createStorage(backend: StorageBackend = browserBackend()): Stora
       for (const save of saves) validateSave(save)
       return saves
     },
-    // 逐条读：校验存档自己那一半；另要求快照可显示（首页要拿它的名字）—— 不合法就只带自己的 error
+    // 逐条读：校验存档自己那一半；快照必须是一张**合法卡**（首页显示 / 进游戏都靠它）——
+    // 卡不在盘上不要紧（跑的是快照），但快照本身坏了就是坏项
     loadSaveEntries(): SaveEntry[] {
       return parseArray(STORAGE_KEYS.saves).map((raw) => {
         try {
@@ -198,6 +199,7 @@ export function createStorage(backend: StorageBackend = browserBackend()): Stora
               nextStep: t('next.home'),
             })
           }
+          validateCard((raw as { cardSnapshot: Card }).cardSnapshot)
           return { raw, save: raw as Save }
         } catch (cause) {
           return entryError(raw, cause)

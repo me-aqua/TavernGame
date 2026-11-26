@@ -126,9 +126,48 @@ textarea {
 
 /* ---- 到处都用的小零件 ---- */
 
+/*
+ * 全局库址条：每一页（首页 / 编辑器 / 对话 / 设置 / 启动失败 / 未知路由）顶上一条，
+ * 里面只有一行居中、灰掉的项目仓库地址（`App.vue` 的 `.repo-strip`）。
+ *
+ * 为什么是「条」而不是贴在顶上的浮层：页栏 `.page-bar` 从 y=0 起就有 8px 内边距，
+ * 任何固定浮层都会压在它的字上；这一条占的是自己的 19px，页栏整体下移一格，
+ * 一个字都不被盖住。档位下界 1280×720 里扣掉这 19px 之后，各栏照旧自己滚。
+ */
 .app-root {
+  display: flex;
+  flex-direction: column;
   height: 100%;
   overflow: hidden;
+}
+
+/* 库址条之外的全部内容（页面 / 竖屏遮罩）：吃掉条子剩下的高度 */
+.app-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.repo-strip {
+  flex: 0 0 auto;
+  display: block;
+  padding: 2px 8px;
+  font-size: var(--fs3);
+  line-height: 1.4;
+  color: var(--ink-soft);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.repo-strip:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 
 .page {

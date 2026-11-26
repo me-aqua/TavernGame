@@ -222,19 +222,19 @@ export function createStorage(backend = globalThis.localStorage) -> Storage
 
 `backend` 只需实现 `getItem(key) / setItem(key, value) / removeItem(key)`（与 `localStorage` 同形）。
 
-| 方法                                        | 语义                                                                                            |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `loadCards()`                               | 无键 ⇒ `[]`；否则解析数组并逐张 `validateCard`（结构；不校验模型），不合法 ⇒ 抛 `E_VALIDATION`  |
-| `loadCardEntries()`                         | 逐条读卡：按盘上顺序把每个元素映射成 `{ raw, card }` / `{ raw, error }`；一条坏的只影响它自己   |
-| `loadCardById(id)`                          | 按 `id` 找那一个元素并**只校验它**；找不到 / 不合法 ⇒ 中文 `E_VALIDATION`（旁边的坏项与它无关） |
-| `saveCards(cards)`                          | 整表写入（JSON 字符串），返回 `undefined`                                                       |
-| `saveCardsLoose(entries)`                   | 原样写 `entries`（不校验、不归一化、不丢项）；坏项的 **JSON 值**不变（不承诺字节逐字相同）      |
-| `loadSaves()` / `saveSaves(saves)`          | 同上（`validateSave`）                                                                          |
-| `loadSaveEntries()` / `loadSaveById(id)`    | 同上（`validateSave` **只校验存档自身那一半**）；`Entries` 另要求 `cardSnapshot.name` 可显示    |
-| `saveSavesLoose(entries)`                   | 同上（`tg2.saves`）                                                                             |
-| `loadPresets()` / `savePresets(presets)`    | 无键 ⇒ `[]`；不校验 provider 之外的字段                                                         |
-| `loadSettings()` / `saveSettings(settings)` | 无键 ⇒ `DEFAULT_SETTINGS`；有键时按默认值**深合并**（缺字段补默认，未知字段保留）               |
-| `loadNodeModels()` / `saveNodeModels(map)`  | 无键 ⇒ `{}`；有键时必须解析成「对象套对象套字符串」，否则 `E_VALIDATION`（不许静默当空）        |
+| 方法                                        | 语义                                                                                                |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `loadCards()`                               | 无键 ⇒ `[]`；否则解析数组并逐张 `validateCard`（结构；不校验模型），不合法 ⇒ 抛 `E_VALIDATION`      |
+| `loadCardEntries()`                         | 逐条读卡：按盘上顺序把每个元素映射成 `{ raw, card }` / `{ raw, error }`；一条坏的只影响它自己       |
+| `loadCardById(id)`                          | 按 `id` 找那一个元素并**只校验它**；找不到 / 不合法 ⇒ 中文 `E_VALIDATION`（旁边的坏项与它无关）     |
+| `saveCards(cards)`                          | 整表写入（JSON 字符串），返回 `undefined`                                                           |
+| `saveCardsLoose(entries)`                   | 原样写 `entries`（不校验、不归一化、不丢项）；坏项的 **JSON 值**不变（不承诺字节逐字相同）          |
+| `loadSaves()` / `saveSaves(saves)`          | 同上（`validateSave`）                                                                              |
+| `loadSaveEntries()` / `loadSaveById(id)`    | 同上（`validateSave` **只校验存档自身那一半**）；`Entries` 另要求快照本身是合法卡（`validateCard`） |
+| `saveSavesLoose(entries)`                   | 同上（`tg2.saves`）                                                                                 |
+| `loadPresets()` / `savePresets(presets)`    | 无键 ⇒ `[]`；不校验 provider 之外的字段                                                             |
+| `loadSettings()` / `saveSettings(settings)` | 无键 ⇒ `DEFAULT_SETTINGS`；有键时按默认值**深合并**（缺字段补默认，未知字段保留）                   |
+| `loadNodeModels()` / `saveNodeModels(map)`  | 无键 ⇒ `{}`；有键时必须解析成「对象套对象套字符串」，否则 `E_VALIDATION`（不许静默当空）            |
 
 硬性规定：
 
@@ -493,7 +493,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
   `[data-invalid-card]` / `[data-invalid-save]` + `[data-invalid-reason]`（中文 `error.message`），
   **没有任何入口**（不选中、不编辑 / 改名 / 删除、点了不跳页）；合法行照旧。
   写走宽松写：只替换合法项，坏项 **JSON 值**不变（不承诺字节逐字相同）。存档卡名按
-  「现存卡名 → 快照名 → 中性回退」；**快照缺名字的存档是坏项**（`error.snapshotMissing`）。
+  「现存卡名 → 快照名 → 中性回退」；**快照缺名字 / 快照本身不是合法卡的存档是坏项**（前者 `error.snapshotMissing`，后者校验器自己的中文错）。
   整表坏 JSON / 顶层不是数组仍是错误页。判据：`v2/tests/invalid-items.test.js` + `v2/e2e/invalid-items.spec.js`。
 
 ### 8.2 编辑器
@@ -787,9 +787,10 @@ SPEC §7 点名的另外两条根脚本也一并加好了（都是纯构建配�
     各带 `data-panel-title`，加号按钮在标题条外。中栏字段表不再自带标题（§8.2）。
 19. 🔴 **逐条读 + 只校验目标 + 宽松写**（阶段 2 第一项；测试岗在契约 §4 钉下，组长可否决）：
     `raw` 是解析值，写回后 **JSON 值不变（deep-equal）**，**不承诺字节逐字相同**（会改空白 / 数字写法）；
-    entries 顺序 = 盘上顺序（坏项不挪位）；宽松写只写 `tg2.cards` / `tg2.saves`，读 API 不写盘；
-    按 id 只认**严格相等的字符串 `id`**；坏项**没有任何入口**（只「看得见、点不进」）；
-    只把 `AppError` 当坏项（其它异常原样抛）；**不做自动修复 / 迁移**（坏项下次读还是坏的）。
+    entries 顺序 = 盘上顺序（坏项不挪位）；存档条目要求快照本身是合法卡；宽松写只写
+    `tg2.cards` / `tg2.saves`，读 API 不写盘；按 id 只认**严格相等的字符串 `id`**；
+    坏项**没有任何入口**（只「看得见、点不进」）；只把 `AppError` 当坏项（其它异常原样抛）；
+    **不做自动修复 / 迁移**（坏项下次读还是坏的）。
 
 ### 9.6 本关不做（别在阶段 1 拿它们当判据）
 
