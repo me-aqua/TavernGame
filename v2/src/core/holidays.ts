@@ -22,6 +22,17 @@ import type { Holidays, TimeMode, TimeValue, YearDateValue } from './types'
 export const TRADITIONAL_YEAR_MIN = 1900
 export const TRADITIONAL_YEAR_MAX = 2100
 
+/**
+ * 三个节日勾选的组名，顺序 = 契约 §B3 的组顺序。
+ *
+ * **这是「有哪些组」的唯一真源**：界面渲染勾选、卡片校验（三个布尔齐不齐）、
+ * 换时间模式时补缺省，全都从这一份走 —— 各自抄一份清单，加第四组时必漏一处。
+ */
+export const HOLIDAY_GROUPS: (keyof Holidays)[] = ['international', 'china', 'traditional']
+
+/** 三个都关（新建卡 / 从天数模式切回年份模式时的缺省）；值是布尔，别就地改这一份 */
+export const NO_HOLIDAYS: Holidays = { international: false, china: false, traditional: false }
+
 /** 一条公历固定日的节日：`name` 是 locale key（中文名住 locales） */
 export interface FixedHoliday {
   name: string

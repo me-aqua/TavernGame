@@ -6,6 +6,7 @@
  */
 import type { Card, PromptBlock, StateElement } from './core/types'
 import { OPENING_PROMPT_ID } from './core/schema'
+import { NO_HOLIDAYS } from './core/holidays'
 import { defaultTimeOf } from './core/statetree'
 import { t } from './i18n'
 
@@ -64,7 +65,8 @@ export function freshCard(id: string, name: string): Card {
         initial: defaultTimeOf('year-minute'),
         granularityUpper: 'day',
         granularityLower: 'minute',
-        holidays: { international: false, china: false, traditional: false },
+        // 拷一份缺省（别让新卡与 `NO_HOLIDAYS` 共用同一个对象）
+        holidays: { ...NO_HOLIDAYS },
       },
     ],
     chain: DEFAULT_CHAIN.map((node) => ({

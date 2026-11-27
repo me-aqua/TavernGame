@@ -98,6 +98,29 @@ test.describe('B5 时间元素表单', () => {
   })
 })
 
+test.describe('B6 时间类型只属于时间元素', () => {
+  test('非时间元素选「时间」：给中文错误、下拉不静默停在 time、页面不崩', async ({ page }) => {
+    const pageErrors = []
+    page.on('pageerror', (error) => pageErrors.push(error.message))
+    await boot(page, { storage: seeded() })
+    await openCardEditor(page, YEAR_MINUTE)
+
+    // 选一个普通子元素（1.2 是 text），把类型拨到 time
+    await page.locator('[data-state-item="1.2"]').click()
+    await expect(page.locator('[data-state-type]')).toHaveValue('text')
+    await page.locator('[data-state-type]').selectOption('time')
+
+    // ① 中文错误（E_VALIDATION 的那条文案走 ErrorPanel）
+    await expect(page.locator('[data-error]'), '换不成 time 要有中文错误').toBeVisible()
+    await expect(page.locator('[data-error]')).toContainText(/[\u4e00-\u9fff]/)
+    // ② 下拉不许静默留在 time（草稿没变，界面要回到 text）
+    await expect(page.locator('[data-state-type]'), '下拉不许静默停在 time').toHaveValue('text')
+    // ③ 页面不崩：编辑器还在、没有未捕获异常
+    await expect(page.locator('[data-page="editor"]')).toBeVisible()
+    expect(pageErrors, `不许有未捕获异常：${pageErrors.join(' | ')}`).toEqual([])
+  })
+})
+
 test.describe('B5 切换模式：确认与重置', () => {
   test('切换先弹确认；取消 ⇒ 模式与初值都不变', async ({ page }) => {
     await boot(page, { storage: seeded() })

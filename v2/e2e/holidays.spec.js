@@ -11,7 +11,7 @@
  * ⚠️ 种子数据是新形状；功能没做时应用打不开它 ⇒ 这一份全红。
  */
 import { expect, test } from '@playwright/test'
-import { APP_PATH, boot, KEYS, MOCK_PRESET, playTurn, openStory } from './support/app.js'
+import { APP_PATH, boot, KEYS, MOCK_PRESET, playTurn, openStory, readStorage } from './support/app.js'
 import { cardWithTime, holidaysV6, v6Save } from '../tests/support/v6-fixtures.js'
 
 /** 一张卡 + 一份存档 + mock 预设 */
@@ -90,6 +90,57 @@ test.describe('B4 节日进提示词', () => {
     const prompt = await checkPromptOf(page)
     expect(prompt).toContain('节日：元旦')
     expect((prompt.match(/元旦/g) ?? []).length).toBe(1)
+  })
+})
+
+test.describe('B4 勾选 → 保存 → 提示词（整条 UI 链路）', () => {
+  test('在编辑器里勾上节日、保存、新建存档跑一回合 ⇒ 提示词里有 `节日：元旦`', async ({ page }) => {
+    const card = cardWithTime({
+      id: 'c-tick',
+      time: { year: 2023, month: 12, day: 31, hour: 8, minute: 30 },
+      holidays: holidaysV6(),
+    })
+    await boot(page, {
+      storage: {
+        [KEYS.cards]: [card],
+        [KEYS.presets]: [MOCK_PRESET],
+        [KEYS.nodeModels]: {
+          [card.id]: Object.fromEntries(card.chain.map((node) => [node.id, MOCK_PRESET.id])),
+        },
+      },
+    })
+
+    // 1) 卡编辑器里真的点一下勾选框（不是种进 localStorage）
+    await page.goto(`${APP_PATH}#/edit/c-tick`)
+    await expect(page.locator('[data-page="editor"]')).toBeVisible()
+    await page.locator('[data-state-item="0"]').click()
+    const checkbox = page.locator('[data-holiday="international"]')
+    await expect(checkbox).not.toBeChecked()
+    await checkbox.check()
+    await page.locator('[data-save-card]').click()
+    await expect(page.locator('[data-save-ok]')).toBeVisible()
+
+    // 2) 落盘的是卡的 holidays（不是只改了界面）
+    const cards = await readStorage(page, KEYS.cards)
+    expect(cards.find((item) => item.id === 'c-tick').state[0].holidays.international).toBe(true)
+
+    // 3) 从这张卡新建存档 ⇒ 跑一回合 ⇒ check 节点的提示词里有节日行
+    //    mock 会先推一天：2023-12-31 + 1 天 = 2024-01-01（元旦）
+    await page.goto(`${APP_PATH}#/`)
+    await expect(page.locator('[data-page="home"]')).toBeVisible()
+    await page.locator('[data-card-id="c-tick"]').click()
+    await page.locator('[data-new-save]').click()
+    const saves = await readStorage(page, KEYS.saves)
+    const saveId = saves.at(-1).id
+    expect(saves.at(-1).tree['0']).toMatchObject({ year: 2023, month: 12, day: 31 })
+
+    await openStory(page, 'c-tick', saveId, { debug: true })
+    await playTurn(page, 'wait', 1)
+    const prompt = page.locator('[data-trace][data-trace-node="check"] [data-trace-prompt]').first()
+    await expect(prompt).toBeVisible()
+    const text = (await prompt.textContent()) ?? ''
+    expect(text).toContain('节日：元旦')
+    expect((text.match(/节日：/g) ?? []).length, '节日行只出现一次').toBe(1)
   })
 })
 

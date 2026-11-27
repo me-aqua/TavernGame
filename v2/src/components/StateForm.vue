@@ -20,7 +20,8 @@
  * 节日勾选照旧可改（它们影响的是提示词，不是这一局的状态）。
  */
 import { computed } from 'vue'
-import { cellsOfMode, elementOfPath, pathsOf, rootCodeOf, unitsOfMode } from '../core/statetree'
+import { HOLIDAY_GROUPS, NO_HOLIDAYS } from '../core/holidays'
+import { TIME_MODES, cellsOfMode, elementOfPath, pathsOf, rootCodeOf, unitsOfMode } from '../core/statetree'
 import type {
   Holidays,
   InitialTable,
@@ -46,8 +47,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   /** 换掉整份元素（名字 / 备注 / 白名单 / 上下限 / 节日勾选这类**结构**字段） */
   edit: [element: StateElement]
-  /** 换类型：只发请求，整份新元素由 `statetree.setElementType` 产出 */
-  retype: [type: StateType]
+  /** 换类型：只发请求，整份新元素由 `statetree.setElementType` 产出；下拉元素一起带上，被拒时好拨回去 */
+  retype: [type: StateType, select: HTMLSelectElement]
   /** 改初始值：`path` 是值路径，写进所属根元素那张表 */
   initial: [path: string, value: StateValue]
   /** 换时间模式（要确认）：把下拉元素一起带上，取消时好拨回去 */
@@ -56,9 +57,6 @@ const emit = defineEmits<{
 
 /** 作者能选的类型（`object` 不在这里：它是「有子元素」的后台形态） */
 const TYPES: StateType[] = ['text', 'integer', 'enum', 'time']
-/** 三个节日勾选的键（顺序 = 契约 §B3 的组顺序） */
-const HOLIDAY_GROUPS = ['international', 'china', 'traditional'] as const
-const NO_HOLIDAYS: Holidays = { international: false, china: false, traditional: false }
 
 /** 类型标签住文案表：`editor.typeText` / `editor.typeInteger` / … */
 function typeLabel(type: StateType): string {
@@ -73,8 +71,6 @@ function unitLabel(unit: TimeUnit): string {
 function modeLabel(mode: TimeMode): string {
   return t(`time.mode.${mode}`)
 }
-
-const MODES: TimeMode[] = ['year-minute', 'year-date', 'days-minute']
 
 /** 选中的是不是根元素（初始值只挂在根元素上） */
 const isRoot = computed(() => !props.element.code.includes('.'))
@@ -195,9 +191,15 @@ function setTimeCell(cell: keyof YearMinuteValue, raw: string): void {
 }
 
 /** 勾一个节日：只换这一格，另外两格照旧 */
-function setHoliday(group: (typeof HOLIDAY_GROUPS)[number], event: Event): void {
+function setHoliday(group: keyof Holidays, event: Event): void {
   const checked = (event.target as HTMLInputElement).checked
   emit('edit', { ...props.element, holidays: { ...holidays.value, [group]: checked } })
+}
+
+/** 换类型：只发请求；下拉元素一起带上 —— 被拒时草稿没变，`:value` 不会重绘它，得手动拨回去 */
+function requestType(event: Event): void {
+  const select = event.target as HTMLSelectElement
+  emit('retype', select.value as StateType, select)
 }
 
 /** 换时间模式：先发请求（页面弹确认），草稿此刻一个字都不动 */
@@ -220,7 +222,7 @@ function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): voi
           data-state-type
           :value="element.type"
           :disabled="element.type === 'time'"
-          @change="emit('retype', ($event.target as HTMLSelectElement).value as StateType)"
+          @change="requestType($event)"
         >
           <!-- 导入的卡里真有一个结构体时照实显示它；作者新建 / 换类型只能选下面那四档 -->
           <option v-if="element.type === 'object'" value="object">{{ typeLabel('object') }}</option>
@@ -313,7 +315,7 @@ function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): voi
             :disabled="initialLocked"
             @change="requestMode($event)"
           >
-            <option v-for="item in MODES" :key="item" :value="item">{{ modeLabel(item) }}</option>
+            <option v-for="item in TIME_MODES" :key="item" :value="item">{{ modeLabel(item) }}</option>
           </select>
         </label>
         <label class="field-row">

@@ -22,6 +22,7 @@
 import { t } from '../i18n'
 import { AppError } from './errors'
 import type { ErrorCode } from './errors'
+import { HOLIDAY_GROUPS, NO_HOLIDAYS } from './holidays'
 import { TIME_MODES, TIME_UNITS, defaultTimeOf, isTimeValue, unitsOfMode } from './timevalue'
 import type {
   Card,
@@ -423,7 +424,7 @@ export function setTimeMode(card: Card, mode: TimeMode): Card {
       delete next.holidays
       return next
     }
-    next.holidays = { international: false, china: false, traditional: false, ...element.holidays }
+    next.holidays = { ...NO_HOLIDAYS, ...element.holidays }
     return next
   })
   return { ...card, state }
@@ -445,12 +446,10 @@ export function valueFits(element: StateElement, value: unknown): boolean {
   }
 }
 
-/** 三个节日勾选齐全且都是布尔 */
+/** 三个节日勾选齐全且都是布尔（组名从 `holidays.ts` 走：加组时这里自动跟上） */
 function holidaysFit(holidays: Holidays | undefined): boolean {
   if (holidays === undefined) return false
-  return [holidays.international, holidays.china, holidays.traditional].every(
-    (flag) => typeof flag === 'boolean',
-  )
+  return HOLIDAY_GROUPS.every((group) => typeof holidays[group] === 'boolean')
 }
 
 /** 一个根元素的初始值表要覆盖哪些值路径：`pathsOf` 就是口径 */

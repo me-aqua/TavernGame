@@ -391,9 +391,21 @@ function removeState(code: string): void {
   if (selectedCode.value === code) selectedCode.value = null
 }
 
-/** 换类型：整份新元素由 `statetree.setElementType` 产出（它还要同步所属根的初始值那一格） */
-function retypeElement(code: string, type: StateType): void {
-  updateCard((current) => setElementType(current, code, type))
+/**
+ * 换类型：整份新元素由 `statetree.setElementType` 产出（它还要同步所属根的初始值那一格）。
+ *
+ * 类型下拉里「时间」那一档**留着**（导入的卡可能真是时间类型，作者也该看得见它），但**别的元素换不过去**：
+ * `setElementType` 抛 `E_VALIDATION`。所以这里必须接住 —— 不接就是一次静默的空转（下拉停在新选项上、
+ * 草稿没变、一个字都不说）。接住之后：错误进页内 `[data-error]`，下拉拨回这个元素真实的类型。
+ */
+function retypeElement(code: string, type: StateType, select: HTMLSelectElement): void {
+  try {
+    updateCard((current) => setElementType(current, code, type))
+    error.value = null
+  } catch (cause) {
+    error.value = asAppError(cause)
+    select.value = card.value?.state.find((item) => item.code === code)?.type ?? ''
+  }
 }
 
 /** 改初始值：按值路径写进拥有它的那个根元素（子元素对象自己一个字都不动） */
@@ -656,7 +668,7 @@ function goBack(): void {
             :initial-locked="editingSave"
             :current-value="currentValue"
             @edit="(element) => patchElement(selectedElement!.code, element)"
-            @retype="(type) => retypeElement(selectedElement!.code, type)"
+            @retype="(type, select) => retypeElement(selectedElement!.code, type, select)"
             @initial="setInitialValue"
             @time-mode="requestTimeMode"
           />
