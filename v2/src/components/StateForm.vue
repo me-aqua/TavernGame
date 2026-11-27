@@ -25,7 +25,14 @@
  */
 import { computed } from 'vue'
 import { HOLIDAY_GROUPS, NO_HOLIDAYS } from '../core/holidays'
-import { INTEGER_LIMIT, TIME_MODES, cellsOfMode, elementOfPath, pathsOf, rootCodeOf } from '../core/statetree'
+import {
+  TIME_MODES,
+  cellsOfMode,
+  elementOfPath,
+  integerRangeOf,
+  pathsOf,
+  rootCodeOf,
+} from '../core/statetree'
 import type {
   Holidays,
   InitialTable,
@@ -146,10 +153,10 @@ function codeIndent(path: string): number {
   return (displayCode(path).split('.').length - 1) * 12
 }
 
-/** integer 行的 `min~max` 小字（生效上下限） */
+/** integer 行的 `min~max` 小字：与校验共用 `integerRangeOf` 的生效上下限 */
 function rangeOf(path: string): string {
-  const owner = ownerOf(path)
-  return `${owner?.min ?? -INTEGER_LIMIT}~${owner?.max ?? INTEGER_LIMIT}`
+  const { min, max } = integerRangeOf(ownerOf(path) as StateElement)
+  return `${min}~${max}`
 }
 
 /** 节日勾选的可见文案（也是那只自定义勾选框的无障碍名字） */
@@ -477,12 +484,17 @@ function requestMode(event: Event): void {
   color: var(--ink-soft);
 }
 
-/* 三个节日勾选：同一行、左对齐；窄到放不下时换行（不给页面加横向滚动） */
+/*
+ * 三个节日勾选：**永远同一水平行、左对齐**。中栏窄到放不下时由这一行自己横向滚动，
+ * 不换行、也不给页面加横向溢出。
+ */
 .holidays {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 6px 12px;
+  gap: 12px;
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .holiday-row {
@@ -492,7 +504,11 @@ function requestMode(event: Event): void {
   align-items: center;
 }
 
-/* 自定义勾选框：14×14 小方盒，颜色全取自页面变量（不用浏览器原生蓝框） */
+/*
+ * 自定义勾选框：视觉上是 14×14 的小方盒，颜色全取自页面变量（不用浏览器原生蓝框）。
+ * `::before` 把**点按热区**扩到 24×24（WCAG 2.5.8）—— 盒子的盒子模型不因此改变，
+ * e2e 量到的 `getBoundingClientRect()` 仍是 14×14。
+ */
 .holiday-box {
   position: relative;
   flex: 0 0 auto;
@@ -503,6 +519,12 @@ function requestMode(event: Event): void {
   border-radius: 3px;
   background: var(--panel);
   cursor: pointer;
+}
+
+.holiday-box::before {
+  content: '';
+  position: absolute;
+  inset: -5px;
 }
 
 .holiday-box[aria-checked='true'] {
@@ -524,6 +546,8 @@ function requestMode(event: Event): void {
 
 /* 文字也点得动（与勾选框同一动作）；备注小字不接指针，避免误触 */
 .holiday-name {
+  flex: 0 0 auto;
+  white-space: nowrap;
   cursor: pointer;
   user-select: none;
 }

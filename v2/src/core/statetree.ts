@@ -567,8 +567,12 @@ function stateIssues(card: Card, checkInitial: boolean): CardIssue[] {
   return issues
 }
 
-/** 数字的四个格与缺省值（契约 §2.1）：缺省只在这里写一次 */
-function integerRangeOf(element: StateElement): {
+/**
+ * 数字的四个格与缺省值（契约 §2.1）：缺省只在这里写一次。
+ * 校验（`integerValueFits` / `integerStepFits` / `integerIssues`）与编辑器的 `min~max` 小字
+ * （`StateForm` 的 `[data-initial-range]`）都读这一份，两边不会各写一套缺省值。
+ */
+export function integerRangeOf(element: StateElement): {
   min: number
   max: number
   stepMin: number
