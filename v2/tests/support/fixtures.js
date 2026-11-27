@@ -65,7 +65,7 @@ export function nodeModelsFor(card, presetId = MOCK_PRESET.id) {
   return Object.fromEntries(card.chain.map((node) => [node.id, presetId]))
 }
 
-/** 一个时间元素（2.2：year-minute 五格 + 模式 + 三个节日勾选 + 颗粒度上下界） */
+/** 一个时间元素（year-minute 五格 + 模式 + 三个节日勾选） */
 function timeElement() {
   return {
     code: '0',
@@ -73,8 +73,6 @@ function timeElement() {
     note: '',
     type: 'time',
     timeMode: 'year-minute',
-    granularityUpper: 'day',
-    granularityLower: 'minute',
     holidays: { international: false, china: false, traditional: false },
     initial: { ...TIME_VALUE },
   }

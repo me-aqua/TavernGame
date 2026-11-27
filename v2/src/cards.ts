@@ -63,8 +63,6 @@ export function freshCard(id: string, name: string): Card {
         type: 'time',
         timeMode: 'year-minute',
         initial: defaultTimeOf('year-minute'),
-        granularityUpper: 'day',
-        granularityLower: 'minute',
         // 拷一份缺省（别让新卡与 `NO_HOLIDAYS` 共用同一个对象）
         holidays: { ...NO_HOLIDAYS },
       },

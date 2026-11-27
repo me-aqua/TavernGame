@@ -112,10 +112,6 @@ function violationsOf(card) {
               ? 'day,month,year'
               : 'day,hour,minute'
         if (keys !== expected) problems.push(`${item.code} 时间值字段不是 ${mode} 的格子：${keys}`)
-        if (!units.includes(item.granularityUpper) || !units.includes(item.granularityLower))
-          problems.push(`${item.code} 颗粒度不在本模式的单位表里`)
-        if (units.indexOf(item.granularityUpper) > units.indexOf(item.granularityLower))
-          problems.push(`${item.code} 颗粒度顺序反了`)
       }
     }
   }

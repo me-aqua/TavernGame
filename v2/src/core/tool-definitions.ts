@@ -5,13 +5,13 @@
  * `advanceTimeArgsOf` / `writeStateArgsOf` 用同一张形状表取实参 —— 所以
  * 「向模型声明 amount/unit、执行器却读 hours」这种漂移不可能再发生。
  *
- * 这里只住参数的**名字与形状**；值域（正整数、颗粒度界内、按元素类型收值）仍住在执行器
+ * 这里只住参数的**名字与形状**；值域（正整数、模式单位表内、按元素类型收值）仍住在执行器
  * （`statetree.advanceTime` / `engine.applyWrite`），不在这里重写第二份。
  */
 import type { JSONSchema7, JSONSchema7Definition } from 'json-schema'
 import { INTEGER_LIMIT, TIME_UNITS } from './statetree'
 
-/** `advance_time` 的参数：正整数 + 七个单位之一 */
+/** `advance_time` 的参数：正整数 + 六个单位之一 */
 const ADVANCE_TIME_SHAPE = {
   amount: {
     type: 'integer',

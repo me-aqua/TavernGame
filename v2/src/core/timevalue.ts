@@ -209,31 +209,26 @@ function advanceDays(value: DaysMinuteValue, amount: number, unit: TimeUnit): Da
 }
 
 /**
- * 推进时间。`amount` 是正整数；`unit` 必须在该模式的单位表里、也在颗粒度上下界之内
- * （`upper` 是单次能推的最粗单位、`lower` 是最细的，按 `TIME_UNITS` 的粗 → 细序比）。
+ * 推进时间。`amount` 是正整数；`unit` 必须在该模式的单位表（`unitsOfMode`）里。
  *
  * 年 / 月按公历走，**目标月没有那一天就取当月最后一天**（`2024-01-31 +1 月 = 2024-02-29`）；
  * `week` = 7 × amount 天，不存周字段；跨「没有 0 年」按天文年进位（公元前 1 年 +1 年 = 公元 1 年）。
  * 结果越过 `[-551, 9999]` 年（或天数模式越过安全整数）⇒ `E_VALIDATION`。
+ *
+ * 第四参只有 `mode`：能不能推只看它。卡上多出来的字段（如 `granularityUpper`）到这里已经是
+ * 普通对象属性，不参与判决。
  */
 export function advanceTime(
   value: TimeValue,
   amount: number,
   unit: TimeUnit,
-  bounds: { mode: TimeMode; upper?: TimeUnit; lower?: TimeUnit },
+  options: { mode: TimeMode },
 ): TimeValue {
-  const mode = bounds.mode
+  const mode = options.mode
   if (!isTimeValue(value, mode)) throw invalid(t('error.timeSourceInvalid'), { value, mode })
   if (!Number.isInteger(amount) || amount <= 0) throw invalid(t('error.amountInvalid'), { amount })
   if (!unitsOfMode(mode).includes(unit))
     throw invalid(t('error.unitUnknown', { unit: String(unit) }), { unit })
-  const at = TIME_UNITS.indexOf(unit)
-  if (bounds.upper !== undefined && TIME_UNITS.indexOf(bounds.upper) > at) {
-    throw invalid(t('error.unitOutOfBounds', { unit, upper: bounds.upper }), { unit, bounds })
-  }
-  if (bounds.lower !== undefined && at > TIME_UNITS.indexOf(bounds.lower)) {
-    throw invalid(t('error.unitOutOfBounds', { unit, lower: bounds.lower }), { unit, bounds })
-  }
 
   if (mode === 'days-minute') return advanceDays(value as DaysMinuteValue, amount, unit)
 

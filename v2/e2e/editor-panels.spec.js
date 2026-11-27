@@ -165,13 +165,13 @@ test.describe('S2：每行都有 ×，除了 0', () => {
   })
 })
 
-test.describe('时间元素：类型只读为 time，六格初值可编辑并保存', () => {
-  test('类型是只读的 time；初值是公历六格；改完点保存才落盘、刷新还在', async ({ page }) => {
+test.describe('时间元素：类型行就是模式选择，六格初值可编辑并保存', () => {
+  test('类型行显示当前模式；初值是公历六格；改完点保存才落盘、刷新还在', async ({ page }) => {
     await openEditor(page)
     await page.locator('[data-state-item="0"]').click()
 
-    await expect(page.locator('[data-state-type]')).toHaveValue('time')
-    await expect(page.locator('[data-state-type]'), '时间类型不许在界面上改').toBeDisabled()
+    await expect(page.locator('[data-field="type"]')).toHaveValue('year-minute')
+    await expect(page.locator('[data-field="type"]'), '卡模式：类型行就是模式选择器').toBeEnabled()
     // v5 §8：时间用六格字段，没有单一字符串框、也没有阶段 1 的 initial-day / initial-hour
     await expect(page.locator('[data-field="initial"]')).toHaveCount(0)
     await expect(page.locator('[data-field="initial-day"]')).toHaveCount(0)

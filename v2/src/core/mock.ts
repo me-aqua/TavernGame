@@ -57,8 +57,8 @@ export async function mockReply({
   const toolCalls: ProviderToolCall[] = []
   const time = card.state[0]
   if (tools.includes('advance_time') && time?.type === 'time') {
-    // 一次只推一个「最粗的允许单位」：卡里怎么写，mock 就怎么走，与上限一样可预期
-    toolCalls.push({ name: 'advance_time', args: { amount: 1, unit: time.granularityUpper ?? 'hour' } })
+    // 每次推一天：`day` 在三种模式的单位表里都有，所以三种模式都发得出合法调用
+    toolCalls.push({ name: 'advance_time', args: { amount: 1, unit: 'day' } })
   }
   // 一次只写一个值（测试要能断言写的是哪一个）：取 writable 覆盖到的第一个**文字**值路径
   const writePath = node.writable

@@ -290,28 +290,6 @@ describe('状态树 v5 · 各类型的值与约束（§2.1 / §2.2）', () => {
 })
 
 describe('状态树 v5 · 时间（§3）', () => {
-  it('颗粒度上界 / 下界必须存在，且 upper 不细于 lower', async () => {
-    await expectIssue(
-      variant((state) => patch(state, '0', { granularityUpper: undefined })),
-      '0',
-      '缺上界',
-    )
-    await expectIssue(
-      variant((state) => patch(state, '0', { granularityLower: undefined })),
-      '0',
-      '缺下界',
-    )
-    await expectIssue(
-      variant((state) => patch(state, '0', { granularityUpper: 'minute', granularityLower: 'day' })),
-      '0',
-      '顺序反',
-    )
-    await expectReject(
-      variant((state) => patch(state, '0', { granularityUpper: 'minute', granularityLower: 'day' })),
-      '顺序反',
-    )
-  })
-
   it('时间值必须是该模式的合法公历（月份 13 / 2 月 30 / 24 点 / 60 分 / 年份 0 / 越界 / 缺字段 / 多字段都被拦）', async () => {
     const cases = [
       [{ month: 13 }, '月份 13'],

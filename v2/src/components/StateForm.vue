@@ -5,23 +5,27 @@
  * 作者能选的类型只有**文字 / 数字 / 下拉 / 时间**：`object` 是「有子元素」的后台形态，
  * 不在类型下拉里出现（导入的卡里真有一个 `object` 元素时，下拉会把它照实显示出来）。
  *
+ * **第一行「类型」对时间元素就是模式选择器**（CONTRACT §2.6）：选中的是时间元素时它显示
+ * 年-分钟 / 年-日期 / 天数-分钟，底层 `type` 永远是 `time`；作者能选哪几个模式只由 `TIME_MODES` 决定。
+ *
  * 各类型的格子：
  *   · `text` 初始值一个文本框；`integer` 上下限 + 单次步幅 + 初始值；`enum` 取值白名单（一行一个）+ 初始值下拉；
- *   · `object` 没有自身值（初始值那一格整块不出现）；`time` 是时间值 + 模式 + 颗粒度 + 三个节日勾选，类型只读。
+ *   · `object` 没有自身值（初始值那一格整块不出现）；`time` 是时间值 + 三个节日勾选。
  *
  * 初始值只挂在**根元素**上（CONTRACT §2.2 · A4），所以「初始值块」只在选中的是根元素时渲染：
- *   · `[data-field="initial"]` 编根元素**自己**的值（有孩子时它是 `<code>.0`）；
- *   · `[data-initial-path="<path>"]` 编子树里每一条后代值路径（按 `pathsOf` 顺序）；
- *   · 选中的是子元素 ⇒ 整块不渲染（子元素自己没有初始值可编，也不重复显示根的）。
+ *   · 每一行 = 一条值路径（`pathsOf` 顺序），从左到右是**显示编号 → 中文名 → 值控件**；
+ *   · 显示编号是存储路径去掉结尾的 `.0`（`1.1.0` 显示 `1.1`），缩进与左栏同一把尺（每层 12px）；
+ *   · 根元素自己的那一格带 `[data-field="initial"]`，后代带 `[data-initial-path="<存储路径>"]`；
+ *   · integer 行的输入框右边带 `min~max` 小字（生效上下限）。
  * 编辑初始值只**发起请求**（`initial` 事件）：真正写进所属根那张表的活归 `statetree.setInitial`。
  * 换类型同理 —— 只发 `retype` 请求，整份新元素由 `statetree.setElementType` 产出。
  *
- * 存档模式（`initialLocked`）：初始值整块不渲染（这一局的当前值在 `save.tree` 里），时间模式下拉锁死；
+ * 存档模式（`initialLocked`）：初始值整块不渲染（这一局的当前值在 `save.tree` 里），类型 / 模式下拉锁死；
  * 节日勾选照旧可改（它们影响的是提示词，不是这一局的状态）。
  */
 import { computed } from 'vue'
 import { HOLIDAY_GROUPS, NO_HOLIDAYS } from '../core/holidays'
-import { TIME_MODES, cellsOfMode, elementOfPath, pathsOf, rootCodeOf, unitsOfMode } from '../core/statetree'
+import { INTEGER_LIMIT, TIME_MODES, cellsOfMode, elementOfPath, pathsOf, rootCodeOf } from '../core/statetree'
 import type {
   Holidays,
   InitialTable,
@@ -99,17 +103,13 @@ const paths = computed(() => pathsOf(props.state, props.element.code))
 /** 元素自己的值路径（有孩子的住 `.0`） */
 const ownPath = computed(() => paths.value[0])
 
-/** 后代值路径（根元素那一块的逐行控件；`object` 自己不是值路径） */
-const descendants = computed(() => (props.element.type === 'object' ? paths.value : paths.value.slice(1)))
-
 /** 自己那一格的当前初始值（时间根就是时间值本身） */
 const ownValue = computed<StateValue | undefined>(() =>
   props.element.type === 'time' ? (props.element.initial as StateValue) : table.value[ownPath.value],
 )
 
-/** 时间值的格子（5 / 3 / 3）与可推进单位都跟着模式走 */
+/** 时间值的格子（5 / 3 / 3）跟着模式走 */
 const cells = computed(() => cellsOfMode(mode.value))
-const units = computed(() => unitsOfMode(mode.value))
 
 /** 初始值块：只在「选中的是根元素」且非存档模式时渲染 */
 const showsInitial = computed(() => !props.initialLocked && isRoot.value)
@@ -129,6 +129,32 @@ function valuesOf(path: string): string[] {
 
 function valueOfPath(path: string): StateValue | undefined {
   return table.value[path]
+}
+
+/** 这一行是不是根元素自己的值（`object` 没有自身值；只有自己那一行带 `[data-field="initial"]`） */
+function isOwn(path: string): boolean {
+  return props.element.type !== 'object' && path === ownPath.value
+}
+
+/** 屏上显示的编号：存储路径去掉结尾的 `.0`（`1.1.0` ⇒ `1.1`） */
+function displayCode(path: string): string {
+  return path.endsWith('.0') ? path.slice(0, -2) : path
+}
+
+/** 与左栏同一把尺：显示编号每多一段，行右移 12px */
+function codeIndent(path: string): number {
+  return (displayCode(path).split('.').length - 1) * 12
+}
+
+/** integer 行的 `min~max` 小字（生效上下限） */
+function rangeOf(path: string): string {
+  const owner = ownerOf(path)
+  return `${owner?.min ?? -INTEGER_LIMIT}~${owner?.max ?? INTEGER_LIMIT}`
+}
+
+/** 节日勾选的可见文案（也是那只自定义勾选框的无障碍名字） */
+function holidayLabel(group: keyof Holidays): string {
+  return t(`editor.holiday${group.charAt(0).toUpperCase()}${group.slice(1)}`)
 }
 
 /** 时间值某一格（模板里读不出联合类型的格子，这里收成数字） */
@@ -191,9 +217,8 @@ function setTimeCell(cell: keyof YearMinuteValue, raw: string): void {
 }
 
 /** 勾一个节日：只换这一格，另外两格照旧 */
-function setHoliday(group: keyof Holidays, event: Event): void {
-  const checked = (event.target as HTMLInputElement).checked
-  emit('edit', { ...props.element, holidays: { ...holidays.value, [group]: checked } })
+function setHoliday(group: keyof Holidays): void {
+  emit('edit', { ...props.element, holidays: { ...holidays.value, [group]: !holidays.value[group] } })
 }
 
 /** 换类型：只发请求；下拉元素一起带上 —— 被拒时草稿没变，`:value` 不会重绘它，得手动拨回去 */
@@ -207,10 +232,6 @@ function requestMode(event: Event): void {
   const select = event.target as HTMLSelectElement
   emit('time-mode', select.value as TimeMode, select)
 }
-
-function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): void {
-  emit('edit', { ...props.element, [key]: raw as TimeUnit })
-}
 </script>
 
 <template>
@@ -218,15 +239,22 @@ function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): voi
     <div class="fields stack">
       <div class="field-row">
         <span class="field-label">{{ t('editor.stateType') }}</span>
+        <!-- 时间元素：这一行就是模式选择器（底层 type 仍是 time）；别的元素照旧选类型 -->
         <select
           data-state-type
-          :value="element.type"
-          :disabled="element.type === 'time'"
-          @change="requestType($event)"
+          data-field="type"
+          :value="element.type === 'time' ? mode : element.type"
+          :disabled="element.type === 'time' && initialLocked"
+          @change="element.type === 'time' ? requestMode($event) : requestType($event)"
         >
-          <!-- 导入的卡里真有一个结构体时照实显示它；作者新建 / 换类型只能选下面那四档 -->
-          <option v-if="element.type === 'object'" value="object">{{ typeLabel('object') }}</option>
-          <option v-for="type in TYPES" :key="type" :value="type">{{ typeLabel(type) }}</option>
+          <template v-if="element.type === 'time'">
+            <option v-for="item in TIME_MODES" :key="item" :value="item">{{ modeLabel(item) }}</option>
+          </template>
+          <template v-else>
+            <!-- 导入的卡里真有一个结构体时照实显示它；作者新建 / 换类型只能选下面那四档 -->
+            <option v-if="element.type === 'object'" value="object">{{ typeLabel('object') }}</option>
+            <option v-for="type in TYPES" :key="type" :value="type">{{ typeLabel(type) }}</option>
+          </template>
         </select>
       </div>
 
@@ -306,54 +334,25 @@ function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): voi
         </div>
       </template>
 
-      <template v-if="element.type === 'time'">
-        <label class="field-row">
-          <span class="field-label">{{ t('editor.fieldTimeMode') }}</span>
-          <select
-            data-field="time-mode"
-            :value="mode"
-            :disabled="initialLocked"
-            @change="requestMode($event)"
-          >
-            <option v-for="item in TIME_MODES" :key="item" :value="item">{{ modeLabel(item) }}</option>
-          </select>
-        </label>
-        <label class="field-row">
-          <span class="field-label">{{ t('editor.fieldGranularityUpper') }}</span>
-          <select
-            data-field="granularity-upper"
-            :value="element.granularityUpper"
-            @change="setUnit('granularityUpper', ($event.target as HTMLSelectElement).value)"
-          >
-            <option v-for="unit in units" :key="unit" :value="unit">{{ unitLabel(unit) }}</option>
-          </select>
-        </label>
-        <label class="field-row">
-          <span class="field-label">{{ t('editor.fieldGranularityLower') }}</span>
-          <select
-            data-field="granularity-lower"
-            :value="element.granularityLower"
-            @change="setUnit('granularityLower', ($event.target as HTMLSelectElement).value)"
-          >
-            <option v-for="unit in units" :key="unit" :value="unit">{{ unitLabel(unit) }}</option>
-          </select>
-        </label>
-        <!-- 三个节日勾选：只在前两个模式渲染；三个都**永远可点**（传统节日的年份范围问题静默不产出） -->
-        <div v-if="mode !== 'days-minute'" class="holidays stack" data-holidays>
-          <label v-for="group in HOLIDAY_GROUPS" :key="group" class="field-row holiday-row">
-            <input
-              type="checkbox"
-              :data-holiday="group"
-              :checked="holidays[group]"
-              @change="setHoliday(group, $event)"
-            />
-            <span>{{ t(`editor.holiday${group.charAt(0).toUpperCase()}${group.slice(1)}`) }}</span>
-            <span v-if="group === 'traditional'" class="holiday-note" data-holiday-note>{{
-              t('editor.holidayTraditionalNote')
-            }}</span>
-          </label>
+      <!-- 三个节日勾选同一水平行、左对齐；勾选框是自定义绘制的小方盒（不是浏览器原生蓝框） -->
+      <div v-if="element.type === 'time' && mode !== 'days-minute'" class="holidays" data-holidays>
+        <div v-for="group in HOLIDAY_GROUPS" :key="group" class="holiday-row">
+          <span
+            class="holiday-box"
+            role="checkbox"
+            tabindex="0"
+            :aria-checked="holidays[group] ? 'true' : 'false'"
+            :aria-label="holidayLabel(group)"
+            :data-holiday="group"
+            @click="setHoliday(group)"
+            @keydown.space.prevent="setHoliday(group)"
+          ></span>
+          <span class="holiday-name" @click="setHoliday(group)">{{ holidayLabel(group) }}</span>
+          <span v-if="group === 'traditional'" class="holiday-note" data-holiday-note>{{
+            t('editor.holidayTraditionalNote')
+          }}</span>
         </div>
-      </template>
+      </div>
     </div>
 
     <!-- 初始值：新建存档时的种子，只挂在**根元素**身上。存档模式不渲染（这一局的当前值在 save.tree 里） -->
@@ -376,58 +375,41 @@ function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): voi
           </span>
         </div>
       </template>
-      <template v-else-if="element.type === 'object'"></template>
-      <template v-else-if="element.type === 'enum'">
-        <select
-          data-field="initial"
-          :value="ownValue"
-          @change="emit('initial', ownPath, ($event.target as HTMLSelectElement).value)"
+      <!-- 其余根元素：每条值路径一行，编号 → 中文名 → 值控件；缩进与左栏同一把尺 -->
+      <div v-else class="initial-rows">
+        <div
+          v-for="path in paths"
+          :key="path"
+          class="initial-row"
+          :data-initial-row="path"
+          :style="{ marginLeft: `${codeIndent(path)}px` }"
         >
-          <option v-for="value in element.values ?? []" :key="value" :value="value">{{ value }}</option>
-        </select>
-      </template>
-      <template v-else-if="element.type === 'integer'">
-        <input
-          type="number"
-          class="num"
-          data-field="initial"
-          :value="ownValue ?? ''"
-          @input="setIntegerInitial($event.target as HTMLInputElement, ownPath)"
-        />
-      </template>
-      <template v-else>
-        <input
-          data-field="initial"
-          :value="ownValue"
-          @input="setTextInitial(ownPath, ($event.target as HTMLInputElement).value)"
-        />
-      </template>
-
-      <!-- 子树上每一条后代值路径：一行一个控件，标签是那个元素的名字 -->
-      <div v-if="descendants.length > 0" class="descendants stack">
-        <span class="field-label">{{ t('editor.initialDescendant') }}</span>
-        <div v-for="path in descendants" :key="path" class="initial-row">
+          <span class="initial-code" data-initial-code>{{ displayCode(path) }}</span>
           <span class="initial-name ellipsis" :data-initial-name="path">{{ nameOf(path) }}</span>
-          <span class="initial-code">{{ path }}</span>
           <select
             v-if="ownerOf(path)?.type === 'enum'"
-            :data-initial-path="path"
+            :data-field="isOwn(path) ? 'initial' : undefined"
+            :data-initial-path="isOwn(path) ? undefined : path"
             :value="valueOfPath(path)"
             @change="emit('initial', path, ($event.target as HTMLSelectElement).value)"
           >
             <option v-for="value in valuesOf(path)" :key="value" :value="value">{{ value }}</option>
           </select>
-          <input
-            v-else-if="ownerOf(path)?.type === 'integer'"
-            type="number"
-            class="num"
-            :data-initial-path="path"
-            :value="valueOfPath(path) ?? ''"
-            @input="setIntegerInitial($event.target as HTMLInputElement, path)"
-          />
+          <template v-else-if="ownerOf(path)?.type === 'integer'">
+            <input
+              type="number"
+              class="num"
+              :data-field="isOwn(path) ? 'initial' : undefined"
+              :data-initial-path="isOwn(path) ? undefined : path"
+              :value="valueOfPath(path) ?? ''"
+              @input="setIntegerInitial($event.target as HTMLInputElement, path)"
+            />
+            <span class="initial-range" data-initial-range>{{ rangeOf(path) }}</span>
+          </template>
           <input
             v-else
-            :data-initial-path="path"
+            :data-field="isOwn(path) ? 'initial' : undefined"
+            :data-initial-path="isOwn(path) ? undefined : path"
             :value="valueOfPath(path)"
             @input="setTextInitial(path, ($event.target as HTMLInputElement).value)"
           />
@@ -495,14 +477,67 @@ function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): voi
   color: var(--ink-soft);
 }
 
+/* 三个节日勾选：同一行、左对齐；窄到放不下时换行（不给页面加横向滚动） */
+.holidays {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
 .holiday-row {
-  justify-content: flex-start;
+  display: flex;
+  flex: 0 0 auto;
   gap: 6px;
+  align-items: center;
+}
+
+/* 自定义勾选框：14×14 小方盒，颜色全取自页面变量（不用浏览器原生蓝框） */
+.holiday-box {
+  position: relative;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  appearance: none;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.holiday-box[aria-checked='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.holiday-box[aria-checked='true']::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 0;
+  width: 4px;
+  height: 9px;
+  border: solid var(--accent-ink);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* 文字也点得动（与勾选框同一动作）；备注小字不接指针，避免误触 */
+.holiday-name {
+  cursor: pointer;
+  user-select: none;
 }
 
 .holiday-note {
   font-size: var(--fs3);
   color: var(--ink-soft);
+}
+
+.initial-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 
 .initial-row {
@@ -512,13 +547,27 @@ function setUnit(key: 'granularityUpper' | 'granularityLower', raw: string): voi
   min-width: 0;
 }
 
+/* 编号 / 名字是次要文字，值控件占剩下的宽度；integer 的 `.num` 保持 72px 再把 `min~max` 放在它右边 */
+.initial-row > input:not(.num),
+.initial-row > select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .initial-name {
-  flex: 0 0 auto;
-  max-width: 40%;
+  flex: 0 1 auto;
+  max-width: 34%;
   font-size: var(--fs2);
 }
 
 .initial-code {
+  flex: 0 0 auto;
+  min-width: 2ch;
+  font-size: var(--fs3);
+  color: var(--ink-soft);
+}
+
+.initial-range {
   flex: 0 0 auto;
   font-size: var(--fs3);
   color: var(--ink-soft);

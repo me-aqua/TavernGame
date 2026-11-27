@@ -72,8 +72,6 @@ test('首次打开就有「晨风镇」：结构完整、卡里没有 presetId',
   expect(stateOf('0')).toMatchObject({
     type: 'time',
     timeMode: 'year-minute',
-    granularityUpper: 'day',
-    granularityLower: 'minute',
     holidays: { international: false, china: false, traditional: false },
     initial: { year: 1024, month: 9, day: 17, hour: 18, minute: 30 },
   })

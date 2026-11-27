@@ -84,7 +84,7 @@ describe('引擎：一回合的形状', () => {
   it('三个回合连跑：turn / 时间 / 写入 / 故事正文都跟着走', async () => {
     const { save, results } = await runTurns(3)
     expect(results.map((result) => result.save.turn)).toEqual([1, 2, 3])
-    // mock 每回合推进一个「最粗的允许单位」（颗粒度上界 = day）⇒ 三天
+    // mock 每回合固定推进 1 天 ⇒ 三天
     expect(save.tree['0']).toEqual({ ...TIME_VALUE, day: 4 })
     expect(save.tree['1']).toBe('mock-t3')
     const narrations = save.events.filter((event) => event.type === 'narration')
@@ -639,7 +639,7 @@ describe('引擎：writable 决定拿到哪个工具（不分节点类型）', (
       onEvent,
     })
 
-    // mock 对该节点回 advance_time 【amount: 1, unit: 'day'】（颗粒度上界）⇒ 日期 +1
+    // mock 对该节点回 advance_time 【amount: 1, unit: 'day'】⇒ 日期 +1
     expect(result.save.tree['0']).toEqual({ ...TIME_VALUE, day: 2 })
     expect(() => validateSave(result.save, card), '写完之后存档必须仍然合法').not.toThrow()
     expect(result.save.turn).toBe(1)

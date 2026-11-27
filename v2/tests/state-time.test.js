@@ -1,10 +1,10 @@
 /**
- * 阶段 2.2 · 时间（契约 §B1–§B2）。
+ * 阶段 2.2 / 2.3 · 时间（契约 §B1–§B2 / §F）。
  *
  * 时间在 2.2 里按**模式**走：`year-minute` = 年月日时分（5 格）、`year-date` = 年月日（3 格）、
  * `days-minute` = 天时分（3 格）。这一份钉三件事（与 2.1 那份同一批断言，按新语义迁移）：
  *   1. **日历推进**：分 / 时 / 日 / 周 / 月 / 年都按公历走；月末没有那一天就取月末；
- *   2. **颗粒度上下界**：`upper` 是最粗的单次推进单位、`lower` 是最细的；界外一律拒绝；
+ *   2. **单位只由模式决定**：`unitsOfMode(mode)` 是唯一来源；旧的 `upper` / `lower` 不参与判决；
  *   3. **合法性**：源时间必须是该模式的合法公历；`amount` 是正整数；年份 -551..9999、没有 0 年。
  *
  * 判据只钉这三件事；契约没写的语义不断言。
@@ -27,58 +27,54 @@ function date(year, month, day) {
 }
 
 /** 推进一次；错误以值返回（不吞错：没抛就是 null） */
-async function advance(value, amount, unit, bounds = { mode: 'year-minute' }) {
+async function advance(value, amount, unit, options = { mode: 'year-minute' }) {
   const { advanceTime } = await loadState()
   try {
-    return advanceTime(value, amount, unit, bounds)
+    return advanceTime(value, amount, unit, options)
   } catch (cause) {
     return cause
   }
 }
 
 /** 期望推进成功并得到这个值 */
-async function expectNext(value, amount, unit, expected, bounds) {
-  const result = await advance(value, amount, unit, bounds)
+async function expectNext(value, amount, unit, expected, options) {
+  const result = await advance(value, amount, unit, options)
   expect(result).toEqual(expected)
 }
 
 /** 期望被拒（E_VALIDATION + 中文） */
-async function expectReject(value, amount, unit, bounds, note) {
-  const result = await advance(value, amount, unit, bounds)
+async function expectReject(value, amount, unit, options, note) {
+  const result = await advance(value, amount, unit, options)
   expect(result).toBeInstanceOf(Error)
   expect(result.code, `${note}：应当报 E_VALIDATION`).toBe('E_VALIDATION')
   expect(result.message).toMatch(CJK)
 }
 
-describe('时间 · 单位顺序与颗粒度', () => {
+describe('时间 · 单位顺序与模式', () => {
   it('六个单位按「粗 → 细」排：year / month / week / day / hour / minute（秒没有了）', async () => {
     const { TIME_UNITS } = await loadState()
     expect(TIME_UNITS).toEqual(['year', 'month', 'week', 'day', 'hour', 'minute'])
   })
 
-  it('颗粒度界内可以推进，界外一律拒绝（upper=day, lower=minute）', async () => {
-    const bounds = { mode: 'year-minute', upper: 'day', lower: 'minute' }
+  it('year-minute 没有额外的上界：week / month / year 都是合法单位', async () => {
     const value = at(2024, 1, 1, 8, 5)
-    await expectNext(value, 30, 'minute', at(2024, 1, 1, 8, 35), bounds)
-    await expectNext(value, 3, 'hour', at(2024, 1, 1, 11, 5), bounds)
-    await expectNext(value, 2, 'day', at(2024, 1, 3, 8, 5), bounds)
-    await expectReject(value, 1, 'week', bounds, '比上界更粗')
-    await expectReject(value, 1, 'month', bounds, '比上界更粗')
+    await expectNext(value, 1, 'week', at(2024, 1, 8, 8, 5))
+    await expectNext(value, 1, 'month', at(2024, 2, 1, 8, 5))
+    await expectNext(value, 1, 'year', at(2025, 1, 1, 8, 5))
   })
 
-  it('上下界可以相等（upper=lower=hour）：只有小时能推', async () => {
-    const bounds = { mode: 'year-minute', upper: 'hour', lower: 'hour' }
-    await expectNext(at(2024, 1, 1, 8, 5), 2, 'hour', at(2024, 1, 1, 10, 5), bounds)
-    await expectReject(at(2024, 1, 1, 8, 5), 1, 'minute', bounds, '比下界细')
-    await expectReject(at(2024, 1, 1, 8, 5), 1, 'day', bounds, '比上界粗')
+  it('旧的 upper / lower 传进来当没传：判决只看 mode', async () => {
+    const options = { mode: 'year-minute', upper: 'hour', lower: 'hour' }
+    await expectNext(at(2024, 1, 1, 8, 5), 1, 'week', at(2024, 1, 8, 8, 5), options)
+    await expectNext(at(2024, 1, 1, 8, 5), 30, 'minute', at(2024, 1, 1, 8, 35), options)
   })
 
-  it('year-date 的颗粒度界里没有小时：upper=month 时更细的单位都被拒', async () => {
+  it('year-date 只到 day：hour 被拒（按模式判，不看旧 upper）', async () => {
     const value = date(2024, 1, 15)
-    const bounds = { mode: 'year-date', upper: 'month', lower: 'day' }
-    await expectNext(value, 1, 'month', date(2024, 2, 15), bounds)
-    await expectNext(value, 2, 'day', date(2024, 1, 17), bounds)
-    await expectReject(value, 1, 'hour', bounds, 'year-date 没有钟点')
+    const options = { mode: 'year-date' }
+    await expectNext(value, 1, 'month', date(2024, 2, 15), options)
+    await expectNext(value, 2, 'day', date(2024, 1, 17), options)
+    await expectReject(value, 1, 'hour', options, 'year-date 没有钟点')
   })
 })
 

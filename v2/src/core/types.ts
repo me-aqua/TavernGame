@@ -5,7 +5,7 @@
  * `tg2.nodeModels` / `tg2.presets`（玩家本机的东西），不进卡。
  */
 
-/** 时间的颗粒度单位，粗 → 细（`week` 不存，按日期算） */
+/** 时间的推进单位，粗 → 细（`week` 不存，按日期算） */
 export type TimeUnit = 'year' | 'month' | 'week' | 'day' | 'hour' | 'minute'
 
 /** 时间元素的三种模式：年月日时分 / 年月日 / 天数时分（没有秒） */
@@ -84,9 +84,6 @@ export interface StateElement {
   timeMode?: TimeMode
   /** 仅 time：三个节日勾选；`days-minute` 模式**不许有**这一格 */
   holidays?: Holidays
-  /** 仅 time：单次推进最粗 / 最细的单位 */
-  granularityUpper?: TimeUnit
-  granularityLower?: TimeUnit
   /** 根元素：整棵子树的初始值（时间根就是时间值本身）；子元素不许有这一格 */
   initial?: StateValue | InitialTable
 }

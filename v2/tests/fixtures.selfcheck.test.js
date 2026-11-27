@@ -68,11 +68,9 @@ describe('夹具自检：链的形状是契约 §2.1 那一份', () => {
     expect(card.chain.map((node) => node.id)).toEqual(['time', 'check', 'output'])
     expect(card.chain.map((node) => node.type)).toEqual(['time', 'normal', 'output'])
     expect(card.state.map((element) => element.code)).toEqual(['0'])
-    // v5 状态元素：`0` 是 time（公历六格 + 颗粒度），不是阶段 1 的 type:'string'
+    // v5 状态元素：`0` 是 time（公历五格 + 模式），不是阶段 1 的 type:'string'
     expect(card.state[0]).toMatchObject({
       type: 'time',
-      granularityUpper: 'day',
-      granularityLower: 'minute',
       timeMode: 'year-minute',
       initial: { year: 2024, month: 1, day: 1, hour: 8, minute: 5 },
       holidays: { international: false, china: false, traditional: false },

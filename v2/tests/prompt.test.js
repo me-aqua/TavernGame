@@ -241,8 +241,6 @@ describe('提示词拼装：空的东西不炸也不留空标题', () => {
           name: 'time',
           note: '',
           type: 'time',
-          granularityUpper: 'day',
-          granularityLower: 'minute',
           initial: { ...TIME_VALUE },
         },
       ],

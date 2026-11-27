@@ -6,7 +6,7 @@
     {
       "code": "0",
       "name": "时间",
-      "note": "真实公历；只能按颗粒度推进",
+      "note": "真实公历；推进单位由时间模式决定",
       "type": "time",
       "timeMode": "year-minute",
       "initial": {
@@ -16,8 +16,6 @@
         "hour": 18,
         "minute": 30
       },
-      "granularityUpper": "day",
-      "granularityLower": "minute",
       "holidays": {
         "international": false,
         "china": false,

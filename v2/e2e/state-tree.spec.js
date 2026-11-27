@@ -508,21 +508,6 @@ test('校验拦截 · 数字上下限反了：不写盘、草稿保留', async (
   await expect(page.locator('[data-field="min"]'), '草稿保留').toHaveValue('50')
 })
 
-test('校验拦截 · 时间颗粒度顺序反了：不写盘；时间类型只读', async ({ page }) => {
-  const card = v5Card()
-  await openEditor(page, card)
-  await selectElement(page, '0')
-  await expect(page.locator('[data-state-type]')).toHaveValue('time')
-  await expect(page.locator('[data-state-type]'), '时间类型只读').toBeDisabled()
-  await expect(page.locator('[data-field="time-year"]')).toHaveValue('2024')
-
-  await page.locator('[data-field="granularity-upper"]').selectOption('minute')
-  await page.locator('[data-field="granularity-lower"]').selectOption('year')
-  expect(await save(page)).toBeGreaterThan(0)
-  await expectNoWrite(page, card)
-  await expect(page.locator('[data-field="granularity-upper"]'), '草稿保留').toHaveValue('minute')
-})
-
 test('校验拦截 · 初始值越界：不写盘；改回合法值后能保存', async ({ page }) => {
   const card = v5Card()
   await openEditor(page, card)

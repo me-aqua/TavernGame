@@ -48,8 +48,6 @@ export function stateV5() {
       name: 'time',
       timeMode: 'year-minute',
       initial: { ...TIME_VALUE },
-      granularityUpper: 'day',
-      granularityLower: 'minute',
       holidays: holidaysOf(),
     }),
     element('1', 'object', {
@@ -179,8 +177,6 @@ export function deepCard() {
       element('0', 'time', {
         timeMode: 'year-minute',
         initial: { ...TIME_VALUE },
-        granularityUpper: 'day',
-        granularityLower: 'minute',
         holidays: holidaysOf(),
       }),
       element('1', 'object', {

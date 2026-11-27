@@ -54,8 +54,6 @@ describe('晨风镇 v5 · 资产形状', () => {
     expect(elementOf(card, '0')).toMatchObject({
       type: 'time',
       timeMode: 'year-minute',
-      granularityUpper: 'day',
-      granularityLower: 'minute',
       holidays: { international: false, china: false, traditional: false },
       initial: { year: 1024, month: 9, day: 17, hour: 18, minute: 30 },
     })

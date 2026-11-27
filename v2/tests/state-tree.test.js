@@ -33,7 +33,7 @@ function errorOf(run) {
   }
 }
 
-/** 一个时间元素（2.2：year-minute 五格 + 模式 + 节日勾选 + 颗粒度上下界） */
+/** 一个时间元素（year-minute 五格 + 模式 + 节日勾选） */
 function timeElement() {
   return {
     code: '0',
@@ -42,8 +42,6 @@ function timeElement() {
     type: 'time',
     timeMode: 'year-minute',
     initial: { ...treeV5()['0'] },
-    granularityUpper: 'day',
-    granularityLower: 'minute',
     holidays: { international: false, china: false, traditional: false },
   }
 }
@@ -120,8 +118,6 @@ function siblingsCard() {
         type: 'time',
         timeMode: 'year-minute',
         initial: { ...treeV5()['0'] },
-        granularityUpper: 'day',
-        granularityLower: 'minute',
         holidays: { international: false, china: false, traditional: false },
       },
       { code: '1', name: 'root', note: '', type: 'object', initial: { 1.1: 'A', 1.2: 'B', 1.3: 'C' } },

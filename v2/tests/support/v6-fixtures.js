@@ -29,7 +29,7 @@ export function elementV6(code, type, over = {}) {
   return { code, name: code, note: '', type, ...over }
 }
 
-/** 时间元素（根）：三种模式各给一份合法的初值与颗粒度；天数模式**没有** holidays */
+/** 时间元素（根）：三种模式各给一份合法的初值；天数模式**没有** holidays */
 export function timeElementV6({ mode = 'year-minute', time, holidays, over = {} } = {}) {
   // 严格形状：每个模式只给**恰好**那几格（year-minute 5 / year-date 3 / days-minute 3），不许更细
   const initial =
@@ -46,8 +46,6 @@ export function timeElementV6({ mode = 'year-minute', time, holidays, over = {} 
     type: 'time',
     timeMode: mode,
     initial,
-    granularityUpper: 'day',
-    granularityLower: mode === 'year-date' ? 'day' : 'minute',
     ...over,
   }
   if (mode !== 'days-minute') base.holidays = holidays ?? holidaysV6()

@@ -6,9 +6,9 @@
  *   1. **形状与单位**：每个模式的格子 / 可推进单位 / 默认值 / 年份范围（-551..9999，无 0 年）；
  *   2. **推算**：月末夹取、跨「没有 0 年」、天数模式进位、越界拒绝；
  *   3. **显示**：按模式格式化，公元前写「公元前 N」；
- *   4. **模式切换与校验**：`setTimeMode` 重置初值 / 颗粒度回落 / 天数模式删节日；坏卡被拦。
+ *   4. **模式切换与校验**：`setTimeMode` 重置初值 / 天数模式删节日；坏卡被拦。
  *
- * 功能还没做 ⇒ 这一份全红。
+ * 这一份守三种模式的形状、推进、显示与切换；单位判决的字段来源见 `time-units-by-mode.test.js`。
  */
 import { describe, expect, it } from 'vitest'
 import { loadModule } from './support/load.js'
@@ -262,12 +262,17 @@ describe('B2 推进：year-date 与 days-minute', () => {
     await expectReject({ day: 1, hour: 8, minute: 0 }, 1, 'month', 'days-minute', '天数模式没有月')
   })
 
-  it('颗粒度界：比上界粗 / 比下界细都拒', async () => {
-    const value = { year: 2024, month: 2, day: 10, hour: 8, minute: 30 }
-    await expectReject(value, 1, 'month', 'year-minute', '比 upper=day 粗', { upper: 'day', lower: 'minute' })
-    await expectReject(value, 1, 'week', 'year-minute', '比 upper=day 粗', { upper: 'day', lower: 'minute' })
-    await expectReject(value, 1, 'minute', 'year-minute', '比 lower=hour 细', { upper: 'day', lower: 'hour' })
-    await expectNext(value, 1, 'hour', 'year-minute', { ...value, hour: 9 }, { upper: 'day', lower: 'hour' })
+  it('模式外的单位照拒：旧的 upper / lower 不参与判决', async () => {
+    const value = { year: 2024, month: 2, day: 10 }
+    await expectNext(value, 1, 'week', 'year-date', { ...value, day: 17 }, { upper: 'year', lower: 'week' })
+    await expectReject(value, 1, 'hour', 'year-date', 'year-date 没有钟点', {
+      upper: 'year',
+      lower: 'hour',
+    })
+    await expectReject({ day: 1, hour: 8, minute: 0 }, 1, 'month', 'days-minute', '天数模式没有月', {
+      upper: 'year',
+      lower: 'day',
+    })
   })
 
   it('amount 必须是正整数；源值不合法 ⇒ E_VALIDATION', async () => {
@@ -292,7 +297,7 @@ describe('B2 推进：year-date 与 days-minute', () => {
 })
 
 describe('B5 切换模式：setTimeMode', () => {
-  it('year-minute → year-date：初值重置成新模式默认，颗粒度下界回落到 day', async () => {
+  it('year-minute → year-date：初值重置成新模式默认', async () => {
     const { setTimeMode } = await loadState()
     const card = v6Card()
     const before = clone(card)
@@ -300,8 +305,6 @@ describe('B5 切换模式：setTimeMode', () => {
     expect(clone(card), '不许改入参').toEqual(before)
     expect(next.state[0].timeMode).toBe('year-date')
     expect(next.state[0].initial).toEqual({ year: 1024, month: 1, day: 1 })
-    expect(next.state[0].granularityUpper).toBe('day')
-    expect(next.state[0].granularityLower).toBe('day')
     expect(next.state[0].holidays).toEqual(holidaysV6())
   })
 
@@ -311,8 +314,6 @@ describe('B5 切换模式：setTimeMode', () => {
     expect(next.state[0].timeMode).toBe('days-minute')
     expect(next.state[0].initial).toEqual({ day: 1, hour: 8, minute: 0 })
     expect('holidays' in next.state[0]).toBe(false)
-    expect(next.state[0].granularityUpper).toBe('day')
-    expect(next.state[0].granularityLower).toBe('minute')
     expect(await issuesOf(next)).toEqual([])
   })
 
@@ -380,18 +381,6 @@ describe('B6 校验：时间模式与节日格子', () => {
     const notBoolean = v6Card()
     notBoolean.state[0].holidays.international = 'yes'
     expect((await issuesOf(notBoolean)).length).toBeGreaterThan(0)
-  })
-
-  it('颗粒度不在该模式的单位表里 ⇒ 问题（合法卡为对照）', async () => {
-    expect(await issuesOf(v6Card({ state: stateV6({ mode: 'year-date' }) }))).toEqual([])
-
-    const card = v6Card({ state: stateV6({ mode: 'year-date' }) })
-    card.state[0].granularityUpper = 'hour'
-    expect((await issuesOf(card)).length).toBeGreaterThan(0)
-
-    const seconds = v6Card()
-    seconds.state[0].granularityLower = 'second'
-    expect((await issuesOf(seconds)).length).toBeGreaterThan(0)
   })
 
   it('严格形状：比模式更细的格子也不许混进初始值（year-date 带钟点 ⇒ 问题；严格卡为对照）', async () => {

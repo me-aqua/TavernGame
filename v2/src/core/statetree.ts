@@ -23,7 +23,7 @@ import { t } from '../i18n'
 import { AppError } from './errors'
 import type { ErrorCode } from './errors'
 import { HOLIDAY_GROUPS, NO_HOLIDAYS } from './holidays'
-import { TIME_MODES, TIME_UNITS, defaultTimeOf, isTimeValue, unitsOfMode } from './timevalue'
+import { TIME_MODES, defaultTimeOf, isTimeValue } from './timevalue'
 import type {
   Card,
   Holidays,
@@ -32,7 +32,6 @@ import type {
   StateType,
   StateValue,
   TimeMode,
-  TimeUnit,
   TimeValue,
   Tree,
 } from './types'
@@ -345,7 +344,7 @@ export function removeNode(card: Card, code: string): Card {
 }
 
 /**
- * 换一个元素的类型：清掉旧类型的专属格子（values / 上下限 / 步幅 / 颗粒度 / 模式 / 节日），
+ * 换一个元素的类型：清掉旧类型的专属格子（values / 上下限 / 步幅 / 模式 / 节日），
  * **所属根的初始值表不整张删**（它还要装新值）—— 只改这一格，并按新类型补默认值：
  *   · 新类型 `object` ⇒ 自己那条值路径从表里删掉（结构体没有自身值）；
  *   · 有孩子 ⇒ 默认值写在 `<code>.0`；没孩子 ⇒ 写在 `<code>`；
@@ -365,8 +364,6 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
   delete next.stepMax
   delete next.timeMode
   delete next.holidays
-  delete next.granularityUpper
-  delete next.granularityLower
   if (type === 'enum') next.values = []
   const table = initialTableOf(card.state, code)
   const ownPath = ownPathOf(card.state, element)
@@ -404,22 +401,14 @@ export function setInitial(card: Card, path: string, value: StateValue): Card {
 }
 
 /**
- * 换时间模式：时间初始值重置成新模式的默认值；颗粒度两格若不在新模式的单位表里就回落到 `day`；
- * `days-minute` 删掉节日那一格，从天数模式切回年份模式则补一份三个都是 `false` 的节日勾选。
+ * 换时间模式：时间初始值重置成新模式的默认值；`days-minute` 删掉节日那一格，
+ * 从天数模式切回年份模式则补一份三个都是 `false` 的节日勾选。
+ * 卡上多出来的字段（如 `granularityUpper`）原样留着 —— 不读、不改。
  */
 export function setTimeMode(card: Card, mode: TimeMode): Card {
-  const units = unitsOfMode(mode)
-  const fallback = (unit: TimeUnit | undefined): TimeUnit =>
-    unit !== undefined && units.includes(unit) ? unit : 'day'
   const state = card.state.map((element) => {
     if (element.type !== 'time') return element
-    const next: StateElement = {
-      ...element,
-      timeMode: mode,
-      initial: defaultTimeOf(mode),
-      granularityUpper: fallback(element.granularityUpper),
-      granularityLower: fallback(element.granularityLower),
-    }
+    const next: StateElement = { ...element, timeMode: mode, initial: defaultTimeOf(mode) }
     if (mode === 'days-minute') {
       delete next.holidays
       return next
@@ -556,22 +545,11 @@ function stateIssues(card: Card, checkInitial: boolean): CardIssue[] {
     if (element.type === 'integer') issues.push(...integerIssues(element))
     else if (element.type === 'enum') issues.push(...enumIssues(element))
     if (element.type !== 'time') continue
-    // 时间元素：模式、节日格子、颗粒度、时间值本身（存量）：四条各自独立，缺一条就说一条
+    // 时间元素：模式、节日格子、时间值本身（存量）：三条各自独立，缺一条就说一条
     const mode = element.timeMode
     if (mode === undefined || !TIME_MODES.includes(mode)) {
       add(element.code, '', t('issue.timeMode', { code: element.code }))
     } else {
-      const units = unitsOfMode(mode)
-      const known = (unit: TimeUnit | undefined) => unit !== undefined && units.includes(unit)
-      const upper = element.granularityUpper
-      const lower = element.granularityLower
-      if (
-        !known(upper) ||
-        !known(lower) ||
-        TIME_UNITS.indexOf(upper as TimeUnit) > TIME_UNITS.indexOf(lower as TimeUnit)
-      ) {
-        add(element.code, '', t('issue.granularity', { code: element.code }))
-      }
       if (mode === 'days-minute') {
         if ('holidays' in element) add(element.code, '', t('issue.holidaysInDays', { code: element.code }))
       } else if (!holidaysFit(element.holidays)) {

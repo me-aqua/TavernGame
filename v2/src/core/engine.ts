@@ -87,8 +87,8 @@ function aborted(): AppError {
 }
 
 /**
- * 时间元素（卡里唯一的那一个，`state[0]`）。引擎这一层只负责从卡里取出它和它的颗粒度上下界；
- * 推进本身住在 `statetree.ts`。
+ * 时间元素（卡里唯一的那一个，`state[0]`）。引擎这一层只负责从卡里取出它；
+ * 推进本身住在 `statetree.ts`，允许哪些单位由它的 `timeMode` 决定。
  */
 function timeElementOf(card: Card): StateElement {
   const time = card.state[0]
@@ -235,16 +235,12 @@ function runTool({
   const at = now()
   if (name === 'advance_time') {
     // 能走到这里就说明时间元素在 `node.writable` 里（`toolsForNode` 只在这种情况下发这个工具），
-    // 所以这一分支只看参数、模式与颗粒度，不再问一遍权限。实参名与 provider 声明的 schema 同一份。
+    // 所以这一分支只看参数与模式，不再问一遍权限。实参名与 provider 声明的 schema 同一份。
     const { amount, unit } = advanceTimeArgsOf(args)
     const element = timeElementOf(card)
     const path = timePathOf(card)
     const mode = element.timeMode as TimeMode
-    const next = advanceTime(timeAt(card, tree), amount as number, unit as TimeUnit, {
-      mode,
-      upper: element.granularityUpper,
-      lower: element.granularityLower,
-    })
+    const next = advanceTime(timeAt(card, tree), amount as number, unit as TimeUnit, { mode })
     return {
       tree: { ...tree, [path]: next },
       events: [

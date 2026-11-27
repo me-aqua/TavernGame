@@ -21,8 +21,6 @@ export const ELEMENTS: StateElement[] = [
     type: 'time',
     timeMode: 'year-minute',
     initial: { year: 1024, month: 9, day: 17, hour: 18, minute: 30 },
-    granularityUpper: 'day',
-    granularityLower: 'minute',
     holidays: { international: false, china: false, traditional: false },
   },
   {
