@@ -36,7 +36,10 @@
   **① 删掉颗粒度上下界**：`granularityUpper` / `granularityLower` 从状态元素类型、卡校验、`setTimeMode`、引擎、
   mock、新建卡、示例卡、编辑器与文案表**整条消失**；`advance_time` 能推进哪些单位**只由 `timeMode` 决定**
   （年-分钟 = 年/月/周/日/时/分，年-日期 = 年/月/周/日，天数-分钟 = 日/时/分），`advanceTime` 第四参只剩 `{ mode }`；
-  卡里残留这两格是**被忽略的多余字段**（不报错、不读、不写）。
+  卡里残留这两格是**被忽略的多余字段**（不报错、不读、不写）。**发给模型的工具表也跟着模式走**：
+  `toolDefinitionsOf(mode)` / `advanceTimeSchemaOf(mode)` 用 `unitsOfMode(mode)` 生成 `advance_time.unit` 的枚举
+  （year-date 的模型不会再看到 `hour` / `minute`），引擎把卡里的 `timeMode` 传给 `callProvider`；
+  静态 `TOOL_DEFINITIONS` 保留六个单位的全集给没有卡可比的调用方。
   **② 第一行「类型」对时间元素就是模式下拉**：`[data-field="type"]` 显示年-分钟 / 年-日期 / 天数-分钟，
   底层 `type` 仍是 `time`；卡模式可换（先确认），存档模式锁死；单独的时间模式行不存在了。
   **③ 节日勾选单行**：三个勾选同一水平行、左对齐（中栏放不下时这一行横向滚动，不换行），勾选框改成页面自定义的 14×14 小方盒（`appearance: none`，

@@ -214,6 +214,9 @@ export function pathsOf(state, ref) -> string[]   // ref = 元素 code（自身�
 export function elementOfPath(state, path) -> StateElement | undefined
 export function unitsOfMode(mode) -> TimeUnit[]
 export function integerRangeOf(element) -> { min, max, stepMin, stepMax }   // 数字的生效格子；校验与编辑器 `min~max` 小字共用
+// src/core/tool-definitions.ts:
+export function toolDefinitionsOf(mode) -> { [name]: { description, inputSchema } }   // advance_time.unit 枚举 = unitsOfMode(mode)
+export function advanceTimeSchemaOf(mode) -> JSONSchema7
 export function cellsOfMode(mode) -> (keyof YearMinuteValue)[]
 export function defaultTimeOf(mode) -> TimeValue
 export function isTimeValue(value, mode?) -> boolean
@@ -252,11 +255,11 @@ export { elementOfPath }   // 转出 `statetree` 那一份（老的调用方从�
 
 - **节点类型不决定能写什么**：`time` / `normal` 的 `writable` 里都可以有时间元素 `'0'` 与普通元素（也可以写 `<code>.0`，只拿自身值的写权限）；工具由**每个引用覆盖到的值路径**（`pathsOf`）派生：覆盖到时间 ⇒ `advance_time`，覆盖到任何非时间 / 非结构体的值 ⇒ `write_state`，两样都覆盖 ⇒ 两个工具。
 - 唯一例外是 `output`：它只产故事，`writable` 必须是空的（卡校验 `E_CHAIN`），`toolsForNode` 给它 `[]`。
-- `advance_time({ amount, unit })`：`amount` 是**正整数**，`unit` 必须在**当前时间模式**的单位表（`unitsOfMode(mode)`）里，否则 `E_VALIDATION`；按公历推进（年 / 月月底夹取、`week` = 7 × amount 天、越过 `-551..9999` 年或天数越界 ⇒ `E_VALIDATION`），写回该时间元素自己的值路径；工具结果用 `formatTime(next, mode)`。JSON schema 的 `unit` 枚举仍然是**六个单位**（执行器再判模式）。
+- `advance_time({ amount, unit })`：`amount` 是**正整数**，`unit` 必须在**当前时间模式**的单位表（`unitsOfMode(mode)`）里，否则 `E_VALIDATION`；按公历推进（年 / 月月底夹取、`week` = 7 × amount 天、越过 `-551..9999` 年或天数越界 ⇒ `E_VALIDATION`），写回该时间元素自己的值路径；工具结果用 `formatTime(next, mode)`。**provider 声明的 `unit` 枚举按模式收窄**（`toolDefinitionsOf(mode)` / `advanceTimeSchemaOf(mode)`，来源就是 `unitsOfMode`）：year-date 的模型看不到 `hour` / `minute`，days-minute 看不到 `year` / `month` / `week`；静态 `TOOL_DEFINITIONS` 保留六个单位的全集给没有卡可比的调用方，执行器照旧再判一次模式。
 - `write_state({ path, value })` 只能写 `node.writable` 覆盖到的值路径（**完整 code**；有孩子的节点自身值是 `<code>.0`）；值按元素类型收：`text` 字符串、`integer` 安全整数 + 上下限 + 单次步幅、`enum` 白名单；写时间 ⇒ `E_CHAIN`（提示改用 `advance_time`）。模型可能把整数写成 JSON 字符串（schema 的 `value` 收 `string | integer`）⇒ `integer` 收到**数字字符串**时先收成数字（`"85"` ⇒ `85`，落进 `tree` 的是数字），再做上下限 / 单次步幅；非数字串（`"abc"` / 空串）照旧 `E_VALIDATION`。`writable` 写的是 `<code>.0` 时，只有那一格可写，孩子不在权限里。
 - `applyWrite`：时间 ⇒ `E_CHAIN`；不在覆盖范围（越权 / 路径不存在 / 父 code 本身 / 结构体自身 code）⇒ `E_CHAIN`；结构体没有自身值 ⇒ `E_VALIDATION`；值类型或范围不符 ⇒ `E_VALIDATION`；合法返回**新** tree（入参 tree 一个字都不改）。
 - 工具调用被引擎执行时记两条事件：`tool`（`detail = { name, args }`）与 `write`（`detail = { path, value }`）；同一次调用还进该节点的 `trace.toolCalls`（带 `result`）；模型正文里的工具调用**一律不认**。
-- **工具参数表只有一份**（`src/core/tool-definitions.ts`）：provider 序列化给模型的 `inputSchema` 与引擎执行器读的实参名是同一张形状表（`advance_time` = `amount`/`unit`、`write_state` = `path`/`value`），值域仍由执行器判。
+- **工具参数表只有一份**（`src/core/tool-definitions.ts`）：provider 序列化给模型的 `inputSchema` 与引擎执行器读的实参名是同一张形状表（`advance_time` = `amount`/`unit`、`write_state` = `path`/`value`），值域仍由执行器判。`advance_time.unit` 的枚举**按时间模式生成**：`toolDefinitionsOf(mode)`（= `TOOL_DEFINITIONS` + `advanceTimeSchemaOf(mode)`）用 `unitsOfMode(mode)`，引擎把卡里的 `timeMode` 传给 `callProvider`。
 - 节点文本：`output` 节点的文本 → `narration` 事件；所有节点的文本都进自己的 `trace.output`。
 
 ### 4.4 流式与中止

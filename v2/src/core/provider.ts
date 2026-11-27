@@ -14,13 +14,18 @@ import { jsonSchema, streamText, tool } from 'ai'
 import { t } from '../i18n'
 import { PROVIDER_TIMEOUT_MS, type Deadline } from './deadline'
 import { AppError } from './errors'
-import { TOOL_DEFINITIONS } from './tool-definitions'
-import type { Preset, ProviderReply, ProviderToolCall, TokenUsage } from './types'
+import { toolDefinitionsOf } from './tool-definitions'
+import type { Preset, ProviderReply, ProviderToolCall, TimeMode, TokenUsage } from './types'
 
-/** 工具的参数形状交给模型看；名字与键名一律 ASCII（中文只在 locales/ 里） */
-function toolSetOf(names: string[]) {
+/**
+ * 工具的参数形状交给模型看；名字与键名一律 ASCII（中文只在 locales/ 里）。
+ * `advance_time.unit` 的枚举按这张卡的时间模式收窄（`toolDefinitionsOf(mode)`），
+ * 模型不会看到这个模式不认的单位。
+ */
+function toolSetOf(names: string[], timeMode: TimeMode) {
+  const definitions = toolDefinitionsOf(timeMode)
   const entries = names.map((name) => {
-    const definition = TOOL_DEFINITIONS[name as keyof typeof TOOL_DEFINITIONS]
+    const definition = definitions[name as keyof typeof definitions]
     return [
       name,
       tool({ description: definition.description, inputSchema: jsonSchema(definition.inputSchema) }),
@@ -51,6 +56,8 @@ export interface CallProviderArgs {
   prompt: string
   /** 这个节点允许调用的工具名 */
   tools: string[]
+  /** 这张卡的时间模式：`advance_time.unit` 的枚举按它收窄（引擎从卡里取） */
+  timeMode: TimeMode
   /** 只有 output 节点会拿到它：流式增量 */
   onChunk?: (text: string) => void
   /** 玩家点「停止」 */
@@ -76,6 +83,7 @@ export async function callProvider({
   preset,
   prompt,
   tools,
+  timeMode,
   onChunk,
   signal,
   deadline,
@@ -99,7 +107,7 @@ export async function callProvider({
     const result = streamText({
       model: openai.chat(preset.model),
       messages: [{ role: 'user', content: prompt }],
-      tools: toolSetOf(tools),
+      tools: toolSetOf(tools, timeMode),
       abortSignal: combined,
       // 玩家就在屏幕前等：连不上就当场说，不替他静默重试三次（一次 2 秒起步）
       maxRetries: 0,

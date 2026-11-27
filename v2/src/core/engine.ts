@@ -319,6 +319,8 @@ export async function runTurn({
   let tree: Tree = save.tree
   /** 本回合已执行节点的输出，按节点 id 索引（提示词的上游段从这里取） */
   const outputs: Record<string, string> = {}
+  /** 这张卡的时间模式：真 provider 的工具表按它收窄 `advance_time.unit` 的枚举（卡已校验过） */
+  const timeMode = timeElementOf(card).timeMode as TimeMode
 
   for (const node of card.chain) {
     if (signal?.aborted) throw aborted()
@@ -355,8 +357,10 @@ export async function runTurn({
         reply = await callProvider({
           preset,
           prompt,
-          // 工具表**按 writable 覆盖到的值派生**（与 runTool 的许可同一份名单）
+          // 工具表**按 writable 覆盖到的值派生**（与 runTool 的许可同一份名单）；
+          // `advance_time.unit` 的枚举再按这张卡的时间模式收窄（模型看不到模式外的单位）
           tools: toolsForNode(card, node),
+          timeMode,
           onChunk,
           signal,
           deadline,
