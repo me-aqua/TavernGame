@@ -33,16 +33,18 @@ function errorOf(run) {
   }
 }
 
-/** 一个时间元素（v5：公历六格 + 颗粒度上下界） */
+/** 一个时间元素（2.2：year-minute 五格 + 模式 + 节日勾选 + 颗粒度上下界） */
 function timeElement() {
   return {
     code: '0',
     name: 'time',
     note: '',
     type: 'time',
+    timeMode: 'year-minute',
     initial: { ...treeV5()['0'] },
     granularityUpper: 'day',
     granularityLower: 'minute',
+    holidays: { international: false, china: false, traditional: false },
   }
 }
 
@@ -56,9 +58,9 @@ function rootsCard() {
     id: 'c-roots',
     state: [
       timeElement(),
-      { code: '1', name: 'one', note: '', type: 'text', initial: 'ONE' },
-      { code: '2', name: 'two', note: '', type: 'text', initial: 'TWO' },
-      { code: '3', name: 'three', note: '', type: 'text', initial: 'THREE' },
+      { code: '1', name: 'one', note: '', type: 'text', initial: { 1: 'ONE' } },
+      { code: '2', name: 'two', note: '', type: 'text', initial: { 2: 'TWO' } },
+      { code: '3', name: 'three', note: '', type: 'text', initial: { 3: 'THREE' } },
     ],
     chain: base.chain.map((node) =>
       node.id === 'check'
@@ -80,11 +82,17 @@ function nestedSiblingsCard() {
     id: 'c-nested-siblings',
     state: [
       timeElement(),
-      { code: '1', name: 'root', note: '', type: 'object' },
-      { code: '1.1', name: 'a', note: '', type: 'enum', values: ['A1', 'A2'], initial: 'A1' },
-      { code: '1.1.1', name: 'a-child', note: '', type: 'text', initial: 'A_CHILD' },
-      { code: '1.2', name: 'b', note: '', type: 'enum', values: ['B1', 'B2'], initial: 'B1' },
-      { code: '1.2.1', name: 'b-child', note: '', type: 'text', initial: 'B_CHILD' },
+      {
+        code: '1',
+        name: 'root',
+        note: '',
+        type: 'object',
+        initial: { '1.1.0': 'A1', '1.1.1': 'A_CHILD', '1.2.0': 'B1', '1.2.1': 'B_CHILD' },
+      },
+      { code: '1.1', name: 'a', note: '', type: 'enum', values: ['A1', 'A2'] },
+      { code: '1.1.1', name: 'a-child', note: '', type: 'text' },
+      { code: '1.2', name: 'b', note: '', type: 'enum', values: ['B1', 'B2'] },
+      { code: '1.2.1', name: 'b-child', note: '', type: 'text' },
     ],
     chain: base.chain.map((node) =>
       node.id === 'check'
@@ -110,14 +118,16 @@ function siblingsCard() {
         name: 'time',
         note: '',
         type: 'time',
+        timeMode: 'year-minute',
         initial: { ...treeV5()['0'] },
         granularityUpper: 'day',
         granularityLower: 'minute',
+        holidays: { international: false, china: false, traditional: false },
       },
-      { code: '1', name: 'root', note: '', type: 'object' },
-      { code: '1.1', name: 'a', note: '', type: 'text', initial: 'A' },
-      { code: '1.2', name: 'b', note: '', type: 'text', initial: 'B' },
-      { code: '1.3', name: 'c', note: '', type: 'text', initial: 'C' },
+      { code: '1', name: 'root', note: '', type: 'object', initial: { 1.1: 'A', 1.2: 'B', 1.3: 'C' } },
+      { code: '1.1', name: 'a', note: '', type: 'text' },
+      { code: '1.2', name: 'b', note: '', type: 'text' },
+      { code: '1.3', name: 'c', note: '', type: 'text' },
     ],
     chain: [
       {
@@ -206,7 +216,7 @@ describe('树值：扁平完整 code（§2.3 / §5）', () => {
     const { validateSave } = await loadSchema()
     const tree = {
       ...treeV5(),
-      0: { year: 2024, month: 2, day: 31, hour: 8, minute: 0, second: 0 },
+      0: { year: 2024, month: 2, day: 31, hour: 8, minute: 0 },
     }
     const error = errorOf(() => validateSave({ ...v5Save(v5Card(), { tree }) }))
     expect(error, '2024-02-31 不存在，必须被拒').not.toBeNull()
@@ -369,20 +379,26 @@ describe('applyWrite：按元素类型收值（§2 / §4）', () => {
     }
   })
 })
-describe('增删孩子与删除节点（§2.3）', () => {
-  it('给标量叶子加孩子：类型不变，自身值搬到 .0，新孩子 .1 是文字', async () => {
+describe('增删孩子与删除节点（§2.3 · 2.2：值住在根 initial）', () => {
+  /** 某个根元素 initial 里的一条值 */
+  function valueAt(card, path) {
+    const rootCode = path.includes('.') ? path.slice(0, path.indexOf('.')) : path
+    return card.state.find((item) => item.code === rootCode).initial[path]
+  }
+
+  it('给标量叶子加孩子：类型不变，自身值搬到根 initial 的 .0，新孩子 .1 是文字', async () => {
     const { addChild } = await loadState()
     const card = v5Card()
-    const tree = treeV5()
-    const result = addChild(card, tree, '1.2')
-    expect(result.tree['1.2.0'], '自身值搬到 .0').toBe('MOOD_Y')
-    expect(result.tree['1.2.1'], '新孩子').toBe('')
-    expect('1.2' in result.tree, '旧键不在了').toBe(false)
-    const parent = result.card.state.find((item) => item.code === '1.2')
+    const next = addChild(card, '1.2')
+    expect(valueAt(next, '1.2.0'), '自身值搬到 .0').toBe('MOOD_Y')
+    expect(valueAt(next, '1.2.1'), '新孩子').toBe('')
+    expect(valueAt(next, '1.2'), '旧键不在了').toBeUndefined()
+    const parent = next.state.find((item) => item.code === '1.2')
     expect(parent.type, '不自动转 object').toBe('text')
-    expect(parent.initial, '自身值（初值）不动').toBe('MOOD_Y')
-    const child = result.card.state.find((item) => item.code === '1.2.1')
-    expect(child).toMatchObject({ type: 'text', initial: '' })
+    expect(parent, '子元素身上不许有 initial').not.toHaveProperty('initial')
+    const child = next.state.find((item) => item.code === '1.2.1')
+    expect(child).toMatchObject({ type: 'text' })
+    expect(child).not.toHaveProperty('initial')
     expect(child.name, '新孩子要有名字').toBeTruthy()
     expect(
       card.state.some((item) => item.code === '1.2.1'),
@@ -392,48 +408,48 @@ describe('增删孩子与删除节点（§2.3）', () => {
 
   it('已有孩子再加一个：用下一个空位，不重复搬 .0', async () => {
     const { addChild } = await loadState()
-    const result = addChild(v5Card(), treeV5(), '1.1')
-    expect(result.tree['1.1.0'], '自身值还在 .0').toBe('A1')
-    expect(result.tree['1.1.2'], '下一个空位是 .2').toBe('')
-    expect(result.card.state.filter((item) => item.code.startsWith('1.1.')).map((item) => item.code)).toEqual(
+    const next = addChild(v5Card(), '1.1')
+    expect(valueAt(next, '1.1.0'), '自身值还在 .0').toBe('A1')
+    expect(valueAt(next, '1.1.2'), '下一个空位是 .2').toBe('')
+    expect(next.state.filter((item) => item.code.startsWith('1.1.')).map((item) => item.code)).toEqual(
       expect.arrayContaining(['1.1.1', '1.1.2']),
     )
   })
 
   it('给 object 加孩子：不产生 .0（object 没有自身值）', async () => {
     const { addChild } = await loadState()
-    const result = addChild(v5Card(), treeV5(), '2')
-    expect('2.0' in result.tree).toBe(false)
-    expect(result.tree['2.5']).toBe('')
+    const next = addChild(v5Card(), '2')
+    expect(valueAt(next, '2.0')).toBeUndefined()
+    expect(valueAt(next, '2.5')).toBe('')
   })
 
   it('时间不能加孩子；不存在的 code 也被拒', async () => {
     const { addChild } = await loadState()
     for (const code of ['0', '9']) {
-      const error = errorOf(() => addChild(v5Card(), treeV5(), code))
+      const error = errorOf(() => addChild(v5Card(), code))
       expect(error?.code, `${code} 加孩子应当被拒`).toBe('E_VALIDATION')
       expect(error.message).toMatch(CJK)
     }
   })
 
-  it('删叶子：树键与链引用一起摘掉', async () => {
+  it('删叶子：根 initial 的键与链引用一起摘掉', async () => {
     const { removeNode } = await loadState()
     const card = v5Card()
-    const result = removeNode(card, treeV5(), '1.2')
-    expect(result.card.state.some((item) => item.code === '1.2')).toBe(false)
-    expect('1.2' in result.tree).toBe(false)
-    expect(result.card.chain[1].reads, '1.2 的读引用要摘掉').not.toContain('1.2')
+    const next = removeNode(card, '1.2')
+    expect(next.state.some((item) => item.code === '1.2')).toBe(false)
+    expect(valueAt(next, '1.2')).toBeUndefined()
+    expect(next.chain[1].reads, '1.2 的读引用要摘掉').not.toContain('1.2')
   })
 
   it('删掉唯一孩子：自身值从 .0 搬回父 code', async () => {
     const { removeNode } = await loadState()
-    const result = removeNode(v5Card(), treeV5(), '1.1.1')
-    expect(result.card.state.some((item) => item.code === '1.1.1')).toBe(false)
-    expect(result.tree['1.1'], '自身值搬回 1.1').toBe('A1')
-    expect('1.1.0' in result.tree).toBe(false)
+    const next = removeNode(v5Card(), '1.1.1')
+    expect(next.state.some((item) => item.code === '1.1.1')).toBe(false)
+    expect(valueAt(next, '1.1'), '自身值搬回 1.1').toBe('A1')
+    expect(valueAt(next, '1.1.0')).toBeUndefined()
   })
 
-  it('节点失去最后一个孩子：.0 读写引用收成父 code（树上已经没有 .0 路径）', async () => {
+  it('节点失去最后一个孩子：.0 读写引用收成父 code（根 initial 里已经没有 .0 路径）', async () => {
     const { removeNode } = await loadState()
     const card = v5Card()
     card.chain[1] = {
@@ -442,98 +458,83 @@ describe('增删孩子与删除节点（§2.3）', () => {
       writable: ['1.1.0', '1.1.1'],
     }
 
-    const result = removeNode(card, treeV5(), '1.1.1')
-    expect(result.tree['1.1'], '自身值搬到父 code').toBe('A1')
-    expect('1.1.0' in result.tree, '.0 路径已经不存在').toBe(false)
-    expect(result.card.chain[1].reads, '.0 引用要收成父 code').toEqual(['1.1'])
-    expect(result.card.chain[1].writable, '.0 引用要收成父 code').toEqual(['1.1'])
+    const next = removeNode(card, '1.1.1')
+    expect(valueAt(next, '1.1'), '自身值搬到父 code').toBe('A1')
+    expect(valueAt(next, '1.1.0'), '.0 路径已经不存在').toBeUndefined()
+    expect(next.chain[1].reads, '.0 引用要收成父 code').toEqual(['1.1'])
+    expect(next.chain[1].writable, '.0 引用要收成父 code').toEqual(['1.1'])
   })
 
   it('删掉 object 的最后一个孩子：草稿允许；保存时被拦（object 必须有孩子）', async () => {
     const { removeNode, cardIssues } = await loadState()
     const { validateCard } = await loadSchema()
-    const result = removeNode(v5Card(), treeV5(), '2.4.1')
-    expect(result.card.state.some((item) => item.code === '2.4.1')).toBe(false)
+    const next = removeNode(v5Card(), '2.4.1')
+    expect(next.state.some((item) => item.code === '2.4.1')).toBe(false)
     expect(
-      result.card.state.some((item) => item.code === '2.4'),
+      next.state.some((item) => item.code === '2.4'),
       'object 本身要留着',
     ).toBe(true)
-    expect('2.4.1' in result.tree).toBe(false)
-    const issues = cardIssues(result.card)
+    expect(valueAt(next, '2.4.1')).toBeUndefined()
+    const issues = cardIssues(next)
     expect(
       issues.some((issue) => issue.code === '2.4' || issue.path === '2.4'),
       '空 object 要出现在问题清单里',
     ).toBe(true)
-    expect(errorOf(() => validateCard(result.card))?.code).toBe('E_VALIDATION')
+    expect(errorOf(() => validateCard(next))?.code).toBe('E_VALIDATION')
   })
 
-  it('删顶层中间元素：0 不动、后面的根重排为 1..n，tree 与 reads/writable 跟着映射', async () => {
+  it('删顶层中间元素：0 不动、后面的根重排为 1..n，根 initial 与 reads/writable 跟着映射', async () => {
     const { removeNode } = await loadState()
     const { validateCard } = await loadSchema()
-    const card = rootsCard()
-    const tree = { 0: { ...treeV5()['0'] }, 1: 'ONE', 2: 'TWO', 3: 'THREE' }
-
-    const result = removeNode(card, tree, '2')
-    expect(result.card.state.map((item) => item.code)).toEqual(['0', '1', '2'])
-    expect(result.tree).toEqual({ 0: tree[0], 1: 'ONE', 2: 'THREE' })
-    expect(result.card.chain[1].reads, 'reads 跟着映射').toEqual(['1', '2'])
-    expect(result.card.chain[1].writable, 'writable 跟着映射').toEqual(['1', '2'])
-    for (const code of result.card.state.map((item) => item.code)) {
+    const next = removeNode(rootsCard(), '2')
+    expect(next.state.map((item) => item.code)).toEqual(['0', '1', '2'])
+    expect(valueAt(next, '1'), 'ONE 不动').toBe('ONE')
+    expect(valueAt(next, '2'), '原来的 3 前移成 2').toBe('THREE')
+    expect(next.chain[1].reads, 'reads 跟着映射').toEqual(['1', '2'])
+    expect(next.chain[1].writable, 'writable 跟着映射').toEqual(['1', '2'])
+    for (const code of next.state.map((item) => item.code)) {
       expect(code, `根编号必须仍是数字 code，不许出现 .1 / .-1：${code}`).toMatch(/^\d+(\.\d+)*$/)
     }
-    for (const key of Object.keys(result.tree)) {
-      expect(key, `tree 键必须仍是数字 code：${key}`).toMatch(/^\d+(\.\d+)*$/)
-    }
-    expect(() => validateCard(result.card), '删完之后的卡必须仍然合法（不楔死）').not.toThrow()
+    expect(() => validateCard(next), '删完之后的卡必须仍然合法（不楔死）').not.toThrow()
 
     // 再删刚刚前移的根（原 3）也不许楔死
-    const again = removeNode(result.card, result.tree, '2')
-    expect(again.card.state.map((item) => item.code)).toEqual(['0', '1'])
-    expect(again.tree).toEqual({ 0: tree[0], 1: 'ONE' })
+    const again = removeNode(next, '2')
+    expect(again.state.map((item) => item.code)).toEqual(['0', '1'])
+    expect(valueAt(again, '1')).toBe('ONE')
   })
 
-  it('删兄弟里的 1.2 ⇒ 旧 1.2 变 1.1；tree 的 .0 键与 .0 引用一起映射', async () => {
+  it('删兄弟里的 1.1 ⇒ 旧 1.2 变 1.1；根 initial 的 .0 键与 .0 引用一起映射', async () => {
     const { removeNode } = await loadState()
-    const card = nestedSiblingsCard()
-    const tree = {
-      0: { ...treeV5()['0'] },
-      '1.1.0': 'A1',
-      '1.1.1': 'A_CHILD',
-      '1.2.0': 'B1',
-      '1.2.1': 'B_CHILD',
-    }
-
-    const result = removeNode(card, tree, '1.1')
-    expect(result.card.state.map((item) => item.code)).toEqual(['0', '1', '1.1', '1.1.1'])
-    expect(result.tree, '.0 与孩子键都要跟着改名').toEqual({
-      0: tree[0],
-      '1.1.0': 'B1',
-      '1.1.1': 'B_CHILD',
-    })
-    expect(result.card.chain[1].reads, 'reads 里的 .0 引用跟着映射').toEqual(['1.1.0', '1.1.1'])
-    expect(result.card.chain[1].writable, 'writable 里的 .0 引用跟着映射').toEqual(['1.1.0', '1.1.1'])
+    const next = removeNode(nestedSiblingsCard(), '1.1')
+    expect(next.state.map((item) => item.code)).toEqual(['0', '1', '1.1', '1.1.1'])
+    const root = next.state.find((item) => item.code === '1')
+    expect(root.initial, '.0 与孩子键都要跟着改名').toEqual({ '1.1.0': 'B1', '1.1.1': 'B_CHILD' })
+    expect(next.chain[1].reads, 'reads 里的 .0 引用跟着映射').toEqual(['1.1.0', '1.1.1'])
+    expect(next.chain[1].writable, 'writable 里的 .0 引用跟着映射').toEqual(['1.1.0', '1.1.1'])
   })
 
-  it('删中间的孩子：同层重排为 1..n，树键与 reads/writable 跟着映射', async () => {
+  it('删中间的孩子：同层重排为 1..n，根 initial 与 reads/writable 跟着映射', async () => {
     const { removeNode } = await loadState()
-    const card = siblingsCard()
-    const tree = { 0: treeV5()['0'], 1.1: 'A', 1.2: 'B', 1.3: 'C' }
-    const result = removeNode(card, tree, '1.2')
-    const codes = result.card.state.map((item) => item.code)
+    const next = removeNode(siblingsCard(), '1.2')
+    const codes = next.state.map((item) => item.code)
     expect(codes).toContain('1.2')
     expect(codes).not.toContain('1.3')
-    expect(result.tree['1.2'], '旧 1.3 的值挪到 1.2').toBe('C')
-    expect('1.3' in result.tree).toBe(false)
-    expect(result.card.chain[1].reads, 'reads 跟着映射').toEqual(['1.1', '1.2'])
-    expect(result.card.chain[1].writable, 'writable 跟着映射').toEqual(['1.1', '1.2'])
+    expect(valueAt(next, '1.2'), '旧 1.3 的值挪到 1.2').toBe('C')
+    expect(valueAt(next, '1.3')).toBeUndefined()
+    expect(next.chain[1].reads, 'reads 跟着映射').toEqual(['1.1', '1.2'])
+    expect(next.chain[1].writable, 'writable 跟着映射').toEqual(['1.1', '1.2'])
   })
 
   it('删 object 节点：整棵子树一起走；时间 0 删不得', async () => {
     const { removeNode } = await loadState()
-    const result = removeNode(v5Card(), treeV5(), '2')
-    expect(result.card.state.some((item) => item.code.startsWith('2'))).toBe(false)
-    for (const gone of ['2.1', '2.2', '2.3', '2.4.1']) expect(gone in result.tree).toBe(false)
-    const error = errorOf(() => removeNode(v5Card(), treeV5(), '0'))
+    const next = removeNode(v5Card(), '2')
+    expect(next.state.some((item) => item.code.startsWith('2'))).toBe(false)
+    // 根 initial 里也不许剩下 2.x 的键（根元素都没了，它的表一起走）
+    const keys = next.state.flatMap((item) =>
+      item.initial && typeof item.initial === 'object' ? Object.keys(item.initial) : [],
+    )
+    for (const gone of ['2.1', '2.2', '2.3', '2.4.1']) expect(keys).not.toContain(gone)
+    const error = errorOf(() => removeNode(v5Card(), '0'))
     expect(error?.code).toBe('E_VALIDATION')
     expect(error.message).toMatch(CJK)
   })

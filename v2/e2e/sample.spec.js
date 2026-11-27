@@ -71,18 +71,22 @@ test('首次打开就有「晨风镇」：结构完整、卡里没有 presetId',
   const stateOf = (code) => cards[0].state.find((element) => element.code === code)
   expect(stateOf('0')).toMatchObject({
     type: 'time',
+    timeMode: 'year-minute',
     granularityUpper: 'day',
     granularityLower: 'minute',
-    initial: { year: 1024, month: 9, day: 17, hour: 18, minute: 30, second: 0 },
+    holidays: { international: false, china: false, traditional: false },
+    initial: { year: 1024, month: 9, day: 17, hour: 18, minute: 30 },
   })
-  expect(stateOf('1'), '世界是 text + 空自身值 + 子节点').toMatchObject({ type: 'text', initial: '' })
-  expect(stateOf('2'), '玩家是 text + 空自身值 + 子节点').toMatchObject({ type: 'text', initial: '' })
-  expect(stateOf('1.1')).toMatchObject({
-    type: 'enum',
-    values: ['晨风镇', '镇郊', '地牢', '官道', '码头'],
-    initial: '晨风镇',
-  })
-  expect(stateOf('1.1.1')).toMatchObject({ type: 'text', initial: '醉猫旅店 · 一楼' })
+  // 2.2：世界 / 玩家是「text + 空自身值 + 子节点」，根 initial 是整棵子树的扁平表
+  expect(stateOf('1'), '世界是 text + 空自身值 + 子节点').toMatchObject({ type: 'text' })
+  expect(stateOf('2'), '玩家是 text + 空自身值 + 子节点').toMatchObject({ type: 'text' })
+  expect(stateOf('1').initial['1.0']).toBe('')
+  expect(stateOf('2').initial['2.0']).toBe('')
+  expect(stateOf('1.1')).toMatchObject({ type: 'enum', values: ['晨风镇', '镇郊', '地牢', '官道', '码头'] })
+  expect(stateOf('1.1')).not.toHaveProperty('initial')
+  expect(stateOf('1').initial['1.1.0']).toBe('晨风镇')
+  expect(stateOf('1.1.1')).toMatchObject({ type: 'text' })
+  expect(stateOf('1').initial['1.1.1']).toBe('醉猫旅店 · 一楼')
   // 人物（字典）与线索不在 2.1 里：不许换个 code 偷偷留着
   expect(cards[0].state.map((element) => element.name)).not.toEqual(expect.arrayContaining(['人物', '线索']))
   for (const node of cards[0].chain) expect(Object.keys(node)).not.toContain('presetId')

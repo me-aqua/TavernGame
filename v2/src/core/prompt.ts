@@ -12,9 +12,10 @@
  * 空段连标记一起省略：那一段没有正文，就不留一行光秃秃的标题。
  * 眼睛语义一句话：`reads` 里有它就读，没有就一个字符都不出现。
  */
-import type { Card, ChainNode, Save, SaveEvent, TimeValue, Tree } from './types'
+import type { Card, ChainNode, Save, SaveEvent, TimeMode, TimeValue, Tree } from './types'
 import { OPENING_PROMPT_ID } from './schema'
 import { childrenOf, formatTime, pathsOf } from './statetree'
+import { holidaysOf } from './holidays'
 import { t } from '../i18n'
 
 interface BuildPromptArgs {
@@ -46,12 +47,26 @@ function subtreeOf(state: Card['state'], tree: Tree, element: Card['state'][numb
 }
 
 /**
- * 一个元素投影成提示词里的那一段：时间是 `YYYY-MM-DD HH:mm:ss（周X）`；
- * 有孩子的节点是「自身值 + 整棵子树」的 JSON；叶子就是自己的值（JSON 形态）。
+ * 一个元素投影成提示词里的那一段：时间是按模式格式化的那一行（`2024-02-10 08:30（周六）` /
+ * `2024-02-10（周六）` / `第 5 天 08:30`）；有孩子的节点是「自身值 + 整棵子树」的 JSON；
+ * 叶子就是自己的值（JSON 形态）。
  */
 function projectOf(card: Card, tree: Tree, element: Card['state'][number]): string {
-  if (element.type === 'time') return formatTime(tree[pathsOf(card.state, element.code)[0]] as TimeValue)
+  if (element.type === 'time') {
+    // 模式必填由 `cardIssues` 兜住：能走到提示词这一步的卡，时间元素一定带着合法模式
+    return formatTime(tree[pathsOf(card.state, element.code)[0]] as TimeValue, element.timeMode as TimeMode)
+  }
   return JSON.stringify(subtreeOf(card.state, tree, element))
+}
+
+/**
+ * 时间元素那一行下面紧跟的节日行：节日是**派生只读**的（由时间值 + 三个勾选当场算出来），
+ * 所以它不进 `state[]` / `tree`，只在这里出现；一个节日都没有 ⇒ 连这一行都不出现。
+ */
+function holidayLineOf(element: Card['state'][number], value: TimeValue): string | undefined {
+  const names = holidaysOf(value, element.timeMode as TimeMode, element.holidays)
+  if (names.length === 0) return undefined
+  return t('prompt.holidayLine', { names: names.join(t('prompt.holidaySeparator')) })
 }
 
 /** 历史里的一个回合：一个 `action` 开一个回合，后面跟着它的 `narration`（可能不止一条） */
@@ -139,6 +154,7 @@ function underReadParent(code: string, reads: string[]): boolean {
  *   · 读 **`<code>.0`** ⇒ 一行：只输出这个元素自己的值（`code` 那一格写的是值路径）；
  *   · 读**叶子 code** ⇒ 一行：就是它自己的值。
  * 父 code 读到时，子孙不再单独出行；只读了 `.0` 时孩子照旧可以单独读。
+ * 时间那一行下面可以多一行 `节日：…`（见 `holidayLineOf`）。
  */
 function stateLinesOf(card: Card, tree: Tree, reads: string[]): string[] {
   const lines: string[] = []
@@ -148,6 +164,10 @@ function stateLinesOf(card: Card, tree: Tree, reads: string[]): string[] {
       lines.push(
         `${t('prompt.stateLine', { code: element.code, name: element.name })}${projectOf(card, tree, element)}`,
       )
+      if (element.type === 'time') {
+        const line = holidayLineOf(element, tree[pathsOf(card.state, element.code)[0]] as TimeValue)
+        if (line !== undefined) lines.push(line)
+      }
       continue
     }
     // 结构体没有自身值：`.0` 那一支与它无关（`pathsOf` 的首项在它身上是孩子的路径）

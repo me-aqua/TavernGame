@@ -61,9 +61,9 @@ test('改初值与节点提示词之后：旧存档仍按旧卡跑，新存档�
   // ---- 盘上两个方向都在：卡被改了，存档快照没被改
   const saves = await readStorage(page, KEYS.saves)
   const cards = await readStorage(page, KEYS.cards)
-  expect(cards[0].state[1].initial).toBe('VAL_PLACE_NEW')
+  expect(cards[0].state[1].initial['1']).toBe('VAL_PLACE_NEW')
   expect(cards[0].chain.find((node) => node.id === 'output').prompt).toBe('NODE_OUT_EDITED')
-  expect(saves[0].cardSnapshot.state[1].initial).toBe('VAL_PLACE_A1')
+  expect(saves[0].cardSnapshot.state[1].initial['1']).toBe('VAL_PLACE_A1')
   expect(saves[0].cardSnapshot.chain.find((node) => node.id === 'output').prompt).toBe('NODE_OUT')
   expect(saves[0].turn).toBe(1)
 

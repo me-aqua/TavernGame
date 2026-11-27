@@ -40,6 +40,7 @@ import type {
   Save,
   SaveEvent,
   StateElement,
+  TimeMode,
   TimeUnit,
   TimeValue,
   TokenUsage,
@@ -75,7 +76,7 @@ const now = () => new Date().toISOString()
 
 function timeAt(card: Card, tree: Tree): TimeValue {
   const value = tree[timePathOf(card)]
-  if (!isTimeValue(value)) {
+  if (!isTimeValue(value, timeElementOf(card).timeMode)) {
     throw new AppError('E_VALIDATION', { message: t('error.timeTree'), nextStep: t('next.home') })
   }
   return value
@@ -234,11 +235,13 @@ function runTool({
   const at = now()
   if (name === 'advance_time') {
     // 能走到这里就说明时间元素在 `node.writable` 里（`toolsForNode` 只在这种情况下发这个工具），
-    // 所以这一分支只看参数与颗粒度，不再问一遍权限。实参名与 provider 声明的 schema 同一份。
+    // 所以这一分支只看参数、模式与颗粒度，不再问一遍权限。实参名与 provider 声明的 schema 同一份。
     const { amount, unit } = advanceTimeArgsOf(args)
     const element = timeElementOf(card)
     const path = timePathOf(card)
+    const mode = element.timeMode as TimeMode
     const next = advanceTime(timeAt(card, tree), amount as number, unit as TimeUnit, {
+      mode,
       upper: element.granularityUpper,
       lower: element.granularityLower,
     })
@@ -248,7 +251,7 @@ function runTool({
         { type: 'tool', text: name, detail: { name, args }, at },
         { type: 'write', text: path, detail: { path, value: next }, at },
       ],
-      result: formatTime(next),
+      result: formatTime(next, mode),
     }
   }
   // 实参名与 provider 声明的 schema 同一份（`tool-definitions.ts`）

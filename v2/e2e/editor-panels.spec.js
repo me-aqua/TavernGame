@@ -189,7 +189,6 @@ test.describe('时间元素：类型只读为 time，六格初值可编辑并保
       day: 1,
       hour: 8,
       minute: 5,
-      second: 0,
     })
     await page.locator('[data-save-card]').click()
     await expect(page.locator('[data-save-ok]')).toBeVisible()
@@ -199,7 +198,6 @@ test.describe('时间元素：类型只读为 time，六格初值可编辑并保
       day: 3,
       hour: 21,
       minute: 5,
-      second: 0,
     })
 
     await page.reload()

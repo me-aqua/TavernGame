@@ -6,6 +6,7 @@
  */
 import type { Card, PromptBlock, StateElement } from './core/types'
 import { OPENING_PROMPT_ID } from './core/schema'
+import { defaultTimeOf } from './core/statetree'
 import { t } from './i18n'
 
 // 造一块「开场」：标题是数据，所以「建卡」这一处写进卡一次
@@ -47,7 +48,7 @@ const DEFAULT_CHAIN: Card['chain'] = [
   },
 ]
 
-// 新建一张卡：只有一个时间元素、一块「开场」提示词、契约 §2.1 那三个固定节点
+// 新建一张卡：只有一个时间元素（年-分钟模式、三组节日都不勾）、一块「开场」提示词、契约 §2.1 那三个固定节点
 export function freshCard(id: string, name: string): Card {
   return {
     schemaVersion: 1,
@@ -59,9 +60,11 @@ export function freshCard(id: string, name: string): Card {
         name: t('default.state.time'),
         note: '',
         type: 'time',
-        initial: { year: 1024, month: 1, day: 1, hour: 8, minute: 0, second: 0 },
+        timeMode: 'year-minute',
+        initial: defaultTimeOf('year-minute'),
         granularityUpper: 'day',
         granularityLower: 'minute',
+        holidays: { international: false, china: false, traditional: false },
       },
     ],
     chain: DEFAULT_CHAIN.map((node) => ({

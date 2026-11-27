@@ -75,7 +75,7 @@ describe('提示词 · 状态段（v5 §5）', () => {
     expect(leafPayload.startsWith('"') ? JSON.parse(leafPayload) : leafPayload).toBe('MOOD_Y')
 
     const time = lines.find((item) => item.startsWith('- 0「'))
-    expect(payloadOf(time, '0', 'time')).toBe('2024-01-01 08:05:00（周一）')
+    expect(payloadOf(time, '0', 'time')).toBe('2024-01-01 08:05（周一）')
   })
 
   it('读对象 code ⇒ 子树 JSON（相对段，object 没有 "0"）', async () => {

@@ -211,15 +211,20 @@ describe('引擎：写入与工具', () => {
 
   it('advanceTime 推小时、跨天进位、非整数报 E_VALIDATION', async () => {
     const { advanceTime } = await loadEngine()
-    // v5 §5：`advanceTime(value, amount, unit, bounds?)`，amount 是正整数
-    expect(advanceTime({ ...TIME_VALUE }, 1, 'hour')).toEqual({ ...TIME_VALUE, hour: 9 })
-    expect(advanceTime({ ...TIME_VALUE, hour: 23 }, 2, 'hour')).toEqual({ ...TIME_VALUE, day: 2, hour: 1 })
-    expect(advanceTime({ ...TIME_VALUE, day: 3, hour: 0 }, 24, 'hour')).toEqual({
+    // 2.2：`advanceTime(value, amount, unit, { mode, upper, lower })`，amount 是正整数
+    const yearMinute = { mode: 'year-minute' }
+    expect(advanceTime({ ...TIME_VALUE }, 1, 'hour', yearMinute)).toEqual({ ...TIME_VALUE, hour: 9 })
+    expect(advanceTime({ ...TIME_VALUE, hour: 23 }, 2, 'hour', yearMinute)).toEqual({
+      ...TIME_VALUE,
+      day: 2,
+      hour: 1,
+    })
+    expect(advanceTime({ ...TIME_VALUE, day: 3, hour: 0 }, 24, 'hour', yearMinute)).toEqual({
       ...TIME_VALUE,
       day: 4,
       hour: 0,
     })
-    expect(() => advanceTime({ ...TIME_VALUE }, 1.5, 'hour')).toThrowError(
+    expect(() => advanceTime({ ...TIME_VALUE }, 1.5, 'hour', yearMinute)).toThrowError(
       expect.objectContaining({ code: 'E_VALIDATION' }),
     )
   })
@@ -283,7 +288,7 @@ describe('引擎：调试读数落盘（trace / turnStats）', () => {
       {
         name: 'advance_time',
         args: { amount: 1, unit: 'day' },
-        result: '2024-01-02 08:05:00（周二）',
+        result: '2024-01-02 08:05（周二）',
       },
     ])
     expect(time.output).toBe('')
@@ -374,7 +379,7 @@ describe('引擎：同一回合内的写入立刻可见（P2）', () => {
     const prompt = traceOf(result, 'output').prompt
 
     // 时间节点先跑：01-01 → 01-02（mock 推最粗允许单位 day），输出节点读到的必须是新的一天
-    expect(prompt, '时间节点推进后的钟要进输出节点的提示词').toContain('2024-01-02 08:05:00（周二）')
+    expect(prompt, '时间节点推进后的钟要进输出节点的提示词').toContain('2024-01-02 08:05（周二）')
     // 判定节点先跑：元素 1 被写成 mock-t1，输出节点读到的必须是新值
     expect(prompt, '判定节点这一回合写的值要立刻可见').toContain('mock-t1')
     expect(prompt, '旧值不该还留在提示词里').not.toContain('VAL_PLACE_A1')

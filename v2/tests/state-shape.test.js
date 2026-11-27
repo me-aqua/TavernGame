@@ -39,6 +39,14 @@ function variant(change) {
   return withState(v5Card(), change(v5Card().state))
 }
 
+/** 2.2：把一条值路径上的值换掉（写进所属根的 initial 表） */
+function withValue(state, path, value) {
+  const rootCode = path.includes('.') ? path.slice(0, path.indexOf('.')) : path
+  return state.map((item) =>
+    item.code === rootCode ? { ...item, initial: { ...item.initial, [path]: value } } : item,
+  )
+}
+
 /** 只换 state、把链的引用摘空：编号 / 坏 code 类用例的红只该来自结构，不该来自悬空引用 */
 function bareCard(state) {
   const card = v5Card()
@@ -178,7 +186,7 @@ describe('状态树 v5 · 编号铁律', () => {
           name: `n${code}`,
           note: '',
           type: 'text',
-          initial: `V${code}`,
+          initial: { [code]: `V${code}` },
         })),
       ])
     await expectReject(roots(['1', '3']), '顶层断号（缺 2）')
@@ -194,16 +202,19 @@ describe('状态树 v5 · 编号铁律', () => {
     await expectIssue(withInitial, '2.4', 'object 带 initial')
   })
 
-  it('非 object 节点必须有自身值：带孩子的标量也一样（1.1 缺 initial 被拦）', async () => {
-    const card = variant((state) =>
+  it('2.2：根元素必须有 initial；子元素**不许**带 initial（哪怕它自己有孩子）', async () => {
+    const missingRoot = variant((state) =>
       state.map((item) => {
-        if (item.code !== '1.1') return item
+        if (item.code !== '1') return item
         const rest = { ...item }
         delete rest.initial
         return rest
       }),
     )
-    await expectIssue(card, '1.1', '带孩子的标量缺 initial')
+    await expectIssue(missingRoot, '1', '根元素缺 initial')
+
+    const childInitial = variant((state) => patch(state, '1.1', { initial: 'A1' }))
+    await expectIssue(childInitial, '1.1', '子元素带 initial')
   })
 
   it('旧形状（type: "string"）被拒：2.1 不做迁移', async () => {
@@ -231,7 +242,7 @@ describe('状态树 v5 · 各类型的值与约束（§2.1 / §2.2）', () => {
       '非字符串 values',
     )
     await expectIssue(
-      variant((state) => patch(state, '1.1', { initial: 'A9' })),
+      variant((state) => withValue(state, '1.1.0', 'A9')),
       '1.1',
       '初值不在白名单',
     )
@@ -244,13 +255,21 @@ describe('状态树 v5 · 各类型的值与约束（§2.1 / §2.2）', () => {
       [{ stepMin: -1 }, '负步幅'],
       [{ min: 0.5 }, '非整数下限'],
       [{ max: 1e9 + 1 }, '上限越界'],
-      [{ initial: 101 }, '初值超上限'],
-      [{ initial: 1.5 }, '初值非整数'],
-      [{ initial: '80' }, '初值是字符串'],
     ]
     for (const [change, note] of cases) {
       await expectIssue(
         variant((state) => patch(state, '2.2', change)),
+        '2.2',
+        note,
+      )
+    }
+    for (const [value, note] of [
+      [101, '初值超上限'],
+      [1.5, '初值非整数'],
+      ['80', '初值是字符串'],
+    ]) {
+      await expectIssue(
+        variant((state) => withValue(state, '2.2', value)),
         '2.2',
         note,
       )
@@ -263,7 +282,7 @@ describe('状态树 v5 · 各类型的值与约束（§2.1 / §2.2）', () => {
 
   it('text：初始值必须是字符串', async () => {
     await expectIssue(
-      variant((state) => patch(state, '1.2', { initial: 7 })),
+      variant((state) => withValue(state, '1.2', 7)),
       '1.2',
       'text 初值不是字符串',
     )
@@ -293,7 +312,7 @@ describe('状态树 v5 · 时间（§3）', () => {
     )
   })
 
-  it('时间值必须是合法公历六格（月份 13 / 2 月 30 / 2 月 31 / 24 点 / 缺字段 / 多字段都被拦）', async () => {
+  it('时间值必须是该模式的合法公历（月份 13 / 2 月 30 / 24 点 / 60 分 / 年份 0 / 越界 / 缺字段 / 多字段都被拦）', async () => {
     const cases = [
       [{ month: 13 }, '月份 13'],
       [{ day: 32 }, '日 32'],
@@ -301,7 +320,6 @@ describe('状态树 v5 · 时间（§3）', () => {
       [{ month: 2, day: 31 }, '2 月 31'],
       [{ hour: 24 }, '24 点'],
       [{ minute: 60 }, '60 分'],
-      [{ second: 60 }, '60 秒'],
       [{ year: 0 }, '年份 0'],
       [{ year: 10000 }, '年份 10000'],
     ]
@@ -314,12 +332,12 @@ describe('状态树 v5 · 时间（§3）', () => {
     }
     const missing = variant((state) => {
       const rest = { ...state[0].initial }
-      delete rest.second
+      delete rest.minute
       return patch(state, '0', { initial: rest })
     })
-    await expectIssue(missing, '0', '缺 second 字段')
-    const extra = variant((state) => patch(state, '0', { initial: { ...state[0].initial, week: 3 } }))
-    await expectIssue(extra, '0', '多 week 字段')
+    await expectIssue(missing, '0', '缺 minute 字段')
+    const extra = variant((state) => patch(state, '0', { initial: { ...state[0].initial, second: 0 } }))
+    await expectIssue(extra, '0', '多 second 字段（六格旧形状）')
   })
 })
 

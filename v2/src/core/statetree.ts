@@ -1,25 +1,54 @@
 /**
- * 状态树（阶段 2.1）：形状规则、扁平值、公历时间、增删节点、整卡问题清单。
+ * 状态树（阶段 2.2）：形状规则、扁平值、初始值归根、增删改、整卡问题清单。
  *
  * 形状一句话（`CONTRACT §2.1`）：**键是完整 code 的扁平表**。一个节点可以同时有自己的值和孩子 ——
  * 自身值住在**隐式**的 `<code>.0`（不进 `state[]`），可见孩子从 `<code>.1` 起连续编号；
  * `object` 没有自身值；深度（`.0` 不计）最大 5。`type` 描述的是自身值，所以标量节点可以有孩子、
  * 不会因此变成 `object`。
  *
- * 这一份住三样东西：
- *   · **派生**：`initialTreeOf` 把卡的初始值展开成扁平树，`pathsOf` 说一个 code 覆盖哪些值路径；
- *   · **时间**：真公历六格，`advanceTime` 按单位推进（月末没有那一天就取月末），`formatTime` 出中文格式；
+ * 初始值一句话（`CONTRACT §2.2` · A）：**只有根元素（`code` 不含 `.`）存初始值**，而且它不是
+ * 「元素自己的值」，是**整棵子树的扁平值表**（键是完整 code，与存档 `tree` 同一套口径）。
+ * 时间根是唯一例外：它就是时间值本身。子元素存 `initial` 就是坏卡（`E_VALIDATION`）。
+ *
+ * 这一份住四样东西：
+ *   · **派生**：`initialTreeOf` 把根初始值摊平成新建存档的树，`pathsOf` 说一个 code 覆盖哪些值路径；
+ *   · **同步**：`addChild` / `removeNode` / `setElementType` / `setInitial` / `setTimeMode` ——
+ *     改结构或改类型时，所属根的那张表要跟着搬（搬错一格就是「值悄悄丢了」）；
+ *   · **时间**：真公历的三种模式住在 `timevalue.ts`，这里原样转出（调用方按 `core/statetree` 取）；
  *   · **校验**：`cardIssues` 给出整卡的问题清单（状态树 + 链的规矩），保存按钮与 `validateCard` 共用它。
  *
- * 谁也别在这里加数组 / 字典：2.1 明确整块推迟（那会是另一套形状）。
+ * 谁也别在这里加数组 / 字典：2.2 明确整块推迟（那会是另一套形状）。
  */
 import { t } from '../i18n'
 import { AppError } from './errors'
 import type { ErrorCode } from './errors'
-import type { Card, StateElement, TimeUnit, TimeValue, Tree } from './types'
+import { TIME_MODES, TIME_UNITS, defaultTimeOf, isTimeValue, unitsOfMode } from './timevalue'
+import type {
+  Card,
+  Holidays,
+  InitialTable,
+  StateElement,
+  StateType,
+  StateValue,
+  TimeMode,
+  TimeUnit,
+  TimeValue,
+  Tree,
+} from './types'
 
-/** 时间单位，粗 → 细；`week` 不存，按日期算（周一 = 1） */
-export const TIME_UNITS: TimeUnit[] = ['year', 'month', 'week', 'day', 'hour', 'minute', 'second']
+// 时间那半住在 `timevalue.ts`：调用方一直从 `statetree` 取，这里原样转出
+export {
+  YEAR_MIN,
+  YEAR_MAX,
+  TIME_MODES,
+  TIME_UNITS,
+  cellsOfMode,
+  unitsOfMode,
+  defaultTimeOf,
+  isTimeValue,
+  formatTime,
+  advanceTime,
+} from './timevalue'
 
 /** 可见深度上限（`.0` 不计）：`1.1.1.1.1` 合法，第 6 段不合法 */
 export const MAX_DEPTH = 5
@@ -52,6 +81,11 @@ export function codeDepth(code: string): number {
 function parentOfCode(code: string): string | undefined {
   const at = code.lastIndexOf('.')
   return at > 0 ? code.slice(0, at) : undefined
+}
+
+/** 根元素的 code（`1.1.1` ⇒ `1`）—— 初始值只挂在它身上 */
+export function rootCodeOf(code: string): string {
+  return code.split('.')[0]
 }
 
 /** 按 code 找元素；找不到就是卡坏了（调用方拿到的 code 都来自卡或校验过的树） */
@@ -99,173 +133,90 @@ export function pathsOf(state: StateElement[], ref: string): string[] {
   return paths
 }
 
+/**
+ * 一条**值路径**属于哪个元素：叶子就是自己的 code，有孩子的节点是 `<code>.0`。
+ * `object` 的自身 code / 它的 `.0` 都不返回值路径，所以这里也返回 `undefined`
+ * （引擎据此把「写结构体自身」与「路径不存在」都判成链的错）。
+ */
+export function elementOfPath(state: StateElement[], path: string): StateElement | undefined {
+  const own = state.find((element) => element.code === path)
+  if (own) return own
+  if (!path.endsWith('.0')) return undefined
+  const base = state.find((element) => element.code === path.slice(0, -2))
+  if (!base) return undefined
+  return pathsOf(state, base.code).includes(path) ? base : undefined
+}
+
 /** 元素自己的值路径：有孩子的住 `<code>.0`，没孩子的就是自己 */
 function ownPathOf(state: StateElement[], element: StateElement): string {
   return childrenOf(state, element.code).length > 0 ? `${element.code}.0` : element.code
 }
 
-/**
- * 把每个元素的 `initial` 展开成**扁平完整 code 的树**：没孩子的用自身 code、有孩子的自身值放
- * `<code>.0`、`object` 一条键都不产出。时间值是深拷贝（不与卡共享引用）。
- */
-export function initialTreeOf(card: Card): Tree {
-  const tree: Tree = {}
-  for (const element of card.state) {
-    if (element.type === 'object') continue
-    const value = element.initial
-    if (value === undefined) {
-      throw new AppError('E_VALIDATION', {
-        message: t('issue.missingInitial', { code: element.code }),
-        nextStep: t('next.editor'),
-        detail: { code: element.code },
-      })
-    }
-    tree[ownPathOf(card.state, element)] = typeof value === 'object' ? { ...value } : value
-  }
-  return tree
-}
-
-function isLeapYear(year: number): boolean {
-  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
-}
-
-function daysInMonth(year: number, month: number): number {
-  const days = [31, isLeapYear(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-  return days[month - 1]
-}
-
-/** 公历日期 → 距 1970-01-01 的天数（Howard Hinnant 的算法；年份 1..9999 都成立） */
-function daysFromCivil(year: number, month: number, day: number): number {
-  const shiftedYear = month <= 2 ? year - 1 : year
-  const era = Math.floor(shiftedYear / 400)
-  const yearOfEra = shiftedYear - era * 400
-  const shiftedMonth = (month + 9) % 12
-  const dayOfYear = Math.floor((153 * shiftedMonth + 2) / 5) + day - 1
-  const dayOfEra = yearOfEra * 365 + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100) + dayOfYear
-  return era * 146097 + dayOfEra - 719468
-}
-
-/** 距 1970-01-01 的天数 → 公历日期 */
-function civilFromDays(days: number): { year: number; month: number; day: number } {
-  const shifted = days + 719468
-  const era = Math.floor(shifted / 146097)
-  const dayOfEra = shifted - era * 146097
-  const yearOfEra = Math.floor(
-    (dayOfEra - Math.floor(dayOfEra / 1460) + Math.floor(dayOfEra / 36524) - Math.floor(dayOfEra / 146096)) /
-      365,
-  )
-  const year = yearOfEra + era * 400
-  const dayOfYear = dayOfEra - (365 * yearOfEra + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100))
-  const shiftedMonth = Math.floor((5 * dayOfYear + 2) / 153)
-  const day = dayOfYear - Math.floor((153 * shiftedMonth + 2) / 5) + 1
-  const month = shiftedMonth < 10 ? shiftedMonth + 3 : shiftedMonth - 9
-  return { year: month <= 2 ? year + 1 : year, month, day }
-}
-
-/**
- * 是不是合法公历六格（缺字段 / 多字段都算坏）。
- * 卡校验、存档校验、时间推进三处共用这一份 —— `2024-02-31` 在哪一处都不成立。
- */
-export function isTimeValue(value: unknown): value is TimeValue {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-  const keys = Object.keys(value).sort().join(',')
-  if (keys !== 'day,hour,minute,month,second,year') return false
-  const time = value as TimeValue
-  if (!Object.values(time).every((part) => Number.isInteger(part))) return false
-  if (time.year < 1 || time.year > 9999) return false
-  if (time.month < 1 || time.month > 12) return false
-  if (time.day < 1 || time.day > daysInMonth(time.year, time.month)) return false
-  if (time.hour < 0 || time.hour > 23) return false
-  if (time.minute < 0 || time.minute > 59) return false
-  if (time.second < 0 || time.second > 59) return false
-  return true
-}
-
-/** 这一天是周几（0 = 周日，1 = 周一 … 6 = 周六） */
-function weekdayOf(time: TimeValue): number {
-  const days = daysFromCivil(time.year, time.month, time.day)
-  return (((days + 4) % 7) + 7) % 7
-}
-
-const pad = (value: number, width: number): string => String(value).padStart(width, '0')
-
-/** 时间渲染成 `YYYY-MM-DD HH:mm:ss（周X）`（全角括号；提示词与编辑器共用这一份） */
-export function formatTime(value: TimeValue): string {
-  return t('time.formatted', {
-    date: `${pad(value.year, 4)}-${pad(value.month, 2)}-${pad(value.day, 2)}`,
-    clock: `${pad(value.hour, 2)}:${pad(value.minute, 2)}:${pad(value.second, 2)}`,
-    weekday: t(`time.weekday.${weekdayOf(value)}`),
-  })
+/** 换类型时新类型给什么默认值（`object` 没有自身值 ⇒ `undefined`） */
+function defaultInitialOf(type: StateType): StateValue | undefined {
+  if (type === 'object') return undefined
+  if (type === 'integer') return 0
+  return ''
 }
 
 function invalid(message: string, detail: unknown): AppError {
   return new AppError('E_VALIDATION', { message, nextStep: t('next.editor'), detail })
 }
 
+const isTable = (value: unknown): value is InitialTable =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
 /**
- * 推进时间。`amount` 是正整数；`unit` 在 `bounds` 里（`upper` 是单次能推的最粗单位、`lower` 是最细的）。
- *
- * 年 / 月按公历走，**目标月没有那一天就取当月最后一天**（`2024-01-31 +1 月 = 2024-02-29`）；
- * `week` = 7 × amount 天，不存周字段；结果越过 1..9999 年 ⇒ `E_VALIDATION`。
+ * 某个 code 所属根元素的 `initial` 表（**拷贝**，调用方拿它算新卡）。
+ * 时间根不走这里（它的 `initial` 就是时间值）；表坏了 ⇒ `E_VALIDATION`。
  */
-export function advanceTime(
-  value: TimeValue,
-  amount: number,
-  unit: TimeUnit,
-  bounds: { upper?: TimeUnit; lower?: TimeUnit } = {},
-): TimeValue {
-  if (!isTimeValue(value)) throw invalid(t('error.timeSourceInvalid'), { value })
-  if (!Number.isInteger(amount) || amount <= 0) throw invalid(t('error.amountInvalid'), { amount })
-  const at = TIME_UNITS.indexOf(unit)
-  if (at < 0) throw invalid(t('error.unitUnknown', { unit: String(unit) }), { unit })
-  if (bounds.upper !== undefined && TIME_UNITS.indexOf(bounds.upper) > at) {
-    throw invalid(t('error.unitOutOfBounds', { unit, upper: bounds.upper }), { unit, bounds })
-  }
-  if (bounds.lower !== undefined && at > TIME_UNITS.indexOf(bounds.lower)) {
-    throw invalid(t('error.unitOutOfBounds', { unit, lower: bounds.lower }), { unit, bounds })
-  }
+function initialTableOf(state: StateElement[], code: string): InitialTable {
+  const root = elementAt(state, rootCodeOf(code))
+  if (!isTable(root.initial)) throw invalid(t('issue.initialTable', { code: root.code }), { code: root.code })
+  return { ...root.initial }
+}
 
-  const clock = { hour: value.hour, minute: value.minute, second: value.second }
-  if (unit === 'year' || unit === 'month') {
-    // 月 / 年不按天数换算：月长会变，只做「年月进位 + 日夹到月末」
-    let year = value.year
-    let month = value.month
-    if (unit === 'year') year += amount
-    else {
-      const months = year * 12 + (month - 1) + amount
-      year = Math.floor(months / 12)
-      month = (months % 12) + 1
-    }
-    if (year < 1 || year > 9999) throw invalid(t('error.timeOverflow'), { value, amount, unit })
-    return { year, month, day: Math.min(value.day, daysInMonth(year, month)), ...clock }
+/** 把一个根元素的初始值换成新的那张表（只换这一格，别的元素原样） */
+function withInitialTable(card: Card, rootCode: string, table: InitialTable): Card {
+  return {
+    ...card,
+    state: card.state.map((item) => (item.code === rootCode ? { ...item, initial: table } : item)),
   }
-
-  const unitSeconds: Record<string, number> = {
-    week: 7 * 86400,
-    day: 86400,
-    hour: 3600,
-    minute: 60,
-    second: 1,
-  }
-  const days = daysFromCivil(value.year, value.month, value.day)
-  const total =
-    days * 86400 + value.hour * 3600 + value.minute * 60 + value.second + unitSeconds[unit] * amount
-  const nextDays = Math.floor(total / 86400)
-  let rest = total - nextDays * 86400
-  const civil = civilFromDays(nextDays)
-  if (civil.year < 1 || civil.year > 9999) throw invalid(t('error.timeOverflow'), { value, amount, unit })
-  const hour = Math.floor(rest / 3600)
-  rest -= hour * 3600
-  const minute = Math.floor(rest / 60)
-  return { ...civil, hour, minute, second: rest - minute * 60 }
 }
 
 /**
- * 给一个节点加孩子：孩子是文字、初值空串、编号取下一个空位。
- * 标量节点**不转换类型**：它原来的自身值搬到 `<code>.0`，新孩子用 `<code>.1`。
- * 时间不能有孩子；不存在的 code 也是错（都 `E_VALIDATION`）。
+ * 把**根元素的初始值**摊平成扁平树：非时间根摊平它那张表，时间根就是时间值本身
+ * （深拷贝，不与卡共享引用）。根元素缺 `initial` ⇒ `E_VALIDATION`。
+ *
+ * 覆盖不全 / 多键 / 类型不符**不在这里判** —— 那是 `cardIssues` 的清单。
  */
-export function addChild(card: Card, tree: Tree, code: string): { card: Card; tree: Tree } {
+export function initialTreeOf(card: Card): Tree {
+  const tree: Tree = {}
+  for (const element of card.state) {
+    if (element.code.includes('.')) continue
+    const value = element.initial
+    if (value === undefined || value === null) {
+      throw invalid(t('issue.missingInitial', { code: element.code }), { code: element.code })
+    }
+    if (element.type === 'time') {
+      // 时间根的 initial 就是时间值本身（深拷贝，不与卡共享引用）
+      tree[element.code] = { ...(value as TimeValue) }
+      continue
+    }
+    for (const [path, item] of Object.entries(value as InitialTable)) {
+      // 子树里的对象值只有一种：值路径指向一个时间值 —— 也深拷贝，别让树和卡共享引用
+      tree[path] = isTable(item) ? { ...(item as TimeValue) } : item
+    }
+  }
+  return tree
+}
+
+/**
+ * 给一个元素加孩子：孩子是文字、没有 `initial`，编号取下一个空位。
+ * 标量元素**不转换类型**：它原来的自身值在所属根的初始值表里从 `<code>` 搬到 `<code>.0`，
+ * 新孩子的值路径补一条空串。时间不能有孩子；不存在的 code 也是错（都 `E_VALIDATION`）。
+ */
+export function addChild(card: Card, code: string): Card {
   const element = elementAt(card.state, code)
   if (element.type === 'time') throw invalid(t('issue.timeChild', { code }), { code })
   const children = childrenOf(card.state, code)
@@ -276,14 +227,13 @@ export function addChild(card: Card, tree: Tree, code: string): { card: Card; tr
     name: t('editor.newChildName', { code: childCode }),
     note: '',
     type: 'text',
-    initial: '',
   }
-  const nextTree: Tree = { ...tree }
+  const table = initialTableOf(card.state, code)
   if (children.length === 0 && element.type !== 'object') {
-    nextTree[`${code}.0`] = nextTree[code]
-    delete nextTree[code]
+    table[`${code}.0`] = table[code]
+    delete table[code]
   }
-  nextTree[childCode] = ''
+  table[childCode] = ''
   // 新孩子插在父的整棵子树之后（左栏按 `state[]` 顺序渲染，追加到末尾就会掉到整棵树最底下）
   const state = [...card.state]
   const subtree = new Set(subtreeCodes(card.state, code))
@@ -292,7 +242,7 @@ export function addChild(card: Card, tree: Tree, code: string): { card: Card; tr
     if (subtree.has(item.code)) insertAt = index + 1
   })
   state.splice(insertAt, 0, child)
-  return { card: { ...card, state }, tree: nextTree }
+  return withInitialTable({ ...card, state }, rootCodeOf(code), table)
 }
 
 /** 一个 code 连同它的整棵子树 */
@@ -302,11 +252,12 @@ function subtreeCodes(state: StateElement[], code: string): string[] {
 }
 
 /**
- * 删一个节点：自身值 + 整棵子树一起走；同层兄弟按顺序重排为 `1..n`（`.0` 自身值不动），
- * 树值的键与链上的 `reads` / `writable` 跟着映射。删光孩子的标量节点，自身值从 `.0` 搬回 `<code>`。
+ * 删一个元素：自身值 + 整棵子树一起走；同层兄弟按顺序重排为 `1..n`（`.0` 自身值不动），
+ * 链上的 `reads` / `writable` 跟着映射；**每个根元素的初始值表也按同一张映射表搬** ——
+ * 被删子树的键整批消失、重排的兄弟（含 `<code>.0`）改名、删光孩子的标量把 `parent.0` 搬回 `parent`。
  * 时间元素删不得（`E_VALIDATION`）。
  */
-export function removeNode(card: Card, tree: Tree, code: string): { card: Card; tree: Tree } {
+export function removeNode(card: Card, code: string): Card {
   const element = elementAt(card.state, code)
   if (element.type === 'time') throw invalid(t('error.timeNotRemovable'), { code })
 
@@ -330,7 +281,7 @@ export function removeNode(card: Card, tree: Tree, code: string): { card: Card; 
     for (const oldCode of subtreeCodes(card.state, later.code)) {
       const newCode = renamed + oldCode.slice(later.code.length)
       mapping.set(oldCode, newCode)
-      // 元素自己的值住在隐式 `.0`：它也是值路径，树键与链引用要一起搬（`subtreeCodes` 只回元素 code）
+      // 元素自己的值住在隐式 `.0`：它也是值路径，初始值表与链引用要一起搬
       mapping.set(`${oldCode}.0`, `${newCode}.0`)
     }
   }
@@ -340,7 +291,7 @@ export function removeNode(card: Card, tree: Tree, code: string): { card: Card; 
     .map((item) => (mapping.has(item.code) ? { ...item, code: mapping.get(item.code) as string } : item))
 
   // 删光了孩子：自身值从 `.0` 搬回父 code（与 addChild 的搬运对称）；
-  // 树键与链引用的 `<parent>.0` 也一起收成父 code —— 那个值路径已经不存在了（N-3）。
+  // 初始值表的键与链引用的 `<parent>.0` 也一起收成父 code —— 那个值路径已经不存在了。
   const parentElement = parent === undefined ? undefined : state.find((item) => item.code === parent)
   if (
     parent !== undefined &&
@@ -351,17 +302,31 @@ export function removeNode(card: Card, tree: Tree, code: string): { card: Card; 
     mapping.set(`${parent}.0`, parent)
   }
 
-  // 值路径 = 元素 code（`.0` 那一格也在 mapping 里），所以树键与链引用走同一张表
+  // 值路径 = 元素 code（`.0` 那一格也在 mapping 里），所以初始值表键与链引用走同一张表
   const mapCode = (path: string): string | undefined => {
     if (removed.has(path) || [...removed].some((gone) => path.startsWith(`${gone}.`))) return undefined
     return mapping.get(path) ?? path
   }
 
-  const nextTree: Tree = {}
-  for (const [path, value] of Object.entries(tree)) {
-    const mapped = mapCode(path)
-    if (mapped !== undefined) nextTree[mapped] = value
+  // 根元素的旧表按「新 code」索引：删完后元素可能已经改名，先记下来再套用
+  const tables = new Map<string, InitialTable>()
+  for (const old of card.state) {
+    if (old.code.includes('.') || old.type === 'time' || removed.has(old.code)) continue
+    if (!isTable(old.initial)) continue
+    tables.set(mapping.get(old.code) ?? old.code, old.initial)
   }
+
+  const nextState = state.map((item) => {
+    if (item.code.includes('.') || item.type === 'time') return item
+    const old = tables.get(item.code)
+    if (old === undefined) return item
+    const table: InitialTable = {}
+    for (const [path, value] of Object.entries(old)) {
+      const moved = mapCode(path)
+      if (moved !== undefined) table[moved] = value
+    }
+    return { ...item, initial: table }
+  })
 
   const chain = card.chain.map((node) => ({
     ...node,
@@ -375,24 +340,100 @@ export function removeNode(card: Card, tree: Tree, code: string): { card: Card; 
     }),
   }))
 
-  return { card: { ...card, state, chain }, tree: nextTree }
+  return { ...card, state: nextState, chain }
 }
 
 /**
- * 一条值路径属于哪个元素 code（错误清单点回哪一行）：叶子路径就是自己的 code，
- * 有孩子的节点自身值路径 `<code>.0` 归它的父元素；对不上任何元素 ⇒ `''`（卡级问题）。
+ * 换一个元素的类型：清掉旧类型的专属格子（values / 上下限 / 步幅 / 颗粒度 / 模式 / 节日），
+ * **所属根的初始值表不整张删**（它还要装新值）—— 只改这一格，并按新类型补默认值：
+ *   · 新类型 `object` ⇒ 自己那条值路径从表里删掉（结构体没有自身值）；
+ *   · 有孩子 ⇒ 默认值写在 `<code>.0`；没孩子 ⇒ 写在 `<code>`；
+ *   · 旧类型 `object`、新类型是标量 ⇒ 补一条自己的值路径。
+ * 孩子不动（换类型不搬孩子）。非 `time` 元素换成 `time` ⇒ `E_VALIDATION`。
  */
-function codeOfPath(state: StateElement[], path: string): string {
-  if (state.some((element) => element.code === path)) return path
-  const base = path.endsWith('.0') ? path.slice(0, -2) : ''
-  return base !== '' && state.some((element) => element.code === base) ? base : ''
+export function setElementType(card: Card, code: string, type: StateType): Card {
+  const element = elementAt(card.state, code)
+  if (type === 'time' && element.type !== 'time') {
+    throw invalid(t('issue.typeToTime', { code }), { code, type })
+  }
+  const next: StateElement = { ...element, type }
+  delete next.values
+  delete next.min
+  delete next.max
+  delete next.stepMin
+  delete next.stepMax
+  delete next.timeMode
+  delete next.holidays
+  delete next.granularityUpper
+  delete next.granularityLower
+  if (type === 'enum') next.values = []
+  const table = initialTableOf(card.state, code)
+  const ownPath = ownPathOf(card.state, element)
+  delete table[ownPath]
+  const initial = defaultInitialOf(type)
+  if (initial !== undefined) table[ownPath] = initial
+  const isRoot = !code.includes('.')
+  const state = card.state.map((item) => {
+    if (item.code === code) return isRoot ? { ...next, initial: table } : next
+    if (item.code === rootCodeOf(code)) return { ...item, initial: table }
+    return item
+  })
+  return { ...card, state }
 }
 
-/** 树里的一条值是不是这个元素认的形状（存档校验与存档编辑器共用这一份） */
+/**
+ * 编辑器改初始值走这一条：把 `value` 写进「拥有这条值路径的根元素的初始值表」。
+ * 时间根的路径就是它自己的 code（值就是时间值本身）。
+ * `path` 不属于任何根的初始值 ⇒ `E_VALIDATION`（点名 path）。不校验值得类型（那是 `cardIssues`）。
+ */
+export function setInitial(card: Card, path: string, value: StateValue): Card {
+  const rootCode = rootCodeOf(path)
+  const root = elementAt(card.state, rootCode)
+  if (root.type === 'time') {
+    if (path !== rootCode) throw invalid(t('issue.initialPath', { path }), { path })
+    return {
+      ...card,
+      state: card.state.map((item) => (item.code === rootCode ? { ...item, initial: value } : item)),
+    }
+  }
+  const table = initialTableOf(card.state, path)
+  if (!(path in table)) throw invalid(t('issue.initialPath', { path }), { path })
+  table[path] = value
+  return withInitialTable(card, rootCode, table)
+}
+
+/**
+ * 换时间模式：时间初始值重置成新模式的默认值；颗粒度两格若不在新模式的单位表里就回落到 `day`；
+ * `days-minute` 删掉节日那一格，从天数模式切回年份模式则补一份三个都是 `false` 的节日勾选。
+ */
+export function setTimeMode(card: Card, mode: TimeMode): Card {
+  const units = unitsOfMode(mode)
+  const fallback = (unit: TimeUnit | undefined): TimeUnit =>
+    unit !== undefined && units.includes(unit) ? unit : 'day'
+  const state = card.state.map((element) => {
+    if (element.type !== 'time') return element
+    const next: StateElement = {
+      ...element,
+      timeMode: mode,
+      initial: defaultTimeOf(mode),
+      granularityUpper: fallback(element.granularityUpper),
+      granularityLower: fallback(element.granularityLower),
+    }
+    if (mode === 'days-minute') {
+      delete next.holidays
+      return next
+    }
+    next.holidays = { international: false, china: false, traditional: false, ...element.holidays }
+    return next
+  })
+  return { ...card, state }
+}
+
+/** 树里的一条值是不是这个元素认的形状（初始值校验、存档校验、存档编辑器共用这一份） */
 export function valueFits(element: StateElement, value: unknown): boolean {
   switch (element.type) {
     case 'time':
-      return isTimeValue(value)
+      return isTimeValue(value, element.timeMode)
     case 'text':
       return typeof value === 'string'
     case 'integer':
@@ -402,6 +443,55 @@ export function valueFits(element: StateElement, value: unknown): boolean {
     default:
       return true
   }
+}
+
+/** 三个节日勾选齐全且都是布尔 */
+function holidaysFit(holidays: Holidays | undefined): boolean {
+  if (holidays === undefined) return false
+  return [holidays.international, holidays.china, holidays.traditional].every(
+    (flag) => typeof flag === 'boolean',
+  )
+}
+
+/** 一个根元素的初始值表要覆盖哪些值路径：`pathsOf` 就是口径 */
+function initialIssues(card: Card): CardIssue[] {
+  const issues: CardIssue[] = []
+  const add = (code: string, path: string, message: string) =>
+    issues.push({ code, path, message, errorCode: 'E_VALIDATION' })
+  for (const element of card.state) {
+    // 初始值只许住在根元素身上：子元素带这一格（哪怕是 undefined）就是坏卡
+    if (element.code.includes('.')) {
+      if ('initial' in element) add(element.code, '', t('issue.childInitial', { code: element.code }))
+      continue
+    }
+    // 时间根的初始值是时间值本身，归时间那一族判（模式 / 六格旧形状）
+    if (element.type === 'time') continue
+    if (!('initial' in element)) {
+      add(element.code, '', t('issue.missingInitial', { code: element.code }))
+      continue
+    }
+    if (!isTable(element.initial)) {
+      add(element.code, '', t('issue.initialTable', { code: element.code }))
+      continue
+    }
+    const table = element.initial
+    const paths = pathsOf(card.state, element.code)
+    const known = new Set(paths)
+    for (const path of paths) {
+      if (!(path in table)) add(element.code, path, t('issue.initialMissingPath', { path }))
+    }
+    for (const path of Object.keys(table)) {
+      if (!known.has(path)) add('', path, t('issue.initialExtraPath', { path }))
+    }
+    for (const path of paths) {
+      if (!(path in table)) continue
+      const owner = elementOfPath(card.state, path)
+      if (owner === undefined || !valueFits(owner, table[path])) {
+        add(owner?.code ?? '', path, t('issue.initialValue', { path }))
+      }
+    }
+  }
+  return issues
 }
 
 function stateIssues(card: Card, checkInitial: boolean): CardIssue[] {
@@ -461,23 +551,21 @@ function stateIssues(card: Card, checkInitial: boolean): CardIssue[] {
     }
     if (element.type === 'object') {
       if (children.length === 0) add(element.code, '', t('issue.emptyObject', { code: element.code }))
-      if ('initial' in element) add(element.code, '', t('issue.objectInitial', { code: element.code }))
       continue
     }
-    if (!('initial' in element)) {
-      if (checkInitial) add(element.code, '', t('issue.missingInitial', { code: element.code }))
-    } else if (element.type === 'text') {
-      if (checkInitial && typeof element.initial !== 'string')
-        add(element.code, '', t('issue.textInitial', { code: element.code }))
-    } else if (element.type === 'integer') {
-      issues.push(...integerIssues(element, checkInitial))
-    } else if (element.type === 'enum') {
-      issues.push(...enumIssues(element, checkInitial))
-    }
-    if (element.type === 'time') {
+    // 数字 / 下拉的专属格子：上下限与白名单本身坏没坏（与初始值无关，永远判）
+    if (element.type === 'integer') issues.push(...integerIssues(element))
+    else if (element.type === 'enum') issues.push(...enumIssues(element))
+    if (element.type !== 'time') continue
+    // 时间元素：模式、节日格子、颗粒度、时间值本身（存量）：四条各自独立，缺一条就说一条
+    const mode = element.timeMode
+    if (mode === undefined || !TIME_MODES.includes(mode)) {
+      add(element.code, '', t('issue.timeMode', { code: element.code }))
+    } else {
+      const units = unitsOfMode(mode)
+      const known = (unit: TimeUnit | undefined) => unit !== undefined && units.includes(unit)
       const upper = element.granularityUpper
       const lower = element.granularityLower
-      const known = (unit: TimeUnit | undefined) => unit !== undefined && TIME_UNITS.includes(unit)
       if (
         !known(upper) ||
         !known(lower) ||
@@ -485,11 +573,20 @@ function stateIssues(card: Card, checkInitial: boolean): CardIssue[] {
       ) {
         add(element.code, '', t('issue.granularity', { code: element.code }))
       }
-      if (checkInitial && 'initial' in element && !isTimeValue(element.initial)) {
-        add(element.code, '', t('issue.timeValue', { code: element.code }))
+      if (mode === 'days-minute') {
+        if ('holidays' in element) add(element.code, '', t('issue.holidaysInDays', { code: element.code }))
+      } else if (!holidaysFit(element.holidays)) {
+        add(element.code, '', t('issue.holidays', { code: element.code }))
+      }
+      if (checkInitial) {
+        if (!('initial' in element)) add(element.code, '', t('issue.missingInitial', { code: element.code }))
+        else if (!isTimeValue(element.initial, mode)) {
+          add(element.code, '', t('issue.timeValue', { code: element.code }))
+        }
       }
     }
   }
+  if (checkInitial) issues.push(...initialIssues(card))
   return issues
 }
 
@@ -532,7 +629,7 @@ export function enumValueFits(element: StateElement, value: unknown): value is s
   return typeof value === 'string' && (element.values ?? []).includes(value)
 }
 
-function integerIssues(element: StateElement, checkInitial: boolean): CardIssue[] {
+function integerIssues(element: StateElement): CardIssue[] {
   const issue = (message: string): CardIssue[] => [
     { code: element.code, path: '', message, errorCode: 'E_VALIDATION' },
   ]
@@ -546,13 +643,10 @@ function integerIssues(element: StateElement, checkInitial: boolean): CardIssue[
   if (min > max || stepMin > stepMax || stepMin < 0) {
     return issue(t('issue.integerBounds', { code: element.code }))
   }
-  if (checkInitial && !integerValueFits(element, element.initial)) {
-    return issue(t('issue.integerInitial', { code: element.code }))
-  }
   return []
 }
 
-function enumIssues(element: StateElement, checkInitial: boolean): CardIssue[] {
+function enumIssues(element: StateElement): CardIssue[] {
   const values = element.values
   const okValues =
     Array.isArray(values) &&
@@ -565,16 +659,6 @@ function enumIssues(element: StateElement, checkInitial: boolean): CardIssue[] {
         code: element.code,
         path: '',
         message: t('issue.enumValues', { code: element.code }),
-        errorCode: 'E_VALIDATION',
-      },
-    ]
-  }
-  if (checkInitial && !enumValueFits(element, element.initial)) {
-    return [
-      {
-        code: element.code,
-        path: '',
-        message: t('issue.enumInitial', { code: element.code }),
         errorCode: 'E_VALIDATION',
       },
     ]
@@ -627,8 +711,8 @@ function chainIssues(card: Card): CardIssue[] {
  * 整卡的问题清单：状态树 + 链的规矩，一条一个 `{ code, path, message, errorCode }`；干净卡 ⇒ `[]`。
  * 保存按钮拿它当「能不能写盘」的判据，`validateCard` 拿它抛第一条 —— 两边不会各判一套。
  *
- * `initial: false` ⇒ **不判初始值**（缺初始值 / 类型不符 / 越界都不算）：存档编辑器改的是卡快照的
- * 非初始字段，卡快照里的初始值早就展开成 `save.tree`，存档模式也不显示它（契约 §6.2）。
+ * `initial: false` ⇒ **初始值这一族整块不判**（缺根 / 少路径 / 多键 / 值不符 / 子元素带 initial 都不报）：
+ * 存档编辑器改的是卡快照的非初始字段，卡快照里的初始值早就展开成 `save.tree`，存档模式也不显示它。
  */
 export function cardIssues(card: Card, options: { initial?: boolean } = {}): CardIssue[] {
   return [...stateIssues(card, options.initial !== false), ...chainIssues(card)]
@@ -636,7 +720,7 @@ export function cardIssues(card: Card, options: { initial?: boolean } = {}): Car
 
 /**
  * 存档编辑器保存前的兼容性清单：**新的卡快照必须容得下这一份存档的当前树** ——
- * 每条值路径都还在、没有多出来的键、每个值仍符合元素的类型与上下限。
+ * 每条值路径都还在、没有多出来的键、每个值仍符合元素的类型与上下限（时间按模式判）。
  * **不看初始值**：初始值是卡的种子，这一局的当前值住在 `save.tree`（契约 §6.2）。
  */
 export function saveTreeIssues(card: Card, tree: Tree): CardIssue[] {
@@ -671,4 +755,14 @@ export function saveTreeIssues(card: Card, tree: Tree): CardIssue[] {
     }
   }
   return issues
+}
+
+/**
+ * 一条值路径属于哪个元素 code（错误清单点回哪一行）：叶子路径就是自己的 code，
+ * 有孩子的节点自身值路径 `<code>.0` 归它的父元素；对不上任何元素 ⇒ `''`（卡级问题）。
+ */
+function codeOfPath(state: StateElement[], path: string): string {
+  if (state.some((element) => element.code === path)) return path
+  const base = path.endsWith('.0') ? path.slice(0, -2) : ''
+  return base !== '' && state.some((element) => element.code === base) ? base : ''
 }

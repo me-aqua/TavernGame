@@ -48,38 +48,41 @@ describe('晨风镇 v5 · 资产形状', () => {
     expect(() => validateCard(card)).not.toThrow()
   })
 
-  it('树就是 v5 §7.1 那一棵：时间 / 世界 / 玩家，四种用户可选类型都出场', async () => {
+  it('树就是那一棵：时间 / 世界 / 玩家，四种用户可选类型都出场', async () => {
     const card = sampleCard()
     expect(card.state.map((item) => item.code).sort()).toEqual([...CODES].sort())
     expect(elementOf(card, '0')).toMatchObject({
       type: 'time',
+      timeMode: 'year-minute',
       granularityUpper: 'day',
       granularityLower: 'minute',
-      initial: { year: 1024, month: 9, day: 17, hour: 18, minute: 30, second: 0 },
+      holidays: { international: false, china: false, traditional: false },
+      initial: { year: 1024, month: 9, day: 17, hour: 18, minute: 30 },
     })
-    // 世界 / 玩家是「text + 空自身值 + 子节点」——结构体只是后台形态
-    expect(elementOf(card, '1')).toMatchObject({ type: 'text', initial: '' })
-    expect(elementOf(card, '2')).toMatchObject({ type: 'text', initial: '' })
-    expect(elementOf(card, '1.2')).toMatchObject({
-      type: 'enum',
-      values: ['晴', '阴', '雨', '雪', '雾'],
-      initial: '雨',
-    })
+    // 世界 / 玩家是「text + 空自身值 + 子节点」——根 initial 是整棵子树的扁平表（2.2）
+    expect(elementOf(card, '1')).toMatchObject({ type: 'text' })
+    expect(elementOf(card, '2')).toMatchObject({ type: 'text' })
+    expect(elementOf(card, '1').initial['1.0']).toBe('')
+    expect(elementOf(card, '2').initial['2.0']).toBe('')
+    // 子元素身上没有 initial：值住在所属根的 initial 里
+    expect(elementOf(card, '1.2')).toMatchObject({ type: 'enum', values: ['晴', '阴', '雨', '雪', '雾'] })
+    expect(elementOf(card, '1').initial['1.2']).toBe('雨')
     expect(elementOf(card, '1.3')).toMatchObject({ type: 'text' })
-    expect(elementOf(card, '2.1')).toMatchObject({ type: 'text', initial: '旅人' })
+    expect(elementOf(card, '2.1')).toMatchObject({ type: 'text' })
+    expect(elementOf(card, '2').initial['2.1']).toBe('旅人')
     expect(elementOf(card, '2.2')).toMatchObject({
       type: 'integer',
       min: 0,
       max: 100,
       stepMin: 1,
       stepMax: 10,
-      initial: 80,
     })
+    expect(elementOf(card, '2').initial['2.2']).toBe(80)
     expect(elementOf(card, '2.3')).toMatchObject({
       type: 'enum',
       values: ['正常', '受伤', '疲惫', '中毒'],
-      initial: '正常',
     })
+    expect(elementOf(card, '2').initial['2.3']).toBe('正常')
     expect(elementOf(card, '2.4')).toMatchObject({ type: 'text' })
   })
 
@@ -88,9 +91,11 @@ describe('晨风镇 v5 · 资产形状', () => {
     expect(elementOf(card, '1.1')).toMatchObject({
       type: 'enum',
       values: ['晨风镇', '镇郊', '地牢', '官道', '码头'],
-      initial: '晨风镇',
     })
-    expect(elementOf(card, '1.1.1')).toMatchObject({ type: 'text', initial: '醉猫旅店 · 一楼' })
+    expect(elementOf(card, '1.1')).not.toHaveProperty('initial')
+    expect(elementOf(card, '1').initial['1.1.0']).toBe('晨风镇')
+    expect(elementOf(card, '1.1.1')).toMatchObject({ type: 'text' })
+    expect(elementOf(card, '1').initial['1.1.1']).toBe('醉猫旅店 · 一楼')
   })
 
   it('人物与线索不在 2.1 里（字典/线索整块推迟）', async () => {
@@ -112,7 +117,7 @@ describe('晨风镇 v5 · 初始值展开（§7.2）', () => {
   it('initialTreeOf 逐字等于 §7.2 那张扁平表', async () => {
     const { initialTreeOf } = await loadState()
     expect(initialTreeOf(sampleCard())).toEqual({
-      0: { year: 1024, month: 9, day: 17, hour: 18, minute: 30, second: 0 },
+      0: { year: 1024, month: 9, day: 17, hour: 18, minute: 30 },
       '1.0': '',
       '1.1.0': '晨风镇',
       '1.1.1': '醉猫旅店 · 一楼',

@@ -13,8 +13,11 @@
  */
 import { t } from '../i18n'
 import { AppError } from './errors'
-import { cardIssues, isTimeValue, pathsOf, valueFits } from './statetree'
+import { cardIssues, elementOfPath, isTimeValue, pathsOf, valueFits } from './statetree'
 import type { Card, ChainNode, Save, StateElement } from './types'
+
+// 值路径 ↔ 元素的那一格住在 `statetree.ts`（卡校验、存档校验、界面三处共用）；老的调用方从这里取
+export { elementOfPath }
 
 const NODE_TYPES = ['time', 'normal', 'output'] as const
 
@@ -46,20 +49,6 @@ export function toolsForNode(card: Card, node: ChainNode): string[] {
 function writableValueAt(card: Card, path: string): boolean {
   const element = elementOfPath(card.state, path)
   return element !== undefined && element.type !== 'time' && element.type !== 'object'
-}
-
-/**
- * 一条**值路径**属于哪个元素：叶子就是自己的 code，有孩子的节点是 `<code>.0`。
- * `object` 的自身 code / 它的 `.0` 都不返回值路径，所以这里也返回 `undefined`
- * （引擎据此把「写结构体自身」与「路径不存在」都判成链的错）。
- */
-export function elementOfPath(state: StateElement[], path: string): StateElement | undefined {
-  const own = state.find((element) => element.code === path)
-  if (own) return own
-  if (!path.endsWith('.0')) return undefined
-  const base = state.find((element) => element.code === path.slice(0, -2))
-  if (!base) return undefined
-  return pathsOf(state, base.code).includes(path) ? base : undefined
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -209,10 +198,11 @@ export function validateSave(save: Save, card?: Card): void {
     throw new AppError('E_VALIDATION', { message: t('error.events'), nextStep: t('next.home') })
   }
   if (!isRecord(save.tree)) throw badField('save.tree')
-  // 值只有三种形状：文字、数字、公历六格。旧的 `{ day, hour }` 就死在这一格。
+  // 值只有三种形状：文字、整数、时间值。时间值的格子按卡的 `timeMode` 判；没有卡可比时三种都收。
+  const timeMode = card?.state[0]?.type === 'time' ? card.state[0].timeMode : undefined
   for (const [path, value] of Object.entries(save.tree)) {
     if (typeof value === 'string' || (typeof value === 'number' && Number.isSafeInteger(value))) continue
-    if (!isTimeValue(value)) {
+    if (!isTimeValue(value, path === '0' ? timeMode : undefined)) {
       throw new AppError('E_VALIDATION', {
         message: t('error.timeTree'),
         nextStep: t('next.home'),

@@ -103,14 +103,13 @@ test('工具参数 schema：advance_time 用 amount + unit；write_state 的 val
   expect(advance, 'advance_time 的工具 schema 不在请求里').toBeTruthy()
   expect(advance.properties?.amount?.type, 'amount 是整数').toBe('integer')
   expect(advance.properties?.hours, '旧的 hours 参数不许还在').toBeUndefined()
-  expect(advance.properties?.unit?.enum, 'unit 必须是 TIME_UNITS 那七个').toEqual([
+  expect(advance.properties?.unit?.enum, 'unit 必须是 TIME_UNITS 那六个（秒没有了）').toEqual([
     'year',
     'month',
     'week',
     'day',
     'hour',
     'minute',
-    'second',
   ])
   expect(advance.required, 'amount + unit 都必填').toEqual(expect.arrayContaining(['amount', 'unit']))
 

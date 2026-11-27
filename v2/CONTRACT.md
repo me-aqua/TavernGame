@@ -46,7 +46,7 @@ v2/
   schemaVersion: 1,
   id: 'c-<string>', name: string,        // id 创建时生成且稳定；name 非空，重命名只改它
   state: [{ code, name, note, type, values?, min?, max?, stepMin?, stepMax?,
-            granularityUpper?, granularityLower?, initial? }],
+            timeMode?, holidays?, granularityUpper?, granularityLower?, initial? }],
   chain: [{ id, type: 'time' | 'normal' | 'output', name,
             reads: string[], writable: string[], readsUpstream: string[],
             historyTurns: number, prompt: string }], // 顺序即执行顺序
@@ -57,8 +57,9 @@ v2/
 - **状态树是扁平的、键是完整 code**（v5）：`state[]` 只是**声明**，值住在存档的 `tree` 里（§2.2）。
 - `type ∈ 'time' | 'text' | 'integer' | 'enum' | 'object'`；**作者只能选 `text` / `integer` / `enum` / `time`**，`object` 是「有孩子」的内部形态（类型下拉里没有；导入的卡真有 `object` 时照实显示并按它校验）。`type` 描述的是**自身值**，所以标量节点也可以有孩子、不会因此变成 `object`。
 - **编号铁律**：`state[0].code === '0'` 且 `type === 'time'`（整张卡只能有一个 `time`，它不能有孩子）；节点自己的值住在**隐式**的 `<code>.0`（**不进 `state[]`**），可见孩子从 `<code>.1` 起连续编号；父 code 必须存在；深度（`.0` 不计）最大 5（`1.1.1.1.1` 合法）。
-- **自身值**：`object` 没有 `initial`（必须有孩子）；其余类型必须带 `initial`（带孩子的标量也一样）。`initial` 永远是「这个元素自己的值」，落到树里的 `<code>.0` 是派生（`initialTreeOf`），卡里不存 `.0` 键。
-- 各类型的格子：`enum` 的 `values` 非空 / 不重复 / 都是字符串，初始值必须是其中一项；`integer` 的 `min`/`max`（缺省 ∓1e9）与 `stepMin`/`stepMax`（缺省 0 / 1e9）是值范围与**单次写入的步幅**（`|new − old|`），初始值只受上下限约束；`time` 的 `granularityUpper`/`granularityLower` 是单次推进的最粗 / 最细单位（顺序：year > month > week > day > hour > minute > second，upper 不细于 lower），值永远是合法公历六格。
+- **初始值只挂在根元素上**（`code` 不含 `.`）：它不是「元素自己的值」，而是**整棵子树的扁平值表**（键是完整 code，口径与存档 `tree` 完全一致）；时间根是唯一例外 —— 它的 `initial` 就是时间值本身。**子元素一个字节都不许存 `initial`**（有这一格就是坏卡 ⇒ `E_VALIDATION`）。摊平成新建存档的 `tree` 由 `initialTreeOf` 做。
+- 各类型的格子：`enum` 的 `values` 非空 / 不重复 / 都是字符串，初始值必须是其中一项；`integer` 的 `min`/`max`（缺省 ∓1e9）与 `stepMin`/`stepMax`（缺省 0 / 1e9）是值范围与**单次写入的步幅**（`|new − old|`），初始值只受上下限约束；`time` 的 `timeMode` 必填（`year-minute` / `year-date` / `days-minute`，见 §2.6）、`holidays` 在前两个模式必填且天数模式不许有、`granularityUpper`/`granularityLower` 是单次推进的最粗 / 最细单位（顺序：year > month > week > day > hour > minute，没有 `second`；upper 不细于 lower，且两格都得在当前模式的单位里）。
+- 其它类型身上残留 `timeMode` / `holidays` **不管**（与「多余字段宽容」同一口径）。
 - `validateCard` 对多余字段宽容（卡里残留 `presetId` 不报错，引擎一个字节都不看），但对**旧形状不迁移**：`type: 'string'`、`tree['0']` 是 `{ day, hour }`、缺 `opening`、布尔 `readsUpstream`、带校对节点的卡一律中文 `E_VALIDATION`。
 - `reads` 是混合数组：`prompts[].id` = 读这块公共提示词，**元素 code** = 读这个元素（自身值 + 整棵子树），**`<code>.0`** = 只读这个元素的自身值；创建方保证同一字符串不同时是两者。
 - **`.0` 引用**：只有「真的有自身值、而且住在 `.0`」的节点才有这一格 —— 有孩子的标量（`1.1` 是 enum 且有孩子 ⇒ `1.1.0` 合法）；叶子自己就是 `<code>`，所以 `2.1.0` 非法；`object` 没有自身值 ⇒ `2.4.0` 非法；时间元素没有孩子 ⇒ `0.0` 非法；父 code 不存在 ⇒ 非法。`reads` 与 `writable` 都按这一条判（悬空 ⇒ `E_VALIDATION`）。
@@ -72,7 +73,7 @@ v2/
 
 `id` 是结构（选择器 / 链引用 / 测试），必须 ASCII 且稳定；`name` 是展示文案，住 `locales/zh-CN.json`。
 
-- 新建卡 `state = [{ code:'0', name:'时间', note:'', type:'time', initial:{year:1024,month:1,day:1,hour:8,minute:0,second:0}, granularityUpper:'day', granularityLower:'minute' }]`，`prompts = [{ id:'opening', title:'开场', body:'' }]`；每张卡都带 `opening`（新建 / 删不掉 / 排第一，标题来自 `card.openingTitle`）。
+- 新建卡 `state = [{ code:'0', name:'时间', note:'', type:'time', timeMode:'year-minute', initial:{year:1024,month:1,day:1,hour:8,minute:0}, granularityUpper:'day', granularityLower:'minute', holidays:{international:false,china:false,traditional:false} }]`，`prompts = [{ id:'opening', title:'开场', body:'' }]`；每张卡都带 `opening`（新建 / 删不掉 / 排第一，标题来自 `card.openingTitle`）。
 - 新增状态元素 / 提示词块不自动进入任何节点的 `reads` / `writable`，作者用眼睛打开。
 - **不做旧卡兼容 / 迁移**：没有 `normalizeCard`；`type:'string'`、`{day,hour}` 时间、缺 `opening`、带 `proof`、`readsUpstream` 是布尔的老卡，`validateCard` 直接报中文 `E_VALIDATION`（链规矩坏了是 `E_CHAIN`），不补字段。
 - `readsUpstream` 是节点 id 数组，只能引用链上排在它前面的节点（自己与下游 ⇒ `E_CHAIN`）；空数组 = 不读上游。
@@ -86,13 +87,13 @@ v2/
   cardSnapshot: Card,                    // 新建时整张卡深拷贝，此后不随卡改动
   nodeModels?: { [nodeId]: presetId },   // 这一份存档自己的映射；缺省 = 回落卡级
   name: string, turn: number,            // 已完成回合数；新建为 0
-  tree: { [path]: string | number | { year, month, day, hour, minute, second } },
+  tree: { [path]: string | number | TimeValue },   // TimeValue 的格子跟着卡的 timeMode 走（§2.6）
   events: Event[], updatedAt: string     // ISO 时间戳
 }
 ```
 
-- `tree` 是**扁平完整 code 的值表**，新建时由 `initialTreeOf(cardSnapshot)` 展开：没孩子的元素用自身 `code`，有孩子的元素自身值放 `<code>.0`，`object` 一条键都不产出。时间永远是六格公历（深拷贝），其余是字符串或整数。
-- `validateSave(save, card)` 要求 `tree` **覆盖全部值路径**（`pathsOf`）且**没有多余键**：`object` 的自身 code（`2`）与「拿父 code 顶替 `<code>.0`」都被拒；`tree['0']` 不是六格（旧的 `{day,hour}`）⇒ `E_VALIDATION`。
+- `tree` 是**扁平完整 code 的值表**，新建时由 `initialTreeOf(cardSnapshot)` 展开：每个根元素的初始值摊平（键就是完整 code），时间根的值按 `timeMode` 收格后深拷贝。其余是字符串或整数。
+- `validateSave(save, card)` 要求 `tree` **覆盖全部值路径**（`pathsOf`）且**没有多余键**：`object` 的自身 code（`2`）与「拿父 code 顶替 `<code>.0`」都被拒；`tree['0']` 的格子按 `card.state[0].timeMode` 判（没给 `card` 时三种形状都收），旧六格 / `{day,hour}` ⇒ `E_VALIDATION`。
 - `Event = { type, text, detail?, at }`，`type` 允许 `'action' | 'narration' | 'node' | 'request' | 'tool' | 'write' | 'toolResult' | 'error' | 'trace' | 'turnStats'`；`chunk` 不是持久事件（只走 `onEvent`）。
 - `trace` 每节点一条、按链顺序：`detail = { nodeId, nodeName, nodeType, presetId, prompt, thinking, toolCalls: [{ name, args, result? }], output, usage: { inputTokens, outputTokens, totalTokens } | null, durationMs, tps: number | null, turn }`，`text = node.name`。
 - `turnStats` 每回合一条、回合末尾：`detail = { turn, totalMs, usage, tps }`，`text = 'turn <n>'`；`usage` 是各节点之和，`tps` 量不出为 `null`。
@@ -129,6 +130,32 @@ v2/
 - 编辑器 `[data-node-preset]` 改的是映射（写 `tg2.nodeModels`），不动卡。
 - 删卡**不删** `tg2.nodeModels[cardId]`。
 - 映射指向已删除的预设 ⇒ 运行时 `E_VALIDATION`，不静默退回第一个。
+
+### 2.6 时间与节日（`src/core/timevalue.ts` · `src/core/holidays.ts` · `src/core/lunar-table.ts`）
+
+时间是**带模式的公历值**：三种模式各自的格子、各自能推进的单位、各自的显示。**没有秒**。
+
+| 模式          | 值（`tree['0']`）              | 可推进单位                                | 显示                        |
+| ------------- | ------------------------------ | ----------------------------------------- | --------------------------- |
+| `year-minute` | `{year,month,day,hour,minute}` | year · month · week · day · hour · minute | `2024-02-10 08:30（周六）`  |
+| `year-date`   | `{year,month,day}`             | year · month · week · day                 | `2024-02-10（周六）`        |
+| `days-minute` | `{day,hour,minute}`            | day · hour · minute                       | `第 5 天 08:30`（没有星期） |
+
+- **年份**：`-551 … -1` 与 `1 … 9999`（`YEAR_MIN` / `YEAR_MAX`），**没有公元 0 年**；显示成 `YYYY`（补到 4 位）或 `公元前{N}`（不补零）。换算一律先换**天文年**（`astro = year < 0 ? year + 1 : year`）：闰年 / 当月天数 / 星期几都按天文年算，所以公元前 1 年是闰年（`-1-02-29` 合法）。公历用 Hinnant 的 civil-from-days 那一对公式（纯算术，**不接第三方历法库**）。
+- `days-minute` 的 `day` 是**正整数天数计数**（安全整数、`>= 1`），没有年月；时分满 24 / 60 进一天。
+- `isTimeValue(value, mode?)`：给了 `mode` ⇒ 键集合必须**恰好**是那个模式的 5 / 3 / 3 格（多一格少一格都不认）；省略 ⇒ 三种形状任一（存档没有卡可比时用）。
+- 卡里时间元素的 `initial` **必须恰好是这个模式的格子**（`year-minute` 5 格 / `year-date` 3 格 / `days-minute` 3 格）：多一格（例如 `year-date` 里带着钟点）⇒ `E_VALIDATION`（`issue.timeValue`）。`initialTreeOf` 把它深拷贝进 `tree['0']`，不收格、不改写。
+- `advanceTime(value, amount, unit, { mode, upper?, lower? })`：`amount` 正整数、`unit` 在该模式的单位表里且在 `[lower, upper]` 内；年 / 月按公历进位、目标月没有那一天就夹到月末（`2024-01-31 +1 月 = 2024-02-29`）、`week` = 7 × amount 天；跨「没有 0 年」按天文年（公元前 1 年 +1 年 = 公元 1 年）；越界 ⇒ `E_VALIDATION`。
+- **节日是派生只读列表**，由「时间值 + 三个勾选」当场算出来（`holidaysOf(value, mode, holidays)`），**不写进 `state[]` / `tree` / 事件**：
+
+| 组                       | 条目                                                                                         |
+| ------------------------ | -------------------------------------------------------------------------------------------- |
+| `international` 现代国际 | 元旦 1/1 · 情人节 2/14 · 妇女节 3/8 · 劳动节 5/1 · 儿童节 6/1 · 万圣节 10/31 · 圣诞节 12/25  |
+| `china` 现代中国         | 元旦 1/1 · 劳动节 5/1 · 国庆节 10/1（**没有**任何农历派生节日）                              |
+| `traditional` 中国传统   | 春节 · 元宵 · 龙抬头 · 端午 · 七夕 · 中元 · 中秋 · 重阳 · 腊八 · 小年 · 除夕（腊月最后一天） |
+
+- 顺序 = 组顺序 × 组内定义顺序，**按名字去重、保留第一次出现**（元旦 / 劳动节同时住在两组里）；`days-minute` 模式与 `holidays` 缺失 ⇒ `[]`。没有清明（节气不是农历节日）。
+- 传统节日只用一张**有界的农历年历表**（`LUNAR_INFO`，201 项 = 1900–2100，低 4 位闰月、bit4..15 月大小、bit16 闰月大小）：换算方向是**公历 → 农历 → 查节日表**，所以腊八 / 小年 / 除夕落在次年 1 月时照样算对；**闰月不算节日**。年份不在 `1900–2100`（或早于表内第一天 `1900-01-31`）⇒ 这一组一条都不产出，**不报错**；勾选**永远可点**（不置灰）。
 
 ## 3. 存储层（`src/core/storage.ts`）
 
@@ -179,20 +206,31 @@ export function createStorage(backend) -> Storage   // backend 由调用方注�
 export async function runTurn({ card, save, presets, nodePresets, action, onEvent, signal }) -> { save, events }
 export function resolveNodePreset({ presets, nodePresets, nodeId }) -> Preset
 export function applyWrite({ card, node, tree, path, value }) -> Tree
-export { advanceTime }   // 语义见 src/core/statetree.ts：advanceTime(value, amount, unit, bounds?)
-// src/core/statetree.ts（阶段 2.1 的新模块）:
-export const TIME_UNITS
+export { advanceTime }   // 语义见 src/core/timevalue.ts：advanceTime(value, amount, unit, { mode, upper?, lower? })
+// src/core/statetree.ts（状态树：形状 / 派生 / 同步 / 校验；时间那半原样转出）:
+export const YEAR_MIN, YEAR_MAX, TIME_MODES, TIME_UNITS
 export function codeDepth(code) -> number
 export function pathsOf(state, ref) -> string[]   // ref = 元素 code（自身值 + 子树）或 `<code>.0`（只有自身值）；认不出 ⇒ []
+export function elementOfPath(state, path) -> StateElement | undefined
+export function unitsOfMode(mode) -> TimeUnit[]
+export function cellsOfMode(mode) -> (keyof YearMinuteValue)[]
+export function defaultTimeOf(mode) -> TimeValue
+export function isTimeValue(value, mode?) -> boolean
+export function formatTime(value, mode) -> string
+export function advanceTime(value, amount, unit, bounds) -> TimeValue
 export function initialTreeOf(card) -> Tree
-export function formatTime(value) -> string
-export function advanceTime(value, amount, unit, bounds?) -> TimeValue
-export function addChild(card, tree, code) -> { card, tree }
-export function removeNode(card, tree, code) -> { card, tree }
-export function cardIssues(card) -> CardIssue[]
+export function addChild(card, code) -> Card
+export function removeNode(card, code) -> Card
+export function setElementType(card, code, type) -> Card
+export function setInitial(card, path, value) -> Card
+export function setTimeMode(card, mode) -> Card
+export function cardIssues(card, { initial? }) -> CardIssue[]
+export function saveTreeIssues(card, tree) -> CardIssue[]
+// src/core/holidays.ts:
+export function holidaysOf(value, mode, holidays) -> string[]
 // src/core/schema.ts:
 export function toolsForNode(card, node) -> string[]
-export function elementOfPath(state, path) -> StateElement | undefined
+export { elementOfPath }   // 转出 `statetree` 那一份（老的调用方从这里取）
 ```
 
 - `runTurn` **不修改入参**（`save` / `card` / `presets` / `nodePresets` 只读），返回**新的** `save`；失败一律 `throw AppError`，不返回 `{ error }` 混合形状。
@@ -213,7 +251,7 @@ export function elementOfPath(state, path) -> StateElement | undefined
 
 - **节点类型不决定能写什么**：`time` / `normal` 的 `writable` 里都可以有时间元素 `'0'` 与普通元素（也可以写 `<code>.0`，只拿自身值的写权限）；工具由**每个引用覆盖到的值路径**（`pathsOf`）派生：覆盖到时间 ⇒ `advance_time`，覆盖到任何非时间 / 非结构体的值 ⇒ `write_state`，两样都覆盖 ⇒ 两个工具。
 - 唯一例外是 `output`：它只产故事，`writable` 必须是空的（卡校验 `E_CHAIN`），`toolsForNode` 给它 `[]`。
-- `advance_time({ amount, unit })`：`amount` 是**正整数**，`unit` 必须在时间元素的颗粒度界内（`granularityUpper` ≤ unit ≤ `granularityLower`），否则 `E_VALIDATION`；按公历推进（年 / 月月底夹取、`week` = 7 × amount 天、越过 1..9999 年 ⇒ `E_VALIDATION`），写回该时间元素自己的值路径。
+- `advance_time({ amount, unit })`：`amount` 是**正整数**，`unit` 必须在**当前时间模式**的单位表里、且在该元素的颗粒度界内（`granularityUpper` ≤ unit ≤ `granularityLower`），否则 `E_VALIDATION`；按公历推进（年 / 月月底夹取、`week` = 7 × amount 天、越过 `-551..9999` 年或天数越界 ⇒ `E_VALIDATION`），写回该时间元素自己的值路径；工具结果用 `formatTime(next, mode)`。JSON schema 的 `unit` 枚举仍然是**六个单位**（执行器再判模式）。
 - `write_state({ path, value })` 只能写 `node.writable` 覆盖到的值路径（**完整 code**；有孩子的节点自身值是 `<code>.0`）；值按元素类型收：`text` 字符串、`integer` 安全整数 + 上下限 + 单次步幅、`enum` 白名单；写时间 ⇒ `E_CHAIN`（提示改用 `advance_time`）。模型可能把整数写成 JSON 字符串（schema 的 `value` 收 `string | integer`）⇒ `integer` 收到**数字字符串**时先收成数字（`"85"` ⇒ `85`，落进 `tree` 的是数字），再做上下限 / 单次步幅；非数字串（`"abc"` / 空串）照旧 `E_VALIDATION`。`writable` 写的是 `<code>.0` 时，只有那一格可写，孩子不在权限里。
 - `applyWrite`：时间 ⇒ `E_CHAIN`；不在覆盖范围（越权 / 路径不存在 / 父 code 本身 / 结构体自身 code）⇒ `E_CHAIN`；结构体没有自身值 ⇒ `E_VALIDATION`；值类型或范围不符 ⇒ `E_VALIDATION`；合法返回**新** tree（入参 tree 一个字都不改）。
 - 工具调用被引擎执行时记两条事件：`tool`（`detail = { name, args }`）与 `write`（`detail = { path, value }`）；同一次调用还进该节点的 `trace.toolCalls`（带 `result`）；模型正文里的工具调用**一律不认**。
@@ -244,7 +282,7 @@ export function buildPrompt({ card, save, node, action, outputs }) -> string
 `outputs` = 本回合**已执行节点**的输出，按节点 id 索引（`{ [nodeId]: text }`）。拼接顺序固定，**每段自带标记，空段连标记一起省略**：
 
 1. **公共提示词**：`card.prompts` 顺序里 `id ∈ node.reads` 且 `body !== ''` 的，每块 `<公共提示词·{title}>`，下一行起 `body` **逐字**。
-2. **状态树**：`<世界状态树>` + 读到的每个引用**一行**：`- <code>「<name>」：<JSON>`（`.0` 引用那一行的 `<code>` 写的是值路径，名字仍是元素的 `name`）。**读元素 code** ⇒ 时间输出 `formatTime` 的 `YYYY-MM-DD HH:mm:ss（周X）`；有孩子的节点输出「自身值 + 整棵子树」的 JSON（**键是中文名**：自身值 `"自身"`、孩子用元素 `name`，**嵌套**；没有 `"0"` / `"1"` 这种 code 键；结构体没有 `"自身"`）；叶子输出自己的值（JSON 形态）。**读 `<code>.0`** ⇒ 只输出这个元素自己的值，不出孩子、不出整棵树。读父 code 时子孙不再单独出行；只读 `.0` 时孩子照旧可以单独读。不输出形状表 / 类型清单；一个引用都没读 ⇒ 连标记都不出现。
+2. **状态树**：`<世界状态树>` + 读到的每个引用**一行**：`- <code>「<name>」：<JSON>`（`.0` 引用那一行的 `<code>` 写的是值路径，名字仍是元素的 `name`）。**读元素 code** ⇒ 时间输出 `formatTime` 那一行（按模式：`2024-02-10 08:30（周六）` / `2024-02-10（周六）` / `第 5 天 08:30`）；有孩子的节点输出「自身值 + 整棵子树」的 JSON（**键是中文名**：自身值 `"自身"`、孩子用元素 `name`，**嵌套**；没有 `"0"` / `"1"` 这种 code 键；结构体没有 `"自身"`）；叶子输出自己的值（JSON 形态）。**时间那一行下面可以紧跟一行 `节日：…`**（`holidaysOf` 非空时；前缀 `节日：`、分隔符 `、`，只出现一次）；节日不是状态值，`tree` / 事件里都没有。**读 `<code>.0`** ⇒ 只输出这个元素自己的值，不出孩子、不出整棵树。读父 code 时子孙不再单独出行；只读 `.0` 时孩子照旧可以单独读。不输出形状表 / 类型清单；一个引用都没读 ⇒ 连标记都不出现。
 3. **历史**：`<游戏历史记录>` + 最近 `node.historyTurns` 条叙事与最近 `node.historyTurns − 1` 条历史行动，按事件原有先后穿插；本回合 `action` **恒为最后一条**。
 4. **上游输出**：`node.readsUpstream` 点名的、排在它前面的节点，按**链顺序**，一段一个 `<上游输出·{nodeName}>`，下一行起正文逐字（空串跳过）。
 5. **本节点提示词**：`<节点提示词>`，下一行起 `node.prompt` 逐字（空则整段省略）；它永远是最后一段。
@@ -290,11 +328,11 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - `readsUpstream` 里的每个 id 都必须在链上，且**排在它前面**（首节点只能为空）。
 - `reads` 引用必须存在（提示词 id、元素 code，或合法的 `<code>.0` 自身值路径）；`writable` 引用必须是元素 code 或合法的 `<code>.0`；悬空 / 叶子 `.0` / `object` 的 `.0` / 时间 `0.0` ⇒ `E_VALIDATION`（点名那个引用）。
 - **写权限只由 `writable` 决定**：`time` / `normal` 都可以写任意 code（含 `'0'`），工具按 code 覆盖到的值路径派生；`output` 的必须是 `[]`。
-- **状态树那半的规矩**由 `core/statetree.ts` 的 `cardIssues(card)` 给出（`code` / `path` / 中文 `message`，外加 `validateCard` 抛第一条时用的 `errorCode`）：编号铁律、深度 ≤ 5、`object` 有孩子且没有自身值、非 `object` 必须有初始值、enum / integer / time 各类型的约束、父 code 存在、孩子连续编号；保存按钮与 `validateCard` 共用这一份清单，不各判一套。
+- **状态树那半的规矩**由 `core/statetree.ts` 的 `cardIssues(card, { initial })` 给出（`code` / `path` / 中文 `message`，外加 `validateCard` 抛第一条时用的 `errorCode`）：编号铁律、深度 ≤ 5、`object` 有孩子、`time` 的 `timeMode` / 节日格子 / 颗粒度 / 时间值、enum / integer 的格子、父 code 存在、孩子连续编号；**初始值这一族**只看根元素（子元素带 `initial` ⇒ 一条问题；根缺 `initial` / 少值路径 / 多键 / 值不合类型与上下限 ⇒ 各一条，`path` 点名那一条）。`initial: false`（存档模式）⇒ 初始值这一族整块不判。保存按钮与 `validateCard` 共用这一份清单，不各判一套。
 - **`prompts` 里必须有 `id === 'opening'` 的那一块**（缺 ⇒ `E_VALIDATION`，不补）。
 - **`presetId` 不在这里校验**：卡可以带着空 / 已失效的 `presetId` 存着，到 `runTurn` 取预设那一步才报 `E_VALIDATION`。
 
-`validateSave(save, card)`：`schemaVersion === 1`；`id` / `cardId` 非空；`turn` 是 ≥0 整数；`events` 是数组；`tree` 是记录、每个值只能是文字 / 安全整数 / 公历六格；给了 `card` 时 `cardId` 相等，`tree` **恰好覆盖** `pathsOf` 的全部值路径（不缺 `1.1.0` 这类自身值路径、不许多出 `object` 自身 code 这类键），且每个值符合它元素的类型。
+`validateSave(save, card)`：`schemaVersion === 1`；`id` / `cardId` 非空；`turn` 是 ≥0 整数；`events` 是数组；`tree` 是记录、每个值只能是文字 / 安全整数 / 时间值（`tree['0']` 按卡的 `timeMode` 判，没给 `card` 时三种形状都收）；给了 `card` 时 `cardId` 相等，`tree` **恰好覆盖** `pathsOf` 的全部值路径（不缺 `1.1.0` 这类自身值路径、不许多出 `object` 自身 code 这类键），且每个值符合它元素的类型。
 
 ## 7. mock 提供方（`src/core/mock.ts`）—— 测试替身
 
@@ -348,7 +386,9 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - 状态树 `[data-state-tree]`：每行 `[data-state-item="<code>"]` + `data-depth="<可见深度>"`（`0` ⇒ 1、`1.1` ⇒ 2），行内只有 `[data-state-code]` / `[data-state-name]` / 眼睛 / 加子元素 / 删除 —— **初始值与当前值都不显示**（`[data-state-value]` 不存在）；`.0` 永远不单独出行。
 - 眼睛的三态：一个**元素 code** 覆盖**自身值 + 整棵子树**，所以父行「满」= 整段都被读到、「半」= 只覆盖了一部分、「未」= 没有；点父行 = 全选 / 全反选（全反选会把这一 code 连同它下面已经单独的引用一起摘掉），子节点按钮只切自己。`reads` / `writable` 里手写 / 导入的 `<code>.0`（只取自身值）也进覆盖 —— 父行变「半」、`.0` 自己不占一行。提示词块与上游节点的眼睛**不是三态**，只翻自己那一条。
 - 中栏 S1：`[data-node-name]`（input，改 `node.name`；细条 / 中栏标题跟着变，卡与存档两种模式都可改）、`[data-node-preset]`（select）、`[data-node-history]`（number）、`[data-node-prompt]`（textarea）；**这一形态没有眼睛**。
-- 中栏 S2：`[data-state-type]`（select，作者选项只有 `text|integer|enum|time`，时间元素 `disabled`；导入的 `object` 元素照实显示）、`[data-field="name"]`、`[data-field="note"]`；各类型的格子：enum 的 `[data-field="values"]`（textarea，一行一个）+ `[data-field="initial"]`（select）、integer 的 `[data-field="min"]` / `max` / `step-min` / `step-max` + `[data-field="initial"]`（number）、text 的 `[data-field="initial"]`、time 的 `[data-field="granularity-upper"]` / `granularity-lower`（select）+ 六格 `[data-field="time-year|time-month|time-day|time-hour|time-minute|time-second"]`，每格右边紧邻单位 `[data-time-unit="year|month|day|hour|minute|second"]`（年/月/日/时/分/秒）。**初始值那一块住在中栏下半部分**（两行布局：上半 = 结构字段、至少占一半；下半从 ~50% 起 = `[data-initial-block]`，不贴底、不用 `margin-top: auto`；两块间 ≥16px，放不下就滚动）；`object` 没有初始值。存档模式**不渲染**初始值整块，integer 改在上下限下方显示 `[data-current-value]`（读 `save.tree`）。换类型时清掉旧类型的字段（`object` 删 `initial`），整份元素替换而不是合并。
+- 中栏 S2：`[data-state-type]`（select，作者选项只有 `text|integer|enum|time`，时间元素 `disabled`；导入的 `object` 元素照实显示）、`[data-field="name"]`、`[data-field="note"]`；各类型的格子：enum 的 `[data-field="values"]`（textarea，一行一个）+ `[data-field="initial"]`（select）、integer 的 `[data-field="min"]` / `max` / `step-min` / `step-max` + `[data-field="initial"]`（number）、text 的 `[data-field="initial"]`、time 的 `[data-field="time-mode"]`（三个模式）/ `[data-field="granularity-upper"]` / `granularity-lower`（select，选项 = 当前模式的单位）/ 三个节日勾选 `[data-holiday="international|china|traditional"]`（`days-minute` 一个都不渲染；**三个都永远可点**，不置灰）+ 传统节日旁常驻备注 `[data-holiday-note]`（`仅支持 1900–2100`）+ 时间格子 `[data-field="time-year|time-month|time-day|time-hour|time-minute"]` 按模式给 5 / 3 / 3 格（**没有 `time-second`**），每格右边紧邻单位 `[data-time-unit]`。**初始值那一块住在中栏下半部分**（两行布局：上半 = 结构字段、至少占一半；下半从 ~50% 起 = `[data-initial-block]`，不贴底、不用 `margin-top: auto`；两块间 ≥16px，放不下就滚动）；**初始值块只在选中的是根元素时渲染**：`[data-field="initial"]` 编根元素自己的值，`[data-initial-path="<path>"]` 编子树里每一条后代值路径（按 `pathsOf` 顺序，每行带 `[data-initial-name="<path>"]` = 那个元素的名字）；选中的是子元素 ⇒ 整块不渲染。存档模式**不渲染**初始值整块、`[data-field="time-mode"]` 整格 `disabled`（看得见改不了），integer 改在上下限下方显示 `[data-current-value]`（读 `save.tree`）。
+- 改初始值 / 换类型都走 `core/statetree.ts`：编辑器只发请求，`setInitial` 写进拥有那条值路径的根元素，`setElementType` 产出整份新元素并同步所属根的初始值那一格（`object` 删自己的值路径、标量补默认值）。
+- **换时间模式（只在卡模式）**：改 `[data-field="time-mode"]` ⇒ 先弹 `[data-confirm]`（`editor.timeModeConfirm`），**草稿此刻不动**；取消 ⇒ 模式与时间初始值都不变（下拉拨回当前模式）；确定 ⇒ `setTimeMode` 把时间初始值重置成新模式的默认值、颗粒度不在新模式的单位表里就回落 `day`、天数模式删掉 `holidays`（切回年份模式补一份三个都是 `false` 的）。
 - 中栏 S3：`[data-prompt-title]` + `[data-prompt-body]`（textarea）；没选：`[data-empty-middle]`（空壳，不写句子）。
 - `[data-node-preset]`：选项 = `tg2.presets` 全部；当前值 = 这个节点解析出的预设 id（映射没有就是 `presets[0].id`）；改动写 `tg2.nodeModels[cardId][nodeId]`，**不动卡**；一个预设都没有时为空、`aria-disabled="true"`（不另挂提示）。
 - 工作流细条 `[data-workflow-strip]`：每节点 `[data-node-id="<id>"]`（点击选中，带 `data-selected`）；选中节点时，排在它前面的每个节点旁有 `[data-read-upstream][data-upstream-id="<id>"]`（带 `data-on`，切换 `readsUpstream`）；自己与下游没有。
@@ -460,6 +500,11 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 | 夹具自身合法性（正控：夹具坏了下面每条红都不可信）                      | `v2/tests/fixtures.selfcheck.test.js`                                                                                                |
 | 库址条六屏                                                              | `v2/e2e/repo-url.spec.js`                                                                                                            |
 | 状态树 v5：形状 / 编号 / 深度 / 五类型 / 时间 / 扁平值 / 增删重排       | `v2/tests/state-shape.test.js` + `state-tree.test.js` + `state-time.test.js` + `state-fixtures.selfcheck.test.js`                    |
+| 初始值归根：根 initial 的形状 / 派生 / 增删换类型同步 / 校验            | `v2/tests/root-initial.test.js` + `v2/e2e/root-initial.spec.js`                                                                      |
+| 公历三模式：格子 / 单位 / 年份规则 / 显示 / 推进 / 换模式 / 校验        | `v2/tests/time-modes.test.js` + `v2/e2e/time-modes.spec.js`                                                                          |
+| 现代节日（国际 / 现代中国）+ 提示词里的 `节日：` 行                     | `v2/tests/holidays.test.js`                                                                                                          |
+| 中国传统节日（1900–2100 有界表 / 闰月不算 / 表外静默）                  | `v2/tests/traditional-holidays.test.js`                                                                                              |
+| 节日进提示词（勾选 ⇒ 一行；天数模式没有节日）                           | `v2/e2e/holidays.spec.js`                                                                                                            |
 | 状态段的提示词投影（父 JSON / 叶子 / 时间 / 不输出形状表）              | `v2/tests/prompt-state.test.js`                                                                                                      |
 | 晨风镇 v5 资产 + 初始值展开                                             | `v2/tests/sample-card-v5.test.js`                                                                                                    |
 | 编辑器状态树（`.0` 不出行 / 三态 / 第 5 层 / 加孩子 / 保存与 5 类拦截） | `v2/e2e/state-tree.spec.js`                                                                                                          |

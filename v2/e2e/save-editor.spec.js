@@ -134,7 +134,7 @@ test.describe('存档编辑器：禁用项', () => {
 
     await page.locator('[data-state-item="0"]').click()
     await expect(page.locator('[data-field="name"]')).toBeVisible()
-    for (const field of ['time-year', 'time-month', 'time-day', 'time-hour', 'time-minute', 'time-second']) {
+    for (const field of ['time-year', 'time-month', 'time-day', 'time-hour', 'time-minute']) {
       await expect(page.locator(`[data-field="${field}"]`), `存档编辑器不许改时间的 ${field}`).toHaveCount(0)
     }
 
@@ -276,7 +276,10 @@ test.describe('存档编辑器：整数当前值', () => {
     const base = v5Card()
     const card = {
       ...base,
-      state: base.state.map((element) => (element.code === '2.2' ? { ...element, initial: 100 } : element)),
+      // 2.2：值住在根 initial 表里（2.2 的初值改成 100，与 save.tree 的 80 不兼容）
+      state: base.state.map((element) =>
+        element.code === '2' ? { ...element, initial: { ...element.initial, 2.2: 100 } } : element,
+      ),
     }
     const save = v5Save(card, { id: 's-int-current' })
     await boot(page, {

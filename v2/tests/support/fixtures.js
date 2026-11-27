@@ -65,25 +65,30 @@ export function nodeModelsFor(card, presetId = MOCK_PRESET.id) {
   return Object.fromEntries(card.chain.map((node) => [node.id, presetId]))
 }
 
-/** 一个时间元素（v5：公历六格 + 颗粒度上下界） */
+/** 一个时间元素（2.2：year-minute 五格 + 模式 + 三个节日勾选 + 颗粒度上下界） */
 function timeElement() {
   return {
     code: '0',
     name: 'time',
     note: '',
     type: 'time',
+    timeMode: 'year-minute',
     granularityUpper: 'day',
     granularityLower: 'minute',
+    holidays: { international: false, china: false, traditional: false },
     initial: { ...TIME_VALUE },
   }
 }
 
-/** 三个元素：`0` 时间 + 两个文本，初值用**只会出现在初值里**的记号（眼睛断言要能不歧义地找它） */
+/**
+ * 三个根元素：`0` 时间 + 两个文本根，初值用**只会出现在初值里**的记号（眼睛断言要能不歧义地找它）。
+ * 2.2 起 initial 只挂在根上：文本根的 initial 是「它自己那条值路径」的小表。
+ */
 function baseState() {
   return [
     timeElement(),
-    { code: '1', name: 'place', note: '', type: 'text', initial: 'VAL_PLACE_A1' },
-    { code: '2', name: 'mood', note: '', type: 'text', initial: 'VAL_MOOD_B2' },
+    { code: '1', name: 'place', note: '', type: 'text', initial: { 1: 'VAL_PLACE_A1' } },
+    { code: '2', name: 'mood', note: '', type: 'text', initial: { 2: 'VAL_MOOD_B2' } },
   ]
 }
 
@@ -141,11 +146,13 @@ export function freshCard(over = {}) {
   }
 }
 
-/** 存档：`tree` 由卡的初值逐个拷出来（深拷贝；`0` 是六格时间值） */
+/** 存档：`tree` 由**根 initial** 摊出来（深拷贝；时间根是五格时间值） */
 export function makeSave(card, over = {}) {
   const tree = {}
-  for (const element of card.state) {
-    tree[element.code] = element.code === '0' ? { ...element.initial } : element.initial
+  for (const root of card.state) {
+    if (root.code.includes('.')) continue
+    if (root.type === 'time') tree[root.code] = { ...root.initial }
+    else Object.assign(tree, root.initial)
   }
   return {
     schemaVersion: 1,

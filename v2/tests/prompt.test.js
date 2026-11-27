@@ -81,12 +81,12 @@ describe('提示词拼装：顺序', () => {
     expect(text).toContain('BODY_LONG first line\nsecond line\twith tab')
   })
 
-  it('时间元素按 v5 格式渲染（YYYY-MM-DD HH:mm:ss（周X）），不是 day/hour 两格', async () => {
+  it('时间元素按模式渲染（YYYY-MM-DD HH:mm（周X）），不是 day/hour 两格', async () => {
     const card = makeCard()
     const node = { ...card.chain[0], reads: ['0'] }
     const text = await promptOf({ card, node, outputs: {} })
     expect(text).toContain('「time」')
-    expect(text).toContain('2024-01-01 08:05:00（周一）')
+    expect(text).toContain('2024-01-01 08:05（周一）')
   })
 })
 

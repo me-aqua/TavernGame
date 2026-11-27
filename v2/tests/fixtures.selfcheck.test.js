@@ -73,7 +73,9 @@ describe('夹具自检：链的形状是契约 §2.1 那一份', () => {
       type: 'time',
       granularityUpper: 'day',
       granularityLower: 'minute',
-      initial: { year: 2024, month: 1, day: 1, hour: 8, minute: 5, second: 0 },
+      timeMode: 'year-minute',
+      initial: { year: 2024, month: 1, day: 1, hour: 8, minute: 5 },
+      holidays: { international: false, china: false, traditional: false },
     })
     expect(card.prompts.map((prompt) => prompt.id)).toEqual([OPENING_PROMPT.id])
     expect(card.chain[2].historyTurns).toBe(3)
@@ -112,14 +114,17 @@ describe('夹具自检：值', () => {
   it('makeSave 的 tree 覆盖全部 code，且与卡初值**不共享引用**', () => {
     const card = makeCard()
     const save = makeSave(card)
-    expect(Object.keys(save.tree).sort()).toEqual(card.state.map((element) => element.code).sort())
+    // 2.2：tree 由根 initial 摊出来 —— 时间根的 0 + 两个文本根自己的 code
+    expect(Object.keys(save.tree).sort()).toEqual(['0', '1', '2'])
     expect(save.tree['1']).toBe('VAL_PLACE_A1')
-    expect(save.tree['0']).toEqual({ year: 2024, month: 1, day: 1, hour: 8, minute: 5, second: 0 })
+    expect(save.tree['2']).toBe('VAL_MOOD_B2')
+    expect(save.tree['1']).toBe('VAL_PLACE_A1')
+    expect(save.tree['0']).toEqual({ year: 2024, month: 1, day: 1, hour: 8, minute: 5 })
     card.state[0].initial.hour = 23
-    card.state[1].initial = 'MUTATED'
-    expect(save.tree['0']).toEqual({ year: 2024, month: 1, day: 1, hour: 8, minute: 5, second: 0 })
+    card.state[1].initial = { 1: 'MUTATED' }
+    expect(save.tree['0']).toEqual({ year: 2024, month: 1, day: 1, hour: 8, minute: 5 })
     expect(save.tree['1']).toBe('VAL_PLACE_A1')
-    expect(save.cardSnapshot.state[1].initial).toBe('VAL_PLACE_A1')
+    expect(save.cardSnapshot.state[1].initial['1']).toBe('VAL_PLACE_A1')
   })
 
   it('fakeBackend 与 localStorage 同形（空键读回 null，写入会被记下）', () => {

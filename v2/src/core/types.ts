@@ -1,24 +1,50 @@
 /**
- * 阶段 2.1 的数据形状（CONTRACT §2）。只有类型，没有运行时代码。
+ * 阶段 2.2 的数据形状（CONTRACT §2）。只有类型，没有运行时代码。
  *
  * 一句话记住边界：**卡与存档里没有模型绑定** —— 用哪个预设、Key 是多少，住在
  * `tg2.nodeModels` / `tg2.presets`（玩家本机的东西），不进卡。
  */
 
 /** 时间的颗粒度单位，粗 → 细（`week` 不存，按日期算） */
-export type TimeUnit = 'year' | 'month' | 'week' | 'day' | 'hour' | 'minute' | 'second'
+export type TimeUnit = 'year' | 'month' | 'week' | 'day' | 'hour' | 'minute'
 
-/**
- * 时间元素的值（`tree['0']`）—— 公历六格。
- * 时间是**一种数据类型**（元素编码 `'0'`），不是一种特权节点 —— 谁能推进它只看 `writable`。
- */
-export interface TimeValue {
+/** 时间元素的三种模式：年月日时分 / 年月日 / 天数时分（没有秒） */
+export type TimeMode = 'year-minute' | 'year-date' | 'days-minute'
+
+/** `year-minute` 的值：真公历的年月日 + 钟点 */
+export interface YearMinuteValue {
   year: number
   month: number
   day: number
   hour: number
   minute: number
-  second: number
+}
+
+/** `year-date` 的值：只有日期，没有钟点 */
+export interface YearDateValue {
+  year: number
+  month: number
+  day: number
+}
+
+/** `days-minute` 的值：`day` 是正整数天数计数，没有年月 */
+export interface DaysMinuteValue {
+  day: number
+  hour: number
+  minute: number
+}
+
+/**
+ * 时间元素的值（`tree['0']`），形状由元素的 `timeMode` 决定。
+ * 时间是**一种数据类型**（元素编码 `'0'`），不是一种特权节点 —— 谁能推进它只看 `writable`。
+ */
+export type TimeValue = YearMinuteValue | YearDateValue | DaysMinuteValue
+
+/** 三组节日的勾选（只有年份模式的时间元素带这一格） */
+export interface Holidays {
+  international: boolean
+  china: boolean
+  traditional: boolean
 }
 
 export type StateType = 'time' | 'text' | 'integer' | 'enum' | 'object'
@@ -27,11 +53,19 @@ export type StateType = 'time' | 'text' | 'integer' | 'enum' | 'object'
 export type StateValue = string | number | TimeValue
 
 /**
+ * 根元素的 `initial`：**整棵子树的扁平值表**（键是完整 code，与存档 `tree` 同一套口径）。
+ * 时间根是唯一的例外 —— 它的 `initial` 就是时间值本身。
+ */
+export type InitialTable = Tree
+
+/**
  * 一个状态元素。
  *
  * 编号铁律（CONTRACT §2.1）：`0` 只给时间；节点自己的值住在**隐式**的 `<code>.0`（不进 `state[]`），
  * 可见孩子从 `<code>.1` 起连续编号；深度（`.0` 不计）最大 5。
  * `type` 描述的是**自身值**：标量节点可以有孩子，不会因此变成 `object`。
+ *
+ * 初始值只在**根元素**（`code` 不含 `.`）身上：它替整棵子树存种子（§2.2）。子元素一个字节都不存。
  */
 export interface StateElement {
   code: string
@@ -46,11 +80,15 @@ export interface StateElement {
   /** 仅 integer：**单次更新**的绝对值步幅区间（缺省 0 / 1e9） */
   stepMin?: number
   stepMax?: number
+  /** 仅 time：时间模式（三种之一，必填） */
+  timeMode?: TimeMode
+  /** 仅 time：三个节日勾选；`days-minute` 模式**不许有**这一格 */
+  holidays?: Holidays
   /** 仅 time：单次推进最粗 / 最细的单位 */
   granularityUpper?: TimeUnit
   granularityLower?: TimeUnit
-  /** 自身值；`object` 没有这一格 */
-  initial?: StateValue
+  /** 根元素：整棵子树的初始值（时间根就是时间值本身）；子元素不许有这一格 */
+  initial?: StateValue | InitialTable
 }
 
 export type NodeType = 'time' | 'normal' | 'output'

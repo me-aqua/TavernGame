@@ -49,9 +49,9 @@ function rootsCard() {
     id: 'c-roots-ui',
     state: [
       time,
-      { code: '1', name: 'one', note: '', type: 'text', initial: 'ONE' },
-      { code: '2', name: 'two', note: '', type: 'text', initial: 'TWO' },
-      { code: '3', name: 'three', note: '', type: 'text', initial: 'THREE' },
+      { code: '1', name: 'one', note: '', type: 'text', initial: { 1: 'ONE' } },
+      { code: '2', name: 'two', note: '', type: 'text', initial: { 2: 'TWO' } },
+      { code: '3', name: 'three', note: '', type: 'text', initial: { 3: 'THREE' } },
     ],
     chain: base.chain.map((node) =>
       node.id === 'check'
@@ -108,7 +108,7 @@ test('示例卡：新建存档的 tree 就是 §7.2 那张扁平表（.0 与叶�
   await page.locator('[data-new-save]').click()
   const saves = await readStorage(page, KEYS.saves)
   expect(saves.at(-1).tree).toEqual({
-    0: { year: 1024, month: 9, day: 17, hour: 18, minute: 30, second: 0 },
+    0: { year: 1024, month: 9, day: 17, hour: 18, minute: 30 },
     '1.0': '',
     '1.1.0': '晨风镇',
     '1.1.1': '醉猫旅店 · 一楼',
@@ -253,7 +253,7 @@ test('界面上删顶层中间元素：0 不动、根重排 1..n、可保存、�
   const saved = (await readStorage(page, KEYS.cards))[0]
   expect(saved.state.map((element) => element.code)).toEqual(['0', '1', '2'])
   expect(saved.state[0]).toMatchObject({ code: '0', type: 'time' })
-  expect(saved.state.find((element) => element.code === '2').initial).toBe('THREE')
+  expect(saved.state.find((element) => element.code === '2').initial['2']).toBe('THREE')
 })
 
 test('给标量加孩子：不转换类型、自身值仍是自身值（保存后读盘）', async ({ page }) => {
@@ -280,8 +280,12 @@ test('给标量加孩子：不转换类型、自身值仍是自身值（保存�
   const saved = (await readStorage(page, KEYS.cards))[0]
   const parent = saved.state.find((item) => item.code === '1.1')
   expect(parent.type, '加孩子不把 enum 转成 object').toBe('enum')
-  expect(parent.initial).toBe('A1')
-  expect(saved.state.find((item) => item.code === '1.1.2')).toMatchObject({ type: 'text', initial: '' })
+  expect(parent).not.toHaveProperty('initial')
+  const savedRoot = saved.state.find((item) => item.code === '1')
+  expect(savedRoot.initial['1.1.0'], '父的自身值还在').toBe('A1')
+  expect(savedRoot.initial['1.1.2'], '新孩子的默认值补进根 initial').toBe('')
+  expect(saved.state.find((item) => item.code === '1.1.2')).toMatchObject({ type: 'text' })
+  expect(saved.state.find((item) => item.code === '1.1.2')).not.toHaveProperty('initial')
 })
 
 test('保存按钮：编辑只改草稿，点保存才写盘', async ({ page }) => {
@@ -289,17 +293,18 @@ test('保存按钮：编辑只改草稿，点保存才写盘', async ({ page }) 
   await openEditor(page, card)
   await selectElement(page, '2.1')
   await page.locator('[data-field="name"]').fill('RENAMED')
-  await page.locator('[data-field="initial"]').fill('HERO_2')
+  // 2.2：子元素的初值在**所属根**的页里编（`2` 是根，`2.1` 是它的一条值路径）
+  await selectElement(page, '2')
+  await page.locator('[data-initial-path="2.1"]').fill('HERO_2')
   await expectNoWrite(page, card)
 
   expect(await save(page)).toBe(0)
   await expect(page.locator('[data-save-ok]'), '成功要给提示').toBeVisible()
   await expect(page.locator('[data-save-errors]')).toHaveCount(0)
   const saved = (await readStorage(page, KEYS.cards))[0]
-  expect(saved.state.find((item) => item.code === '2.1')).toMatchObject({
-    name: 'RENAMED',
-    initial: 'HERO_2',
-  })
+  expect(saved.state.find((item) => item.code === '2.1')).toMatchObject({ name: 'RENAMED' })
+  expect(saved.state.find((item) => item.code === '2.1')).not.toHaveProperty('initial')
+  expect(saved.state.find((item) => item.code === '2').initial['2.1']).toBe('HERO_2')
 })
 
 test('清空数字初值：不炸、不楔死；保存时给校验或落一个合法整数，补回后能保存', async ({ page }) => {
@@ -307,9 +312,10 @@ test('清空数字初值：不炸、不楔死；保存时给校验或落一个�
   page.on('pageerror', (error) => pageErrors.push(error.message))
   const card = v5Card()
   await openEditor(page, card)
-  await selectElement(page, '2.2')
+  // 2.2：整数初值住在根 `2` 的 initial 表里（`2.2` 是它的一条值路径）
+  await selectElement(page, '2')
 
-  const initial = page.locator('[data-field="initial"]')
+  const initial = page.locator('[data-initial-path="2.2"]')
   await expect(initial).toHaveValue('80')
   await initial.fill('')
   expect(pageErrors, '清空初值不许触发运行时错误').toEqual([])
@@ -322,20 +328,22 @@ test('清空数字初值：不炸、不楔死；保存时给校验或落一个�
   await expect(page.locator('[data-error]'), '清空初值不许把编辑器打成错误页').toHaveCount(0)
 
   const errors = await save(page)
-  const stored = (await readStorage(page, KEYS.cards))[0].state.find((item) => item.code === '2.2')
+  const stored = (await readStorage(page, KEYS.cards))[0].state.find((item) => item.code === '2').initial[
+    '2.2'
+  ]
   if (errors === 0) {
-    expect(Number.isSafeInteger(stored.initial), `保存成功时初值必须是合法整数，实际 ${stored.initial}`).toBe(
-      true,
-    )
+    expect(Number.isSafeInteger(stored), `保存成功时初值必须是合法整数，实际 ${stored}`).toBe(true)
   } else {
     expect(errors, '清空数字初值至少要报一条校验错误').toBeGreaterThan(0)
   }
 
   // 草稿还活着：补回合法值再保存必须成功
-  await page.locator('[data-field="initial"]').fill('90')
+  await page.locator('[data-initial-path="2.2"]').fill('90')
   expect(await save(page)).toBe(0)
-  const saved = (await readStorage(page, KEYS.cards))[0].state.find((item) => item.code === '2.2')
-  expect(saved.initial).toBe(90)
+  const saved = (await readStorage(page, KEYS.cards))[0].state.find((item) => item.code === '2').initial[
+    '2.2'
+  ]
+  expect(saved).toBe(90)
 })
 
 test('enum values 改成不含旧值：initial 自动重置为第一项，保存成功', async ({ page }) => {
@@ -343,15 +351,16 @@ test('enum values 改成不含旧值：initial 自动重置为第一项，保存
   await openEditor(page, card)
   await selectElement(page, '1.1')
 
-  const initial = page.locator('[data-field="initial"]')
-  await expect(initial).toHaveValue('A1')
+  // 白名单在子元素页上改，初值在所属根 `1` 的页上（2.2：`1.1.0` 是它的一条值路径）
   await page.locator('[data-field="values"]').fill('B1\nB2')
+  await selectElement(page, '1')
+  const initial = page.locator('[data-initial-path="1.1.0"]')
   await expect(initial, '旧值不在新列表里 ⇒ initial 应重置为第一项').toHaveValue('B1')
 
   expect(await save(page)).toBe(0)
-  const saved = (await readStorage(page, KEYS.cards))[0].state.find((item) => item.code === '1.1')
-  expect(saved.values).toEqual(['B1', 'B2'])
-  expect(saved.initial).toBe('B1')
+  const saved = (await readStorage(page, KEYS.cards))[0]
+  expect(saved.state.find((item) => item.code === '1.1').values).toEqual(['B1', 'B2'])
+  expect(saved.state.find((item) => item.code === '1').initial['1.1.0']).toBe('B1')
 })
 
 test('类型下拉没有结构体；示例卡 1/2 是 text 空自身值；加孩子仍是 text', async ({ page }) => {
@@ -377,11 +386,13 @@ test('类型下拉没有结构体；示例卡 1/2 是 text 空自身值；加孩
   await expect(page.locator('[data-state-type]'), '加孩子不转换类型').toHaveValue('text')
   expect(await save(page)).toBe(0)
   const saved = (await readStorage(page, KEYS.cards))[0]
-  expect(saved.state.find((element) => element.code === '1')).toMatchObject({ type: 'text', initial: '' })
+  expect(saved.state.find((element) => element.code === '1')).toMatchObject({ type: 'text' })
+  expect(saved.state.find((element) => element.code === '1').initial['1.0'], '根的自身值在 1.0').toBe('')
+  expect(saved.state.find((element) => element.code === '1').initial['1.4'], '新孩子的默认值补进根').toBe('')
   expect(saved.state.some((element) => element.code === '1.4')).toBe(true)
 })
 
-test('时间初值六格：每个输入框右边带自己的单位 年/月/日/时/分/秒', async ({ page }) => {
+test('时间初值五格：每个输入框右边带自己的单位 年/月/日/时/分（秒没有了）', async ({ page }) => {
   await openEditor(page, v5Card())
   await selectElement(page, '0')
 
@@ -391,7 +402,6 @@ test('时间初值六格：每个输入框右边带自己的单位 年/月/日/�
     'time-day': '日',
     'time-hour': '时',
     'time-minute': '分',
-    'time-second': '秒',
   }
   for (const [field, unit] of Object.entries(units)) {
     const suffix = await page
@@ -403,7 +413,8 @@ test('时间初值六格：每个输入框右边带自己的单位 年/月/日/�
 
 test('初始值块从中栏下半部分开始，且不溢出 / 钉在栏底', async ({ page }) => {
   await openEditor(page, v5Card())
-  await selectElement(page, '1.2')
+  // 2.2：初始值块只在**根元素**的页里（`1` 是根，子树的值都在它这儿）
+  await selectElement(page, '1')
 
   const middle = await page.locator('[data-col="middle"]').boundingBox()
   const block = await page.locator('[data-initial-block]').boundingBox()
@@ -515,14 +526,14 @@ test('校验拦截 · 时间颗粒度顺序反了：不写盘；时间类型只�
 test('校验拦截 · 初始值越界：不写盘；改回合法值后能保存', async ({ page }) => {
   const card = v5Card()
   await openEditor(page, card)
-  await selectElement(page, '2.2')
-  await page.locator('[data-field="initial"]').fill('999')
+  await selectElement(page, '2')
+  await page.locator('[data-initial-path="2.2"]').fill('999')
   expect(await save(page)).toBeGreaterThan(0)
   await expectNoWrite(page, card)
-  await expect(page.locator('[data-field="initial"]'), '草稿保留').toHaveValue('999')
+  await expect(page.locator('[data-initial-path="2.2"]'), '草稿保留').toHaveValue('999')
 
-  await page.locator('[data-field="initial"]').fill('90')
+  await page.locator('[data-initial-path="2.2"]').fill('90')
   expect(await save(page)).toBe(0)
   const saved = (await readStorage(page, KEYS.cards))[0]
-  expect(saved.state.find((item) => item.code === '2.2').initial).toBe(90)
+  expect(saved.state.find((item) => item.code === '2').initial['2.2']).toBe(90)
 })

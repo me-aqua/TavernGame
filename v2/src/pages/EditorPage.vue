@@ -37,10 +37,30 @@ import { asAppError, storage } from '../app-context'
 import { cloneCard, nextPromptId, nextStateCode } from '../cards'
 import type { AppError } from '../core/errors'
 import { validateCard, validateSave } from '../core/schema'
-import { addChild, cardIssues, initialTreeOf, pathsOf, removeNode, saveTreeIssues } from '../core/statetree'
+import {
+  addChild,
+  cardIssues,
+  pathsOf,
+  removeNode,
+  saveTreeIssues,
+  setElementType,
+  setInitial,
+  setTimeMode,
+} from '../core/statetree'
 import type { CardIssue } from '../core/statetree'
 import { DEFAULT_SETTINGS } from '../core/storage'
-import type { Card, ChainNode, NodeModels, Preset, PromptBlock, Save, StateElement } from '../core/types'
+import type {
+  Card,
+  ChainNode,
+  NodeModels,
+  Preset,
+  PromptBlock,
+  Save,
+  StateElement,
+  StateType,
+  StateValue,
+  TimeMode,
+} from '../core/types'
 import { t } from '../i18n'
 import { REPO_URL } from '../repo'
 import { routeHash } from '../router'
@@ -74,9 +94,13 @@ const saveIssues = ref<CardIssue[]>([])
 const savedOk = ref(false)
 /** 草稿动过没有（点【返回】时决定要不要确认） */
 const dirty = ref(false)
-/** 等着确认的那件事：删元素 / 删提示词 / 带着改动离开 */
+/** 等着确认的那件事：删元素 / 删提示词 / 换时间模式 / 带着改动离开 */
 const pending = ref<
-  { kind: 'state'; code: string } | { kind: 'prompt'; id: string } | { kind: 'back' } | null
+  | { kind: 'state'; code: string }
+  | { kind: 'prompt'; id: string }
+  | { kind: 'mode'; mode: TimeMode; select: HTMLSelectElement }
+  | { kind: 'back' }
+  | null
 >(null)
 const selectedNodeId = ref<string | null>(null)
 const selectedCode = ref<string | null>(null)
@@ -120,14 +144,19 @@ const currentValue = computed(() => {
   return ownPath === undefined ? undefined : current.tree[ownPath]
 })
 
-/** 确认层的文案与确认按钮：删除说「删除」，离开说「离开」 */
+/** 确认层的文案与确认按钮：删除说「删除」，换模式与离开说「确定」/「离开」 */
 const pendingMessage = computed(() => {
   if (pending.value?.kind === 'state') return t('editor.deleteStateConfirm')
   if (pending.value?.kind === 'prompt') return t('editor.deletePromptConfirm')
+  if (pending.value?.kind === 'mode') return t('editor.timeModeConfirm')
   return t('editor.leaveConfirm')
 })
 const pendingConfirmLabel = computed(() =>
-  pending.value?.kind === 'back' ? t('editor.leave') : t('common.delete'),
+  pending.value?.kind === 'back'
+    ? t('editor.leave')
+    : pending.value?.kind === 'mode'
+      ? t('common.confirm')
+      : t('common.delete'),
 )
 
 /** 某一格当前用的预设 id：映射里有就用它，没有就是池子第一个（`''` = 一个预设都没有） */
@@ -334,31 +363,60 @@ function addState(): void {
     name: t('editor.newStateName', { code }),
     note: '',
     type: 'text',
-    initial: '',
+    // 初始值只挂在根元素上：新根的值路径就是它自己的 code
+    initial: { [code]: '' },
   }
   updateCard((card0) => ({ ...card0, state: [...card0.state, element] }))
   selectElement(code)
 }
 
-/** 给某个元素加孩子：标量不换类型，自身值搬到 `.0`（`statetree.addChild` 负责树，这里只留卡） */
+/** 给某个元素加孩子：标量不换类型，自身值在所属根的初始值表里搬到 `.0`（归 `statetree.addChild`） */
 function addChildOf(code: string): void {
   const current = card.value
   if (!current) return
-  const result = addChild(current, initialTreeOf(current), code)
-  updateCard(() => result.card)
-  const added = result.card.state.find((element) => !current.state.some((old) => old.code === element.code))
+  const next = addChild(current, code)
+  updateCard(() => next)
+  const added = next.state.find((element) => !current.state.some((old) => old.code === element.code))
   if (added) selectElement(added.code)
 }
 
 /**
- * 删一个元素（连同子树）：同层兄弟重排为 `1..n`、树值键与链上的 `reads` / `writable` 一起映射 ——
- * 这些规则住在 `statetree.removeNode`，编辑器只把结果当新草稿。
+ * 删一个元素（连同子树）：同层兄弟重排为 `1..n`、每个根元素的初始值键与链上的 `reads` / `writable`
+ * 一起映射 —— 这些规则住在 `statetree.removeNode`，编辑器只把结果当新草稿。
  */
 function removeState(code: string): void {
   const current = card.value
   if (!current) return
-  updateCard((card0) => removeNode(card0, initialTreeOf(card0), code).card)
+  updateCard((card0) => removeNode(card0, code))
   if (selectedCode.value === code) selectedCode.value = null
+}
+
+/** 换类型：整份新元素由 `statetree.setElementType` 产出（它还要同步所属根的初始值那一格） */
+function retypeElement(code: string, type: StateType): void {
+  updateCard((current) => setElementType(current, code, type))
+}
+
+/** 改初始值：按值路径写进拥有它的那个根元素（子元素对象自己一个字都不动） */
+function setInitialValue(path: string, value: StateValue): void {
+  updateCard((current) => setInitial(current, path, value))
+}
+
+/**
+ * 换时间模式：**先确认、草稿此刻不动**（契约 §B5）。
+ * 记下拉元素是因为「取消」时草稿没变，`:value` 不会重绘它 —— 得手动拨回去。
+ */
+function requestTimeMode(mode: TimeMode, select: HTMLSelectElement): void {
+  const current = card.value
+  const time = current?.state[0]
+  if (!current || !time || time.timeMode === mode) return
+  pending.value = { kind: 'mode', mode, select }
+}
+
+/** 确认层里点「取消」：换模式那一支要把下拉拨回当前模式，草稿一个字不动 */
+function cancelPending(): void {
+  const target = pending.value
+  pending.value = null
+  if (target?.kind === 'mode') target.select.value = card.value?.state[0]?.timeMode ?? ''
 }
 
 function addPrompt(): void {
@@ -396,13 +454,14 @@ function removePrompt(id: string): void {
   if (selectedPromptId.value === id) selectedPromptId.value = null
 }
 
-/** 确认层的「确定」：删元素 / 删提示词 / 带着改动离开；确认按钮的字由 `pendingConfirmLabel` 给 */
+/** 确认层的「确定」：删元素 / 删提示词 / 换时间模式 / 带着改动离开；确认按钮的字由 `pendingConfirmLabel` 给 */
 function confirmPending(): void {
   const target = pending.value
   pending.value = null
   if (!target) return
   if (target.kind === 'state') removeState(target.code)
   else if (target.kind === 'prompt') removePrompt(target.id)
+  else if (target.kind === 'mode') updateCard((current) => setTimeMode(current, target.mode))
   else location.hash = routeHash({ name: 'home' })
 }
 
@@ -593,9 +652,13 @@ function goBack(): void {
           <StateForm
             v-else-if="selectedElement"
             :element="selectedElement"
+            :state="card.state"
             :initial-locked="editingSave"
             :current-value="currentValue"
             @edit="(element) => patchElement(selectedElement!.code, element)"
+            @retype="(type) => retypeElement(selectedElement!.code, type)"
+            @initial="setInitialValue"
+            @time-mode="requestTimeMode"
           />
           <PromptForm
             v-else-if="selectedPrompt"
@@ -633,7 +696,7 @@ function goBack(): void {
       :message="pendingMessage"
       :confirm-label="pendingConfirmLabel"
       @confirm="confirmPending"
-      @cancel="pending = null"
+      @cancel="cancelPending"
     />
   </div>
 </template>

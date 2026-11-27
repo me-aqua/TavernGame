@@ -10,6 +10,8 @@ import type { ChainNode, Preset, StateElement } from '../../src/core/types'
 /**
  * 五种类型都出场的一小棵状态树（`0` 时间 / `1` 下拉带一个孩子 / `2` 文字 / `3` 数字 / `4` 结构体）。
  * `1` 有孩子 ⇒ 它的自身值在 `1.0`，孩子是 `1.1`。
+ * 初始值只挂在**根元素**身上（`0` / `1` / `2` / `3` / `4` 都是根），而且它不是「元素自己的值」，
+ * 是**整棵子树的扁平值表**（时间根例外：就是时间值本身）。
  */
 export const ELEMENTS: StateElement[] = [
   {
@@ -17,9 +19,11 @@ export const ELEMENTS: StateElement[] = [
     name: 'time',
     note: '',
     type: 'time',
-    initial: { year: 1024, month: 9, day: 17, hour: 18, minute: 30, second: 0 },
+    timeMode: 'year-minute',
+    initial: { year: 1024, month: 9, day: 17, hour: 18, minute: 30 },
     granularityUpper: 'day',
     granularityLower: 'minute',
+    holidays: { international: false, china: false, traditional: false },
   },
   {
     code: '1',
@@ -27,10 +31,10 @@ export const ELEMENTS: StateElement[] = [
     note: 'where the scene happens',
     type: 'enum',
     values: ['VAL_PLACE_A1', 'VAL_PLACE_B2'],
-    initial: 'VAL_PLACE_A1',
+    initial: { '1.0': 'VAL_PLACE_A1', '1.1': 'VAL_SITE_C3' },
   },
-  { code: '1.1', name: 'site', note: '', type: 'text', initial: 'VAL_SITE_C3' },
-  { code: '2', name: 'mood', note: '', type: 'text', initial: 'VAL_MOOD_B2' },
+  { code: '1.1', name: 'site', note: '', type: 'text' },
+  { code: '2', name: 'mood', note: '', type: 'text', initial: { 2: 'VAL_MOOD_B2' } },
   {
     code: '3',
     name: 'hp',
@@ -40,10 +44,10 @@ export const ELEMENTS: StateElement[] = [
     max: 100,
     stepMin: 1,
     stepMax: 10,
-    initial: 80,
+    initial: { 3: 80 },
   },
-  { code: '4', name: 'bag', note: '', type: 'object' },
-  { code: '4.1', name: 'item', note: '', type: 'text', initial: 'VAL_ITEM_D4' },
+  { code: '4', name: 'bag', note: '', type: 'object', initial: { '4.1': 'VAL_ITEM_D4' } },
+  { code: '4.1', name: 'item', note: '', type: 'text' },
 ]
 
 // 造一个最简节点：没给的字段就是「不读不写不带上游、0 回合、空提示词」
