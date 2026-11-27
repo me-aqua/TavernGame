@@ -5,14 +5,17 @@
  *   2. `<世界状态树>` + 读到的每个状态元素一行 `- <code>「<name>」：<JSON>`（`state[].code ∈ node.reads`）；
  *      JSON 的键是**中文名**：自身值 `"自身"`、子字段是元素 `name`（没有 `"0"` / `"1"` 这种 code 键）
  *   3. `<可写状态>` + `node.writable` 按 `pathsOf` 展开的**真实值路径**一行一条：编号、中文名与
- *      类型约束（文字 / 下拉取值 / 整数范围与步幅）；时间只写 `advance_time`，空写权限明说没有。
- *      末尾恒有一句「未列出的状态只读」。这一段**永远出现**（它同时是写权限的权威说明）。
+ *      **合法 JSON 值形状**（文本 = JSON 字符串 / 下拉 = JSON 字符串且只能是白名单 /
+ *      整数 = JSON 整数、范围与步幅）；时间只写 `advance_time`，空写权限明说没有。
+ *      末尾恒有一句「未列出的状态只读」。**非 `output` 节点永远出现**（空也要出现）；
+ *      `output` 节点整段不出现（它什么也不写）。
  *   4. `<游戏历史记录>` + 历史条目（开场白打头，其后是最近 `historyTurns` 条叙事 + 行动，按事件先后排；
  *      本回合行动在最后）
  *   5. `<上游输出·{nodeName}>` + 正文（`node.readsUpstream` 点名的那些节点，按**链顺序**取输出，逐字）
  *   6. `<节点提示词>` + 正文（逐字）
  *
- * 空段连标记一起省略：那一段没有正文，就不留一行光秃秃的标题（`<可写状态>` 例外：没有写权限也要说清楚）。
+ * 空段连标记一起省略：那一段没有正文，就不留一行光秃秃的标题（`<可写状态>` 例外：非 `output` 节点
+ * 没有写权限也要说清楚）。
  * 眼睛语义一句话：`reads` 里有它就读，没有就一个字符都不出现；`writable` 只进 `<可写状态>`。
  */
 import type { Card, ChainNode, Save, SaveEvent, TimeMode, TimeValue, Tree } from './types'
@@ -201,9 +204,10 @@ function writeRuleOf(element: Card['state'][number]): string {
  * `<可写状态>` 的几行：`node.writable` 按 `pathsOf` 展开成**真实值路径**，一行一条
  * （`- <code>「<name>」：<约束>`）。三档：
  *   · 时间路径 ⇒ 只写「只能 `advance_time` 推进，不能 `write_state`」——**不会**列成可写的 `write_state` 路径；
- *   · 其它路径 ⇒ 文本 / 下拉取值 / 整数范围与步幅；
+ *   · 其它路径 ⇒ 文本（JSON 字符串）/ 下拉（JSON 字符串，只能是白名单）/ 整数（JSON 整数，范围与步幅）；
  *   · 一条都没有 ⇒ 明说没有写能力（`无可写状态`）。
  * 末尾恒有一句「未列出的状态只读」——这是写权限的权威说明，节点提示词里的说法不作数。
+ * `output` 节点整段不出现（见 `buildPrompt`）。
  */
 function writableLinesOf(card: Card, node: ChainNode): string[] {
   const paths = [...new Set(node.writable.flatMap((ref) => pathsOf(card.state, ref)))]
@@ -233,9 +237,11 @@ export function buildPrompt({ card, save, node, action, outputs }: BuildPromptAr
   const stateLines = stateLinesOf(card, save.tree, node.reads)
   if (stateLines.length > 0) blocks.push(`<${t('prompt.stateBlock')}>\n${stateLines.join('\n')}`)
 
-  // 可写状态段：`writable` 按 `pathsOf` 展开；永远出现（空写权限也要说清楚），
-  // 末尾的「未列出的状态只读」是写权限的权威说明。
-  blocks.push(`<${t('prompt.writableBlock')}>\n${writableLinesOf(card, node).join('\n')}`)
+  // 可写状态段：`writable` 按 `pathsOf` 展开；**输出节点整段不出现**（它什么也不写，
+  // 连「无可写状态」都不留）；其它节点（含空 writable）永远出现，末尾的只读声明是权威说明。
+  if (node.type !== 'output') {
+    blocks.push(`<${t('prompt.writableBlock')}>\n${writableLinesOf(card, node).join('\n')}`)
+  }
 
   // 历史块恒有正文（本回合行动总在里面），所以它没有「空段」这一档。
   // 开场白读卡上 `opening` 那一块（§6.1 保证每张卡都有），正文为空就是这张卡没有开场白。
