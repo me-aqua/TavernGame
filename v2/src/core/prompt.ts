@@ -1,20 +1,23 @@
 /**
- * 提示词拼装（CONTRACT §5）。一个节点拼一次，五段按固定顺序进来，每段自带标记：
+ * 提示词拼装（CONTRACT §5）。一个节点拼一次，六段按固定顺序进来，每段自带标记：
  *
  *   1. `<公共提示词·{title}>` + 正文（`prompts[].id ∈ node.reads` 的那些，`body` 逐字，**一块一个标记**）
  *   2. `<世界状态树>` + 读到的每个状态元素一行 `- <code>「<name>」：<JSON>`（`state[].code ∈ node.reads`）；
  *      JSON 的键是**中文名**：自身值 `"自身"`、子字段是元素 `name`（没有 `"0"` / `"1"` 这种 code 键）
- *   3. `<游戏历史记录>` + 历史条目（开场白打头，其后是最近 `historyTurns` 条叙事 + 行动，按事件先后排；
+ *   3. `<可写状态>` + `node.writable` 按 `pathsOf` 展开的**真实值路径**一行一条：编号、中文名与
+ *      类型约束（文字 / 下拉取值 / 整数范围与步幅）；时间只写 `advance_time`，空写权限明说没有。
+ *      末尾恒有一句「未列出的状态只读」。这一段**永远出现**（它同时是写权限的权威说明）。
+ *   4. `<游戏历史记录>` + 历史条目（开场白打头，其后是最近 `historyTurns` 条叙事 + 行动，按事件先后排；
  *      本回合行动在最后）
- *   4. `<上游输出·{nodeName}>` + 正文（`node.readsUpstream` 点名的那些节点，按**链顺序**取输出，逐字）
- *   5. `<节点提示词>` + 正文（逐字）
+ *   5. `<上游输出·{nodeName}>` + 正文（`node.readsUpstream` 点名的那些节点，按**链顺序**取输出，逐字）
+ *   6. `<节点提示词>` + 正文（逐字）
  *
- * 空段连标记一起省略：那一段没有正文，就不留一行光秃秃的标题。
- * 眼睛语义一句话：`reads` 里有它就读，没有就一个字符都不出现。
+ * 空段连标记一起省略：那一段没有正文，就不留一行光秃秃的标题（`<可写状态>` 例外：没有写权限也要说清楚）。
+ * 眼睛语义一句话：`reads` 里有它就读，没有就一个字符都不出现；`writable` 只进 `<可写状态>`。
  */
 import type { Card, ChainNode, Save, SaveEvent, TimeMode, TimeValue, Tree } from './types'
 import { OPENING_PROMPT_ID } from './schema'
-import { childrenOf, formatTime, pathsOf } from './statetree'
+import { childrenOf, elementOfPath, formatTime, integerRangeOf, pathsOf } from './statetree'
 import { holidaysOf } from './holidays'
 import { t } from '../i18n'
 
@@ -182,7 +185,40 @@ function stateLinesOf(card: Card, tree: Tree, reads: string[]): string[] {
   return lines
 }
 
-// 拼一个节点的提示词：五段按契约顺序接起来，眼睛没打开的段一个字都不放
+/** 一条可写路径的类型约束（时间不走这一支：它只能 `advance_time`） */
+function writeRuleOf(element: Card['state'][number]): string {
+  if (element.type === 'enum') {
+    return t('prompt.writableEnum', { values: (element.values ?? []).join('、') })
+  }
+  if (element.type === 'integer') {
+    const { min, max, stepMin, stepMax } = integerRangeOf(element)
+    return t('prompt.writableInteger', { min, max, stepMin, stepMax })
+  }
+  return t('prompt.writableText')
+}
+
+/**
+ * `<可写状态>` 的几行：`node.writable` 按 `pathsOf` 展开成**真实值路径**，一行一条
+ * （`- <code>「<name>」：<约束>`）。三档：
+ *   · 时间路径 ⇒ 只写「只能 `advance_time` 推进，不能 `write_state`」——**不会**列成可写的 `write_state` 路径；
+ *   · 其它路径 ⇒ 文本 / 下拉取值 / 整数范围与步幅；
+ *   · 一条都没有 ⇒ 明说没有写能力（`无可写状态`）。
+ * 末尾恒有一句「未列出的状态只读」——这是写权限的权威说明，节点提示词里的说法不作数。
+ */
+function writableLinesOf(card: Card, node: ChainNode): string[] {
+  const paths = [...new Set(node.writable.flatMap((ref) => pathsOf(card.state, ref)))]
+  const lines = paths.map((path) => {
+    // `pathsOf` 产出的路径一定属于某个元素（`chainIssues` 已把悬空引用拦在保存之前）
+    const element = elementOfPath(card.state, path) as Card['state'][number]
+    const rule = element.type === 'time' ? t('prompt.writableTime') : writeRuleOf(element)
+    return `${t('prompt.stateLine', { code: path, name: element.name })}${rule}`
+  })
+  if (lines.length === 0) lines.push(t('prompt.writableEmpty'))
+  lines.push(t('prompt.writableReadOnly'))
+  return lines
+}
+
+// 拼一个节点的提示词：六段按契约顺序接起来，眼睛没打开的段一个字都不放
 export function buildPrompt({ card, save, node, action, outputs }: BuildPromptArgs): string {
   const blocks: string[] = []
 
@@ -196,6 +232,10 @@ export function buildPrompt({ card, save, node, action, outputs }: BuildPromptAr
   // 状态段：读到的每个引用一行；**正文逐字接在格式后面**（不经过插值，JSON 里的花括号不会被吃掉）
   const stateLines = stateLinesOf(card, save.tree, node.reads)
   if (stateLines.length > 0) blocks.push(`<${t('prompt.stateBlock')}>\n${stateLines.join('\n')}`)
+
+  // 可写状态段：`writable` 按 `pathsOf` 展开；永远出现（空写权限也要说清楚），
+  // 末尾的「未列出的状态只读」是写权限的权威说明。
+  blocks.push(`<${t('prompt.writableBlock')}>\n${writableLinesOf(card, node).join('\n')}`)
 
   // 历史块恒有正文（本回合行动总在里面），所以它没有「空段」这一档。
   // 开场白读卡上 `opening` 那一块（§6.1 保证每张卡都有），正文为空就是这张卡没有开场白。
