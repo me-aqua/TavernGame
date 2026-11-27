@@ -25,6 +25,7 @@ const DEFAULT_CHAIN: Card['chain'] = [
     writable: ['0'],
     readsUpstream: [],
     historyTurns: 0,
+    retryCount: 0,
     prompt: '',
   },
   {
@@ -35,6 +36,7 @@ const DEFAULT_CHAIN: Card['chain'] = [
     writable: [],
     readsUpstream: [],
     historyTurns: 0,
+    retryCount: 0,
     prompt: '',
   },
   {
@@ -45,6 +47,7 @@ const DEFAULT_CHAIN: Card['chain'] = [
     writable: [],
     readsUpstream: ['check'],
     historyTurns: 3,
+    retryCount: 0,
     prompt: '',
   },
 ]

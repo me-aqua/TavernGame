@@ -100,6 +100,8 @@ export interface ChainNode {
   /** 读哪些上游节点的输出；id 必须在链上、且排在它前面 */
   readsUpstream: string[]
   historyTurns: number
+  /** 第一次之外的**额外**尝试次数（0..5）；旧卡没有这一格 = 0，不迁移 */
+  retryCount?: number
   prompt: string
 }
 
@@ -220,6 +222,23 @@ export interface ProviderReply {
   usage: TokenUsage | null
 }
 
+/** 一次尝试里的错误读数（只给 trace 排障；中文原文） */
+export interface TraceAttemptError {
+  tool: string
+  path: string
+  code: string
+  message: string
+}
+
+/** 一个节点的一次模型尝试（重试次数 = `attempts.length - 1`） */
+export interface TraceAttempt {
+  /** 0 基：本次节点的第几次模型尝试 */
+  index: number
+  /** 这次尝试里**成功执行**的调用（失败那条不在里面） */
+  toolCalls: TraceToolCall[]
+  error: TraceAttemptError | null
+}
+
 /** `trace` 事件的 `detail`：某一个节点这一次执行的全部读数（§4.3） */
 export interface TraceDetail {
   nodeId: string
@@ -227,11 +246,14 @@ export interface TraceDetail {
   nodeType: NodeType
   /** 这一步实际解析出的预设 id（模型住在本机映射里，排障就靠它） */
   presetId: string
-  /** 这一节点拼出来的提示词（逐字） */
+  /** 这一节点拼出来的提示词（逐字）；重试过时是**最后一次尝试**（成功那次） */
   prompt: string
   /** provider 返回的思考正文；没有就是空串 */
   thinking: string
+  /** 最终提交那次尝试的调用列表；与 `attempts.at(-1).toolCalls` 同值 */
   toolCalls: TraceToolCall[]
+  /** 每一次模型尝试（含失败的那些）；没有工具可失败的节点长度恒为 1 */
+  attempts: TraceAttempt[]
   /** 这一节点的返回正文（只有 output 节点会同时进叙事） */
   output: string
   usage: TokenUsage | null

@@ -24,6 +24,9 @@ const NODE_TYPES = ['time', 'normal', 'output'] as const
 /** 每张卡都带的那块「开场」提示词：对话页把它的正文当故事的第一段（§8.3） */
 export const OPENING_PROMPT_ID = 'opening'
 
+/** 节点「调用重试次数」的上限：`retryCount ∈ [0, 5]` 的整数，缺省 0（§2.1） */
+export const MAX_RETRY_COUNT = 5
+
 /**
  * 一个节点拿到哪些工具 —— **由 `writable` 里每个引用覆盖到的值路径派生**（CONTRACT §4.3）。
  * 引用可以是元素 code（覆盖自身值 + 整棵子树），也可以是 `<code>.0`（只覆盖那个自身值）。
@@ -125,12 +128,23 @@ function validateNode(raw: unknown, index: number): ChainNode {
       detail: { nodeId: node.id, historyTurns: node.historyTurns },
     })
   }
+  // 缺省 0：旧卡没有这一格也合法（不迁移、不回写）
+  if (
+    node.retryCount !== undefined &&
+    (!Number.isInteger(node.retryCount) || node.retryCount < 0 || node.retryCount > MAX_RETRY_COUNT)
+  ) {
+    throw new AppError('E_CHAIN', {
+      message: t('error.retryCount', { node: node.id }),
+      nextStep: t('next.editor'),
+      detail: { nodeId: node.id, retryCount: node.retryCount },
+    })
+  }
   requireString(node.prompt, `card.chain[${index}].prompt`)
   return node
 }
 
 /**
- * 只收节点的字段形状（数组 / 字符串 / 历史轮数）。链的**规矩**（恰好一个输出、最多一个时间、
+ * 只收节点的字段形状（数组 / 字符串 / 历史轮数 / 重试次数）。链的**规矩**（恰好一个输出、最多一个时间、
  * id 唯一、上游只能往前读、引用必须存在、输出节点不许写）住在 `cardIssues` ——
  * 与保存按钮共用那一份清单，这里不重写。
  *

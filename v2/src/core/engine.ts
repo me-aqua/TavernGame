@@ -1,7 +1,9 @@
 /**
  * 引擎（CONTRACT §4）：跑一回合。
  *
- * 一回合 = 一条 `action` 事件 + 按 `chain` 顺序逐节点各调用一次模型 + 收尾。
+ * 一回合 = 一条 `action` 事件 + 按 `chain` 顺序逐节点调用模型 + 收尾。
+ * 每个节点按 `retryCount` 最多试 `1 + retryCount` 次：一次尝试里的工具调用要么全生效、要么全丢弃，
+ * 失败就带着上一轮的错误块重试，耗尽则抛最后一次的错误（不返回存档）。
  * 三个纯函数（`resolveNodePreset` / `applyWrite` / `advanceTime`）单独拆出来，
  * 因为它们各自有一条不许出错的规矩，而规矩要能单测。
  *
@@ -11,7 +13,7 @@
  *   · **模型从本地映射解析**（`tg2.nodeModels` 那一片），卡里没有、也不许有模型绑定；
  *   · **中止 = 什么都不写**：`E_ABORTED` 抛出时调用方拿回的还是原存档。
  *
- * 调试读数**落盘**：每跑完一个节点追加一条 `trace`（提示词 / 思考 / 工具调用 / 返回 /
+ * 调试读数**落盘**：每跑完一个节点追加一条 `trace`（提示词 / 思考 / 每次尝试的工具调用与错误 / 返回 /
  * 用量 / 耗时 / 预设），回合末尾追加一条 `turnStats`（总耗时 / 总用量 / 吞吐）。
  * 两者既进 `save.events`，也经 `onEvent` 实时发出去 —— 对话页重开旧存档时不用再跑模型
  * 就能看见当时每一步（老板 2026-11-25 的口径：调试内联进故事流）。
@@ -26,10 +28,12 @@ import {
   advanceTime,
   enumValueFits,
   formatTime,
+  integerRangeOf,
   integerStepFits,
   integerValueFits,
   isTimeValue,
   pathsOf,
+  unitsOfMode,
 } from './statetree'
 import { advanceTimeArgsOf, writeStateArgsOf } from './tool-definitions'
 import type {
@@ -37,6 +41,7 @@ import type {
   ChainNode,
   Preset,
   ProviderReply,
+  ProviderToolCall,
   Save,
   SaveEvent,
   StateElement,
@@ -44,6 +49,8 @@ import type {
   TimeUnit,
   TimeValue,
   TokenUsage,
+  TraceAttempt,
+  TraceAttemptError,
   TraceDetail,
   TraceToolCall,
   Tree,
@@ -288,6 +295,81 @@ function tpsOf(usage: TokenUsage | null, durationMs: number): number | null {
   return usage.outputTokens / (durationMs / 1000)
 }
 
+/**
+ * 失败调用落在哪条值路径上：`advance_time` 是时间元素的自身值路径；
+ * 工具名不在节点工具表里时没有路径可写 ⇒ `（无）`（契约 §4「工具执行失败」块）。
+ */
+function failurePathOf(card: Card, node: ChainNode, call: ProviderToolCall): string {
+  if (!toolsForNode(card, node).includes(call.name)) return t('prompt.retryNone')
+  if (call.name === 'advance_time') return timePathOf(card)
+  const { path } = writeStateArgsOf(call.args)
+  return typeof path === 'string' ? path : t('prompt.retryNone')
+}
+
+/**
+ * 「正确值形状」的指引：**从目标元素的类型派生**，不是复述模型的原文。
+ *   · 文本 / 整数 / 下拉 ⇒ JSON 值形状（整数带该元素的上下限与步幅）；
+ *   · 时间 ⇒ 只能走 `advance_time`，列该时间模式允许的单位；
+ *   · 路径不存在 ⇒ 列这个节点可写的值路径；
+ *   · 工具名不在工具表里 ⇒ 列这个节点实际允许的工具。
+ */
+function guidanceOf(card: Card, node: ChainNode, call: ProviderToolCall): string {
+  const tools = toolsForNode(card, node)
+  const separator = t('prompt.listSeparator')
+  if (!tools.includes(call.name)) {
+    return t('prompt.retryGuidanceTools', { tools: tools.join(separator) })
+  }
+  if (call.name === 'advance_time') {
+    const mode = timeElementOf(card).timeMode as TimeMode
+    return t('prompt.retryGuidanceTime', { units: unitsOfMode(mode).join(separator) })
+  }
+  const { path } = writeStateArgsOf(call.args)
+  const element = typeof path === 'string' ? elementOfPath(card.state, path) : undefined
+  if (!element) {
+    return t('prompt.retryGuidancePaths', {
+      paths: node.writable.flatMap((ref) => pathsOf(card.state, ref)).join(separator),
+    })
+  }
+  if (element.type === 'time') return t('prompt.retryGuidanceAdvance')
+  if (element.type === 'integer') {
+    const { min, max, stepMin, stepMax } = integerRangeOf(element)
+    return t('prompt.retryGuidanceInteger', { min, max, stepMin, stepMax })
+  }
+  if (element.type === 'enum') {
+    return t('prompt.retryGuidanceEnum', {
+      values: (element.values ?? []).join(separator),
+    })
+  }
+  return t('prompt.retryGuidanceText')
+}
+
+/**
+ * 重试时追加到提示词末尾的 `<工具执行失败>` 块：只写**上一轮**那一条错误。
+ * 它必须是提示词的最后一个块（`prompt.trimEnd()` 以 `</工具执行失败>` 结尾）。
+ */
+function failureBlockOf({
+  card,
+  node,
+  error,
+  call,
+}: {
+  card: Card
+  node: ChainNode
+  error: TraceAttemptError
+  call: ProviderToolCall
+}): string {
+  const block = t('prompt.retryBlock')
+  return [
+    `<${block}>`,
+    t('prompt.retryTool', { tool: error.tool }),
+    t('prompt.retryPath', { path: error.path }),
+    t('prompt.retryCode', { code: error.code }),
+    t('prompt.retryMessage', { message: error.message }),
+    t('prompt.retryGuidance', { guidance: guidanceOf(card, node, call) }),
+    `</${block}>`,
+  ].join('\n')
+}
+
 // 跑一回合：校验 -> 记行动 -> 逐节点调模型与执行工具 -> 收尾（返回新 save）
 export async function runTurn({
   card,
@@ -322,6 +404,119 @@ export async function runTurn({
   /** 这张卡的时间模式：真 provider 的工具表按它收窄 `advance_time.unit` 的枚举（卡已校验过） */
   const timeMode = timeElementOf(card).timeMode as TimeMode
 
+  /**
+   * 跑一个节点：最多 `1 + retryCount` 次模型尝试。
+   *
+   * 一次尝试 = 一次模型调用 + 执行它回的全部工具调用；**这次尝试是原子的** —— 任一工具失败 ⇒
+   * 这一轮的 tree 与 `tool` / `write` 事件全部丢弃，本回合的 tree 一个字不动、事件一条不落。
+   * 还有剩余次数 ⇒ 把上一轮的错误拼成 `<工具执行失败>` 块追加到提示词末尾再调；耗尽 ⇒ 抛**最后一次**的错误。
+   * 成功 ⇒ 返回这次尝试的 tree / 事件 / trace 读数（提交由调用方做）。
+   */
+  async function runNode({
+    node,
+    preset,
+    tree,
+    basePrompt,
+  }: {
+    node: ChainNode
+    preset: Preset
+    tree: Tree
+    basePrompt: string
+  }): Promise<{
+    tree: Tree
+    toolCalls: TraceToolCall[]
+    events: SaveEvent[]
+    reply: ProviderReply
+    prompt: string
+    attempts: TraceAttempt[]
+    durationMs: number
+  }> {
+    const attempts: TraceAttempt[] = []
+    const retryCount = node.retryCount ?? 0
+    const onChunk = node.type === 'output' ? (text: string) => onEvent?.({ type: 'chunk', text }) : undefined
+    let prompt = basePrompt
+    let durationMs = 0
+
+    for (let attemptIndex = 0; ; attemptIndex += 1) {
+      if (signal?.aborted) throw aborted()
+      // 计时只包住模型调用（工具执行与事件记账不算进去）；重试时累加这一节点的全部尝试
+      const startedAt = Date.now()
+      let reply: ProviderReply
+      if (preset.provider === 'mock') {
+        reply = await mockReply({
+          card,
+          node,
+          turn,
+          action,
+          prompt,
+          onChunk,
+          signal,
+          delayMs: preset.mockChunkDelayMs ?? 0,
+        })
+      } else {
+        // 真 provider 才按需把 AI SDK 那一块拉进来：首屏不必为可能用不到的网络层付体积。
+        // 🔴 60 秒那颗定时器要在 import **之前**起：它必须在「这次调用开始」时就存在，
+        //    而不是等 chunk 下载完 —— 否则一个慢网络就能把「超时」变成永远等不到。
+        const deadline = startDeadline(PROVIDER_TIMEOUT_MS)
+        try {
+          const { callProvider } = await import('./provider')
+          reply = await callProvider({
+            preset,
+            prompt,
+            // 工具表**按 writable 覆盖到的值派生**（与 runTool 的许可同一份名单）；
+            // `advance_time.unit` 的枚举再按这张卡的时间模式收窄（模型看不到模式外的单位）
+            tools: toolsForNode(card, node),
+            timeMode,
+            onChunk,
+            signal,
+            deadline,
+          })
+        } finally {
+          deadline.clear()
+        }
+      }
+      durationMs += Date.now() - startedAt
+
+      if (signal?.aborted) throw aborted()
+      totalUsage = sumUsage(totalUsage, reply)
+
+      const toolCalls: TraceToolCall[] = []
+      const attemptEvents: SaveEvent[] = []
+      let workingTree = tree
+      let failure: { record: TraceAttemptError; cause: AppError; call: ProviderToolCall } | null = null
+      for (const call of reply.toolCalls) {
+        try {
+          const executed = runTool({ card, node, tree: workingTree, name: call.name, args: call.args })
+          workingTree = executed.tree
+          toolCalls.push({ name: call.name, args: call.args, result: executed.result })
+          attemptEvents.push(...executed.events)
+        } catch (cause) {
+          // 工具执行抛的都是 AppError；别的错误是产品 bug，照原样冒出去（不吞、不重试）
+          if (!(cause instanceof AppError)) throw cause
+          failure = {
+            record: {
+              tool: call.name,
+              path: failurePathOf(card, node, call),
+              code: cause.code,
+              message: cause.message,
+            },
+            cause,
+            call,
+          }
+          break
+        }
+      }
+
+      attempts.push({ index: attemptIndex, toolCalls, error: failure?.record ?? null })
+      // 成功：只有这一次尝试的 tree / 事件生效（唯一会提交给本回合的那一份）
+      if (!failure)
+        return { tree: workingTree, toolCalls, events: attemptEvents, reply, prompt, attempts, durationMs }
+      // 失败：workingTree / attemptEvents 到此为止（不入 tree、不落事件）；耗尽就抛最后一次的错误
+      if (attemptIndex === retryCount) throw failure.cause
+      prompt = `${basePrompt}\n\n${failureBlockOf({ card, node, error: failure.record, call: failure.call })}`
+    }
+  }
+
   for (const node of card.chain) {
     if (signal?.aborted) throw aborted()
     push({ type: 'node', text: node.name, detail: { id: node.id, type: node.type }, at: now() })
@@ -330,76 +525,31 @@ export async function runTurn({
 
     // 提示词里的状态值读的是**本回合此刻**的 tree：前面的节点写进去的东西，后面节点看得见
     // （写入同时累积进本回合的 tree，回合收尾与叙事一起提交进新 save）。
-    const prompt = buildPrompt({ card, save: { ...save, tree }, node, action, outputs })
-
-    const onChunk = node.type === 'output' ? (text: string) => onEvent?.({ type: 'chunk', text }) : undefined
-
-    // 计时只包住这一次模型调用（工具执行与事件记账不算进去）
-    const startedAt = Date.now()
-    let reply: ProviderReply
-    if (preset.provider === 'mock') {
-      reply = await mockReply({
-        card,
-        node,
-        turn,
-        action,
-        onChunk,
-        signal,
-        delayMs: preset.mockChunkDelayMs ?? 0,
-      })
-    } else {
-      // 真 provider 才按需把 AI SDK 那一块拉进来：首屏不必为可能用不到的网络层付体积。
-      // 🔴 60 秒那颗定时器要在 import **之前**起：它必须在「这次调用开始」时就存在，
-      //    而不是等 chunk 下载完 —— 否则一个慢网络就能把「超时」变成永远等不到。
-      const deadline = startDeadline(PROVIDER_TIMEOUT_MS)
-      try {
-        const { callProvider } = await import('./provider')
-        reply = await callProvider({
-          preset,
-          prompt,
-          // 工具表**按 writable 覆盖到的值派生**（与 runTool 的许可同一份名单）；
-          // `advance_time.unit` 的枚举再按这张卡的时间模式收窄（模型看不到模式外的单位）
-          tools: toolsForNode(card, node),
-          timeMode,
-          onChunk,
-          signal,
-          deadline,
-        })
-      } finally {
-        deadline.clear()
-      }
-    }
-    const durationMs = Date.now() - startedAt
-
-    if (signal?.aborted) throw aborted()
-    totalUsage = sumUsage(totalUsage, reply)
-
-    const toolCalls: TraceToolCall[] = []
-    for (const call of reply.toolCalls) {
-      const executed = runTool({ card, node, tree, name: call.name, args: call.args })
-      toolCalls.push({ name: call.name, args: call.args, result: executed.result })
-      tree = executed.tree
-      for (const event of executed.events) push(event)
-    }
+    // 重试时这一段是 base prompt，错误块由 `runNode` 追加在它末尾。
+    const basePrompt = buildPrompt({ card, save: { ...save, tree }, node, action, outputs })
+    const done = await runNode({ node, preset, tree, basePrompt })
+    tree = done.tree
+    for (const event of done.events) push(event)
 
     const trace: TraceDetail = {
       nodeId: node.id,
       nodeName: node.name,
       nodeType: node.type,
       presetId: preset.id,
-      prompt,
-      thinking: reply.reasoning,
-      toolCalls,
-      output: reply.text,
-      usage: reply.usage,
-      durationMs,
-      tps: tpsOf(reply.usage, durationMs),
+      prompt: done.prompt,
+      thinking: done.reply.reasoning,
+      toolCalls: done.toolCalls,
+      attempts: done.attempts,
+      output: done.reply.text,
+      usage: done.reply.usage,
+      durationMs: done.durationMs,
+      tps: tpsOf(done.reply.usage, done.durationMs),
       turn,
     }
     push({ type: 'trace', text: node.name, detail: trace, at: now() })
 
-    if (node.type === 'output') push({ type: 'narration', text: reply.text, at: now() })
-    outputs[node.id] = reply.text
+    if (node.type === 'output') push({ type: 'narration', text: done.reply.text, at: now() })
+    outputs[node.id] = done.reply.text
   }
 
   const totalMs = Date.now() - turnStartedAt

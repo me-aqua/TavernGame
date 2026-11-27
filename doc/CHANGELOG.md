@@ -32,6 +32,21 @@
   **行为零改动**（那件从来没被渲染过）；`cards/**` 一个字节没动。
 
 ### 新增
+- **v2：节点调用重试次数（2026-11-28）** —— `ChainNode` 新增 `retryCount`：**第一次之外的额外尝试次数**，
+  `0..5` 的整数、缺省 `0`（旧卡 / 旧存档快照没有这一格按 0 处理，不迁移、不回写；新建卡的三个默认节点显式写
+  `retryCount: 0`）；越界 / 小数 / 字符串 ⇒ `E_CHAIN`（`detail = { nodeId, retryCount }`）。
+  **编辑器**中栏在「模型预设」与「读取历史回合」之间多一格 `[data-node-retry]`（`type=number`、`min=0`、
+  `max=5`、`step=1`，文案 `editor.nodeRetry`「调用重试次数」；卡模式与存档模式都可改，分别落
+  `tg2.cards[].chain[].retryCount` 与 `save.cardSnapshot.chain[].retryCount`，刷新读回；不合法值不发 patch）。
+  **引擎**每节点最多试 `1 + retryCount` 次：一次尝试里的工具调用**要么全生效、要么全丢弃**（任一失败 ⇒ 这一轮的
+  写入与 `tool` / `write` 事件都不落，本回合 tree 一个字不动），失败时下一次尝试在提示词末尾追加一个
+  `<工具执行失败>` 块（工具 / 路径 / 错误码 / 中文原因 / **按目标元素类型派生**的正确值形状：文本 = JSON 字符串、
+  整数 = JSON 整数 + 该元素上下限与步幅、下拉 = JSON 字符串 + 白名单、`advance_time` = 正整数 + 模式允许的单位），
+  耗尽则抛**最后一次**错误、不返回存档（无部分保存）。`trace` 新增 `attempts`（每次尝试的 `index` / 成功执行的
+  `toolCalls` / `error`）；`trace.prompt` 是最后一次尝试的提示词、`trace.toolCalls` 只含最终提交那次；
+  `output` 节点没有工具可失败，`retryCount > 0` 也只调一次模型。mock 入参补 `prompt`（与 `callProvider` 同一份，
+  测试替身据此断言错误块真的喂给了模型）。判据：`v2/tests/retry.test.js` · `v2/tests/retry-schema.test.js` ·
+  `v2/e2e/node-retry.spec.js`。
 - **v2：自动 `<可写状态>` 段（2026-11-28）** —— 提示词在 `<世界状态树>` 之后多一段 `<可写状态>`：由节点的
   `writable` 按 `pathsOf` 展开成**真实值路径**，一行一条 `- <code>「<name>」：<约束>`；约束**同时说明合法 JSON 值形状**：
   `文本；必须是 JSON 字符串` / `下拉；必须是 JSON 字符串，只能是 <白名单>` /

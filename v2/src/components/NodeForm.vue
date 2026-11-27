@@ -2,7 +2,7 @@
 /**
  * 中栏 · 选中工作流节点时的那张表（SPEC §5）。
  *
- * 四样东西：**名字**、**模型预设**、读取历史回合、节点提示词。
+ * 五样东西：**名字**、**模型预设**、调用重试次数、读取历史回合、节点提示词。
  *
  * 名字是这个节点的展示名（工作流细条、中栏标题、提示词里的 `<上游输出·名字>` 都用它），
  * 卡模式与存档模式都能改 —— 改的是卡（或存档快照）里的 `node.name`，不动链结构。
@@ -15,6 +15,7 @@
  * 它的「当前值」是**解析结果**：映射里没有这一格时显示的就是池子的第一个预设。
  */
 import type { ChainNode, Preset } from '../core/types'
+import { MAX_RETRY_COUNT } from '../core/schema'
 import { t } from '../i18n'
 
 defineProps<{
@@ -33,6 +34,13 @@ function onHistory(event: Event): void {
   const turns = Number(raw)
   if (!Number.isInteger(turns) || turns < 0) return
   emit('patch', { historyTurns: turns })
+}
+
+/** 重试次数只收 0..5 的整数；不合法就不发 patch（与 `historyTurns` 同一条规矩） */
+function onRetry(event: Event): void {
+  const retry = Number((event.target as HTMLInputElement).value)
+  if (!Number.isInteger(retry) || retry < 0 || retry > MAX_RETRY_COUNT) return
+  emit('patch', { retryCount: retry })
 }
 </script>
 
@@ -60,6 +68,19 @@ function onHistory(event: Event): void {
         <option v-if="presets.length === 0" value="">-</option>
         <option v-for="preset in presets" :key="preset.id" :value="preset.id">{{ preset.name }}</option>
       </select>
+    </label>
+
+    <label class="field-row">
+      <span class="field-label">{{ t('editor.nodeRetry') }}</span>
+      <input
+        type="number"
+        min="0"
+        :max="MAX_RETRY_COUNT"
+        step="1"
+        data-node-retry
+        :value="node.retryCount ?? 0"
+        @change="onRetry"
+      />
     </label>
 
     <label class="field-row">

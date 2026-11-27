@@ -49,7 +49,7 @@ v2/
             timeMode?, holidays?, initial? }],
   chain: [{ id, type: 'time' | 'normal' | 'output', name,
             reads: string[], writable: string[], readsUpstream: string[],
-            historyTurns: number, prompt: string }], // 顺序即执行顺序
+            historyTurns: number, retryCount: number, prompt: string }], // 顺序即执行顺序
   prompts: [{ id, title, body }]
 }
 ```
@@ -63,13 +63,13 @@ v2/
 - `validateCard` 对多余字段宽容（卡里残留 `presetId` 不报错，引擎一个字节都不看），但对**旧形状不迁移**：`type: 'string'`、`tree['0']` 是 `{ day, hour }`、缺 `opening`、布尔 `readsUpstream`、带校对节点的卡一律中文 `E_VALIDATION`。
 - `reads` 是混合数组：`prompts[].id` = 读这块公共提示词，**元素 code** = 读这个元素（自身值 + 整棵子树），**`<code>.0`** = 只读这个元素的自身值；创建方保证同一字符串不同时是两者。
 - **`.0` 引用**：只有「真的有自身值、而且住在 `.0`」的节点才有这一格 —— 有孩子的标量（`1.1` 是 enum 且有孩子 ⇒ `1.1.0` 合法）；叶子自己就是 `<code>`，所以 `2.1.0` 非法；`object` 没有自身值 ⇒ `2.4.0` 非法；时间元素没有孩子 ⇒ `0.0` 非法；父 code 不存在 ⇒ 非法。`reads` 与 `writable` 都按这一条判（悬空 ⇒ `E_VALIDATION`）。
-- 新建卡默认三节点（顺序 / id / name / reads / writable / readsUpstream / historyTurns / prompt）：
+- 新建卡默认三节点（顺序 / id / name / reads / writable / readsUpstream / historyTurns / retryCount / prompt）：
 
-| #   | id       | type     | name | reads | writable                               | readsUpstream | historyTurns | prompt |
-| --- | -------- | -------- | ---- | ----- | -------------------------------------- | ------------- | ------------ | ------ |
-| 1   | `time`   | `time`   | 时间 | `[]`  | `['0']`                                | `[]`          | `0`          | `''`   |
-| 2   | `check`  | `normal` | 判定 | `[]`  | `[]`（建卡时只有 `'0'`；新增不自动加） | `[]`          | `0`          | `''`   |
-| 3   | `output` | `output` | 输出 | `[]`  | `[]`                                   | `['check']`   | `3`          | `''`   |
+| #   | id       | type     | name | reads | writable                               | readsUpstream | historyTurns | retryCount | prompt |
+| --- | -------- | -------- | ---- | ----- | -------------------------------------- | ------------- | ------------ | ---------- | ------ |
+| 1   | `time`   | `time`   | 时间 | `[]`  | `['0']`                                | `[]`          | `0`          | `0`        | `''`   |
+| 2   | `check`  | `normal` | 判定 | `[]`  | `[]`（建卡时只有 `'0'`；新增不自动加） | `[]`          | `0`          | `0`        | `''`   |
+| 3   | `output` | `output` | 输出 | `[]`  | `[]`                                   | `['check']`   | `3`          | `0`        | `''`   |
 
 `id` 是结构（选择器 / 链引用 / 测试），必须 ASCII 且稳定；`name` 是展示文案，住 `locales/zh-CN.json`。
 
@@ -78,6 +78,7 @@ v2/
 - **不做旧卡兼容 / 迁移**：没有 `normalizeCard`；`type:'string'`、`{day,hour}` 时间、缺 `opening`、带 `proof`、`readsUpstream` 是布尔的老卡，`validateCard` 直接报中文 `E_VALIDATION`（链规矩坏了是 `E_CHAIN`），不补字段。
 - `readsUpstream` 是节点 id 数组，只能引用链上排在它前面的节点（自己与下游 ⇒ `E_CHAIN`）；空数组 = 不读上游。
 - `historyTurns`：最近 N 条叙事 + 最近 N 条行动（含本回合）；本回合行动恒为历史块最后一条（详见 §5）。
+- `retryCount`：**第一次之外的额外尝试次数**，`0..5` 的整数，缺省 `0`（旧卡没有这一格 = 0，不迁移、不回写；新建卡显式写 `0`）。越界 / 小数 / 字符串 ⇒ `E_CHAIN`（§6.1）。`output` 节点上合法但无意义 —— 它没有工具可失败（§4.6）。
 
 ### 2.2 Save
 
@@ -238,7 +239,7 @@ export { elementOfPath }   // 转出 `statetree` 那一份（老的调用方从�
 ```
 
 - `runTurn` **不修改入参**（`save` / `card` / `presets` / `nodePresets` 只读），返回**新的** `save`；失败一律 `throw AppError`，不返回 `{ error }` 混合形状。
-- 每节点**恰好一次** provider 调用（不做多步工具循环）。
+- 每节点最多 `1 + retryCount` 次模型尝试（默认 1 次，不做多步工具循环）：一次尝试里的工具调用要么全生效、要么全丢弃，失败按 §4.6 重试。
 - 节点模型解析（`resolveNodePreset`）：`nodePresets?.[nodeId]` 有值 ⇒ 在 `presets` 里按 id 找；没有 ⇒ 用 `presets[0]`；找不到（池子空 / 映射指向已删预设）⇒ `E_VALIDATION`（消息指向设置页，不静默退回）；卡里残留的 `presetId` 一律忽略。
 - 调试读数只有 `trace` / `turnStats` 事件，没有独立 debug 载荷；两者都进 `save.events`，同时经 `onEvent` 实时发出，因此重开旧存档也能回看历史每一步。
 
@@ -248,7 +249,7 @@ export { elementOfPath }   // 转出 `statetree` 那一份（老的调用方从�
 
 1. `validateCard(card)` → `validateSave(save, card)`；`card` 与 `save.cardSnapshot` 必须**同 id**；`signal` 已中止 ⇒ `E_ABORTED`。
 2. 追加一条 `action` 事件（`text = action`）。
-3. 按 `chain` 顺序逐节点执行：`node` 事件（`text = node.name`，`detail = { id, type }`）→ 解析预设 → `buildPrompt`（用**此刻**的 tree）→ provider 调用 → 执行工具（`tool` / `write` 事件）→ `trace` 事件；`output` 节点再追加 `narration`。
+3. 按 `chain` 顺序逐节点执行：`node` 事件（`text = node.name`，`detail = { id, type }`）→ 解析预设 → `buildPrompt`（用**此刻**的 tree）→ 按 `retryCount` 做模型尝试与工具执行（§4.6）→ `trace` 事件；`output` 节点再追加 `narration`。
 4. 收尾：追加 `turnStats`、`turn += 1`、刷新 `updatedAt`；提交前再跑一次 `validateSave(nextSave, card)`，通过后返回 `{ save, events }`；`save.events` = 旧 + 新，`events` = **只有本回合新事件**（同一批对象）。
 
 ### 4.3 工具与写入（`writable` 是唯一的权限来源）
@@ -277,6 +278,31 @@ export { elementOfPath }   // 转出 `statetree` 那一份（老的调用方从�
 - **思考增量**：`streamText({ includeRawChunks: true })`；从 `fullStream` 的 `raw` 分片取 `choices[0].delta.reasoning_content`（或 `reasoning`），并累加 `reasoning-delta`，拼进 `ProviderReply.reasoning` → 该节点 `trace.thinking`；没有就是空串（不补、不猜）；mock 一律空串。
 - `usage` 全 0 / 缺 ⇒ `null`；`tps` 量不出 ⇒ `null`（不拿 0 冒充）。
 
+### 4.6 节点重试（`retryCount`）
+
+一个节点最多试 `1 + (node.retryCount ?? 0)` 次，**每次尝试是原子的**：
+
+1. `basePrompt = buildPrompt({ card, save: { ...save, tree }, node, action, outputs })` 在节点开始时拼一次（tree = 本回合此刻的 tree）。
+2. 第 0 次尝试用 `basePrompt`；第 n 次尝试（n > 0）用 `basePrompt + '\n\n' + <工具执行失败>`，块里只写**上一次**那条错误，且必须是提示词最后一个块（`prompt.trimEnd()` 以 `</工具执行失败>` 结尾）。
+3. 一次尝试 = 一次 provider 调用 + 依次执行回的 `toolCalls`（工作副本从**本次尝试开始前**的 tree 起）。任一调用抛错 ⇒ 这次尝试的写入与 `tool` / `write` 事件全部丢弃，`tree` 一个字不动。
+4. 成功 ⇒ 只提交这次尝试的 `tree` / 事件 / `trace`；失败且还有剩余次数 ⇒ 带错误块重调；失败且已耗尽 ⇒ 抛出**最后一次**的错误，`runTurn` reject、不返回存档（无部分保存）。
+5. `trace.attempts` 是每次尝试的读数：`{ index, toolCalls, error }` —— `index` 0 基、`toolCalls` 只含这次尝试里**成功执行**的调用（失败那条不在）、`error` 是 `{ tool, path, code, message }` 或 `null`。`trace.toolCalls` = 最终提交那次尝试的调用（与 `attempts.at(-1).toolCalls` 同值）；`trace.prompt` = 最后一次尝试的提示词；`durationMs` = 该节点全部尝试的模型调用耗时之和。没有工具可失败的节点（`toolsForNode` 为空，如 `output`）只调一次模型，`attempts` 长度恒为 1。
+6. **`<工具执行失败>` 块**（中文逐字，标记是契约的一部分）：
+
+   ```
+   <工具执行失败>
+   工具：{tool}
+   路径：{path}
+   错误码：{code}
+   原因：{message}
+   正确值形状：{guidance}
+   </工具执行失败>
+   ```
+
+   `{path}`：`write_state` 用它实参里的 `path`；`advance_time` 用时间元素的值路径（通常是 `0`）；工具名不在节点工具表里 ⇒ `（无）`。`{code}` / `{message}` 是 `AppError` 的中文原文。`{guidance}` 由**目标元素的类型**派生（不复述模型原文）：`text` ⇒ `JSON 字符串`；`integer` ⇒ `JSON 整数` + 该元素生效的 `min..max` 与步幅；`enum` ⇒ `JSON 字符串` + 白名单；时间 ⇒ 只能 `advance_time`、列该时间模式允许的单位；路径不存在 ⇒ 列节点可写的值路径；工具名不合法 ⇒ 列该节点允许的工具。
+
+7. mock 与真 provider 收到的是**同一份** prompt：引擎把本次尝试最终拼出的 prompt 传给 `mockReply({ prompt })`，与 `callProvider({ prompt })` 一致（§7）。
+
 ## 5. 提示词拼装（`src/core/prompt.ts`）
 
 ```js
@@ -299,6 +325,7 @@ export function buildPrompt({ card, save, node, action, outputs }) -> string
 - 关掉的块 / 元素 / 上游，对应正文与标记一个字符都不许出现；**行动只出现一次，且只在历史块里**；判据 `v2/tests/prompt-markers.test.js` 与 `v2/e2e/prompt-history.spec.js`。
 - 标记字面量是**契约的一部分**：作者只能从 trace 看见提示词结构，改字面量必须同批改判据。
 - 眼睛语义：`reads` 里有它就读，没有就不读；`readsUpstream` 是读哪些上游节点的输出；`writable` 是写的开关，它的权威投影是 `<可写状态>` 段（**节点提示词里的说法不作数**）。
+- **重试时的提示词**：第 2 次及以后的尝试在本段拼好的提示词末尾追加一个 `<工具执行失败>` 块（格式见 §4.6），它是**最后一块**；`trace.prompt` 记的是最后一次尝试的那一份。
 
 ## 6. 错误（`src/core/errors.ts`）
 
@@ -329,7 +356,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 命中就抛 `E_CHAIN`，`message` 里必须写出**节点 id** 或**规则名**：
 
 - `chain` 至少 1 个节点；`type === 'output'` 恰好 1 个（0 个 / ≥2 个都错）；`type === 'time'` 最多 1 个。
-- 节点 `type` 只能是 `'time' | 'normal' | 'output'`（别的值 ⇒ `E_VALIDATION`）；节点 `id` 唯一；`historyTurns` 是 ≥0 的整数。
+- 节点 `type` 只能是 `'time' | 'normal' | 'output'`（别的值 ⇒ `E_VALIDATION`）；节点 `id` 唯一；`historyTurns` 是 ≥0 的整数；`retryCount` 缺省合法（按 0），给了就必须是 `0..5` 的整数（`-1` / `6` / `1.5` / `'1'` ⇒ `E_CHAIN`，`detail = { nodeId, retryCount }`，`message` 点名节点 id 与区间）。
 - `readsUpstream` 里的每个 id 都必须在链上，且**排在它前面**（首节点只能为空）。
 - `reads` 引用必须存在（提示词 id、元素 code，或合法的 `<code>.0` 自身值路径）；`writable` 引用必须是元素 code 或合法的 `<code>.0`；悬空 / 叶子 `.0` / `object` 的 `.0` / 时间 `0.0` ⇒ `E_VALIDATION`（点名那个引用）。
 - **写权限只由 `writable` 决定**：`time` / `normal` 都可以写任意 code（含 `'0'`），工具按 code 覆盖到的值路径派生；`output` 的必须是 `[]`。
@@ -349,6 +376,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 | `output`          | 文本 `[mock] turn <turn>: <action>`，**流式**：块长 `floor(len/6)` 夹到 1..8（每块 ≤8 字符），块数 ≥3；块间等 `mockChunkDelayMs`（缺省 0）                                                                                      |
 
 - mock 走的**是同一套事件 / 流式代码路径**（`chunk` → `narration`），不是另一条捷径。
+- 入参：`mockReply({ card, node, turn, action, prompt?, onChunk?, signal?, delayMs? })` —— `prompt` 是引擎本次尝试最终拼出的提示词（与 `callProvider` 收到的是同一份）；mock 的回复是确定性的、不读它，测试替身用它断言错误块。`retryCount` 对 mock 的回复没有影响：工具失败只可能因为回复里的调用不合法，而 mock 不发不合法的调用。
 - `usage` / `tps` 为 `null`，`reasoning` 为空串；输出整串**逐字**可断言。
 
 ## 8. 页面与路由（`src/main.ts` + `src/pages/*.vue`）
@@ -390,7 +418,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - 左栏：S0 只有 `[data-state-code]` + `[data-state-name]`；S1 每行 `[data-eyes="read"]` / `[data-eyes="write"]`（**文字按钮**「读」/「写」，带 `data-on` 与三态 `data-tri="all|some|none"`，切换当前节点的 `reads` / `writable`），写眼睛只看 `node.writable`、`output` 没有写眼睛；S2 栏顶 `[data-add-state]`（裸 `+`）、每行 `[data-add-child="<code>"]`（第 5 层不渲染、时间没有）与 `[data-delete-state]`（裸 `×`，时间没有），S2 不出现眼睛。
 - 状态树 `[data-state-tree]`：每行 `[data-state-item="<code>"]` + `data-depth="<可见深度>"`（`0` ⇒ 1、`1.1` ⇒ 2），行内只有 `[data-state-code]` / `[data-state-name]` / 眼睛 / 加子元素 / 删除 —— **初始值与当前值都不显示**（`[data-state-value]` 不存在）；`.0` 永远不单独出行。
 - 眼睛的三态：一个**元素 code** 覆盖**自身值 + 整棵子树**，所以父行「满」= 整段都被读到、「半」= 只覆盖了一部分、「未」= 没有；点父行 = 全选 / 全反选（全反选会把这一 code 连同它下面已经单独的引用一起摘掉），子节点按钮只切自己。`reads` / `writable` 里手写 / 导入的 `<code>.0`（只取自身值）也进覆盖 —— 父行变「半」、`.0` 自己不占一行。提示词块与上游节点的眼睛**不是三态**，只翻自己那一条。
-- 中栏 S1：`[data-node-name]`（input，改 `node.name`；细条 / 中栏标题跟着变，卡与存档两种模式都可改）、`[data-node-preset]`（select）、`[data-node-history]`（number）、`[data-node-prompt]`（textarea）；**这一形态没有眼睛**。
+- 中栏 S1：`[data-node-name]`（input，改 `node.name`；细条 / 中栏标题跟着变，卡与存档两种模式都可改）、`[data-node-preset]`（select）、`[data-node-retry]`（number，`min=0 max=5 step=1`，文案 `editor.nodeRetry`「调用重试次数」，显示值 `node.retryCount ?? 0`；`change` 只收 `0..5` 的整数，不合法不发 patch；卡模式与存档模式都可改，保存落 `chain[].retryCount` / `save.cardSnapshot.chain[].retryCount`）、`[data-node-history]`（number）、`[data-node-prompt]`（textarea）；**DOM 顺序就是 preset → retry → history**；**这一形态没有眼睛**。
 - 中栏 S2：`[data-state-type]` **同一个元素上还带 `[data-field="type"]`**（一个 select 两个钩子）：时间元素 ⇒ 它的 value 是**模式 id**（`year-minute` / `year-date` / `days-minute`，恰好三项），卡模式可改、存档模式 `disabled`；非时间元素 ⇒ 作者选项只有 `text|integer|enum|time`（导入的 `object` 元素照实显示），照旧可改。另有 `[data-field="name"]`、`[data-field="note"]`；各类型的格子：enum 的 `[data-field="values"]`（textarea，一行一个）、integer 的 `[data-field="min"]` / `max` / `step-min` / `step-max`、time 的三个节日勾选 `[data-holiday="international|china|traditional"]`（`days-minute` 一个都不渲染；三个都**永远可点**，不置灰）+ 传统节日旁常驻备注 `[data-holiday-note]`（`仅支持 1900–2100`）+ 时间格子 `[data-field="time-year|time-month|time-day|time-hour|time-minute"]` 按模式给 5 / 3 / 3 格（**没有 `time-second`**），每格右边紧邻单位 `[data-time-unit]`。**没有单独的 `[data-field="time-mode"]`，也没有任何 `[data-field="granularity-upper|lower"]`**（两者 count 恒为 0）。三个节日勾选在**同一水平行、左对齐**（中栏放不下时这一行自己横向滚动，**不换行**）：`[data-holiday]` 就是那个看得见的自定义方盒（`appearance: none`、14×14、颜色取自 `--ink` / `--accent` / `--line` 那一族，勾上是 `--accent` 底而不是浏览器原生蓝）；点按热区用 `::before` 扩到 24×24，视觉盒仍是 14×14。**初始值那一块住在中栏下半部分**（两行布局：上半 = 结构字段、至少占一半；下半从 ~50% 起 = `[data-initial-block]`，不贴底、不用 `margin-top: auto`；两块间 ≥16px，放不下就滚动）；**初始值块只在选中的是根元素时渲染**，每条值路径一行 `[data-initial-row="<存储路径>"]`（顺序 = `pathsOf`）：行内从左到右是 `[data-initial-code]`（显示编号 = 存储路径去掉结尾 `.0`，所以容器本体 `1.1.0` 显示 `1.1`）→ `[data-initial-name="<存储路径>"]` → 值控件；行按显示编号的段数每层缩进 12px。值控件：根元素自己那一行带 `[data-field="initial"]`，后代带 `[data-initial-path="<存储路径>"]`；integer 行的输入框右边带 `[data-initial-range]` 小字 `min~max`（生效上下限）。选中的是子元素 ⇒ 整块不渲染。存档模式**不渲染**初始值整块、`[data-field="type"]` 整格 `disabled`（看得见改不了），integer 改在上下限下方显示 `[data-current-value]`（读 `save.tree`）。
 - 改初始值 / 换类型都走 `core/statetree.ts`：编辑器只发请求，`setInitial` 写进拥有那条值路径的根元素，`setElementType` 产出整份新元素并同步所属根的初始值那一格（`object` 删自己的值路径、标量补默认值）。
 - **换时间模式（只在卡模式）**：改 `[data-field="type"]`（时间元素的这一行就是模式选择器）⇒ 先弹 `[data-confirm]`（`editor.timeModeConfirm`），**草稿此刻不动**；取消 ⇒ 模式与时间初始值都不变（下拉拨回当前模式）；确定 ⇒ `setTimeMode` 把时间初始值重置成新模式的默认值、天数模式删掉 `holidays`（切回年份模式补一份三个都是 `false` 的）；底层 `state[0].type` 永远是 `time`。
@@ -514,6 +542,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 | 中国传统节日（1900–2100 有界表 / 闰月不算 / 表外静默）                  | `v2/tests/traditional-holidays.test.js`                                                                                              |
 | 节日进提示词（勾选 ⇒ 一行；天数模式没有节日）                           | `v2/e2e/holidays.spec.js`                                                                                                            |
 | 状态段的提示词投影（父 JSON / 叶子 / 时间 / 不输出形状表）              | `v2/tests/prompt-state.test.js`                                                                                                      |
+| 节点重试次数：校验 / 原子尝试 / 错误块 / trace.attempts / 编辑器落盘    | `v2/tests/retry.test.js` + `v2/tests/retry-schema.test.js` + `v2/e2e/node-retry.spec.js`                                             |
 | 晨风镇 v5 资产 + 初始值展开                                             | `v2/tests/sample-card-v5.test.js`                                                                                                    |
 | 编辑器状态树（`.0` 不出行 / 三态 / 第 5 层 / 加孩子 / 保存与 5 类拦截） | `v2/e2e/state-tree.spec.js`                                                                                                          |
 | 组件故事 / 像素基线（另两层，不属本文行为判据）                         | `npm run v2:stories` / `npm run v2:visual`                                                                                           |

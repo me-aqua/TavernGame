@@ -110,6 +110,13 @@ export const TRACE_TIME: TraceDetail = {
   prompt: '> act one\n\nday 1 hour 8',
   thinking: '',
   toolCalls: [{ name: 'advance_time', args: { amount: 1, unit: 'day' }, result: 'day 1 hour 9' }],
+  attempts: [
+    {
+      index: 0,
+      toolCalls: [{ name: 'advance_time', args: { amount: 1, unit: 'day' }, result: 'day 1 hour 9' }],
+      error: null,
+    },
+  ],
   output: '',
   usage: null,
   durationMs: 12,
@@ -126,6 +133,7 @@ export const TRACE_OUTPUT: TraceDetail = {
   prompt: 'BODY_ONE\n\n1 place = VAL_PLACE_A1\n\n> act one\n\nNODE_OUT',
   thinking: 'THINK_ONE\nTHINK_TWO',
   toolCalls: [],
+  attempts: [{ index: 0, toolCalls: [], error: null }],
   output: '[mock] turn 1: act one',
   usage: { inputTokens: 128, outputTokens: 64, totalTokens: 192 },
   durationMs: 320,

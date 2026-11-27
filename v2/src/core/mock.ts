@@ -36,6 +36,11 @@ export interface MockArgs {
   /** 本回合的回合号（从 1 开始） */
   turn: number
   action: string
+  /**
+   * 本次尝试最终拼出的提示词（引擎传，与 `callProvider({ prompt })` 同一份）。
+   * mock 的回复是确定性的、不读它；测试替身用它断言「模型真的收到了错误块」。
+   */
+  prompt?: string
   /** 只有 output 节点会拿到它 */
   onChunk?: (text: string) => void
   signal?: AbortSignal
