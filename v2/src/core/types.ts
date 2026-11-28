@@ -47,10 +47,27 @@ export interface Holidays {
   traditional: boolean
 }
 
-export type StateType = 'time' | 'text' | 'integer' | 'enum' | 'object'
+export type StateType = 'time' | 'text' | 'integer' | 'enum' | 'object' | 'array'
 
-/** 一个状态元素自己的值；结构体（`object`）没有这一格 */
+/** 一个状态元素自己的标量值；结构体（`object`）与数组（`array`）没有这一格 */
 export type StateValue = string | number | TimeValue
+
+/**
+ * 数组 item 里一个字段的值：标量 / 嵌套对象 / 嵌套数组。
+ * 键是字段的完整 code（`2.4.1`），不是中文名、不是下标（CONTRACT §2.6）。
+ */
+export type ItemValue = string | number | ItemObject | ItemValue[]
+
+/** 数组的一个 item：以字段完整 code 为键的普通对象（同构，没有隐藏 id） */
+export interface ItemObject {
+  [fieldCode: string]: ItemValue
+}
+
+/** 数组元素的值：item 结构体列表；空数组 `[]` 合法 */
+export type ArrayValue = ItemObject[]
+
+/** 树里的一条值：标量 / 时间 / 数组 / item 对象（后者只出现在数组值内部） */
+export type TreeValue = StateValue | ArrayValue | ItemObject
 
 /**
  * 根元素的 `initial`：**整棵子树的扁平值表**（键是完整 code，与存档 `tree` 同一套口径）。
@@ -148,9 +165,10 @@ export interface SaveEvent {
 
 /**
  * 状态树的值：**扁平、键是完整 code**。
- * 没孩子的节点用自身 `code`；有孩子的节点自身值住 `<code>.0`；`object` 一条键都不产出。
+ * 没孩子的节点用自身 `code`；有孩子的节点自身值住 `<code>.0`；`object` 一条键都不产出；
+ * 数组（`array`）只有一条键 = 它自己的 code，值是整份 item 列表。
  */
-export type Tree = Record<string, StateValue>
+export type Tree = Record<string, TreeValue>
 
 export interface Save {
   schemaVersion: 1

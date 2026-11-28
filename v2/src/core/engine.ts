@@ -22,10 +22,11 @@ import { t } from '../i18n'
 import { PROVIDER_TIMEOUT_MS, startDeadline } from './deadline'
 import { AppError } from './errors'
 import { mockReply } from './mock'
-import { buildPrompt } from './prompt'
+import { arrayFieldRulesOf, buildPrompt } from './prompt'
 import { elementOfPath, toolsForNode, validateCard, validateSave } from './schema'
 import {
   advanceTime,
+  arrayValueFits,
   enumValueFits,
   formatTime,
   integerRangeOf,
@@ -174,6 +175,9 @@ export function applyWrite({
     if (typeof value === 'string' && value.trim() === '') throw reject()
     if (!integerValueFits(element, numeric) || !integerStepFits(element, numeric, tree[path])) throw reject()
     value = numeric
+  } else if (element.type === 'array') {
+    // 数组整表替换：item 形状按字段定义严格收（不做数字字符串收编、不判步幅）
+    if (!arrayValueFits(card.state, path, value)) throw reject()
   }
   return { ...tree, [path]: value as Tree[string] }
 }
@@ -267,7 +271,7 @@ function runTool({
     })
   }
   const next = applyWrite({ card, node, tree, path, value })
-  // 事件记的是**真正落进 tree 的值**（数字字符串已被收成数字），不是模型原文
+  // 事件记的是**真正落进 tree 的值**（数字字符串已被收成数字；数组就是整份新列表），不是模型原文
   const written = next[path]
   return {
     tree: next,
@@ -275,7 +279,7 @@ function runTool({
       { type: 'tool', text: name, detail: { name, args }, at },
       { type: 'write', text: path, detail: { path, value: written }, at },
     ],
-    result: String(written),
+    result: typeof written === 'object' ? JSON.stringify(written) : String(written),
   }
 }
 
@@ -331,6 +335,9 @@ function guidanceOf(card: Card, node: ChainNode, call: ProviderToolCall): string
     })
   }
   if (element.type === 'time') return t('prompt.retryGuidanceAdvance')
+  if (element.type === 'array') {
+    return t('prompt.retryGuidanceArray', { fields: arrayFieldRulesOf(card.state, element.code) })
+  }
   if (element.type === 'integer') {
     const { min, max, stepMin, stepMax } = integerRangeOf(element)
     return t('prompt.retryGuidanceInteger', { min, max, stepMin, stepMax })

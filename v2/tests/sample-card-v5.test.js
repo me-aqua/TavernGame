@@ -12,11 +12,13 @@
  *   1.2 天气（enum）
  *   1.3 氛围（text）
  * 2 玩家（object）
- *   2.1 名字 / 2.2 体力（integer 0..100，步长 1..10）/ 2.3 状态（enum）/ 2.4 携带（text）
+ *   2.1 名字 / 2.2 体力（integer 0..100，步长 1..10）/ 2.3 状态（enum）/ 2.4 背包（array）
+ *     2.4.1 物品（text）/ 2.4.2 数量（integer 0..999）
  * ```
  *
  * `1.1` 是**同时有自身值和子节点**的那个形状（自身值在数据里是 `1.1.0`，不单独出行）；
- * 人物（字典）与线索不在 2.1 里。
+ * `2.4` 是数组（阶段 3）：值是 item 结构体列表，键是字段 code（`2.4.1` / `2.4.2`），
+ * 没有 `2.4.0`。人物（字典）与线索不在 2.1 里。
  *
  * 资产是产品的一部分：这里的树与初始值必须和它逐字对得上。
  */
@@ -38,7 +40,7 @@ function elementOf(card, code) {
   return card.state.find((item) => item.code === code)
 }
 
-const CODES = ['0', '1', '1.1', '1.1.1', '1.2', '1.3', '2', '2.1', '2.2', '2.3', '2.4']
+const CODES = ['0', '1', '1.1', '1.1.1', '1.2', '1.3', '2', '2.1', '2.2', '2.3', '2.4', '2.4.1', '2.4.2']
 
 describe('晨风镇 v5 · 资产形状', () => {
   it('过得了 validateCard（不合法的样例不许被种进玩家存储）', async () => {
@@ -48,7 +50,7 @@ describe('晨风镇 v5 · 资产形状', () => {
     expect(() => validateCard(card)).not.toThrow()
   })
 
-  it('树就是那一棵：时间 / 世界 / 玩家，四种用户可选类型都出场', async () => {
+  it('树就是那一棵：时间 / 世界 / 玩家，作者可选类型都出场（含数组）', async () => {
     const card = sampleCard()
     expect(card.state.map((item) => item.code).sort()).toEqual([...CODES].sort())
     expect(elementOf(card, '0')).toMatchObject({
@@ -81,7 +83,21 @@ describe('晨风镇 v5 · 资产形状', () => {
       values: ['正常', '受伤', '疲惫', '中毒'],
     })
     expect(elementOf(card, '2').initial['2.3']).toBe('正常')
-    expect(elementOf(card, '2.4')).toMatchObject({ type: 'text' })
+    // 阶段 3：2.4 是背包数组，值是 item 结构体列表（键是字段 code，没有 2.4.0）
+    expect(elementOf(card, '2.4')).toMatchObject({ type: 'array', name: '背包' })
+    expect(elementOf(card, '2.4')).not.toHaveProperty('initial')
+    expect(elementOf(card, '2.4.1')).toMatchObject({ type: 'text', name: '物品' })
+    expect(elementOf(card, '2.4.2')).toMatchObject({
+      type: 'integer',
+      name: '数量',
+      min: 0,
+      max: 999,
+    })
+    expect(elementOf(card, '2').initial['2.4']).toEqual([
+      { '2.4.1': '短剑', '2.4.2': 1 },
+      { '2.4.1': '斗篷', '2.4.2': 1 },
+      { '2.4.1': '银币', '2.4.2': 3 },
+    ])
   })
 
   it('1.1 是「区域」（enum，自身值） + 1.1.1「地点」（text）', async () => {
@@ -125,7 +141,11 @@ describe('晨风镇 v5 · 初始值展开（§7.2）', () => {
       2.1: '旅人',
       2.2: 80,
       2.3: '正常',
-      2.4: '短剑、斗篷、三枚银币',
+      2.4: [
+        { '2.4.1': '短剑', '2.4.2': 1 },
+        { '2.4.1': '斗篷', '2.4.2': 1 },
+        { '2.4.1': '银币', '2.4.2': 3 },
+      ],
     })
   })
 
@@ -136,5 +156,12 @@ describe('晨风镇 v5 · 初始值展开（§7.2）', () => {
     expect(tree['2.0']).toBe('')
     expect('1' in tree).toBe(false)
     expect('2' in tree).toBe(false)
+  })
+
+  it('2.4 的初始值是数组本身：没有 2.4.0 / 2.4.1 键', async () => {
+    const { initialTreeOf } = await loadState()
+    const tree = initialTreeOf(sampleCard())
+    expect(Object.keys(tree).filter((path) => path.startsWith('2.4.'))).toEqual([])
+    expect(tree['2.4']).toHaveLength(3)
   })
 })

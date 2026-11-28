@@ -32,6 +32,30 @@
   **行为零改动**（那件从来没被渲染过）；`cards/**` 一个字节没动。
 
 ### 新增
+- **v2：数组状态元素（阶段 3 · 2026-11-28）** —— `StateType` 新增 `'array'`：**值是节点自己 code 上的一份
+  item 结构体列表**（`tree['2.4'] = [{'2.4.1':'短剑','2.4.2':1}, …]`），子元素是 item 的字段定义（schema），
+  **不是值路径**（`pathsOf('2.4.1') = []`、`elementOfPath` 认不出）；**没有 `2.4.0`**，也没有隐藏 id / `order`
+  （多一个键就是坏值）。item 的键 = 字段完整 code、item 同构（缺键 / 多键都拒）、数组顺序 = 存储顺序；
+  字段类型 `text | integer | enum | object | array`（`time` 不能做字段，嵌套子孙也拦）、标量字段是叶子、
+  `object` / `array` 字段必须有孩子、数组必须有 ≥1 个字段、空数组 `[]` 合法；`reads` / `writable` 只接受容器
+  code（字段 code / `.0` ⇒ `E_VALIDATION`），`toolsForNode` 对数组只派生 `write_state`。
+  **初始值**仍只挂根元素：`initial['2.4']` 是整份数组（`initialTreeOf` 深拷贝）。**同步**：加字段把默认值补进
+  所有现存对应 item（外层 / 内层），删字段把键从所有 item 里摘掉、同层重排时键跟着改名，换成数组时清掉子树
+  的键并写 `[]`，从数组换成别的类型 ⇒ `E_VALIDATION`。**编辑器**：类型下拉新增「数组」；初始值块里数组是一条
+  `[data-array]` 的 item 列表（`[data-array-add]` / `[data-array-remove]` / `[data-array-empty]` / 字段中文名 /
+  递归 `[data-array-object]` / `[data-array="<嵌套字段>"]`），字段显示中文名、不显示 code；存档模式给只读的
+  `[data-current-array]`。**提示词**：状态段一行中文键 JSON 数组（嵌套对象 / 数组递归），可写段一行
+  `- 2.4「背包」：数组；必须是 JSON 数组，每个元素是一个对象（整表替换…）。每项的字段：物品 = 文本；数量 = 整数 0..999`
+  （不出现字段 code、不出现 `advance_time`）。**引擎**：`write_state` 的 `value` schema 扩到 `array` / `object`，
+  命中数组路径 ⇒ **整表替换**（形状不对 ⇒ `E_VALIDATION` 且 tree 一个字不动；item 里的整数只判上下限、不判步幅、
+  不做数字字符串收编），`write` 事件的值 = 整份新数组，失败重试的 guidance 给出数组形状。
+  **示例卡**：`2.4 携带`（text）→ `2.4 背包`（array，`2.4.1 物品` / `2.4.2 数量` 0..999，初始短剑 1 / 斗篷 1 /
+  银币 3），`check` / `output` 的 reads / writable 仍指向 `2.4`。
+  **拆分先行**：`statetree.ts` 只留导出面，活的种类分到 `state-codes` / `state-values` / `state-array` /
+  `state-data` / `state-issues`；`EditorPage.vue` 的栏宽拖拽搬到 `composables/useEditorColumns.ts`，
+  数组编辑块住 `components/ArrayValue.vue`。判据：`v2/tests/array-*.test.js` · `v2/e2e/array-editor.spec.js` ·
+  `v2/e2e/array-write.spec.js`（同批迁移 `sample-card-v5` / `prompt-state` / `prompt-writable` / `sample` /
+  `state-tree`）。
 - **v2：节点调用重试次数（2026-11-28）** —— `ChainNode` 新增 `retryCount`：**第一次之外的额外尝试次数**，
   `0..5` 的整数、缺省 `0`（旧卡 / 旧存档快照没有这一格按 0 处理，不迁移、不回写；新建卡的三个默认节点显式写
   `retryCount: 0`）；越界 / 小数 / 字符串 ⇒ `E_CHAIN`（`detail = { nodeId, retryCount }`）。

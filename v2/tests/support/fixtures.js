@@ -150,7 +150,7 @@ export function makeSave(card, over = {}) {
   for (const root of card.state) {
     if (root.code.includes('.')) continue
     if (root.type === 'time') tree[root.code] = { ...root.initial }
-    else Object.assign(tree, root.initial)
+    else Object.assign(tree, JSON.parse(JSON.stringify(root.initial ?? {})))
   }
   return {
     schemaVersion: 1,

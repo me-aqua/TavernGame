@@ -2,7 +2,7 @@
 /**
  * 中栏 · 选中状态元素时的那张表（CONTRACT §8.2）：类型、名字、备注、类型自己的格子、初始值。
  *
- * 作者能选的类型只有**文字 / 数字 / 下拉 / 时间**：`object` 是「有子元素」的后台形态，
+ * 作者能选的类型是**文字 / 数字 / 下拉 / 时间 / 数组**：`object` 是「有子元素」的后台形态，
  * 不在类型下拉里出现（导入的卡里真有一个 `object` 元素时，下拉会把它照实显示出来）。
  *
  * **第一行「类型」对时间元素就是模式选择器**（CONTRACT §2.6）：选中的是时间元素时它显示
@@ -10,20 +10,24 @@
  *
  * 各类型的格子：
  *   · `text` 初始值一个文本框；`integer` 上下限 + 单次步幅 + 初始值；`enum` 取值白名单（一行一个）+ 初始值下拉；
- *   · `object` 没有自身值（初始值那一格整块不出现）；`time` 是时间值 + 三个节日勾选。
+ *   · `object` 没有自身值（初始值那一格整块不出现）；`time` 是时间值 + 三个节日勾选；
+ *   · `array` 的初始值是一份 item 列表（`ArrayValue` 组件），每项的字段值住在那份 JSON 里。
  *
  * 初始值只挂在**根元素**上（CONTRACT §2.2 · A4），所以「初始值块」只在选中的是根元素时渲染：
  *   · 每一行 = 一条值路径（`pathsOf` 顺序），从左到右是**显示编号 → 中文名 → 值控件**；
  *   · 显示编号是存储路径去掉结尾的 `.0`（`1.1.0` 显示 `1.1`），缩进与左栏同一把尺（每层 12px）；
  *   · 根元素自己的那一格带 `[data-field="initial"]`，后代带 `[data-initial-path="<存储路径>"]`；
- *   · integer 行的输入框右边带 `min~max` 小字（生效上下限）。
+ *   · integer 行的输入框右边带 `min~max` 小字（生效上下限）；
+ *   · 数组路径那一行不是文本框，而是 `[data-array="<数组 code>"]` 的 item 列表编辑块。
  * 编辑初始值只**发起请求**（`initial` 事件）：真正写进所属根那张表的活归 `statetree.setInitial`。
  * 换类型同理 —— 只发 `retype` 请求，整份新元素由 `statetree.setElementType` 产出。
  *
  * 存档模式（`initialLocked`）：初始值整块不渲染（这一局的当前值在 `save.tree` 里），类型 / 模式下拉锁死；
- * 节日勾选照旧可改（它们影响的是提示词，不是这一局的状态）。
+ * 选中数组元素时给只读的 `[data-current-array]` 当前值块；节日勾选照旧可改（它们影响的是提示词，
+ * 不是这一局的状态）。
  */
 import { computed } from 'vue'
+import ArrayValue from './ArrayValue.vue'
 import { HOLIDAY_GROUPS, NO_HOLIDAYS } from '../core/holidays'
 import {
   TIME_MODES,
@@ -42,6 +46,7 @@ import type {
   TimeMode,
   TimeUnit,
   TimeValue,
+  TreeValue,
   YearMinuteValue,
 } from '../core/types'
 import { t } from '../i18n'
@@ -52,22 +57,22 @@ const props = defineProps<{
   state: StateElement[]
   /** 存档模式：初始值不可改（初值只是新建存档的种子），时间模式锁死 */
   initialLocked?: boolean
-  /** 存档模式：这一格在 `save.tree` 里的当前值（数字元素显示在上下限下方） */
-  currentValue?: StateValue
+  /** 存档模式：这一格在 `save.tree` 里的当前值（数字 / 数组元素显示在下方） */
+  currentValue?: TreeValue
 }>()
 const emit = defineEmits<{
   /** 换掉整份元素（名字 / 备注 / 白名单 / 上下限 / 节日勾选这类**结构**字段） */
   edit: [element: StateElement]
   /** 换类型：只发请求，整份新元素由 `statetree.setElementType` 产出；下拉元素一起带上，被拒时好拨回去 */
   retype: [type: StateType, select: HTMLSelectElement]
-  /** 改初始值：`path` 是值路径，写进所属根元素那张表 */
-  initial: [path: string, value: StateValue]
+  /** 改初始值：`path` 是值路径，写进所属根元素那张表（数组路径的值就是整份数组） */
+  initial: [path: string, value: TreeValue]
   /** 换时间模式（要确认）：把下拉元素一起带上，取消时好拨回去 */
   'time-mode': [mode: TimeMode, select: HTMLSelectElement]
 }>()
 
 /** 作者能选的类型（`object` 不在这里：它是「有子元素」的后台形态） */
-const TYPES: StateType[] = ['text', 'integer', 'enum', 'time']
+const TYPES: StateType[] = ['text', 'integer', 'enum', 'time', 'array']
 
 /** 类型标签住文案表：`editor.typeText` / `editor.typeInteger` / … */
 function typeLabel(type: StateType): string {
@@ -104,14 +109,20 @@ const table = computed<InitialTable>(() => {
     : {}
 })
 
-/** 这个元素覆盖的值路径（首项 = 它自己的值；`object` 的首项就是第一个孩子的） */
+/** 这个元素覆盖的值路径（首项 = 它自己的值；`object` 的首项就是第一个孩子的；数组只有它自己） */
 const paths = computed(() => pathsOf(props.state, props.element.code))
+
+/** 标量值路径：一行一个控件（数组路径另有整块编辑组件） */
+const scalarPaths = computed(() => paths.value.filter((path) => ownerOf(path)?.type !== 'array'))
+
+/** 数组值路径：初始值块里的 item 列表编辑块（`[data-array]`） */
+const arrayPaths = computed(() => paths.value.filter((path) => ownerOf(path)?.type === 'array'))
 
 /** 元素自己的值路径（有孩子的住 `.0`） */
 const ownPath = computed(() => paths.value[0])
 
 /** 自己那一格的当前初始值（时间根就是时间值本身） */
-const ownValue = computed<StateValue | undefined>(() =>
+const ownValue = computed<TreeValue | undefined>(() =>
   props.element.type === 'time' ? (props.element.initial as StateValue) : table.value[ownPath.value],
 )
 
@@ -134,7 +145,7 @@ function valuesOf(path: string): string[] {
   return ownerOf(path)?.values ?? []
 }
 
-function valueOfPath(path: string): StateValue | undefined {
+function valueOfPath(path: string): TreeValue | undefined {
   return table.value[path]
 }
 
@@ -341,6 +352,12 @@ function requestMode(event: Event): void {
         </div>
       </template>
 
+      <!-- 存档模式：数组元素的当前值（读自 save.tree，只读、没有增删） -->
+      <div v-if="element.type === 'array' && currentValue !== undefined" class="current-array">
+        <span class="field-label">{{ t('editor.fieldCurrent') }}</span>
+        <ArrayValue :state="state" :code="element.code" :value="currentValue" current top disabled />
+      </div>
+
       <!-- 三个节日勾选同一水平行、左对齐；勾选框是自定义绘制的小方盒（不是浏览器原生蓝框） -->
       <div v-if="element.type === 'time' && mode !== 'days-minute'" class="holidays" data-holidays>
         <div v-for="group in HOLIDAY_GROUPS" :key="group" class="holiday-row">
@@ -385,7 +402,7 @@ function requestMode(event: Event): void {
       <!-- 其余根元素：每条值路径一行，编号 → 中文名 → 值控件；缩进与左栏同一把尺 -->
       <div v-else class="initial-rows">
         <div
-          v-for="path in paths"
+          v-for="path in scalarPaths"
           :key="path"
           class="initial-row"
           :data-initial-row="path"
@@ -419,6 +436,27 @@ function requestMode(event: Event): void {
             :data-initial-path="isOwn(path) ? undefined : path"
             :value="valueOfPath(path)"
             @input="setTextInitial(path, ($event.target as HTMLInputElement).value)"
+          />
+        </div>
+
+        <!-- 数组值：整份 item 列表的编辑块（加 / 删一项、每个字段一个控件） -->
+        <div
+          v-for="path in arrayPaths"
+          :key="path"
+          class="initial-array"
+          :data-initial-row="path"
+          :style="{ marginLeft: `${codeIndent(path)}px` }"
+        >
+          <div class="initial-row">
+            <span class="initial-code" data-initial-code>{{ displayCode(path) }}</span>
+            <span class="initial-name ellipsis" :data-initial-name="path">{{ nameOf(path) }}</span>
+          </div>
+          <ArrayValue
+            :state="state"
+            :code="path"
+            :value="valueOfPath(path)"
+            top
+            @change="(value) => emit('initial', path, value)"
           />
         </div>
       </div>
@@ -558,6 +596,20 @@ function requestMode(event: Event): void {
 }
 
 .initial-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.initial-array {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.current-array {
   display: flex;
   flex-direction: column;
   gap: 4px;

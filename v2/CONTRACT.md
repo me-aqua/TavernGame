@@ -20,6 +20,7 @@ v2/
   scripts/check-lines.mjs  v2 文件长度闸（800 行）
   src/  main.ts  router.ts  i18n.ts  env.d.ts
     core/  storage.ts errors.ts prompt.ts engine.ts schema.ts statetree.ts mock.ts tool-definitions.ts (+ provider.ts deadline.ts types.ts)
+       statetree 的活按种类分在 state-codes / state-values / state-array / state-data / state-issues（statetree 只留导出面）
     components/*.vue  pages/ HomePage.vue EditorPage.vue PlayPage.vue SettingsPage.vue  locales/zh-CN.json  data/sample-card.json  styles/*.css
   tests/  vitest（node，被测 src/core/**）  e2e/  Playwright（dist/v2）  stories/ .storybook/  组件故事与巡检
 ```
@@ -55,14 +56,16 @@ v2/
 ```
 
 - **状态树是扁平的、键是完整 code**（v5）：`state[]` 只是**声明**，值住在存档的 `tree` 里（§2.2）。
-- `type ∈ 'time' | 'text' | 'integer' | 'enum' | 'object'`；**作者只能选 `text` / `integer` / `enum` / `time`**，`object` 是「有孩子」的内部形态（类型下拉里没有；导入的卡真有 `object` 时照实显示并按它校验）。`type` 描述的是**自身值**，所以标量节点也可以有孩子、不会因此变成 `object`。
-- **编号铁律**：`state[0].code === '0'` 且 `type === 'time'`（整张卡只能有一个 `time`，它不能有孩子）；节点自己的值住在**隐式**的 `<code>.0`（**不进 `state[]`**），可见孩子从 `<code>.1` 起连续编号；父 code 必须存在；深度（`.0` 不计）最大 5（`1.1.1.1.1` 合法）。
-- **初始值只挂在根元素上**（`code` 不含 `.`）：它不是「元素自己的值」，而是**整棵子树的扁平值表**（键是完整 code，口径与存档 `tree` 完全一致）；时间根是唯一例外 —— 它的 `initial` 就是时间值本身。**子元素一个字节都不许存 `initial`**（有这一格就是坏卡 ⇒ `E_VALIDATION`）。摊平成新建存档的 `tree` 由 `initialTreeOf` 做。
+- `type ∈ 'time' | 'text' | 'integer' | 'enum' | 'object' | 'array'`；**作者能选 `text` / `integer` / `enum` / `time` / `array`**，`object` 是「有孩子」的内部形态（类型下拉里没有；导入的卡真有 `object` 时照实显示并按它校验）。`type` 描述的是**自身值**，所以标量节点也可以有孩子、不会因此变成 `object`。
+- **编号铁律**：`state[0].code === '0'` 且 `type === 'time'`（整张卡只能有一个 `time`，它不能有孩子）；节点自己的值住在**隐式**的 `<code>.0`（**不进 `state[]`**），可见孩子从 `<code>.1` 起连续编号；顶层根从 `1` 起连续；父 code 必须存在；深度（`.0` 不计）最大 5（`1.1.1.1.1` 合法）。
+- **数组节点**（阶段 3）：`type: 'array'` 的元素，**值就住在它自己的 code**（`2.4`），是一份 **item 结构体列表**；子元素是 item 的**字段定义**（schema），不是值路径。`.0` 与数组无关（数组没有「自身值」这一格，`2.4.0` 五处都不出现）。item 的键 = 字段的**完整 code**（`2.4.1`），item 之间**同构**（键集合恰好等于字段定义全集，缺键 / 多键 / 多出 `id` / `order` 都是坏值）；数组顺序 = 存储顺序。字段类型只允许 `text | integer | enum | object | array`（**`time` 不能做字段**，嵌套子孙也不行）；标量字段是叶子（不许有孩子），`object` / `array` 字段必须有孩子，数组必须有 ≥1 个字段，空数组 `[]` 合法。数组允许重复项；**没有隐藏 id**（引用类型是后续票）。
+- **初始值只挂在根元素上**（`code` 不含 `.`）：它不是「元素自己的值」，而是**整棵子树的扁平值表**（键是完整 code，口径与存档 `tree` 完全一致）；时间根是唯一例外 —— 它的 `initial` 就是时间值本身。数组的初始值也在这张表里：键就是**数组自己的 code**（`2.4`），值是整份 item 列表（不写 `2.4.0`，也不写字段 code）。**子元素一个字节都不许存 `initial`**（有这一格就是坏卡 ⇒ `E_VALIDATION`）。摊平成新建存档的 `tree` 由 `initialTreeOf` 做（数组 / item 对象 / 嵌套数组都**深拷贝**）。
 - 各类型的格子：`enum` 的 `values` 非空 / 不重复 / 都是字符串，初始值必须是其中一项；`integer` 的 `min`/`max`（缺省 ∓1e9）与 `stepMin`/`stepMax`（缺省 0 / 1e9）是值范围与**单次写入的步幅**（`|new − old|`），初始值只受上下限约束；`time` 的 `timeMode` 必填（`year-minute` / `year-date` / `days-minute`，见 §2.6）、`holidays` 在前两个模式必填且天数模式不许有；**能推进哪些单位只由 `timeMode` 决定**（§2.6 的表就是唯一来源），卡里没有、也不认任何颗粒度字段。
 - 其它类型身上残留 `timeMode` / `holidays` **不管**（与「多余字段宽容」同一口径）。
 - `validateCard` 对多余字段宽容（卡里残留 `presetId` 不报错，引擎一个字节都不看），但对**旧形状不迁移**：`type: 'string'`、`tree['0']` 是 `{ day, hour }`、缺 `opening`、布尔 `readsUpstream`、带校对节点的卡一律中文 `E_VALIDATION`。
 - `reads` 是混合数组：`prompts[].id` = 读这块公共提示词，**元素 code** = 读这个元素（自身值 + 整棵子树），**`<code>.0`** = 只读这个元素的自身值；创建方保证同一字符串不同时是两者。
-- **`.0` 引用**：只有「真的有自身值、而且住在 `.0`」的节点才有这一格 —— 有孩子的标量（`1.1` 是 enum 且有孩子 ⇒ `1.1.0` 合法）；叶子自己就是 `<code>`，所以 `2.1.0` 非法；`object` 没有自身值 ⇒ `2.4.0` 非法；时间元素没有孩子 ⇒ `0.0` 非法；父 code 不存在 ⇒ 非法。`reads` 与 `writable` 都按这一条判（悬空 ⇒ `E_VALIDATION`）。
+- **`.0` 引用**：只有「真的有自身值、而且住在 `.0`」的节点才有这一格 —— 有孩子的标量（`1.1` 是 enum 且有孩子 ⇒ `1.1.0` 合法）；叶子自己就是 `<code>`，所以 `2.1.0` 非法；`object` 没有自身值 ⇒ `2.4.0` 非法（数组同理）；时间元素没有孩子 ⇒ `0.0` 非法；父 code 不存在 ⇒ 非法。`reads` / `writable` 都按这一条判（悬空 / 字段 code / `.0` ⇒ `E_VALIDATION`）。
+- **值路径**（`pathsOf`）：数组只产出**它自己的 code**一条（字段定义不产出、不下钻）；`elementOfPath` 认数组 code，字段 code 与 `<code>.0` 都认不出（`undefined`）。`reads` / `writable` 只接受容器 code `2.4`；`toolsForNode` 对数组只派生 `write_state`（数组不是时间，不派生 `advance_time`）。
 - 新建卡默认三节点（顺序 / id / name / reads / writable / readsUpstream / historyTurns / retryCount / prompt）：
 
 | #   | id       | type     | name | reads | writable                               | readsUpstream | historyTurns | retryCount | prompt |
@@ -88,7 +91,7 @@ v2/
   cardSnapshot: Card,                    // 新建时整张卡深拷贝，此后不随卡改动
   nodeModels?: { [nodeId]: presetId },   // 这一份存档自己的映射；缺省 = 回落卡级
   name: string, turn: number,            // 已完成回合数；新建为 0
-  tree: { [path]: string | number | TimeValue },   // TimeValue 的格子跟着卡的 timeMode 走（§2.6）
+  tree: { [path]: string | number | TimeValue | ArrayValue },  // TimeValue 的格子跟着卡的 timeMode 走（§2.6）；数组值是 item 列表
   events: Event[], updatedAt: string     // ISO 时间戳
 }
 ```
@@ -192,7 +195,7 @@ export function createStorage(backend) -> Storage   // backend 由调用方注�
 ### 3.1 内置示例卡（`晨风镇`）—— 资产，不是玩家数据
 
 - 卡片本体住在 `v2/src/data/sample-card.json`（**资产**，随构建发布）；代码里不写死它的内容，只有 `main.ts` 引入它。
-- 资产形状 = 阶段 2.1 的 v5 样例：时间（`0`，推进单位由 `timeMode` 决定）+ `1 世界`（`text` + 空自身值 + 子节点；`1.1 区域` 下拉自身值 + `1.1.1 地点` 文字；`1.2 天气` 下拉；`1.3 氛围` 文字）+ `2 玩家`（`text` + 空自身值 + 子节点；名字 / 体力 0..100 步幅 1..10 / 状态下拉 / 携带文字）。人物与线索不在 2.1 里。
+- 资产形状 = 阶段 2.1 的 v5 样例 + 阶段 3 的背包：时间（`0`，推进单位由 `timeMode` 决定）+ `1 世界`（`text` + 空自身值 + 子节点；`1.1 区域` 下拉自身值 + `1.1.1 地点` 文字；`1.2 天气` 下拉；`1.3 氛围` 文字）+ `2 玩家`（`text` + 空自身值 + 子节点；名字 / 体力 0..100 步幅 1..10 / 状态下拉 / **`2.4 背包` 数组**：`2.4.1 物品` 文字 + `2.4.2 数量` 整数 0..999，初始值 `initial['2.4'] = [{'2.4.1':'短剑','2.4.2':1},{'2.4.1':'斗篷','2.4.2':1},{'2.4.1':'银币','2.4.2':3}]`）。人物与线索不在 2.1 里。
 - 种下去的是克隆 + 运行时不透明 id：克隆后 `id = c-<uuid>`（与首页新建卡同一套生成器）；资产 id 不进 URL / 存档；存档 `cardSnapshot.id` 用运行时 id。
 - 首次打开：`main.ts` 看 `tg2.settings.sampleSeeded`；不是 `true` ⇒ 若 `tg2.cards` 为空就写入示例卡，并把标记置 `true`（卡表非空也置 `true`、不种；一次性，不新增第六个键）。
 - 删了不复种：玩家删掉示例卡后再打开，列表就是空的（标记已落盘；删卡不动标记）。
@@ -211,8 +214,13 @@ export { advanceTime }   // 语义见 src/core/timevalue.ts：advanceTime(value,
 // src/core/statetree.ts（状态树：形状 / 派生 / 同步 / 校验；时间那半原样转出）:
 export const YEAR_MIN, YEAR_MAX, TIME_MODES, TIME_UNITS
 export function codeDepth(code) -> number
-export function pathsOf(state, ref) -> string[]   // ref = 元素 code（自身值 + 子树）或 `<code>.0`（只有自身值）；认不出 ⇒ []
+export function childrenOf(state, code) -> StateElement[]
+export function isInsideArray(state, code) -> boolean   // 字段定义（数组的子孙）⇒ true
+export function pathsOf(state, ref) -> string[]   // ref = 元素 code（自身值 + 子树；数组只有它自己）或 `<code>.0`（只有自身值）；认不出 / 字段 ⇒ []
 export function elementOfPath(state, path) -> StateElement | undefined
+export function arrayValueFits(state, code, value) -> boolean   // 数组值：同构 item 列表（§2.1）；[] 合法
+export function arrayItemOf(state, code) -> ItemObject          // 新 item 的默认值（编辑器加一项 / 加字段共用）
+export function valueFits(state, element, value) -> boolean     // 标量 / 时间 / 数组共用的值形状判据
 export function unitsOfMode(mode) -> TimeUnit[]
 export function integerRangeOf(element) -> { min, max, stepMin, stepMax }   // 数字的生效格子；校验与编辑器 `min~max` 小字共用
 // src/core/tool-definitions.ts:
@@ -257,8 +265,9 @@ export { elementOfPath }   // 转出 `statetree` 那一份（老的调用方从�
 - **节点类型不决定能写什么**：`time` / `normal` 的 `writable` 里都可以有时间元素 `'0'` 与普通元素（也可以写 `<code>.0`，只拿自身值的写权限）；工具由**每个引用覆盖到的值路径**（`pathsOf`）派生：覆盖到时间 ⇒ `advance_time`，覆盖到任何非时间 / 非结构体的值 ⇒ `write_state`，两样都覆盖 ⇒ 两个工具。
 - 唯一例外是 `output`：它只产故事，`writable` 必须是空的（卡校验 `E_CHAIN`），`toolsForNode` 给它 `[]`。
 - `advance_time({ amount, unit })`：`amount` 是**正整数**，`unit` 必须在**当前时间模式**的单位表（`unitsOfMode(mode)`）里，否则 `E_VALIDATION`；按公历推进（年 / 月月底夹取、`week` = 7 × amount 天、越过 `-551..9999` 年或天数越界 ⇒ `E_VALIDATION`），写回该时间元素自己的值路径；工具结果用 `formatTime(next, mode)`。**provider 声明的 `unit` 枚举按模式收窄**（`toolDefinitionsOf(mode)` / `advanceTimeSchemaOf(mode)`，来源就是 `unitsOfMode`）：year-date 的模型看不到 `hour` / `minute`，days-minute 看不到 `year` / `month` / `week`；静态 `TOOL_DEFINITIONS` 保留六个单位的全集给没有卡可比的调用方，执行器照旧再判一次模式。
-- `write_state({ path, value })` 只能写 `node.writable` 覆盖到的值路径（**完整 code**；有孩子的节点自身值是 `<code>.0`）；值按元素类型收：`text` 字符串、`integer` 安全整数 + 上下限 + 单次步幅、`enum` 白名单；写时间 ⇒ `E_CHAIN`（提示改用 `advance_time`）。模型可能把整数写成 JSON 字符串（schema 的 `value` 收 `string | integer`）⇒ `integer` 收到**数字字符串**时先收成数字（`"85"` ⇒ `85`，落进 `tree` 的是数字），再做上下限 / 单次步幅；非数字串（`"abc"` / 空串）照旧 `E_VALIDATION`。`writable` 写的是 `<code>.0` 时，只有那一格可写，孩子不在权限里。
-- `applyWrite`：时间 ⇒ `E_CHAIN`；不在覆盖范围（越权 / 路径不存在 / 父 code 本身 / 结构体自身 code）⇒ `E_CHAIN`；结构体没有自身值 ⇒ `E_VALIDATION`；值类型或范围不符 ⇒ `E_VALIDATION`；合法返回**新** tree（入参 tree 一个字都不改）。
+- `write_state({ path, value })` 只能写 `node.writable` 覆盖到的值路径（**完整 code**；有孩子的节点自身值是 `<code>.0`，数组是它自己的 code）；值按元素类型收：`text` 字符串、`integer` 安全整数 + 上下限 + 单次步幅、`enum` 白名单、`array` 一份合法 item 列表；写时间 ⇒ `E_CHAIN`（提示改用 `advance_time`）。模型可能把整数写成 JSON 字符串（schema 的 `value` 收 `string | integer | array | object`）⇒ `integer` 收到**数字字符串**时先收成数字（`"85"` ⇒ `85`，落进 `tree` 的是数字），再做上下限 / 单次步幅；非数字串（`"abc"` / 空串）照旧 `E_VALIDATION`。`writable` 写的是 `<code>.0` 时，只有那一格可写，孩子不在权限里。
+- `applyWrite`：时间 ⇒ `E_CHAIN`；不在覆盖范围（越权 / 路径不存在 / 父 code 本身 / 结构体自身 code / 数组字段 code / `2.4.0`）⇒ `E_CHAIN`；结构体没有自身值 ⇒ `E_VALIDATION`；值类型或范围不符 ⇒ `E_VALIDATION`；合法返回**新** tree（入参 tree 一个字都不改）。
+- **数组整表替换**：命中数组元素（值路径 = 数组 code）时，`value` 必须是合法数组（§2.1 的 item 形状，空数组合法）：旧 item 全部消失、新 item 按给定顺序落进 `tree[path]`；形状不对 ⇒ `E_VALIDATION` 且 tree 一个字不动；item 里的 integer **只判上下限、不判步幅**（整表替换没有「单次写入」的旧值可比），**不做数字字符串收编**（`"1"` 是坏值）。没有数组专用的 add / remove 工具，也没有「按下标改一项」的路径；`write` 事件里 `detail.value` = 整份新数组。
 - 工具调用被引擎执行时记两条事件：`tool`（`detail = { name, args }`）与 `write`（`detail = { path, value }`）；同一次调用还进该节点的 `trace.toolCalls`（带 `result`）；模型正文里的工具调用**一律不认**。
 - **工具参数表只有一份**（`src/core/tool-definitions.ts`）：provider 序列化给模型的 `inputSchema` 与引擎执行器读的实参名是同一张形状表（`advance_time` = `amount`/`unit`、`write_state` = `path`/`value`），值域仍由执行器判。`advance_time.unit` 的枚举**按时间模式生成**：`toolDefinitionsOf(mode)`（= `TOOL_DEFINITIONS` + `advanceTimeSchemaOf(mode)`）用 `unitsOfMode(mode)`，引擎把卡里的 `timeMode` 传给 `callProvider`。
 - 节点文本：`output` 节点的文本 → `narration` 事件；所有节点的文本都进自己的 `trace.output`。
@@ -299,7 +308,7 @@ export { elementOfPath }   // 转出 `statetree` 那一份（老的调用方从�
    </工具执行失败>
    ```
 
-   `{path}`：`write_state` 用它实参里的 `path`；`advance_time` 用时间元素的值路径（通常是 `0`）；工具名不在节点工具表里 ⇒ `（无）`。`{code}` / `{message}` 是 `AppError` 的中文原文。`{guidance}` 由**目标元素的类型**派生（不复述模型原文）：`text` ⇒ `JSON 字符串`；`integer` ⇒ `JSON 整数` + 该元素生效的 `min..max` 与步幅；`enum` ⇒ `JSON 字符串` + 白名单；时间 ⇒ 只能 `advance_time`、列该时间模式允许的单位；路径不存在 ⇒ 列节点可写的值路径；工具名不合法 ⇒ 列该节点允许的工具。
+   `{path}`：`write_state` 用它实参里的 `path`；`advance_time` 用时间元素的值路径（通常是 `0`）；工具名不在节点工具表里 ⇒ `（无）`。`{code}` / `{message}` 是 `AppError` 的中文原文。`{guidance}` 由**目标元素的类型**派生（不复述模型原文）：`text` ⇒ `JSON 字符串`；`integer` ⇒ `JSON 整数` + 该元素生效的 `min..max` 与步幅；`enum` ⇒ `JSON 字符串` + 白名单；`array` ⇒ `一份 JSON 数组，每个元素是对象` + 每项字段的中文名 / 类型 / 范围（整表替换）；时间 ⇒ 只能 `advance_time`、列该时间模式允许的单位；路径不存在 ⇒ 列节点可写的值路径；工具名不合法 ⇒ 列该节点允许的工具。
 
 7. mock 与真 provider 收到的是**同一份** prompt：引擎把本次尝试最终拼出的 prompt 传给 `mockReply({ prompt })`，与 `callProvider({ prompt })` 一致（§7）。
 
@@ -312,8 +321,8 @@ export function buildPrompt({ card, save, node, action, outputs }) -> string
 `outputs` = 本回合**已执行节点**的输出，按节点 id 索引（`{ [nodeId]: text }`）。拼接顺序固定，**每段自带标记，空段连标记一起省略**（`<可写状态>` 例外：非 `output` 节点没有写权限也要出现，见第 3 段）：
 
 1. **公共提示词**：`card.prompts` 顺序里 `id ∈ node.reads` 且 `body !== ''` 的，每块 `<公共提示词·{title}>`，下一行起 `body` **逐字**。
-2. **状态树**：`<世界状态树>` + 读到的每个引用**一行**：`- <code>「<name>」：<JSON>`（`.0` 引用那一行的 `<code>` 写的是值路径，名字仍是元素的 `name`）。**读元素 code** ⇒ 时间输出 `formatTime` 那一行（按模式：`2024-02-10 08:30（周六）` / `2024-02-10（周六）` / `第 5 天 08:30`）；有孩子的节点输出「自身值 + 整棵子树」的 JSON（**键是中文名**：自身值 `"自身"`、孩子用元素 `name`，**嵌套**；没有 `"0"` / `"1"` 这种 code 键；结构体没有 `"自身"`）；叶子输出自己的值（JSON 形态）。**时间那一行下面可以紧跟一行 `节日：…`**（`holidaysOf` 非空时；前缀 `节日：`、分隔符 `、`，只出现一次）；节日不是状态值，`tree` / 事件里都没有。**读 `<code>.0`** ⇒ 只输出这个元素自己的值，不出孩子、不出整棵树。读父 code 时子孙不再单独出行；只读 `.0` 时孩子照旧可以单独读。不输出形状表 / 类型清单；一个引用都没读 ⇒ 连标记都不出现。
-3. **可写状态**：`<可写状态>` + `node.writable` 按 `pathsOf` 展开的每一条**真实值路径**一行：`- <code>「<name>」：<约束>`。约束同时说明**合法 JSON 值形状**：`text` ⇒ `文本；必须是 JSON 字符串`；`enum` ⇒ `下拉；必须是 JSON 字符串，只能是 <卡里 values 顺序、`、` 连接>`；`integer` ⇒ `整数 <min>..<max>，步幅 <stepMin>..<stepMax>；必须是 JSON 整数（不能是字符串或小数）`（缺省取生效值）；`time` ⇒ `只能通过 advance_time 推进，不能 write_state`。**约束一律从 `StateElement` 的 `type` / `values` / `min` / `max` / `stepMin` / `stepMax` 派生**（整数走 `integerRangeOf`，与校验同一份缺省），文案只有通用模板、**没有按某张卡或样例写死的字符串**。**时间绝不列成可写的 `write_state` 路径**；时间不在 `writable` 里就一个字符都不出现。`writable` 为空且节点不是 `output` ⇒ 块里没有一条写路径，正文说 `无可写状态`、不要调用写工具。**非 `output` 节点这一段永远出现**（空也要出现），末尾恒有一句「未列出的状态一律只读；只有上面列出的值路径可以写」——节点提示词里的说法不作数；**`output` 节点整段不出现**（它什么也不写，连 `无可写状态` 都不留）。
+2. **状态树**：`<世界状态树>` + 读到的每个引用**一行**：`- <code>「<name>」：<JSON>`（`.0` 引用那一行的 `<code>` 写的是值路径，名字仍是元素的 `name`）。**读元素 code** ⇒ 时间输出 `formatTime` 那一行（按模式：`2024-02-10 08:30（周六）` / `2024-02-10（周六）` / `第 5 天 08:30`）；有孩子的节点输出「自身值 + 整棵子树」的 JSON（**键是中文名**：自身值 `"自身"`、孩子用元素 `name`，**嵌套**；没有 `"0"` / `"1"` 这种 code 键；结构体没有 `"自身"`）；**数组输出一份 JSON 数组**：每个 item 是一个对象，键是字段的 `name`（中文名）、值按字段类型递归（嵌套 `object` ⇒ 嵌套对象，嵌套 `array` ⇒ 数组）；字段不单独出行；叶子输出自己的值（JSON 形态）。**时间那一行下面可以紧跟一行 `节日：…`**（`holidaysOf` 非空时；前缀 `节日：`、分隔符 `、`，只出现一次）；节日不是状态值，`tree` / 事件里都没有。**读 `<code>.0`** ⇒ 只输出这个元素自己的值，不出孩子、不出整棵树。读父 code 时子孙不再单独出行；只读 `.0` 时孩子照旧可以单独读。不输出形状表 / 类型清单；一个引用都没读 ⇒ 连标记都不出现。
+3. **可写状态**：`<可写状态>` + `node.writable` 按 `pathsOf` 展开的每一条**真实值路径**一行：`- <code>「<name>」：<约束>`。约束同时说明**合法 JSON 值形状**：`text` ⇒ `文本；必须是 JSON 字符串`；`enum` ⇒ `下拉；必须是 JSON 字符串，只能是 <卡里 values 顺序、`、` 连接>`；`integer` ⇒ `整数 <min>..<max>，步幅 <stepMin>..<stepMax>；必须是 JSON 整数（不能是字符串或小数）`（缺省取生效值）；`time` ⇒ `只能通过 advance_time 推进，不能 write_state`；`array` ⇒ `数组；必须是 JSON 数组，每个元素是一个对象（整表替换，不是追加或局部修改）。每项的字段：<中文名> = <类型 / 范围>；…`（嵌套 `object` / `array` 字段递归列，**不出现字段 code**）。**约束一律从 `StateElement` 的 `type` / `values` / `min` / `max` / `stepMin` / `stepMax` 派生**（整数走 `integerRangeOf`，与校验同一份缺省），文案只有通用模板、**没有按某张卡或样例写死的字符串**。**时间绝不列成可写的 `write_state` 路径**；时间不在 `writable` 里就一个字符都不出现。`writable` 为空且节点不是 `output` ⇒ 块里没有一条写路径，正文说 `无可写状态`、不要调用写工具。**非 `output` 节点这一段永远出现**（空也要出现），末尾恒有一句「未列出的状态一律只读；只有上面列出的值路径可以写」——节点提示词里的说法不作数；**`output` 节点整段不出现**（它什么也不写，连 `无可写状态` 都不留）。
 4. **历史**：`<游戏历史记录>` + 最近 `node.historyTurns` 条叙事与最近 `node.historyTurns − 1` 条历史行动，按事件原有先后穿插；本回合 `action` **恒为最后一条**。
 5. **上游输出**：`node.readsUpstream` 点名的、排在它前面的节点，按**链顺序**，一段一个 `<上游输出·{nodeName}>`，下一行起正文逐字（空串跳过）。
 6. **本节点提示词**：`<节点提示词>`，下一行起 `node.prompt` 逐字（空则整段省略）；它永远是最后一段。
@@ -358,13 +367,13 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - `chain` 至少 1 个节点；`type === 'output'` 恰好 1 个（0 个 / ≥2 个都错）；`type === 'time'` 最多 1 个。
 - 节点 `type` 只能是 `'time' | 'normal' | 'output'`（别的值 ⇒ `E_VALIDATION`）；节点 `id` 唯一；`historyTurns` 是 ≥0 的整数；`retryCount` 缺省合法（按 0），给了就必须是 `0..5` 的整数（`-1` / `6` / `1.5` / `'1'` ⇒ `E_CHAIN`，`detail = { nodeId, retryCount }`，`message` 点名节点 id 与区间）。
 - `readsUpstream` 里的每个 id 都必须在链上，且**排在它前面**（首节点只能为空）。
-- `reads` 引用必须存在（提示词 id、元素 code，或合法的 `<code>.0` 自身值路径）；`writable` 引用必须是元素 code 或合法的 `<code>.0`；悬空 / 叶子 `.0` / `object` 的 `.0` / 时间 `0.0` ⇒ `E_VALIDATION`（点名那个引用）。
-- **写权限只由 `writable` 决定**：`time` / `normal` 都可以写任意 code（含 `'0'`），工具按 code 覆盖到的值路径派生；`output` 的必须是 `[]`。
-- **状态树那半的规矩**由 `core/statetree.ts` 的 `cardIssues(card, { initial })` 给出（`code` / `path` / 中文 `message`，外加 `validateCard` 抛第一条时用的 `errorCode`）：编号铁律、深度 ≤ 5、`object` 有孩子、`time` 的 `timeMode` / 节日格子 / 时间值、enum / integer 的格子、父 code 存在、孩子连续编号；**初始值这一族**只看根元素（子元素带 `initial` ⇒ 一条问题；根缺 `initial` / 少值路径 / 多键 / 值不合类型与上下限 ⇒ 各一条，`path` 点名那一条）。`initial: false`（存档模式）⇒ 初始值这一族整块不判。保存按钮与 `validateCard` 共用这一份清单，不各判一套。
+- `reads` 引用必须存在（提示词 id、元素 code，或合法的 `<code>.0` 自身值路径）；`writable` 引用必须是元素 code 或合法的 `<code>.0`；悬空 / 叶子 `.0` / `object` 的 `.0` / 时间 `0.0` / **数组的字段 code（`2.4.1`）与 `2.4.0`** ⇒ `E_VALIDATION`（点名那个引用）。
+- **写权限只由 `writable` 决定**：`time` / `normal` 都可以写任意 code（含 `'0'` 与数组容器 code），工具按 code 覆盖到的值路径派生；`output` 的必须是 `[]`。
+- **状态树那半的规矩**由 `core/state-issues.ts` 的 `cardIssues(card, { initial })` 给出（`code` / `path` / 中文 `message`，外加 `validateCard` 抛第一条时用的 `errorCode`）：编号铁律（含顶层根 1..n）、深度 ≤ 5、`object` 有孩子、`time` 的 `timeMode` / 节日格子 / 时间值、enum / integer 的格子、父 code 存在、孩子连续编号；**数组**另有四条：数组必须有 ≥1 个字段、`object` / `array` 字段必须有孩子、标量字段不许有孩子、数组字段不能是 `time`（嵌套子孙也拦）；**初始值这一族**只看根元素（子元素带 `initial` ⇒ 一条问题；根缺 `initial` / 少值路径 / 多键（含 `2.4.0` 与字段 code）/ 值不合类型与上下限或 item 形状 ⇒ 各一条，`path` 点名那一条）。`initial: false`（存档模式）⇒ 初始值这一族整块不判。保存按钮与 `validateCard` 共用这一份清单，不各判一套。
 - **`prompts` 里必须有 `id === 'opening'` 的那一块**（缺 ⇒ `E_VALIDATION`，不补）。
 - **`presetId` 不在这里校验**：卡可以带着空 / 已失效的 `presetId` 存着，到 `runTurn` 取预设那一步才报 `E_VALIDATION`。
 
-`validateSave(save, card)`：`schemaVersion === 1`；`id` / `cardId` 非空；`turn` 是 ≥0 整数；`events` 是数组；`tree` 是记录、每个值只能是文字 / 安全整数 / 时间值（`tree['0']` 按卡的 `timeMode` 判，没给 `card` 时三种形状都收）；给了 `card` 时 `cardId` 相等，`tree` **恰好覆盖** `pathsOf` 的全部值路径（不缺 `1.1.0` 这类自身值路径、不许多出 `object` 自身 code 这类键），且每个值符合它元素的类型。
+`validateSave(save, card)`：`schemaVersion === 1`；`id` / `cardId` 非空；`turn` 是 ≥0 整数；`events` 是数组；`tree` 是记录、每个值只能是文字 / 安全整数 / 时间值（只住在 `0`，按卡的 `timeMode` 判；没给 `card` 时三种形状都收）**/ 数组 / item 对象**（没给 `card` 时按 JSON 形状收下）；给了 `card` 时 `cardId` 相等，`tree` **恰好覆盖** `pathsOf` 的全部值路径（不缺 `1.1.0` 这类自身值路径、不许多出 `object` 自身 code / 数组字段 code / `2.4.0` 这类键），且每个值符合它元素的类型（数组按 item 形状严格判，空数组合法）。
 
 ## 7. mock 提供方（`src/core/mock.ts`）—— 测试替身
 
@@ -415,12 +424,14 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - 四个面板标题共用 `.col-title` 同版式（41px = `--control-h` + 13px、`padding: 6px 8px`、1px 实线下边框），各带 `data-panel-title`；加号按钮在标题条外（绝对定位）；中栏标题：节点 / 元素 / 提示词 → `编辑·<name>`，没选 → `编辑`；中栏字段表不自带标题。
 - 分隔条：`[data-splitter="left"]` 在左栏右缘（往右拖 = 左栏变宽），`[data-splitter="right"]` 在右栏左缘（往左拖 = 右栏变宽）；双击恢复默认 280 / 320；夹取左 `[200, 480]`、右 `[240, 560]`，中栏不得小于 320；拖完落盘 `tg2.settings.editorColumns`（整数 px），刷新保留。
 - 选中态互斥：S0 什么都没选 · S1 选中工作流节点 · S2 选中状态元素 · S3 选中公共提示词块；两个 `ref` 互相清空，任一时刻最多一格。
-- 左栏：S0 只有 `[data-state-code]` + `[data-state-name]`；S1 每行 `[data-eyes="read"]` / `[data-eyes="write"]`（**文字按钮**「读」/「写」，带 `data-on` 与三态 `data-tri="all|some|none"`，切换当前节点的 `reads` / `writable`），写眼睛只看 `node.writable`、`output` 没有写眼睛；S2 栏顶 `[data-add-state]`（裸 `+`）、每行 `[data-add-child="<code>"]`（第 5 层不渲染、时间没有）与 `[data-delete-state]`（裸 `×`，时间没有），S2 不出现眼睛。
-- 状态树 `[data-state-tree]`：每行 `[data-state-item="<code>"]` + `data-depth="<可见深度>"`（`0` ⇒ 1、`1.1` ⇒ 2），行内只有 `[data-state-code]` / `[data-state-name]` / 眼睛 / 加子元素 / 删除 —— **初始值与当前值都不显示**（`[data-state-value]` 不存在）；`.0` 永远不单独出行。
+- 左栏：S0 只有 `[data-state-code]` + `[data-state-name]`；S1 每行 `[data-eyes="read"]` / `[data-eyes="write"]`（**文字按钮**「读」/「写」，带 `data-on` 与三态 `data-tri="all|some|none"`，切换当前节点的 `reads` / `writable`），写眼睛只看 `node.writable`、`output` 没有写眼睛；S2 栏顶 `[data-add-state]`（裸 `+`）、每行 `[data-add-child="<code>"]`（第 5 层不渲染、时间没有、**数组字段里的标量没有**）与 `[data-delete-state]`（裸 `×`，时间没有），S2 不出现眼睛。数组的 `2.4` 这一行覆盖整个数组（三态只有全 / 无，字段行没有眼睛）。
+- 状态树 `[data-state-tree]`：每行 `[data-state-item="<code>"]` + `data-depth="<可见深度>"`（`0` ⇒ 1、`1.1` ⇒ 2），行内只有 `[data-state-code]` / `[data-state-name]` / 眼睛 / 加子元素 / 删除 —— **初始值与当前值都不显示**（`[data-state-value]` 不存在）；`.0` 永远不单独出行；数组的字段行照常出行（它们是 schema）。
 - 眼睛的三态：一个**元素 code** 覆盖**自身值 + 整棵子树**，所以父行「满」= 整段都被读到、「半」= 只覆盖了一部分、「未」= 没有；点父行 = 全选 / 全反选（全反选会把这一 code 连同它下面已经单独的引用一起摘掉），子节点按钮只切自己。`reads` / `writable` 里手写 / 导入的 `<code>.0`（只取自身值）也进覆盖 —— 父行变「半」、`.0` 自己不占一行。提示词块与上游节点的眼睛**不是三态**，只翻自己那一条。
 - 中栏 S1：`[data-node-name]`（input，改 `node.name`；细条 / 中栏标题跟着变，卡与存档两种模式都可改）、`[data-node-preset]`（select）、`[data-node-retry]`（number，`min=0 max=5 step=1`，文案 `editor.nodeRetry`「调用重试次数」，显示值 `node.retryCount ?? 0`；`change` 只收 `0..5` 的整数，不合法不发 patch；卡模式与存档模式都可改，保存落 `chain[].retryCount` / `save.cardSnapshot.chain[].retryCount`）、`[data-node-history]`（number）、`[data-node-prompt]`（textarea）；**DOM 顺序就是 preset → retry → history**；**这一形态没有眼睛**。
-- 中栏 S2：`[data-state-type]` **同一个元素上还带 `[data-field="type"]`**（一个 select 两个钩子）：时间元素 ⇒ 它的 value 是**模式 id**（`year-minute` / `year-date` / `days-minute`，恰好三项），卡模式可改、存档模式 `disabled`；非时间元素 ⇒ 作者选项只有 `text|integer|enum|time`（导入的 `object` 元素照实显示），照旧可改。另有 `[data-field="name"]`、`[data-field="note"]`；各类型的格子：enum 的 `[data-field="values"]`（textarea，一行一个）、integer 的 `[data-field="min"]` / `max` / `step-min` / `step-max`、time 的三个节日勾选 `[data-holiday="international|china|traditional"]`（`days-minute` 一个都不渲染；三个都**永远可点**，不置灰）+ 传统节日旁常驻备注 `[data-holiday-note]`（`仅支持 1900–2100`）+ 时间格子 `[data-field="time-year|time-month|time-day|time-hour|time-minute"]` 按模式给 5 / 3 / 3 格（**没有 `time-second`**），每格右边紧邻单位 `[data-time-unit]`。**没有单独的 `[data-field="time-mode"]`，也没有任何 `[data-field="granularity-upper|lower"]`**（两者 count 恒为 0）。三个节日勾选在**同一水平行、左对齐**（中栏放不下时这一行自己横向滚动，**不换行**）：`[data-holiday]` 就是那个看得见的自定义方盒（`appearance: none`、14×14、颜色取自 `--ink` / `--accent` / `--line` 那一族，勾上是 `--accent` 底而不是浏览器原生蓝）；点按热区用 `::before` 扩到 24×24，视觉盒仍是 14×14。**初始值那一块住在中栏下半部分**（两行布局：上半 = 结构字段、至少占一半；下半从 ~50% 起 = `[data-initial-block]`，不贴底、不用 `margin-top: auto`；两块间 ≥16px，放不下就滚动）；**初始值块只在选中的是根元素时渲染**，每条值路径一行 `[data-initial-row="<存储路径>"]`（顺序 = `pathsOf`）：行内从左到右是 `[data-initial-code]`（显示编号 = 存储路径去掉结尾 `.0`，所以容器本体 `1.1.0` 显示 `1.1`）→ `[data-initial-name="<存储路径>"]` → 值控件；行按显示编号的段数每层缩进 12px。值控件：根元素自己那一行带 `[data-field="initial"]`，后代带 `[data-initial-path="<存储路径>"]`；integer 行的输入框右边带 `[data-initial-range]` 小字 `min~max`（生效上下限）。选中的是子元素 ⇒ 整块不渲染。存档模式**不渲染**初始值整块、`[data-field="type"]` 整格 `disabled`（看得见改不了），integer 改在上下限下方显示 `[data-current-value]`（读 `save.tree`）。
-- 改初始值 / 换类型都走 `core/statetree.ts`：编辑器只发请求，`setInitial` 写进拥有那条值路径的根元素，`setElementType` 产出整份新元素并同步所属根的初始值那一格（`object` 删自己的值路径、标量补默认值）。
+- 中栏 S2：`[data-state-type]` **同一个元素上还带 `[data-field="type"]`**（一个 select 两个钩子）：时间元素 ⇒ 它的 value 是**模式 id**（`year-minute` / `year-date` / `days-minute`，恰好三项），卡模式可改、存档模式 `disabled`；非时间元素 ⇒ 作者选项是 `text|integer|enum|time|array`（`array` 显示「数组」；导入的 `object` 元素照实显示），照旧可改。另有 `[data-field="name"]`、`[data-field="note"]`；各类型的格子：enum 的 `[data-field="values"]`（textarea，一行一个）、integer 的 `[data-field="min"]` / `max` / `step-min` / `step-max`、time 的三个节日勾选 `[data-holiday="international|china|traditional"]`（`days-minute` 一个都不渲染；三个都**永远可点**，不置灰）+ 传统节日旁常驻备注 `[data-holiday-note]`（`仅支持 1900–2100`）+ 时间格子 `[data-field="time-year|time-month|time-day|time-hour|time-minute"]` 按模式给 5 / 3 / 3 格（**没有 `time-second`**），每格右边紧邻单位 `[data-time-unit]`。**没有单独的 `[data-field="time-mode"]`，也没有任何 `[data-field="granularity-upper|lower"]`**（两者 count 恒为 0）。三个节日勾选在**同一水平行、左对齐**（中栏放不下时这一行自己横向滚动，**不换行**）：`[data-holiday]` 就是那个看得见的自定义方盒（`appearance: none`、14×14、颜色取自 `--ink` / `--accent` / `--line` 那一族，勾上是 `--accent` 底而不是浏览器原生蓝）；点按热区用 `::before` 扩到 24×24，视觉盒仍是 14×14。**初始值那一块住在中栏下半部分**（两行布局：上半 = 结构字段、至少占一半；下半从 ~50% 起 = `[data-initial-block]`，不贴底、不用 `margin-top: auto`；两块间 ≥16px，放不下就滚动）；**初始值块只在选中的是根元素时渲染**，每条值路径一行 `[data-initial-row="<存储路径>"]`（顺序 = `pathsOf`；数组路径那一段是下面那个数组编辑块）：行内从左到右是 `[data-initial-code]`（显示编号 = 存储路径去掉结尾 `.0`，所以容器本体 `1.1.0` 显示 `1.1`）→ `[data-initial-name="<存储路径>"]` → 值控件；行按显示编号的段数每层缩进 12px。值控件：根元素自己那一行带 `[data-field="initial"]`，后代带 `[data-initial-path="<存储路径>"]`；integer 行的输入框右边带 `[data-initial-range]` 小字 `min~max`（生效上下限）。选中的是子元素 ⇒ 整块不渲染。存档模式**不渲染**初始值整块、`[data-field="type"]` 整格 `disabled`（看得见改不了），integer 改在上下限下方显示 `[data-current-value]`（读 `save.tree`），数组元素显示只读的 `[data-current-array="<code>"]`（见下）。
+- **数组的初始值编辑块**（`ArrayValue.vue`，`[data-initial-block]` 里）：`[data-array="<数组值路径>"]` 是一个数组值（顶层 `2.4`，嵌套字段如 `2.4.3.2`）；每个 item 是 `[data-array-item]` + `data-array-index="<n>"`（**1 基**，删一项后剩下的重排为 1..n；这两个钩子只挂顶层 item 列表，嵌套数组不重复挂）；字段控件 `[data-array-field="<字段 code>"]`、字段中文名 `[data-array-field-name="<字段 code>"]`（显示 `物品` / `数量`，**不显示 code**）、`object` 字段块 `[data-array-object="<字段 code>"]`（里面按孩子 code 递归）；`[data-array-add]` 追加一项（默认值来自 `arrayItemOf`）、`[data-array-remove]` 删掉这一项（**不弹确认**）、`[data-array-empty]` 空数组时可见（`[]` 合法，不是错误态）。编辑只改内存草稿，点 `[data-save-card]` 才写盘；落盘值 = 根元素 `initial['2.4']` 的整份数组（不写 `2.4.0`）。整数字段空输入不写草稿（恢复旧值），合法整数才更新。
+- **数组的当前值（存档模式）**：选中数组元素 ⇒ `[data-current-array="<code>"]`，内部复用同一套 `[data-array-item]` / `[data-array-field]` / `[data-array-field-name]` / `[data-array-object]`，控件 `disabled`、没有 `[data-array-add]` / `[data-array-remove]`；值读自 `save.tree[code]`。卡模式没有当前值块。
+- 改初始值 / 换类型都走 `core/statetree.ts`（数据层在 `state-data.ts`）：编辑器只发请求，`setInitial` 写进拥有那条值路径的根元素，`setElementType` 产出整份新元素并同步初始值（`object` 删自己的值路径、标量补默认值、**换成数组 ⇒ 清掉这棵子树的键后写 `[]`**；**从数组换成别的类型 ⇒ `E_VALIDATION`，草稿不动，下拉拨回 `array`**）。数组子树里的字段增删由 `state-array.ts` 搬值：加字段把默认值补进**所有现存对应 item**（外层 / 内层都写）；删字段把键从所有 item 里摘掉，同层重排时 item 的键按同一张映射表改名。
 - **换时间模式（只在卡模式）**：改 `[data-field="type"]`（时间元素的这一行就是模式选择器）⇒ 先弹 `[data-confirm]`（`editor.timeModeConfirm`），**草稿此刻不动**；取消 ⇒ 模式与时间初始值都不变（下拉拨回当前模式）；确定 ⇒ `setTimeMode` 把时间初始值重置成新模式的默认值、天数模式删掉 `holidays`（切回年份模式补一份三个都是 `false` 的）；底层 `state[0].type` 永远是 `time`。
 - 中栏 S3：`[data-prompt-title]` + `[data-prompt-body]`（textarea）；没选：`[data-empty-middle]`（空壳，不写句子）。
 - `[data-node-preset]`：选项 = `tg2.presets` 全部；当前值 = 这个节点解析出的预设 id（映射没有就是 `presets[0].id`）；改动写 `tg2.nodeModels[cardId][nodeId]`，**不动卡**；一个预设都没有时为空、`aria-disabled="true"`（不另挂提示）。
@@ -553,5 +564,5 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 
 ### 9.6 本契约不覆盖
 
-- 组件故事 / 像素基线（`v2:stories` / `v2:visual` 是另外两层）· 导入导出 · 节点增删排序 · 数组 / 字典 / 键字段 / 运行期容器增删 / 整表替换（阶段 2.1 明确整块推迟）· 重生成 / 撤销 · 连接测试 · token 费用 · 多语言 · 自定义主题色 · 显示面板。
+- 组件故事 / 像素基线（`v2:stories` / `v2:visual` 是另外两层）· 导入导出 · 节点增删排序 · **字典 / 键字段 / 引用类型 / 隐藏稳定 id / item 排序拖动 / 每项不同字段**（数组本身已做：容器值住节点 code、整表替换、编辑器增删 item 与字段）· 存档编辑器的结构修改 · 重生成 / 撤销 · 连接测试 · token 费用 · 多语言 · 自定义主题色 · 显示面板。
 - 线上 `/v2/` 可打开、旧站根路径仍可用：人工 + 发布流程，不属本文行为判据。

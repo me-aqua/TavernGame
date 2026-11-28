@@ -24,7 +24,7 @@
  *   · 存档模式：初始值不判（它只是新建存档的种子），改判**新快照容不容得下这一份存档的当前树** ——
  *     `saveTreeIssues` 给出路径级的清单，不兼容 ⇒ 不写盘、草稿保留、错误点回那一格。
  */
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ErrorPanel from '../components/ErrorPanel.vue'
 import NodeForm from '../components/NodeForm.vue'
@@ -35,6 +35,7 @@ import StateTree from '../components/StateTree.vue'
 import WorkflowStrip from '../components/WorkflowStrip.vue'
 import { asAppError, storage } from '../app-context'
 import { cloneCard, nextPromptId, nextStateCode } from '../cards'
+import { useEditorColumns } from '../composables/useEditorColumns'
 import type { AppError } from '../core/errors'
 import { validateCard, validateSave } from '../core/schema'
 import {
@@ -48,7 +49,6 @@ import {
   setTimeMode,
 } from '../core/statetree'
 import type { CardIssue } from '../core/statetree'
-import { DEFAULT_SETTINGS } from '../core/storage'
 import type {
   Card,
   ChainNode,
@@ -58,8 +58,8 @@ import type {
   Save,
   StateElement,
   StateType,
-  StateValue,
   TimeMode,
+  TreeValue,
 } from '../core/types'
 import { t } from '../i18n'
 import { REPO_URL } from '../repo'
@@ -72,13 +72,6 @@ const cardId = props.cardId
 const saveId = props.saveId
 /** 存档模式：编辑目标是这一份存档，不是卡带库 */
 const editingSave = saveId !== undefined
-
-const LEFT = { min: 200, max: 480 }
-const RIGHT = { min: 240, max: 560 }
-/** 中栏的最小宽度（CONTRACT §8.2）：两条分隔条都夹着它，先扣掉再谈左右能多宽 */
-const MIDDLE_MIN = 320
-const STRIP_WIDTH = 96
-const SPLITTER_WIDTH = 6
 
 const card = ref<Card | null>(null)
 /** 存档模式：正在编辑的那一份（`cardSnapshot` 就是中栏改的东西） */
@@ -105,11 +98,11 @@ const pending = ref<
 const selectedNodeId = ref<string | null>(null)
 const selectedCode = ref<string | null>(null)
 const selectedPromptId = ref<string | null>(null)
-const columns = reactive({
-  left: DEFAULT_SETTINGS.editorColumns.left,
-  right: DEFAULT_SETTINGS.editorColumns.right,
-})
+// 左右栏宽与拖拽：夹取规则 / 双击复位 / 松手落盘都住在 composable 里。rowEl 给模板当四栏横带的 ref
 const rowEl = ref<HTMLElement | null>(null)
+const { columns, loadColumns, startDrag, resetColumns } = useEditorColumns(rowEl, (cause) => {
+  error.value = cause
+})
 const selectedNode = computed(
   () => card.value?.chain.find((node) => node.id === selectedNodeId.value) ?? null,
 )
@@ -199,9 +192,7 @@ function openSave(id: string): void {
 onMounted(() => {
   try {
     presets.value = storage().loadPresets()
-    const settings = storage().loadSettings()
-    columns.left = settings.editorColumns.left
-    columns.right = settings.editorColumns.right
+    loadColumns()
     if (saveId !== undefined) openSave(saveId)
     else if (cardId !== undefined) openCard(cardId)
   } catch (cause) {
@@ -409,7 +400,7 @@ function retypeElement(code: string, type: StateType, select: HTMLSelectElement)
 }
 
 /** 改初始值：按值路径写进拥有它的那个根元素（子元素对象自己一个字都不动） */
-function setInitialValue(path: string, value: StateValue): void {
+function setInitialValue(path: string, value: TreeValue): void {
   updateCard((current) => setInitial(current, path, value))
 }
 
@@ -502,70 +493,6 @@ function choosePreset(nodeId: string, presetId: string): void {
   } catch (cause) {
     error.value = asAppError(cause)
   }
-}
-
-/**
- * 栏宽的夹取：左 / 右各自 [min, max]，**并且中栏不许小于 320**（CONTRACT §8.2）。
- *
- * 所以每条栏的上限不是写死的常数，而是「当前可用宽度」：
- * `可用 = 总宽 - 另一栏 - 细条 - 中栏最小 - 两条分隔条`，再与自己那一档的 max 取小。
- * 1280 宽、右栏 320 时左栏能到 480；右栏 390 时左栏就只能到 462 —— 中栏那 320 谁也挤不掉。
- * （窗口本身窄到连中栏 320 都放不下时，退回各栏自己的 min：那时哪一栏都不该被压成 0。）
- */
-function clampWidth(px: number, range: { min: number; max: number }, room: number): number {
-  const ceiling = Math.max(range.min, Math.min(range.max, room))
-  return Math.round(Math.min(ceiling, Math.max(range.min, px)))
-}
-
-// 这一栏最多能有多宽：把另一栏、细条、中栏最小与分隔条都先扣掉
-function roomFor(which: 'left' | 'right'): number {
-  const width = rowEl.value?.clientWidth ?? 0
-  const other = which === 'left' ? columns.right : columns.left
-  return width - other - STRIP_WIDTH - MIDDLE_MIN - SPLITTER_WIDTH * 2
-}
-
-function persistColumns(): void {
-  try {
-    const settings = storage().loadSettings()
-    storage().saveSettings({
-      ...settings,
-      editorColumns: { left: Math.round(columns.left), right: Math.round(columns.right) },
-    })
-  } catch (cause) {
-    error.value = asAppError(cause)
-  }
-}
-
-/**
- * 拖分隔条：分隔条**跟着指针走** —— 两条分隔条各自贴在「它右边那一栏」的左边缘上。
- *   · 左分隔条在左栏右侧：往右拖 ⇒ 左栏变宽（`+dx`）；
- *   · 右分隔条在右栏左侧：往左拖 ⇒ 右栏变宽（`-dx`）。
- * 双击恢复默认 280 / 320；松手那一刻落盘（拖的过程里不写盘，免得每次 pointermove 都刷一遍 localStorage）。
- */
-function startDrag(which: 'left' | 'right', event: PointerEvent): void {
-  event.preventDefault()
-  const startX = event.clientX
-  const startWidth = which === 'left' ? columns.left : columns.right
-  // 拖动中：左栏吃正向位移、右栏吃反向位移，各自夹在允许区间里
-  const move = (moveEvent: PointerEvent) => {
-    const dx = moveEvent.clientX - startX
-    if (which === 'left') columns.left = clampWidth(startWidth + dx, LEFT, roomFor('left'))
-    else columns.right = clampWidth(startWidth - dx, RIGHT, roomFor('right'))
-  }
-  // 松手：摘掉两个监听，并把这一档栏宽落盘
-  const up = () => {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', up)
-    persistColumns()
-  }
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', up)
-}
-
-function resetColumns(which: 'left' | 'right'): void {
-  if (which === 'left') columns.left = DEFAULT_SETTINGS.editorColumns.left
-  else columns.right = DEFAULT_SETTINGS.editorColumns.right
-  persistColumns()
 }
 
 /** 【返回】：草稿脏的时候先问一句，确认才真的离开 */

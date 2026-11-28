@@ -23,7 +23,6 @@ import { OPENING_PROMPT_ID } from './schema'
 import { childrenOf, elementOfPath, formatTime, integerRangeOf, pathsOf } from './statetree'
 import { holidaysOf } from './holidays'
 import { t } from '../i18n'
-
 interface BuildPromptArgs {
   card: Card
   save: Save
@@ -35,12 +34,36 @@ interface BuildPromptArgs {
 }
 
 /**
+ * 一个结构体容器（数组元素 / 数组字段 / object 字段）**按中文名**投影成一个普通值：
+ * 键是字段的 `name`（不是 code），值按字段类型递归（数组字段 ⇒ 数组，object 字段 ⇒ 对象）。
+ */
+function structOf(state: Card['state'], containerCode: string, value: unknown): unknown {
+  const source = (value ?? {}) as Record<string, unknown>
+  return Object.fromEntries(
+    childrenOf(state, containerCode).map((field) => [
+      field.name,
+      field.type === 'object'
+        ? structOf(state, field.code, source[field.code])
+        : field.type === 'array'
+          ? arrayOf(state, field.code, source[field.code])
+          : source[field.code],
+    ]),
+  )
+}
+
+/** 一个数组值按中文名投影：每个 item 是一个结构体（`[]` 就是空数组） */
+function arrayOf(state: Card['state'], code: string, value: unknown): unknown[] {
+  return Array.isArray(value) ? value.map((item) => structOf(state, code, item)) : []
+}
+
+/**
  * 一个节点下面那棵子树，**按中文名**拼成对象：自己的值用 `自身`（`prompt.ownKey`），
- * 孩子用元素的 `name` 做键；孩子还有孩子就继续嵌套。结构体没有 `自身`。
+ * 孩子用元素的 `name` 做键；孩子还有孩子就继续嵌套。结构体没有 `自身`，数组是 item 列表。
  *
  * 键**不是** code（`"0"` / `"1"` 这种）：模型读的是人话，不是编号（契约 §5）。
  */
 function subtreeOf(state: Card['state'], tree: Tree, element: Card['state'][number]): unknown {
+  if (element.type === 'array') return arrayOf(state, element.code, tree[element.code])
   const children = childrenOf(state, element.code)
   if (element.type === 'object') {
     return Object.fromEntries(children.map((child) => [child.name, subtreeOf(state, tree, child)]))
@@ -188,8 +211,14 @@ function stateLinesOf(card: Card, tree: Tree, reads: string[]): string[] {
   return lines
 }
 
-/** 一条可写路径的类型约束（时间不走这一支：它只能 `advance_time`） */
-function writeRuleOf(element: Card['state'][number]): string {
+/**
+ * 一条可写路径的类型约束（时间不走这一支：它只能 `advance_time`）。
+ * 数组（`type: 'array'`）说清「整表替换 + 每项的字段」，字段用中文名、不出现 code。
+ */
+function writeRuleOf(state: Card['state'], element: Card['state'][number]): string {
+  if (element.type === 'array') {
+    return t('prompt.writableArray', { fields: arrayFieldRulesOf(state, element.code) })
+  }
   if (element.type === 'enum') {
     return t('prompt.writableEnum', { values: (element.values ?? []).join('、') })
   }
@@ -198,6 +227,28 @@ function writeRuleOf(element: Card['state'][number]): string {
     return t('prompt.writableInteger', { min, max, stepMin, stepMax })
   }
   return t('prompt.writableText')
+}
+
+/** 数组字段的清单文案：`物品 = 文本；数量 = 整数 0..999`（中文名打头，嵌套字段递归） */
+export function arrayFieldRulesOf(state: Card['state'], code: string): string {
+  return childrenOf(state, code)
+    .map((field) => `${field.name} = ${fieldRuleOf(state, field)}`)
+    .join(t('prompt.fieldSeparator'))
+}
+
+/** 一个数组字段的类型说明：标量给类型与范围，对象 / 数组字段把子字段套在括号里 */
+function fieldRuleOf(state: Card['state'], field: Card['state'][number]): string {
+  if (field.type === 'object')
+    return t('prompt.arrayObject', { fields: arrayFieldRulesOf(state, field.code) })
+  if (field.type === 'array') return t('prompt.arrayNested', { fields: arrayFieldRulesOf(state, field.code) })
+  if (field.type === 'integer') {
+    const { min, max } = integerRangeOf(field)
+    return t('prompt.writableIntegerShort', { min, max })
+  }
+  if (field.type === 'enum') {
+    return t('prompt.writableEnumShort', { values: (field.values ?? []).join('、') })
+  }
+  return t('prompt.writableTextShort')
 }
 
 /**
@@ -214,7 +265,7 @@ function writableLinesOf(card: Card, node: ChainNode): string[] {
   const lines = paths.map((path) => {
     // `pathsOf` 产出的路径一定属于某个元素（`chainIssues` 已把悬空引用拦在保存之前）
     const element = elementOfPath(card.state, path) as Card['state'][number]
-    const rule = element.type === 'time' ? t('prompt.writableTime') : writeRuleOf(element)
+    const rule = element.type === 'time' ? t('prompt.writableTime') : writeRuleOf(card.state, element)
     return `${t('prompt.stateLine', { code: path, name: element.name })}${rule}`
   })
   if (lines.length === 0) lines.push(t('prompt.writableEmpty'))

@@ -45,15 +45,25 @@ function advanceTimeShape(units: readonly string[]) {
 /** 静态工具表用的全集（六个单位）；按模式收窄的那一份由 `advanceTimeShape(unitsOfMode(mode))` 生成 */
 const ADVANCE_TIME_SHAPE = advanceTimeShape(TIME_UNITS)
 
-/** `write_state` 的参数：值路径 + 新值（文字或整数都收：模型两种发法都有） */
+/**
+ * `write_state` 的参数：值路径 + 新值。
+ * 标量（文字 / 整数）与**整份 JSON 数组 / 对象**都收：数组元素（`type: 'array'`）的值是一整份
+ * item 列表，模型只能整表替换（CONTRACT §6）。
+ */
 const WRITE_STATE_SHAPE = {
   path: {
     type: 'string',
-    description: 'Full dotted code of the value path to write (for example "1.1" or "1.1.0").',
+    description: 'Full dotted code of the value path to write (for example "1.1", "1.1.0" or "2.4").',
   },
   value: {
-    description: 'The new value: a string for text/enum, an integer for a number element.',
-    anyOf: [{ type: 'string' }, { type: 'integer', minimum: -INTEGER_LIMIT, maximum: INTEGER_LIMIT }],
+    description:
+      'The new value: a string for text/enum, an integer for a number element, or the whole JSON array for an array element.',
+    anyOf: [
+      { type: 'string' },
+      { type: 'integer', minimum: -INTEGER_LIMIT, maximum: INTEGER_LIMIT },
+      { type: 'array' },
+      { type: 'object' },
+    ],
   },
 } satisfies Record<string, JSONSchema7Definition>
 

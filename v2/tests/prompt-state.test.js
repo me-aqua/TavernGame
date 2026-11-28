@@ -280,5 +280,28 @@ describe('提示词 · 示例卡的 JSON 键是中文名', () => {
     const world = JSON.parse(worldLine.slice(worldLine.indexOf('：') + 1))
     expect(world.区域, '子键用元素的 name').toMatchObject({ 自身: '晨风镇', 地点: '醉猫旅店 · 一楼' })
     expect(Object.keys(world)).toEqual(['自身', '区域', '天气', '氛围'])
+
+    const playerPrompt = buildPrompt({
+      card: sample,
+      save,
+      node: { ...reader, reads: ['2'] },
+      action: 'act one',
+      outputs: {},
+    })
+    const playerLine = stateLines(playerPrompt).find((item) => item.startsWith('- 2「'))
+    const player = JSON.parse(playerLine.slice(playerLine.indexOf('：') + 1))
+    expect(Object.keys(player), '2 的子键用元素 name，2.4 是「背包」').toEqual([
+      '自身',
+      '名字',
+      '体力',
+      '状态',
+      '背包',
+    ])
+    expect(player.背包, '数组里是中文键的 item 对象').toEqual([
+      { 物品: '短剑', 数量: 1 },
+      { 物品: '斗篷', 数量: 1 },
+      { 物品: '银币', 数量: 3 },
+    ])
+    expect(JSON.stringify(player), '数组里不许出现字段 code 键').not.toMatch(/"2\.4\.[0-9]+"\s*:/)
   })
 })

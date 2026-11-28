@@ -55,6 +55,7 @@ export const route = {
   home: '#/',
   settings: '#/settings',
   edit: (cardId) => `#/edit/${cardId}`,
+  editSave: (saveId) => `#/edit-save/${saveId}`,
   play: (cardId, saveId) => `#/play/${cardId}/${saveId}`,
 }
 

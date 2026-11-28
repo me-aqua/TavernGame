@@ -212,17 +212,26 @@ export function validateSave(save: Save, card?: Card): void {
     throw new AppError('E_VALIDATION', { message: t('error.events'), nextStep: t('next.home') })
   }
   if (!isRecord(save.tree)) throw badField('save.tree')
-  // 值只有三种形状：文字、整数、时间值。时间值的格子按卡的 `timeMode` 判；没有卡可比时三种都收。
+  // 值的形状分两半：时间只住在 `0`（给了卡按卡的模式判，没给卡三种形状都收）；
+  // 其它值要么是标量，要么是数组 / item 对象 —— 后者有卡时由下面的类型段按字段形状严格判，
+  // 没卡时按 JSON 形状收下（与「没给卡时时间三种形状都收」同一条口径）。
   const timeMode = card?.state[0]?.type === 'time' ? card.state[0].timeMode : undefined
   for (const [path, value] of Object.entries(save.tree)) {
     if (typeof value === 'string' || (typeof value === 'number' && Number.isSafeInteger(value))) continue
-    if (!isTimeValue(value, path === '0' ? timeMode : undefined)) {
+    if (path === '0') {
+      if (isTimeValue(value, timeMode)) continue
       throw new AppError('E_VALIDATION', {
         message: t('error.timeTree'),
         nextStep: t('next.home'),
         detail: { path, value },
       })
     }
+    if (Array.isArray(value) || isRecord(value)) continue
+    throw new AppError('E_VALIDATION', {
+      message: t('error.timeTree'),
+      nextStep: t('next.home'),
+      detail: { path, value },
+    })
   }
   if (!card) return
   if (save.cardId !== card.id) {
@@ -254,9 +263,12 @@ export function validateSave(save: Save, card?: Card): void {
   }
   for (const element of card.state) {
     if (element.type === 'object') continue
-    if (!valueFits(element, save.tree[ownPathIn(card, element)])) {
+    // 数组的字段定义不是值路径（`pathsOf` 给空）⇒ 只由拥有它的数组值那一格判
+    const path = ownPathIn(card, element)
+    if (path === undefined) continue
+    if (!valueFits(card.state, element, save.tree[path])) {
       throw new AppError('E_VALIDATION', {
-        message: t('error.treeValue', { path: ownPathIn(card, element) }),
+        message: t('error.treeValue', { path }),
         nextStep: t('next.home'),
         detail: { code: element.code },
       })
@@ -264,7 +276,7 @@ export function validateSave(save: Save, card?: Card): void {
   }
 }
 
-/** 元素在树里的自身值路径（`pathsOf` 的首项就是它；结构体没有自身值，调用方先跳过） */
-function ownPathIn(card: Card, element: StateElement): string {
+/** 元素在树里的自身值路径（`pathsOf` 的首项就是它；结构体与数组字段没有这一格，调用方先跳过） */
+function ownPathIn(card: Card, element: StateElement): string | undefined {
   return pathsOf(card.state, element.code)[0]
 }

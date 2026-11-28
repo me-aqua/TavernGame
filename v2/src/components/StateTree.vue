@@ -18,7 +18,7 @@
  * 那一侧的卡结构是冻结的，只许改名字 / 备注 / 提示词与眼睛。
  */
 import { computed } from 'vue'
-import { MAX_DEPTH, codeDepth, pathsOf } from '../core/statetree'
+import { MAX_DEPTH, codeDepth, isInsideArray, pathsOf } from '../core/statetree'
 import type { ChainNode, StateElement } from '../core/types'
 import { t } from '../i18n'
 
@@ -67,6 +67,15 @@ function triOf(field: 'read' | 'write', code: string): 'all' | 'some' | 'none' {
 /** 输出节点不写状态：它一只写眼睛都没有（`writable` 必须是空的） */
 function showsWrite(): boolean {
   return props.node !== null && props.node.type !== 'output'
+}
+
+/**
+ * 这一行能不能「加子元素」：时间不能；数组字段里的**标量**不能（item 是纯 JSON 结构体，
+ * 标量字段没有 `.0` 那一层，加孩子要由 `addChild` 报 `E_VALIDATION`）。
+ */
+function showsAddChild(element: StateElement): boolean {
+  if (element.type === 'time' || codeDepth(element.code) >= MAX_DEPTH) return false
+  return !isInsideArray(props.elements, element.code) || element.type === 'object' || element.type === 'array'
 }
 </script>
 
@@ -127,12 +136,7 @@ function showsWrite(): boolean {
           </button>
         </template>
         <button
-          v-if="
-            !structureLocked &&
-            selectedCode !== null &&
-            element.type !== 'time' &&
-            codeDepth(element.code) < MAX_DEPTH
-          "
+          v-if="!structureLocked && selectedCode !== null && showsAddChild(element)"
           type="button"
           class="icon"
           :data-add-child="element.code"

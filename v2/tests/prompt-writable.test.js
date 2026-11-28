@@ -167,6 +167,12 @@ function expectJsonValueShape(line, spec) {
     expect(line.constraint, `${spec.path} 的时间行不是 JSON 值行`).not.toMatch(/JSON 字符串|JSON 整数/)
     return
   }
+  if (spec.type === 'array') {
+    expect(line.constraint, `${spec.path} 的数组行必须写明「JSON 数组」`).toContain('JSON 数组')
+    expect(line.constraint, `${spec.path} 的数组行必须说明每项是对象`).toMatch(/对象|结构体/)
+    expect(line.constraint, `${spec.path} 的数组行不是时间行`).not.toContain('advance_time')
+    return
+  }
   throw new Error(`未知的期望类型：${spec.type}`)
 }
 
@@ -201,6 +207,18 @@ function expectWritableLines(prompt, specs) {
         expect(next, `${spec.path} 的下拉清单缺少 ${value}，或顺序与卡里的 values 不一致`).toBeGreaterThan(at)
         at = next
       }
+    } else if (spec.type === 'array') {
+      for (const field of spec.fields) {
+        const at = line.constraint.indexOf(field.name)
+        expect(at, `${spec.path} 的数组约束缺少字段「${field.name}」`).toBeGreaterThanOrEqual(0)
+        if (field.type === 'integer') {
+          const range = `${field.min}..${field.max}`
+          expect(line.constraint, `${spec.path} 的数组约束缺少「${field.name}」的范围 ${range}`).toContain(
+            range,
+          )
+        }
+      }
+      expect(line.constraint, `${spec.path} 的数组约束里出现了字段 code`).not.toContain('2.4.1')
     } else {
       throw new Error(`未知的期望类型：${spec.type}`)
     }
@@ -261,7 +279,15 @@ describe('可写状态块：路径来自 node.writable（pathsOf 展开），未
       { path: '2.1', name: '名字', type: 'text' },
       { path: '2.2', name: '体力', type: 'integer', min: 0, max: 100, stepMin: 1, stepMax: 10 },
       { path: '2.3', name: '状态', type: 'enum', values: ['正常', '受伤', '疲惫', '中毒'] },
-      { path: '2.4', name: '携带', type: 'text' },
+      {
+        path: '2.4',
+        name: '背包',
+        type: 'array',
+        fields: [
+          { name: '物品', type: 'text' },
+          { name: '数量', type: 'integer', min: 0, max: 999 },
+        ],
+      },
     ])
 
     const block = writableSection(prompt)
@@ -283,7 +309,9 @@ describe('可写状态块：路径来自 node.writable（pathsOf 展开），未
       '示例卡 check 的可写路径清单',
     ).toHaveLength(8)
     for (const line of lines) {
-      expect(line.constraint, `${line.path} 这一行没写合法 JSON 值形态`).toMatch(/JSON 字符串|JSON 整数/)
+      expect(line.constraint, `${line.path} 这一行没写合法 JSON 值形态`).toMatch(
+        /JSON 字符串|JSON 整数|JSON 数组/,
+      )
     }
 
     const stamina = lines.find((line) => line.path === '2.2')
