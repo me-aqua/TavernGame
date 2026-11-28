@@ -446,17 +446,18 @@ describe('数组 item 字段 · 提示词与写（契约 §3）', () => {
     }
   })
 
-  it('只读字段引用 2.4.1：每个 item 只投影这一格，仍是「自身 + 孩子」', async () => {
+  it('只读字段引用 2.4.1（标量 + 孩子）：每个 item 只投影它自己的值，孩子不进来', async () => {
     const card = childCard()
     const prompt = await promptOf(card, reader({ reads: ['2.4.1'] }))
     const lines = linesOf(prompt, '<世界状态树>')
     expect(lines).toHaveLength(1)
-    expect(JSON.parse(payloadOf(lines[0]))).toEqual([
-      { 物品: { 自身: '短剑', 附魔: '锋利' } },
-      { 物品: { 自身: '斗篷', 附魔: '锋利' } },
-      { 物品: { 自身: '银币', 附魔: '锋利' } },
+    expect(JSON.parse(payloadOf(lines[0])), '直接读标量字段 ⇒ 只出它自己的值').toEqual([
+      { 物品: '短剑' },
+      { 物品: '斗篷' },
+      { 物品: '银币' },
     ])
     expect(lines[0], '没读的字段一个键都不出现').not.toContain('数量')
+    expect(lines[0], '标量字段的孩子（附魔）也要单独给 ref 才读得到').not.toContain('锋利')
   })
 
   it('精确例子：父节点 1「区域」→ 地点 array → item 字段 名称（自身 + 描述）', async () => {

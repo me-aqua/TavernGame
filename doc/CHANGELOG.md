@@ -20,6 +20,17 @@
 
 ## [未发布]
 
+### 修改
+- **读取覆盖与容器口径对齐（2026-11-28）** —— 引用覆盖后代只看**容器**：object / array 元素（或字段）
+  的 ref 覆盖它的孩子；**标量元素（哪怕有自己的值和子字段）只覆盖它自己**。所以读 `1.1` 只输出它自己的值，
+  不连带 `1.1.1`（要读孩子就给孩子的 ref）；写 `2.4.1.1` 要它自己的引用或 object / array 祖先的引用
+  （`2.4` / `2.4.2`）。眼睛同步：父行只看自己的 ref，**子行**（读 / 写同一套）看自己的 ref 或 **object / array 祖先**
+  ref（标量祖先不点亮子行），仍然只有 all / none；点标量行只动自己（开 / 关都不动后代 ref），
+  点 object / array 行开 = 去后代冗余、关 = 只摘自己。数组 item 里**直接读**一个标量字段（`reads: ['2.4.1']`）
+  只投影它的 `<code>.0`；读容器（`2.4`）才是「自身 + 孩子」的整段。示例卡 `check` / `output` 的
+  `reads` / `writable` 补上 `1.1.1`（`1.1 区域` 是标量，不再连带 `1.1.1 地点`）。判据：
+  `v2/tests/coverage-symmetry.test.js` · `v2/tests/prompt-state.test.js`。
+
 ### 新增
 - **失败回合的调试槽 `failedTurn`（2026-11-28）** —— 回合失败时把这一份存档写回盘上（`turn` / `tree` /
   `events` 一个字不动），只多一格 `failedTurn = { action, at, error: { code, message, nextStep? }, events, text }`：

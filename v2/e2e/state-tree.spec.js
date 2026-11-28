@@ -3,7 +3,9 @@
  *
  * 这一份量的是**玩家在界面上点得到的那几件事**：
  *   · 左栏按 code 缩进；**`.0` 不单独出行**；有自身值的行显示自身值（时间显示公历格式）；
- *   · 【读】【写】是**文字按钮**；父行**只有两态**（满 / 未，父眼只认自己的 code）；子节点按钮只切自己；
+ *   · 【读】【写】是**文字按钮**；父行**只有两态**（满 / 未：自己的 code 在，或被 object / array
+ *     祖先的 ref 覆盖；子引用不点亮父行）；子节点按钮只切自己；点父行只切自己的 code
+ *     （**标量父不吞孩子 ref**，容器父把后代 ref 并进父 code）；
  *   · 第 5 层不再显示「加子元素」；给标量加孩子**不转换类型**；
  *   · 顶栏 `[data-save-card]`：编辑只改内存草稿，点保存才校验 + 落盘；
  *     校验不过 ⇒ 不写盘、草稿保留、中文错误清单可点回；合法 ⇒ 写盘。
@@ -139,34 +141,44 @@ test('文字按钮：【读】【写】在每一行都有，父行只有 all / n
   }
 })
 
-test('父【读】全选 / 全反选 = 自身值 + 所有孩子；子节点按钮只切自己（all / none）', async ({ page }) => {
+test('父【读】只切自己的 code：标量父不吞孩子 ref，容器父收掉后代冗余（all / none）', async ({ page }) => {
   const card = v5Card()
   await openEditor(page, card)
+  /** 盘上 `time` 节点的 reads */
+  const readsOf = async () =>
+    (await readStorage(page, KEYS.cards))[0].chain.find((node) => node.id === 'time').reads
   // 时间节点的 reads 是空的：整棵树都从「未选」出发
   await selectNode(page, 'time')
   await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-tri', 'none')
 
-  // 只点孩子 ⇒ 父眼只认自己的 code，仍是 none
+  // 只点孩子 ⇒ 父眼仍是 none（子引用不点亮父行）
   await page.locator(readEye('1.1.1')).click()
   await expect(page.locator(readEye('1.1.1'))).toHaveAttribute('data-on', 'true')
   await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-tri', 'none')
   await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-on', 'false')
 
-  // 点父行全选 ⇒ 满（存的是父 code；字段眼睛由父派生）
+  // 点父行 ⇒ 只有**它自己的 code** 进清单；`1.1` 是标量（有孩子）⇒ 不覆盖 `1.1.1`，孩子的 ref 留着
   await page.locator(readEye('1.1')).click()
   await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-tri', 'all')
   await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-on', 'true')
-
-  // 落盘的是**父 code**（一个 code 覆盖自身值 + 整棵子树），不是逐个孩子
+  await expect(page.locator(readEye('1.1.1')), '标量父不吞孩子 ref').toHaveAttribute('data-on', 'true')
   expect(await save(page)).toBe(0)
-  const cards = await readStorage(page, KEYS.cards)
-  expect(cards[0].chain.find((node) => node.id === 'time').reads).toContain('1.1')
+  expect([...(await readsOf())].sort(), '两个 ref 都在：1.1 只管自己，1.1.1 单独读').toEqual(['1.1', '1.1.1'])
 
-  // 再点一次 = 全反选
+  // 再点一次 = 只摘父 code，孩子 ref 仍在（不是「全反选」）
   await page.locator(readEye('1.1')).click()
   await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-tri', 'none')
+  await expect(page.locator(readEye('1.1.1'))).toHaveAttribute('data-on', 'true')
   expect(await save(page)).toBe(0)
-  expect((await readStorage(page, KEYS.cards))[0].chain.find((node) => node.id === 'time').reads).toEqual([])
+  expect(await readsOf()).toEqual(['1.1.1'])
+
+  // object 父行 `1` 是容器 ⇒ 全选：后代 ref 并进父 code，孩子眼由容器派生亮
+  await page.locator(readEye('1')).click()
+  await expect(page.locator(readEye('1'))).toHaveAttribute('data-tri', 'all')
+  await expect(page.locator(readEye('1.1')), '容器覆盖 ⇒ 子行由父派生亮').toHaveAttribute('data-on', 'true')
+  await expect(page.locator(readEye('1.1.1'))).toHaveAttribute('data-on', 'true')
+  expect(await save(page)).toBe(0)
+  expect(await readsOf(), '容器开 ⇒ 只留父 code').toEqual(['1'])
 })
 
 test('父眼只认自己的 code：只引用 .0 ⇒ 父 none；.0 不出行', async ({ page }) => {

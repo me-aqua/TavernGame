@@ -2,7 +2,9 @@
  * 阶段 2.1 · 提示词里的状态段（v5 契约 §5）。
  *
  * 这一份钉的是**玩家模型真正看到的那几行**：
- *   · 读一个节点 code ⇒ 输出「自身值 + 整棵子树」的 JSON（有孩子的节点，自身值在 `"0"`）；
+ *   · 读 **object / array** 元素 ⇒ 输出孩子 / item 的 JSON；读**标量**元素（哪怕有孩子）
+ *     ⇒ 只输出它自己的值（要读孩子就单独给孩子的 code）；
+ *   · **容器读**里标量孩子的自身值住在 `"自身"` 键（`prompt.ownKey`），孩子键用元素的 `name`；
  *   · 读叶子 code ⇒ 输出该字段；
  *   · 时间输出 `YYYY-MM-DD HH:mm:ss（周X）`；
  *   · 行格式 `- <code>「<name>」：<JSON>`；**不输出形状表**（除了这些行没有别的东西）。
@@ -53,7 +55,7 @@ describe('提示词 · 状态段（v5 §5）', () => {
     prompt: 'NODE_OUT',
   }
 
-  it('读有孩子的节点 ⇒ 一行，JSON 里「自身」是自身值、子键用 name（不许数字键）', async () => {
+  it('读标量父亲 ⇒ 只有它自己的值；「自身」+ name 的嵌套只在容器读里出现', async () => {
     const { buildPrompt } = await loadPrompt()
     const prompt = buildPrompt({ card, save: v5Save(card), node, action: 'act one', outputs: {} })
     const lines = stateLines(prompt)
@@ -61,8 +63,25 @@ describe('提示词 · 状态段（v5 §5）', () => {
     const line = lines.find((item) => item.startsWith('- 1.1「'))
     expect(line, '1.1 那一行').toBeTruthy()
     const payload = JSON.parse(payloadOf(line, '1.1', 'region'))
-    expect(payload).toEqual({ 自身: 'A1', site: 'SITE_X' })
-    expect(JSON.stringify(payload), '不许出现 "0" / "1" 这种 code 键').not.toMatch(/"0"\s*:|"1"\s*:/)
+    expect(payload, '1.1 是标量（有孩子也一样）⇒ 只出它自己的值').toBe('A1')
+    expect(line, '孩子不跟着标量父亲进来').not.toContain('SITE_X')
+
+    // 同样的格子放在 object 容器读里才带出整棵子树：自身值用「自身」、孩子用 name
+    const container = buildPrompt({
+      card,
+      save: v5Save(card),
+      node: { ...node, reads: ['1'] },
+      action: 'act one',
+      outputs: {},
+    })
+    const containerLine = stateLines(container).find((item) => item.startsWith('- 1「'))
+    expect(containerLine, '1 那一行').toBeTruthy()
+    const region = JSON.parse(payloadOf(containerLine, '1', 'world')).region
+    expect(region, 'object 1 覆盖孩子：自身值 + 孩子（键是中文名）').toEqual({
+      自身: 'A1',
+      site: 'SITE_X',
+    })
+    expect(JSON.stringify(region), '不许出现 "0" / "1" 这种 code 键').not.toMatch(/"0"\s*:|"1"\s*:/)
   })
 
   it('读叶子 ⇒ 只有该字段；读时间 ⇒ 公历格式', async () => {
@@ -230,15 +249,16 @@ describe('提示词 · 读自身值路径 <code>.0', () => {
     expect(lines[0], '读孩子时不带父亲自身值').not.toContain('A1')
   })
 
-  it('reads 里是父亲 code 1.1 ⇒ 一行里同时有自身值（自身）与孩子（name）', async () => {
+  it('reads 里是父亲 code 1.1 ⇒ 只出它自己的值（标量不覆盖孩子）', async () => {
     const lines = await linesFor(['1.1'])
     expect(lines, '父亲 code 只出一行（子孙不单独出行）').toHaveLength(1)
-    expect(JSON.parse(payloadOfLine(lines[0]))).toEqual({ 自身: 'A1', site: 'SITE_X' })
+    expect(plainValue(payloadOfLine(lines[0]))).toBe('A1')
+    expect(lines[0], '标量父亲不把孩子的值 / 键带进来').not.toContain('SITE_X')
   })
 })
 
 describe('提示词 · 示例卡的 JSON 键是中文名', () => {
-  it('读世界 / 玩家：键是「自身」+ 子元素 name，没有数字键', async () => {
+  it('读标量根只出自己的值；数组 item 的键是中文名，没有数字键 / 字段 code', async () => {
     const { buildPrompt } = await loadPrompt()
     const { initialTreeOf } = await loadState()
     const sample = JSON.parse(readFileSync(SAMPLE, 'utf8'))
@@ -254,7 +274,8 @@ describe('提示词 · 示例卡的 JSON 键是中文名', () => {
       prompt: '',
     }
 
-    for (const code of ['1', '2']) {
+    /** 读一个引用：返回那一行（`- <code>「<name>」：…`）与 `：` 后面的 JSON */
+    function readLine(code) {
       const prompt = buildPrompt({
         card: sample,
         save,
@@ -264,44 +285,28 @@ describe('提示词 · 示例卡的 JSON 键是中文名', () => {
       })
       const line = stateLines(prompt).find((item) => item.startsWith(`- ${code}「`))
       expect(line, `${code} 那一行`).toBeTruthy()
-      const payload = JSON.parse(line.slice(line.indexOf('：') + 1))
-      expect(payload.自身, '每个容器自己的值是空串').toBe('')
-      expect(JSON.stringify(payload), `示例卡 ${code} 出现了数字键`).not.toMatch(/"0"\s*:|"1"\s*:/)
+      return { line, payload: JSON.parse(line.slice(line.indexOf('：') + 1)) }
     }
 
-    const worldPrompt = buildPrompt({
-      card: sample,
-      save,
-      node: { ...reader, reads: ['1'] },
-      action: 'act one',
-      outputs: {},
-    })
-    const worldLine = stateLines(worldPrompt).find((item) => item.startsWith('- 1「'))
-    const world = JSON.parse(worldLine.slice(worldLine.indexOf('：') + 1))
-    expect(world.区域, '子键用元素的 name').toMatchObject({ 自身: '晨风镇', 地点: '醉猫旅店 · 一楼' })
-    expect(Object.keys(world)).toEqual(['自身', '区域', '天气', '氛围'])
+    // 示例卡的 1 / 2 是「有孩子的标量根」：直接读只给自己的值（空串），孩子一个都不跟进来
+    for (const code of ['1', '2']) {
+      const { line, payload } = readLine(code)
+      expect(payload, `${code} 是标量根，只出自身值`).toBe('')
+      expect(line, `${code} 是标量根，孩子不许跟着进来`).not.toMatch(/晨风镇|旅人|短剑|雨/)
+    }
 
-    const playerPrompt = buildPrompt({
-      card: sample,
-      save,
-      node: { ...reader, reads: ['2'] },
-      action: 'act one',
-      outputs: {},
-    })
-    const playerLine = stateLines(playerPrompt).find((item) => item.startsWith('- 2「'))
-    const player = JSON.parse(playerLine.slice(playerLine.indexOf('：') + 1))
-    expect(Object.keys(player), '2 的子键用元素 name，2.4 是「背包」').toEqual([
-      '自身',
-      '名字',
-      '体力',
-      '状态',
-      '背包',
-    ])
-    expect(player.背包, '数组里是中文键的 item 对象').toEqual([
+    // 子元素仍然各自出行、值是自己的那一格
+    expect(readLine('1.1').payload, '1.1「区域」是标量，只出自己的值').toBe('晨风镇')
+    expect(readLine('1.3').payload).toBe('炉火噼啪，麦酒和湿羊毛的味道')
+
+    // 数组 2.4 是容器：整份 item 出来，键是字段的中文名（不是 2.4.1 这种 code，也不是数字键）
+    const bag = readLine('2.4').payload
+    expect(bag, '数组里是中文键的 item 对象').toEqual([
       { 物品: '短剑', 数量: 1 },
       { 物品: '斗篷', 数量: 1 },
       { 物品: '银币', 数量: 3 },
     ])
-    expect(JSON.stringify(player), '数组里不许出现字段 code 键').not.toMatch(/"2\.4\.[0-9]+"\s*:/)
+    expect(JSON.stringify(bag), '数组里不许出现字段 code 键').not.toMatch(/"2\.4\.[0-9]+"\s*:/)
+    expect(JSON.stringify(bag), '数组里不许出现数字键').not.toMatch(/"[0-9]+"\s*:/)
   })
 })

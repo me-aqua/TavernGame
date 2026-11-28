@@ -8,16 +8,17 @@
  *
  * 眼睛按 S1 / S2 露出来：
  *   · **S1**（选中工作流节点）：每行两只**文字按钮**【读】【写】；`data-on` / `data-tri` **只有 all / none**
- *     （老板口径：没有半态）—— 父行 / 普通行只看**自己的 ref 在不在**（子字段开着也不算）；数组字段行
- *     在「自己的 ref 在」或「它的数组容器 ref 在」时为满（容器写 ⊇ 字段写）。`reads` / `writable` 数组是
- *     唯一真源：关掉容器不会补隐藏的字段 ref。手写 / 导入的 `<code>.0`（只取自身值）也不再有半态。
+ *     （老板口径：没有半态）—— 父行只看**自己的 ref 在不在**；**子行**（读 / 写同一套）看自己的 ref 或
+ *     **object / array 祖先**的 ref（标量祖先不覆盖子行）。`reads` / `writable` 数组是唯一真源：
+ *     关掉容器不会补隐藏的字段 ref。手写 / 导入的 `<code>.0`（只取自身值）也不再有半态。
+ *     点标量行只动自己（开 / 关都不动后代 ref）；点 object / array 行开 = 去后代冗余、关 = 只摘自己。
  *   · **S2**（选中状态元素）：栏顶 `[data-add-state]`（新顶层元素）、每行 `[data-add-child]`（加子元素，
  *     第 5 层不出现、时间没有）与 `[data-delete-state]`（删这一棵，时间没有）。
  *
  * `structureLocked`（存档编辑器）把 `+` / 加子元素 / 删除**整块拿掉**（不渲染、不是禁用）：
  * 那一侧的卡结构是冻结的，只许改名字 / 备注 / 提示词与眼睛。
  */
-import { MAX_DEPTH, codeDepth, fieldWriteCoveredBy, isFieldRef, refCoveredBy } from '../core/statetree'
+import { MAX_DEPTH, codeDepth, refCoveredBy } from '../core/statetree'
 import type { ChainNode, StateElement } from '../core/types'
 import { t } from '../i18n'
 
@@ -45,21 +46,16 @@ function showsWrite(): boolean {
 
 /**
  * 这一行的眼睛只有 **all / none** 两态（老板口径：不许半态）：
- *   · **父行 / 普通行**：只看**它自己的 ref 在不在**清单里（`2.4` 在 ⇒ 满；子字段开着也不算）；
- *   · **读的字段行**：自己的 ref 在，或**任何祖先引用**在（读 = 覆盖整棵子树：`reads: ['2']` 也读到 `2.4.1`）；
- *   · **写的字段行**：自己的 ref 在，或**数组容器**祖先在（容器写 ⊇ 字段写；对象祖先 `2` 不算）。
+ *   · **父行**只看**它自己的 ref 在不在**清单里（`2.4` 在 ⇒ 满；子字段开着也不算）；
+ *   · **子行**（读 / 写同一套）：自己的 ref 在，或 **object / array 祖先**的 ref 在时为满
+ *     （标量祖先不覆盖子行）。
  * `writable` / `reads` 数组是**唯一真源**：不开容器就只留显式字段 ref，不补隐藏 ref。
+ * 点标量行只动自己（开 / 关都不动后代 ref）；点 object / array 行开 = 去后代冗余、关 = 只摘自己。
  */
 function triOf(field: 'read' | 'write', code: string): 'all' | 'none' {
   const list = field === 'read' ? (props.node?.reads ?? []) : (props.node?.writable ?? [])
-  if (isFieldRef(props.elements, code)) {
-    const covered =
-      field === 'read'
-        ? refCoveredBy(props.elements, list, code)
-        : fieldWriteCoveredBy(props.elements, list, code)
-    return covered ? 'all' : 'none'
-  }
-  return list.includes(code) ? 'all' : 'none'
+  // 读 / 写同一套覆盖口径：自己的 ref 或 object / array 祖先的 ref（标量祖先不覆盖子行）
+  return refCoveredBy(props.elements, list, code) ? 'all' : 'none'
 }
 
 /**

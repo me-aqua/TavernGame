@@ -5,10 +5,11 @@
  * 字段定义（`2.4.1`）**不是**值路径。权限引用可以更细：`2.4` = 整个数组（含增删项目），
  * `2.4.1` = 所有 item 里的「物品」这一格（整列替换，不增删项目）。两者都在这一份里解析。
  *
- * **写权限**：容器写 ⊇ 字段写（`fieldWriteCoveredBy`）；字段引用不授权整表 / 增删 item —— 见 `engine.ts`。
- * **眼睛**只有 all / none：父行只看自己的 ref，数组字段行由自己的 ref 或数组容器 ref 派生。
+ * **覆盖规则（读 / 写同一套容器口径）**：只有 **object / array 容器**的引用覆盖后代；
+ * 标量元素（哪怕有自己的值和子字段）只覆盖它自己。写权限里字段引用不授权整表 / 增删 item —— 见 `engine.ts`。
+ * **眼睛**只有 all / none：父行只看自己的 ref；子行由自己的 ref 或 object / array 祖先 ref 派生。
  */
-import { elementAt, isInsideArray, parentOfCode } from './state-codes'
+import { childrenOf, elementAt, isInsideArray, parentOfCode } from './state-codes'
 import { pathsOf, elementOfPath } from './state-data'
 import type { StateElement } from './types'
 
@@ -25,37 +26,53 @@ export function refElementOf(state: StateElement[], ref: string): StateElement |
   return elementOfPath(state, ref) ?? (isFieldRef(state, ref) ? elementAt(state, ref) : undefined)
 }
 
-/** 一个引用覆盖的权限路径：数组字段 ⇒ 只有它自己；别的（元素 code / `.0`）走值路径 */
+/**
+ * 一个引用覆盖的**权限路径**（可写段 / 工具可见性用）：
+ *   · 数组字段 ⇒ 只有它自己那一列；
+ *   · 标量元素（哪怕有孩子）⇒ 只有自己的值路径（`<code>.0`，叶子就是 `<code>`）；
+ *   · object 元素 ⇒ 它的孩子值路径；array 元素 ⇒ 容器那一条（整表）；
+ *   · `<code>.0` ⇒ 那个值路径本身。
+ */
 export function refPathsOf(state: StateElement[], ref: string): string[] {
-  return isFieldRef(state, ref) ? [ref] : pathsOf(state, ref)
+  if (isFieldRef(state, ref)) return [ref]
+  const element = state.find((item) => item.code === ref)
+  if (element && element.type !== 'object' && element.type !== 'array' && childrenOf(state, ref).length > 0) {
+    return [`${ref}.0`]
+  }
+  return pathsOf(state, ref)
+}
+
+/** 这个 code 的元素是不是**容器**（object / array）—— 只有容器引用才覆盖后代 */
+function isContainer(state: StateElement[], code: string): boolean {
+  const element = state.find((item) => item.code === code)
+  return element?.type === 'object' || element?.type === 'array'
 }
 
 /**
- * **读**的覆盖（读投影 / 读眼睛用）：引用覆盖**自己 + 整棵子树**，所以任何祖先 code 都算
- * （`2` 覆盖 `2.4.1`、`2.4` 覆盖 `2.4.1`、`2.4.2` 覆盖 `2.4.2.1`）。
- * 非字段引用只认自身（它们由值路径那一套管，不在这里重复）。
+ * **读**的覆盖（读投影 / 读眼睛用）：自己那条 ref 在清单里，或**object / array 祖先**的 ref 在。
+ * 标量元素（哪怕有自己的值和子字段）只覆盖它自己 —— 读 `1.1` 不会把 `1.1.1` 也读出来；
+ * 数组容器（`2.4`）覆盖 item 字段（`2.4.1`），object 容器（`2` / `2.4.2`）覆盖它的孩子。
  */
 export function refCoveredBy(state: StateElement[], list: string[], ref: string): boolean {
   if (list.includes(ref)) return true
-  if (!isFieldRef(state, ref)) return false
   for (let at = parentOfCode(ref); at !== undefined; at = parentOfCode(at)) {
-    if (list.includes(at)) return true
+    if (list.includes(at) && isContainer(state, at)) return true
   }
   return false
 }
 
 /**
- * **字段写**的授权（`applyWrite` / 写眼睛用）：`writable` 里有这一条，或者有祖先引用覆盖它 ——
- *   · **祖先字段**（`2.4.1` / `2.4.2` / `2.4.2.2`）：字段与普通节点同权，引用覆盖**自己的值 + 整棵子树**；
- *   · **祖先数组元素**（`2.4`）：数组容器覆盖它下面的所有字段写（容器写 ⊇ 字段写）。
+ * **字段写**的授权（`applyWrite` / 写眼睛用）—— 与读同一套容器口径：
+ *   · 自己那条字段引用在清单里；
+ *   · 或者**object / array 祖先**的引用在清单里（`2.4` 容器覆盖所有 `2.4.x`；`2.4.2` 对象字段覆盖孩子）；
+ *   · **标量祖先**（哪怕有孩子，如 `2.4.1`）不覆盖孩子写 —— 写 `2.4.1.1` 要它自己的引用或容器祖先。
  * 数组**元素**的整表写（`2.4`）仍只由它自己的引用授权；字段引用不授权整表替换 / 增删 item。
  */
 export function fieldWriteCoveredBy(state: StateElement[], list: string[], ref: string): boolean {
   if (list.includes(ref)) return true
   if (!isFieldRef(state, ref)) return false
   for (let at = parentOfCode(ref); at !== undefined; at = parentOfCode(at)) {
-    if (!list.includes(at)) continue
-    if (isFieldRef(state, at) || elementAt(state, at).type === 'array') return true
+    if (list.includes(at) && isContainer(state, at)) return true
   }
   return false
 }

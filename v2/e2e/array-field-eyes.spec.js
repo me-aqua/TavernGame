@@ -4,7 +4,8 @@
  * 这一份量的是评审 F1 回炉后**玩家在界面上点得到**的那几件事：
  *   · 字段行（`2.4.1` / 嵌套 `2.4.2.1` / 穿数组的 `2.4.2.2.1`）都有读 / 写眼睛，不是被 v-if 藏掉；
  *   · 点字段眼睛 ⇒ `reads` / `writable` 里真的出现字段 code；保存成功（不再报悬空引用）；
- *   · 父行只有两态：满 / 未（父眼只认自己的 code，不看孩子）；点父行 = 全选 / 全反选；
+ *   · 父行只有两态：满 / 未（**子引用不点亮父行**；object / array 祖先的 ref 覆盖到它时它是满）；
+ *     点父行 = 全选 / 全反选（标量父只切自己，容器父收掉后代冗余）；
  *   · 父引用已开时点字段 ⇒ 拆开父引用，真的关掉那一列（不是点不动的假眼睛）；
  *   · 模型拿字段写权限时，`write_state({path:'2.4.1', value:[...]})` 真的整列落盘。
  *
@@ -251,15 +252,18 @@ test.describe('数组字段 · 编辑器眼睛', () => {
     ])
   })
 
-  test('对象祖先 2 的写不授权字段写：2.4.1 写眼睛 off（只有数组容器才派生）', async ({ page }) => {
+  test('对象祖先 2 的写授权整棵子树：2.4.1 写眼睛 on（读 / 写同一套容器口径）', async ({ page }) => {
     const card = cardWithRefs(holdCard({ id: 'c-object-ancestor-write' }), { writable: ['2'] })
     await openEditor(page, card)
 
     await expect(page.locator(writeEye('2')), '对象 code 自己是 all').toHaveAttribute('data-tri', 'all')
-    await expect(page.locator(writeEye('2.4.1')), '对象祖先不是数组容器').toHaveAttribute('data-on', 'false')
-    await expect(page.locator(writeEye('2.4')), '2.4 自己的 code 不在清单里').toHaveAttribute(
+    await expect(page.locator(writeEye('2.4.1')), 'object 祖先 2 覆盖字段写').toHaveAttribute(
+      'data-on',
+      'true',
+    )
+    await expect(page.locator(writeEye('2.4')), '2.4 被 object 祖先 2 覆盖 ⇒ 满').toHaveAttribute(
       'data-tri',
-      'none',
+      'all',
     )
   })
 

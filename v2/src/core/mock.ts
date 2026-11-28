@@ -11,7 +11,7 @@
  * 输出格式是逐字可断言的（`[mock] turn 2: act two`），单测与 e2e 都靠它。
  */
 import { elementOfPath, toolsForNode } from './schema'
-import { pathsOf } from './statetree'
+import { refPathsOf } from './statetree'
 import type { Card, ChainNode, ProviderReply, ProviderToolCall } from './types'
 
 /**
@@ -67,7 +67,7 @@ export async function mockReply({
   }
   // 一次只写一个值（测试要能断言写的是哪一个）：取 writable 覆盖到的第一个**文字**值路径
   const writePath = node.writable
-    .flatMap((ref) => pathsOf(card.state, ref))
+    .flatMap((ref) => refPathsOf(card.state, ref))
     .find((path) => elementOfPath(card.state, path)?.type === 'text')
   if (tools.includes('write_state') && writePath !== undefined) {
     toolCalls.push({ name: 'write_state', args: { path: writePath, value: `mock-t${turn}` } })

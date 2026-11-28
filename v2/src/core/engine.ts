@@ -160,7 +160,7 @@ export function applyWrite({
     })
   }
   const covered =
-    node.writable.flatMap((ref) => pathsOf(card.state, ref)).includes(path) ||
+    node.writable.flatMap((ref) => refPathsOf(card.state, ref)).includes(path) ||
     // 字段写：逐字引用，或者它的**数组容器**祖先（容器写 ⊇ 字段写；字段引用不授权整表）
     (field !== undefined && fieldWriteCoveredBy(card.state, node.writable, path))
   if (!covered) {

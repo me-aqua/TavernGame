@@ -31,6 +31,7 @@ import {
   parentOfCode,
   pathsOf,
   refElementOf,
+  refPathsOf,
   arrayRootOf,
 } from './statetree'
 import { holidaysOf } from './holidays'
@@ -70,17 +71,27 @@ function structOf(state: Card['state'], containerCode: string, value: unknown, s
   for (const field of childrenOf(state, containerCode)) {
     const level = selectionOf(field.code, selected)
     if (level === 'none') continue
-    const lower = level === 'partial' ? selected : undefined
-    entries.push([field.name, projectField(state, field, source[field.code], lower, level === 'full')])
+    const scalar = field.type !== 'object' && field.type !== 'array'
+    // 直接读标量字段时只把「它下面的」选中引用传下去（不能把字段自身的 ref 当成孩子的选择）
+    const below = selected?.filter((ref) => ref.startsWith(`${field.code}.`)) ?? []
+    const lower =
+      level === 'partial' || (level === 'full' && scalar && below.length > 0) ? selected : undefined
+    entries.push([
+      field.name,
+      projectField(state, field, source[field.code], lower, level === 'full', selected !== undefined),
+    ])
   }
   return Object.fromEntries(entries)
 }
 
 /**
- * 一个 **item 里字段**的投影（数组字段与普通节点同权：字段可以有自己的值 + 子字段）：
- *   · 数组字段 ⇒ item 列表；对象字段 ⇒ 孩子对象；标量叶子 ⇒ 值本身；
- *   · 标量字段**有孩子** ⇒ 对象：自己的值用 `自身`（`prompt.ownKey`），孩子用中文名递归。
- * `full` 是「这一格整段都选中」（含自己的值）；`partial` 只投影选中的后代，不投影自己的值。
+ * 一个 **item 里字段**的投影：
+ *   · 数组字段 ⇒ item 列表；对象字段 ⇒ 孩子对象（这两类「直接读」也是整段）；
+ *   · 标量字段没有孩子 ⇒ 值本身；
+ *   · 标量字段**有孩子**：`selected === undefined`（整表 / 容器读）⇒ 自己的值 + 孩子；
+ *     `selected` 有值且这一格是**直接读**（`full` 且没有选中后代）⇒ **只投影 `<code>.0` 自己的值**；
+ *     `partial`（选中了后代）⇒ 只投影那些后代，不投影自己的值。
+ * `fromSelection` = 这次投影处在「字段引用选择」里（不是整表 / 容器读）。
  */
 function projectField(
   state: Card['state'],
@@ -88,14 +99,34 @@ function projectField(
   value: unknown,
   selected?: string[],
   full = true,
+  fromSelection = false,
 ): unknown {
   if (field.type === 'array') return arrayOf(state, field.code, value, selected)
   if (field.type === 'object') return structOf(state, field.code, value, selected)
   const children = childrenOf(state, field.code)
   if (children.length === 0) return value
   const source = (value ?? {}) as Record<string, unknown>
+  if (fromSelection && full) {
+    // 直接读这一格：没有单独选中孩子 ⇒ 只给自己的值；有 ⇒ 自己的值 + 那些孩子
+    const picked =
+      selected === undefined ? [] : children.filter((child) => selectionOf(child.code, selected) !== 'none')
+    if (picked.length === 0) return source[`${field.code}.0`]
+    const selectedOut: Record<string, unknown> = { [t('prompt.ownKey')]: source[`${field.code}.0`] }
+    for (const child of picked) {
+      const level = selectionOf(child.code, selected)
+      selectedOut[child.name] = projectField(
+        state,
+        child,
+        source[child.code],
+        level === 'partial' ? selected : undefined,
+        level === 'full',
+        fromSelection,
+      )
+    }
+    return selectedOut
+  }
   const out: Record<string, unknown> = {}
-  if (full) out[t('prompt.ownKey')] = source[`${field.code}.0`]
+  if (!fromSelection) out[t('prompt.ownKey')] = source[`${field.code}.0`]
   for (const child of children) {
     const level = selectionOf(child.code, selected)
     if (level === 'none') continue
@@ -105,6 +136,7 @@ function projectField(
       source[child.code],
       level === 'partial' ? selected : undefined,
       level === 'full',
+      fromSelection,
     )
   }
   return out
@@ -116,21 +148,29 @@ function arrayOf(state: Card['state'], code: string, value: unknown, selected?: 
 }
 
 /**
- * 一个节点下面那棵子树，**按中文名**拼成对象：自己的值用 `自身`（`prompt.ownKey`），
- * 孩子用元素的 `name` 做键；孩子还有孩子就继续嵌套。结构体没有 `自身`，数组是 item 列表。
+ * 一个节点读出来是什么（**按中文名**拼）：
+ *   · `array` ⇒ item 列表（每个 item 的字段）；`object` ⇒ 孩子对象（它没有自身值）；
+ *   · **标量元素（有孩子也一样）只输出它自己的值** —— 读 `1.1` 不会把 `1.1.1` 也带出来；
+ *     要读孩子就得单独给孩子的 ref。
  *
  * 键**不是** code（`"0"` / `"1"` 这种）：模型读的是人话，不是编号（契约 §5）。
  */
-function subtreeOf(state: Card['state'], tree: Tree, element: Card['state'][number]): unknown {
+function subtreeOf(
+  state: Card['state'],
+  tree: Tree,
+  element: Card['state'][number],
+  insideContainer = false,
+): unknown {
   if (element.type === 'array') return arrayOf(state, element.code, tree[element.code])
   const children = childrenOf(state, element.code)
   if (element.type === 'object') {
-    return Object.fromEntries(children.map((child) => [child.name, subtreeOf(state, tree, child)]))
+    return Object.fromEntries(children.map((child) => [child.name, subtreeOf(state, tree, child, true)]))
   }
   const own = tree[children.length > 0 ? `${element.code}.0` : element.code]
-  if (children.length === 0) return own
+  // 直接读标量元素只给自己的值；只有作为 object 容器的孩子出现时才带整棵子树
+  if (children.length === 0 || !insideContainer) return own
   const subtree: Record<string, unknown> = { [t('prompt.ownKey')]: own }
-  for (const child of children) subtree[child.name] = subtreeOf(state, tree, child)
+  for (const child of children) subtree[child.name] = subtreeOf(state, tree, child, true)
   return subtree
 }
 
@@ -228,13 +268,18 @@ function historyLines(opening: string, events: SaveEvent[], turns: number, actio
 }
 
 /**
- * 这个元素的**祖先** code 里有没有被读到的：有的话，子孙不再单独出行（父那一行已经把它们包进去了）。
- * 例：读了 `1.1` ⇒ `1.1.1` 不出行；只读 `1.1.0`（自身值）不算读了父，孩子照旧出行。
+ * 这个元素的**容器祖先**（object / array）里有没有被读到的：有的话，子孙不再单独出行
+ * （父那一行已经把它们包进去了）。**标量祖先不抑制子行** —— 读 `1.1` 只读它自己的值，
+ * `1.1.1` 照旧要单独出行（要读它就得单独给它的 ref）。
  */
-function underReadParent(code: string, reads: string[]): boolean {
+function underReadParent(state: Card['state'], code: string, reads: string[]): boolean {
   const segments = code.split('.')
   for (let at = segments.length - 1; at > 0; at -= 1) {
-    if (reads.includes(segments.slice(0, at).join('.'))) return true
+    const parent = segments.slice(0, at).join('.')
+    const element = state.find((item) => item.code === parent)
+    if (element && (element.type === 'object' || element.type === 'array') && reads.includes(parent)) {
+      return true
+    }
   }
   return false
 }
@@ -252,7 +297,7 @@ function stateLinesOf(card: Card, tree: Tree, reads: string[]): string[] {
   for (const element of card.state) {
     // 数组字段是 schema：它们并进容器那一行，不出自己的行（与 `.0` 不出行同族）
     if (isInsideArray(card.state, element.code)) continue
-    if (underReadParent(element.code, reads)) continue
+    if (underReadParent(card.state, element.code, reads)) continue
     if (element.type === 'array') {
       // 读容器 ⇒ 全字段；只读字段引用 ⇒ 每个 item 只投影选中的那些字段
       const selected = reads.filter((ref) => ref === element.code || ref.startsWith(`${element.code}.`))
@@ -371,7 +416,7 @@ function writableLinesOf(card: Card, node: ChainNode): string[] {
       lines.push(`${t('prompt.stateLine', { code: ref, name })}${fieldWriteRuleOf(card.state, ref)}`)
       continue
     }
-    for (const path of pathsOf(card.state, ref)) {
+    for (const path of refPathsOf(card.state, ref)) {
       if (emitted.has(path)) continue
       emitted.add(path)
       // `pathsOf` 产出的路径一定属于某个元素（`chainIssues` 已把悬空引用拦在保存之前）

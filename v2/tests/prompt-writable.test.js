@@ -4,8 +4,9 @@
  * 契约：**非 `output` 节点**的提示词里恒有一段自动生成的 `<可写状态>`，内容只由 `node.writable`
  * 决定（与 `node.reads` 无关）；`output` 节点**整段不出现**（它什么也不写，连「无可写状态」都不留）：
  *
- *   · 一个引用展开成**值路径清单**（`pathsOf` 的口径）：元素 code ⇒ 自身值 + 整棵子树
- *     （有孩子的标量自身值住 `<code>.0`；`object` 没有自身值）；`<code>.0` ⇒ 只有这一格。
+ *   · 一个引用展开成**值路径清单**（`refPathsOf` 的口径，与读覆盖同一套容器规则）：
+ *     **object / array** 元素 ⇒ 它的全部后代值路径（`object` 没有自身值，数组只有容器那一条）；
+ *     **标量**元素（哪怕有孩子）⇒ 只有它自己的值（有孩子的住 `<code>.0`）；`<code>.0` ⇒ 只有这一格。
  *   · 每条值路径一行，行格式与状态段同形：`- <path>「<name>」：<约束>`；名字是元素的中文名。
  *   · 每一条可写路径都要说明**合法 JSON 值形状**，不能只说范围：
  *       text    ⇒ `文本` + `JSON 字符串`
@@ -260,8 +261,8 @@ describe('可写状态块：非 output 节点都有，位置在状态树之后',
   })
 })
 
-describe('可写状态块：路径来自 node.writable（pathsOf 展开），未列出的只读', () => {
-  it('示例卡 check：8 条值路径，父 1.1 展开成自身值 1.1.0 + 孩子 1.1.1，且不含时间 0', async () => {
+describe('可写状态块：路径来自 node.writable（refPathsOf 覆盖），未列出的只读', () => {
+  it('示例卡 check：8 条值路径（1.1 与 1.1.1 各自显式开着），且不含时间 0', async () => {
     const card = sampleCard()
     const save = await sampleSave(card)
     const prompt = await promptOf({ card, save, node: nodeOf(card, 'check') })
@@ -290,12 +291,26 @@ describe('可写状态块：路径来自 node.writable（pathsOf 展开），未
       },
     ])
 
-    const block = writableSection(prompt)
-    expect(
-      parsedLines(prompt).map((item) => item.path),
-      'check 的 writable 里没有时间',
-    ).not.toContain('0')
-    expect(block, 'check 的 writable 里没有时间，不许提 advance_time').not.toContain('advance_time')
+    // `1.1.1` 上面那一行来自它自己的 ref：`1.1` 是标量（有孩子），不覆盖孩子
+    const ownOnly = await promptOf({
+      card,
+      save,
+      node: { ...nodeOf(card, 'check'), reads: [], writable: ['1.1'] },
+    })
+    expectWritableLines(ownOnly, [
+      {
+        path: '1.1.0',
+        name: '区域',
+        type: 'enum',
+        values: ['晨风镇', '镇郊', '地牢', '官道', '码头'],
+      },
+    ])
+
+    const paths = parsedLines(prompt).map((item) => item.path)
+    expect(paths, 'check 的 writable 里没有时间').not.toContain('0')
+    expect(writableSection(prompt), 'check 的 writable 里没有时间，不许提 advance_time').not.toContain(
+      'advance_time',
+    )
   })
 
   it('示例卡 check：8 条路径每一行都写明 JSON 值形态；2.2「体力」行明确是 JSON 整数', async () => {
@@ -380,23 +395,16 @@ describe('可写状态块：路径来自 node.writable（pathsOf 展开），未
     expect(writableSection(prompt)).not.toContain('advance_time')
   })
 
-  it('writable 里是父 code 1 ⇒ 展开成 1.0（自身值）+ 1.1.0 + 1.1.1 + 1.2 + 1.3', async () => {
+  it('writable 里是文字根 1（自身值 + 孩子）⇒ 只有自己的值 1.0，孩子一个都不列', async () => {
     const card = sampleCard()
     const save = await sampleSave(card)
     const node = { ...nodeOf(card, 'check'), reads: [], writable: ['1'] }
     const prompt = await promptOf({ card, save, node })
-    expectWritableLines(prompt, [
-      { path: '1.0', name: '世界', type: 'text' },
-      {
-        path: '1.1.0',
-        name: '区域',
-        type: 'enum',
-        values: ['晨风镇', '镇郊', '地牢', '官道', '码头'],
-      },
-      { path: '1.1.1', name: '地点', type: 'text' },
-      { path: '1.2', name: '天气', type: 'enum', values: ['晴', '阴', '雨', '雪', '雾'] },
-      { path: '1.3', name: '氛围', type: 'text' },
-    ])
+    expectWritableLines(prompt, [{ path: '1.0', name: '世界', type: 'text' }])
+    const paths = parsedLines(prompt).map((item) => item.path)
+    for (const child of ['1.1.0', '1.1.1', '1.2', '1.3']) {
+      expect(paths, `1 是标量 ⇒ 孩子 ${child} 不在权限里`).not.toContain(child)
+    }
   })
 
   it('writable 里是 object 父 code ⇒ 只有孩子，没有不存在的自身值 <code>.0', async () => {
@@ -455,17 +463,20 @@ describe('可写状态块：与 reads 无关，writable 空 / 满各有各的形
 })
 
 describe('可写状态块：约束来自卡里的元素字段，不是示例卡硬编码', () => {
-  it('自定义树：X/Y、-5..7、步幅 2..3、嵌套 object 全按字段展开，块里没有晨风镇', async () => {
+  it('自定义树：X/Y、-5..7、步幅 2..3、嵌套 object 全按字段展开；标量 1.1 只出自己的值，块里没有晨风镇', async () => {
     const card = antiHardcodeCard()
     const save = v6Save(card)
     const prompt = await promptOf({ card, save, node: nodeOf(card, 'check') })
     expectWritableLines(prompt, [
       { path: '1.1.0', name: '区域X', type: 'enum', values: ['X', 'Y'] },
-      { path: '1.1.1', name: '地点X', type: 'text' },
       { path: '1.2.1', name: '数值X', type: 'integer', min: -5, max: 7, stepMin: 2, stepMax: 3 },
       { path: '1.2.2', name: '备注X', type: 'text' },
       { path: '1.2.3.1', name: '深层X', type: 'text' },
     ])
+    expect(
+      parsedLines(prompt).map((item) => item.path),
+      '1.1 是标量（有孩子）⇒ 孩子 1.1.1 不在权限里',
+    ).not.toContain('1.1.1')
 
     const block = writableSection(prompt)
     expect(block, '下拉白名单应当来自这张卡（X、Y）').toContain('X、Y')

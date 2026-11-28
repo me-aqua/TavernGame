@@ -4,8 +4,9 @@
  * 这一份钉四件事：
  *   1. **扁平树值**：有孩子的节点自身值住 `<code>.0`、孩子用自己的 code、`object` 没有键；
  *      `initialTreeOf(card)` 就是「初始值 → 存档 tree」的那一步；
- *   2. **路径 = 完整 code**：`pathsOf` 给出一个 code 覆盖的所有值路径（自身值 + 整棵子树），
- *      父亲读/写 = 自身值 + 所有孩子，叶子只有自己；
+ *   2. **路径 = 完整 code**：`pathsOf` 给出一个 code 覆盖的所有**值路径**（自身值 + 整棵子树）；
+ *      **权限覆盖**走 `refPathsOf`：object / array 元素覆盖后代，**标量元素（哪怕有孩子）只覆盖自己的值**
+ *      （`1.1` ⇒ 只有 `1.1.0`，写 `1.1.1` 要 `1` 这种容器 ref 或它自己的 ref）；
  *   3. **`applyWrite` 按类型收值**：文字 / 数字（上下限 + 单次步幅）/ 下拉白名单 / 结构体无自身值；
  *      时间只能走 `advance_time`；
  *   4. **增删孩子**：加孩子不转类型、自身值搬到 `.0`；删节点删整棵子树、同层重排为 `1..n`、
@@ -260,12 +261,19 @@ describe('applyWrite：按元素类型收值（§2 / §4）', () => {
   it('文字 / 子孙路径都能写，返回新 tree，入参一个字不改', async () => {
     const tree = treeV5()
     const before = JSON.parse(JSON.stringify(tree))
-    const next = await write('1.1.1', 'SITE_Z', tree)
-    expect(next['1.1.1']).toBe('SITE_Z')
-    expect(next['1.1.0'], '写孩子不动父亲的自身值').toBe('A1')
-    expect(tree).toEqual(before)
+    const next = await write('2.1', 'MAGE', tree)
+    expect(next['2.1']).toBe('MAGE')
+    expect((await write('1.1.0', 'A2'))['1.1.0']).toBe('A2')
+
+    // 子孙路径要由 **object 容器** ref 授权：`1` 覆盖整棵子树，所以 `1.1.1` 可写
+    const { applyWrite } = await loadEngine()
+    const card = cardWithWritable(['1'])
+    const descendant = applyWrite({ card, node: card.chain[1], tree, path: '1.1.1', value: 'SITE_Z' })
+    expect(descendant['1.1.1']).toBe('SITE_Z')
+    expect(descendant['1.1.0'], '写孩子不动父亲的自身值').toBe('A1')
+
+    expect(tree, '入参 tree 一个字都不许改').toEqual(before)
     expect(next).not.toBe(tree)
-    expect((await write('2.1', 'MAGE'))['2.1']).toBe('MAGE')
   })
 
   /** 把 `check` 的 writable 换成给定清单（`.0` 引用；卡本身合法性由 state-shape 那份判据钉） */
@@ -295,12 +303,27 @@ describe('applyWrite：按元素类型收值（§2 / §4）', () => {
     expect(error.message).toMatch(CJK)
   })
 
-  it('writable 里是父亲 code 1.1 ⇒ 自身值与孩子都能写', async () => {
+  it('writable 里是标量 code 1.1 ⇒ 只能写自己的值 1.1.0；写孩子 1.1.1 是 E_CHAIN', async () => {
     const { applyWrite } = await loadEngine()
     const card = cardWithWritable(['1.1'])
     const own = applyWrite({ card, node: card.chain[1], tree: treeV5(), path: '1.1.0', value: 'A2' })
     expect(own['1.1.0']).toBe('A2')
-    const child = applyWrite({ card, node: card.chain[1], tree: treeV5(), path: '1.1.1', value: 'SITE_Z' })
+    expect(own['1.1.1'], '写自己的值不动孩子').toBe('SITE_X')
+
+    const error = await writeWith(['1.1'], '1.1.1', 'SITE_Z')
+    expect(error, '标量父 code 不授权孩子').not.toBeNull()
+    expect(error.code).toBe('E_CHAIN')
+    expect(error.message).toMatch(CJK)
+
+    // 对照：同一格由 **object 容器** `1` 授权时可写（规则是「容器覆盖」，不是「孩子永远不能写」）
+    const containerCard = cardWithWritable(['1'])
+    const child = applyWrite({
+      card: containerCard,
+      node: containerCard.chain[1],
+      tree: treeV5(),
+      path: '1.1.1',
+      value: 'SITE_Z',
+    })
     expect(child['1.1.1']).toBe('SITE_Z')
   })
 

@@ -334,7 +334,10 @@ function toggleRef(field: 'reads' | 'writable' | 'readsUpstream', ref0: string, 
       ? list.filter((item) => item !== ref0)
       : splitCoveringRef(draft.state, list, ref0)
   } else {
-    next = [...list.filter((item) => !item.startsWith(`${ref0}.`)), ref0]
+    // 打开一格：容器（object / array）连带孩子一起去掉冗余；标量只加自己（孩子 ref 独立保留）
+    const element = draft.state.find((item) => item.code === ref0)
+    const container = element?.type === 'object' || element?.type === 'array'
+    next = container ? [...list.filter((item) => !item.startsWith(`${ref0}.`)), ref0] : [...list, ref0]
   }
   patchNode(node.id, { [field]: next })
 }
