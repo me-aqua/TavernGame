@@ -388,9 +388,9 @@ test.describe('数组字段 · 模型链路', () => {
     const saves = await readStorage(page, KEYS.saves)
     const stored = saves.find((item) => item.id === save.id).tree['2.4']
     expect(stored, '只改 2.4.1 这一列').toEqual([
-      { '2.4.1': '长弓', '2.4.2': 1 },
-      { '2.4.1': '火把', '2.4.2': 1 },
-      { '2.4.1': '盾', '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': '长弓', '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': '火把', '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': '盾', '2.4.2': 3 },
     ])
     expect(stored, '不许增删 item').toHaveLength(3)
     expect(Object.keys(saves.find((item) => item.id === save.id).tree)).not.toContain('2.4.1')

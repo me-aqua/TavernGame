@@ -48,12 +48,17 @@ function itemsOf(card) {
 describe('数组 · 新 item 的默认值（§1.3）', () => {
   it('text ⇒ ""；integer ⇒ 0；嵌套 object / array 递归', async () => {
     const arrayItemOf = await fn('arrayItemOf')
-    expect(arrayItemOf(holdCard().state, '2.4')).toEqual({ '2.4.1': '', '2.4.2': 0 })
+    expect(arrayItemOf(holdCard().state, '2.4')).toEqual({ id: 'id_1', '2.4.1': '', '2.4.2': 0 })
     expect(arrayItemOf(nestedCard().state, '2.4')).toEqual({
+      id: 'id_1',
       '2.4.1': '',
       '2.4.2': { '2.4.2.1': '普通', '2.4.2.2': [] },
     })
-    expect(arrayItemOf(nestedCard().state, '2.4.2.2')).toEqual({ '2.4.2.2.1': '', '2.4.2.2.2': 0 })
+    expect(arrayItemOf(nestedCard().state, '2.4.2.2')).toEqual({
+      id: 'id_1',
+      '2.4.2.2.1': '',
+      '2.4.2.2.2': 0,
+    })
   })
 
   it('integer 默认值夹进生效上下限：min=5 ⇒ 5；max=-1 ⇒ -1', async () => {
@@ -99,7 +104,7 @@ describe('数组 · setInitial 整份数组（§1.3 / §四）', () => {
     expect(cardIssues(empty)).toEqual([])
 
     const one = setInitial(empty, '2.4', [arrayItemOf(holdCard().state, '2.4')])
-    expect(itemsOf(one)).toEqual([{ '2.4.1': '', '2.4.2': 0 }])
+    expect(itemsOf(one)).toEqual([{ id: 'id_1', '2.4.1': '', '2.4.2': 0 }])
     expect(cardIssues(one)).toEqual([])
   })
 })
@@ -125,9 +130,9 @@ describe('数组 · 加字段：默认值补进所有现存 item（§四）', ()
     ])
     expect(changed.state.find((item) => item.code === '2.4.3')).toMatchObject({ type: 'text' })
     expect(itemsOf(changed)).toEqual([
-      { '2.4.1': '短剑', '2.4.2': 1, '2.4.3': '' },
-      { '2.4.1': '斗篷', '2.4.2': 1, '2.4.3': '' },
-      { '2.4.1': '银币', '2.4.2': 3, '2.4.3': '' },
+      { id: 'id_1', '2.4.1': '短剑', '2.4.2': 1, '2.4.3': '' },
+      { id: 'id_2', '2.4.1': '斗篷', '2.4.2': 1, '2.4.3': '' },
+      { id: 'id_3', '2.4.1': '银币', '2.4.2': 3, '2.4.3': '' },
     ])
     expect(itemsOf(card), '原卡的 item 不许被改').toEqual(holdItems())
     expect(cardIssues(changed), '加完字段应当仍然合法').toEqual([])
@@ -149,7 +154,7 @@ describe('数组 · 加字段：默认值补进所有现存 item（§四）', ()
     const cardIssues = await fn('cardIssues')
     const changed = addChild(nestedCard(), '2.4.2.2')
     const nested = itemsOf(changed)[0]['2.4.2']['2.4.2.2']
-    expect(nested[0]).toEqual({ '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2, '2.4.2.2.3': '' })
+    expect(nested[0]).toEqual({ id: 'id_1', '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2, '2.4.2.2.3': '' })
     expect(cardIssues(changed)).toEqual([])
   })
 
@@ -159,9 +164,9 @@ describe('数组 · 加字段：默认值补进所有现存 item（§四）', ()
     const changed = addChild(holdCard(), '2.4.1')
     expect(changed.state.find((item) => item.code === '2.4.1.1')).toMatchObject({ type: 'text' })
     expect(itemsOf(changed)).toEqual([
-      { '2.4.1': { '2.4.1.0': '短剑', '2.4.1.1': '' }, '2.4.2': 1 },
-      { '2.4.1': { '2.4.1.0': '斗篷', '2.4.1.1': '' }, '2.4.2': 1 },
-      { '2.4.1': { '2.4.1.0': '银币', '2.4.1.1': '' }, '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': { '2.4.1.0': '短剑', '2.4.1.1': '' }, '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': { '2.4.1.0': '斗篷', '2.4.1.1': '' }, '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': { '2.4.1.0': '银币', '2.4.1.1': '' }, '2.4.2': 3 },
     ])
     expect(itemsOf(holdCard()), '原卡不变').toEqual(holdItems())
     expect(cardIssues(changed), '有自身值 + 孩子的字段是合法卡').toEqual([])
@@ -188,7 +193,11 @@ describe('数组 · 删字段：所有 item 的键一起摘掉 / 改名（§四�
       name: '数量',
       type: 'integer',
     })
-    expect(itemsOf(changed)).toEqual([{ '2.4.1': 1 }, { '2.4.1': 1 }, { '2.4.1': 3 }])
+    expect(itemsOf(changed)).toEqual([
+      { id: 'id_1', '2.4.1': 1 },
+      { id: 'id_2', '2.4.1': 1 },
+      { id: 'id_3', '2.4.1': 3 },
+    ])
     expect(cardIssues(changed)).toEqual([])
   })
 
@@ -196,7 +205,11 @@ describe('数组 · 删字段：所有 item 的键一起摘掉 / 改名（§四�
     const removeNode = await fn('removeNode')
     const cardIssues = await fn('cardIssues')
     const changed = removeNode(holdCard(), '2.4.2')
-    expect(itemsOf(changed)).toEqual([{ '2.4.1': '短剑' }, { '2.4.1': '斗篷' }, { '2.4.1': '银币' }])
+    expect(itemsOf(changed)).toEqual([
+      { id: 'id_1', '2.4.1': '短剑' },
+      { id: 'id_2', '2.4.1': '斗篷' },
+      { id: 'id_3', '2.4.1': '银币' },
+    ])
     expect(cardIssues(changed)).toEqual([])
   })
 
@@ -206,7 +219,7 @@ describe('数组 · 删字段：所有 item 的键一起摘掉 / 改名（§四�
     const changed = removeNode(nestedCard(), '2.4.2.1')
     const nested = itemsOf(changed)[0]['2.4.2']
     expect(Object.keys(nested)).toEqual(['2.4.2.1'])
-    expect(nested['2.4.2.1']).toEqual([{ '2.4.2.1.1': '锋锐', '2.4.2.1.2': 2 }])
+    expect(nested['2.4.2.1']).toEqual([{ id: 'id_1', '2.4.2.1.1': '锋锐', '2.4.2.1.2': 2 }])
     expect(cardIssues(changed)).toEqual([])
   })
 })
@@ -223,9 +236,9 @@ describe('数组 · 换类型', () => {
     const withField = addChild(converted, '2.4.1')
     expect(withField.state.find((item) => item.code === '2.4.1.1')).toMatchObject({ type: 'text' })
     expect(itemsOf(withField)).toEqual([
-      { '2.4.1': [], '2.4.2': 1 },
-      { '2.4.1': [], '2.4.2': 1 },
-      { '2.4.1': [], '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': [], '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': [], '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': [], '2.4.2': 3 },
     ])
     expect(cardIssues(withField)).toEqual([])
   })

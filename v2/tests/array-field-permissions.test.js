@@ -143,7 +143,11 @@ describe('数组字段 · reads 投影（增补 §三）', () => {
     expect(lines, '一个数组只出一行').toHaveLength(1)
 
     const line = lineOf(lines, '2.4', '背包')
-    expect(JSON.parse(payloadOf(line))).toEqual([{ 物品: '短剑' }, { 物品: '斗篷' }, { 物品: '银币' }])
+    expect(JSON.parse(payloadOf(line))).toEqual([
+      { id: 'id_1', ['物品']: '短剑' },
+      { id: 'id_2', ['物品']: '斗篷' },
+      { id: 'id_3', ['物品']: '银币' },
+    ])
     expect(line, '没选的字段一个键都不出现').not.toContain('数量')
     expect(line, '不许出现字段 code').not.toContain('2.4.1')
     expect(line, '不许出现自身值槽').not.toContain('2.4.0')
@@ -162,9 +166,9 @@ describe('数组字段 · reads 投影（增补 §三）', () => {
       '背包',
     )
     expect(JSON.parse(payloadOf(line))).toEqual([
-      { 物品: '短剑', 数量: 1 },
-      { 物品: '斗篷', 数量: 1 },
-      { 物品: '银币', 数量: 3 },
+      { id: 'id_1', ['物品']: '短剑', ['数量']: 1 },
+      { id: 'id_2', ['物品']: '斗篷', ['数量']: 1 },
+      { id: 'id_3', ['物品']: '银币', ['数量']: 3 },
     ])
   })
 
@@ -180,7 +184,7 @@ describe('数组字段 · reads 投影（增补 §三）', () => {
       '2.4',
       '背包',
     )
-    expect(JSON.parse(payloadOf(line))).toEqual([{ 属性: { 品质: '普通' } }])
+    expect(JSON.parse(payloadOf(line))).toEqual([{ id: 'id_1', ['属性']: { ['品质']: '普通' } }])
     expect(line).not.toContain('物品')
     expect(line).not.toContain('附魔')
   })
@@ -197,7 +201,9 @@ describe('数组字段 · reads 投影（增补 §三）', () => {
       '2.4',
       '背包',
     )
-    expect(JSON.parse(payloadOf(line))).toEqual([{ 属性: { 附魔: [{ 名称: '锋锐' }] } }])
+    expect(JSON.parse(payloadOf(line))).toEqual([
+      { id: 'id_1', ['属性']: { ['附魔']: [{ id: 'id_1', ['名称']: '锋锐' }] } },
+    ])
     expect(line).not.toContain('强度')
   })
 
@@ -213,7 +219,9 @@ describe('数组字段 · reads 投影（增补 §三）', () => {
       '2.4',
       '背包',
     )
-    expect(JSON.parse(payloadOf(line))).toEqual([{ 属性: { 附魔: [{ 名称: '锋锐', 强度: 2 }] } }])
+    expect(JSON.parse(payloadOf(line))).toEqual([
+      { id: 'id_1', ['属性']: { ['附魔']: [{ id: 'id_1', ['名称']: '锋锐', ['强度']: 2 }] } },
+    ])
   })
 
   it('外层 2 项、内层 1 / 2 项：item 顺序与嵌套分组都保留', async () => {
@@ -229,8 +237,16 @@ describe('数组字段 · reads 投影（增补 §三）', () => {
       '背包',
     )
     expect(JSON.parse(payloadOf(line))).toEqual([
-      { 属性: { 附魔: [{ 名称: '锋锐' }] } },
-      { 属性: { 附魔: [{ 名称: '微光' }, { 名称: '回响' }] } },
+      { id: 'id_1', ['属性']: { ['附魔']: [{ id: 'id_1', ['名称']: '锋锐' }] } },
+      {
+        id: 'id_2',
+        ['属性']: {
+          ['附魔']: [
+            { id: 'id_1', ['名称']: '微光' },
+            { id: 'id_2', ['名称']: '回响' },
+          ],
+        },
+      },
     ])
   })
 
@@ -244,9 +260,9 @@ describe('数组字段 · reads 投影（增补 §三）', () => {
     )
     expect(lines).toHaveLength(1)
     expect(JSON.parse(payloadOf(lineOf(lines, '2.4', '背包')))).toEqual([
-      { 物品: '短剑', 数量: 1 },
-      { 物品: '斗篷', 数量: 1 },
-      { 物品: '银币', 数量: 3 },
+      { id: 'id_1', ['物品']: '短剑', ['数量']: 1 },
+      { id: 'id_2', ['物品']: '斗篷', ['数量']: 1 },
+      { id: 'id_3', ['物品']: '银币', ['数量']: 3 },
     ])
   })
 
@@ -273,9 +289,9 @@ describe('数组字段 · reads 投影（增补 §三）', () => {
     expect(lines, '父行之外不该再有数组行').toHaveLength(1)
     expect(lines[0].startsWith('- 2「玩家」：')).toBe(true)
     expect(JSON.parse(payloadOf(lines[0])).背包).toEqual([
-      { 物品: '短剑', 数量: 1 },
-      { 物品: '斗篷', 数量: 1 },
-      { 物品: '银币', 数量: 3 },
+      { id: 'id_1', ['物品']: '短剑', ['数量']: 1 },
+      { id: 'id_2', ['物品']: '斗篷', ['数量']: 1 },
+      { id: 'id_3', ['物品']: '银币', ['数量']: 3 },
     ])
   })
 

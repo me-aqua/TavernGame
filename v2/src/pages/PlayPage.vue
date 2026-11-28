@@ -116,7 +116,7 @@ const failedItems = computed<StoryItem[]>(() => {
 /** 失败回合的错误一行：`码 · 中文消息`（调试卡片用） */
 const failedErrorText = computed(() => {
   const failed = save.value?.failedTurn
-  return failed ? `${failed.error.code} · ${failed.error.message}` : ''
+  return failed ? t('play.failedErrorLine', { code: failed.error.code, message: failed.error.message }) : ''
 })
 
 onMounted(() => {

@@ -78,7 +78,7 @@ describe('提示词 · 状态段（v5 §5）', () => {
     expect(containerLine, '1 那一行').toBeTruthy()
     const region = JSON.parse(payloadOf(containerLine, '1', 'world')).region
     expect(region, 'object 1 覆盖孩子：自身值 + 孩子（键是中文名）').toEqual({
-      自身: 'A1',
+      ['自身']: 'A1',
       site: 'SITE_X',
     })
     expect(JSON.stringify(region), '不许出现 "0" / "1" 这种 code 键').not.toMatch(/"0"\s*:|"1"\s*:/)
@@ -123,7 +123,7 @@ describe('提示词 · 状态段（v5 §5）', () => {
     })
     const line = stateLines(prompt).find((item) => item.startsWith('- 1「'))
     const payload = JSON.parse(payloadOf(line, '1', 'world'))
-    expect(payload).toEqual({ region: { 自身: 'A1', site: 'SITE_X' }, mood: 'MOOD_Y' })
+    expect(payload).toEqual({ region: { ['自身']: 'A1', site: 'SITE_X' }, mood: 'MOOD_Y' })
     expect(JSON.stringify(payload), '不许出现 "0" / "1" 这种 code 键').not.toMatch(/"0"\s*:|"1"\s*:/)
   })
 
@@ -301,10 +301,11 @@ describe('提示词 · 示例卡的 JSON 键是中文名', () => {
 
     // 数组 2.4 是容器：整份 item 出来，键是字段的中文名（不是 2.4.1 这种 code，也不是数字键）
     const bag = readLine('2.4').payload
+    // 阶段 4：数组 item 在模型提示词里带 id（§7.1 例），2.4 多了 2.4.3 可手持
     expect(bag, '数组里是中文键的 item 对象').toEqual([
-      { 物品: '短剑', 数量: 1 },
-      { 物品: '斗篷', 数量: 1 },
-      { 物品: '银币', 数量: 3 },
+      { id: 'id_1', ['物品']: '短剑', ['数量']: 1, ['可手持']: '是' },
+      { id: 'id_2', ['物品']: '斗篷', ['数量']: 1, ['可手持']: '是' },
+      { id: 'id_3', ['物品']: '银币', ['数量']: 3, ['可手持']: '否' },
     ])
     expect(JSON.stringify(bag), '数组里不许出现字段 code 键').not.toMatch(/"2\.4\.[0-9]+"\s*:/)
     expect(JSON.stringify(bag), '数组里不许出现数字键').not.toMatch(/"[0-9]+"\s*:/)

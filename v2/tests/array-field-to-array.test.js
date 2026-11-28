@@ -105,9 +105,9 @@ function fieldWithChildren(items) {
 /** 三项都带完整「自己 + 两个孩子」的合法值（每一外层 item 的孩子值都不同） */
 function fullItems() {
   return [
-    { '2.4.1': { '2.4.1.0': '短剑', '2.4.1.1': '锋利', '2.4.1.2': 3 }, '2.4.2': 1 },
-    { '2.4.1': { '2.4.1.0': '斗篷', '2.4.1.1': '轻柔', '2.4.1.2': 1 }, '2.4.2': 1 },
-    { '2.4.1': { '2.4.1.0': '银币', '2.4.1.1': '微光', '2.4.1.2': 5 }, '2.4.2': 3 },
+    { id: 'id_1', '2.4.1': { '2.4.1.0': '短剑', '2.4.1.1': '锋利', '2.4.1.2': 3 }, '2.4.2': 1 },
+    { id: 'id_2', '2.4.1': { '2.4.1.0': '斗篷', '2.4.1.1': '轻柔', '2.4.1.2': 1 }, '2.4.2': 1 },
+    { id: 'id_3', '2.4.1': { '2.4.1.0': '银币', '2.4.1.1': '微光', '2.4.1.2': 5 }, '2.4.2': 3 },
   ]
 }
 
@@ -135,17 +135,18 @@ describe('F1 · 数组字段（有孩子）→ array：每个外层实例收成�
 
     const values = fieldValuesOf(array)
     expect(itemsOf(array), '外层 item 数 / 顺序不动').toHaveLength(3)
+    // 转换新建的 item 也带 id（每个实例各是一个新数组 ⇒ 各自从 id_1 起）
     expect(values, '每个外层实例各收成恰好一个 item').toEqual([
-      [{ '2.4.1.1': '锋利', '2.4.1.2': 3 }],
-      [{ '2.4.1.1': '轻柔', '2.4.1.2': 1 }],
-      [{ '2.4.1.1': '微光', '2.4.1.2': 5 }],
+      [{ id: 'id_1', '2.4.1.1': '锋利', '2.4.1.2': 3 }],
+      [{ id: 'id_1', '2.4.1.1': '轻柔', '2.4.1.2': 1 }],
+      [{ id: 'id_1', '2.4.1.1': '微光', '2.4.1.2': 5 }],
     ])
     for (const [index, value] of values.entries()) {
       expect(value, `第 ${index + 1} 项：有孩子值就必须收成恰好一个 item，不许静默 []`).toHaveLength(1)
       expect(
         Object.keys(value[0]),
-        `第 ${index + 1} 项：item 的键恰好是孩子 code（自己的值不进 item）`,
-      ).toEqual(['2.4.1.1', '2.4.1.2'])
+        `第 ${index + 1} 项：item 的键恰好是 id + 孩子 code（自己的值不进 item）`,
+      ).toEqual(['id', '2.4.1.1', '2.4.1.2'])
     }
     expect(JSON.stringify(values), '自己的值 `<code>.0` 不许搬进 item').not.toContain('2.4.1.0')
     expect(JSON.stringify(values), '自己的孩子值一个都不许丢').toContain('锋利')
@@ -163,18 +164,18 @@ describe('F1 · 数组字段（有孩子）→ array：每个外层实例收成�
   it('一个实例没有孩子值 ⇒ 只该实例 []；有孩子值的实例照旧收 item；缺的孩子键补默认值', async () => {
     const { setElementType, cardIssues } = await loadState()
     const card = fieldWithChildren([
-      { '2.4.1': { '2.4.1.0': '短剑', '2.4.1.1': '锋利', '2.4.1.2': 3 }, '2.4.2': 1 },
+      { id: 'id_1', '2.4.1': { '2.4.1.0': '短剑', '2.4.1.1': '锋利', '2.4.1.2': 3 }, '2.4.2': 1 },
       // 只有自己的值：一条孩子值都没有 ⇒ 这一实例 []
-      { '2.4.1': { '2.4.1.0': '只有自己' }, '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': { '2.4.1.0': '只有自己' }, '2.4.2': 1 },
       // 只有一条孩子值：仍收成 1 个 item，缺的孩子键按默认值补成 0
-      { '2.4.1': { '2.4.1.0': '银币', '2.4.1.1': '微光' }, '2.4.2': 3 },
+      { id: 'id_3', '2.4.1': { '2.4.1.0': '银币', '2.4.1.1': '微光' }, '2.4.2': 3 },
     ])
 
     const array = setElementType(card, '2.4.1', 'array')
     expect(fieldValuesOf(array)).toEqual([
-      [{ '2.4.1.1': '锋利', '2.4.1.2': 3 }],
+      [{ id: 'id_1', '2.4.1.1': '锋利', '2.4.1.2': 3 }],
       [],
-      [{ '2.4.1.1': '微光', '2.4.1.2': 0 }],
+      [{ id: 'id_1', '2.4.1.1': '微光', '2.4.1.2': 0 }],
     ])
     expect(cardIssues(array), '空数组是合法数组值（字段定义还在），卡仍合法').toEqual([])
   })
@@ -182,9 +183,9 @@ describe('F1 · 数组字段（有孩子）→ array：每个外层实例收成�
   it('三项都没有孩子值：每项都 []（与既有「没有孩子值 ⇒ []」一致，不凭空造默认 item）', async () => {
     const { setElementType, cardIssues } = await loadState()
     const card = fieldWithChildren([
-      { '2.4.1': { '2.4.1.0': '短剑' }, '2.4.2': 1 },
-      { '2.4.1': { '2.4.1.0': '斗篷' }, '2.4.2': 1 },
-      { '2.4.1': { '2.4.1.0': '银币' }, '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': { '2.4.1.0': '短剑' }, '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': { '2.4.1.0': '斗篷' }, '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': { '2.4.1.0': '银币' }, '2.4.2': 3 },
     ])
 
     const array = setElementType(card, '2.4.1', 'array')
@@ -266,7 +267,9 @@ describe('F2 · 换 array 会让 `<code>.0` 引用消失：E_VALIDATION、点名
 
     const array = setElementType(card, '2.4', 'array')
     expect(array.state.find((item) => item.code === '2.4').type).toBe('array')
-    expect(itemsOf(array), '有孩子的标量 → array 的既有行为不变').toEqual([{ '2.4.1': '短剑', '2.4.2': 1 }])
+    expect(itemsOf(array), '有孩子的标量 → array 的既有行为不变').toEqual([
+      { id: 'id_1', '2.4.1': '短剑', '2.4.2': 1 },
+    ])
     expect(array.chain).toEqual(before.chain)
     expect(cardIssues(array), '2.4 / 2.4.1 / 2.4.2 在转换后都还是合法引用').toEqual([])
     expect(() => validateCard(array)).not.toThrow()

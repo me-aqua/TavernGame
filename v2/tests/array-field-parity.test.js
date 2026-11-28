@@ -45,6 +45,7 @@ function textChild(code, name) {
 /** 有孩子字段的初始值：每项都是 `{<code>.0, 2.4.1.1}`，另一个字段 2.4.2 保持裸标量 */
 function childItems(own = ['短剑', '斗篷', '银币'], child = '锋利') {
   return own.map((value, index) => ({
+    id: 'id_' + (index + 1),
     '2.4.1': { [OWN]: value, [CHILD]: child },
     '2.4.2': [1, 1, 3][index],
   }))
@@ -87,7 +88,9 @@ function regionCard() {
         type: 'object',
         initial: {
           1.1: '镇中心',
-          1.2: [{ '1.2.1': { '1.2.1.0': '醉猫旅店', '1.2.1.1': '炉火噼啪，麦酒和湿羊毛的味道' } }],
+          1.2: [
+            { id: 'id_1', '1.2.1': { '1.2.1.0': '醉猫旅店', '1.2.1.1': '炉火噼啪，麦酒和湿羊毛的味道' } },
+          ],
         },
       },
       { code: '1.1', name: '名称', note: '', type: 'text' },
@@ -111,14 +114,17 @@ function richChildren() {
 function richItems() {
   return [
     {
+      id: 'id_1',
       '2.4.1': { [OWN]: '短剑', [CHILD]: '锋利', '2.4.1.2': 3, '2.4.1.3': '普通' },
       '2.4.2': 1,
     },
     {
+      id: 'id_2',
       '2.4.1': { [OWN]: '斗篷', [CHILD]: '轻柔', '2.4.1.2': 1, '2.4.1.3': '稀有' },
       '2.4.2': 1,
     },
     {
+      id: 'id_3',
       '2.4.1': { [OWN]: '银币', [CHILD]: '微光', '2.4.1.2': 5, '2.4.1.3': '普通' },
       '2.4.2': 3,
     },
@@ -198,7 +204,7 @@ describe('数组 item 字段 · 形状与默认值（契约 §1.1 / §1.2）', (
   it('无孩子字段保持裸标量：默认值 / 形状判据都不接受对象（回归）', async () => {
     const { arrayItemOf, arrayValueFits, fieldValueFits } = await loadState()
     const card = holdCard()
-    expect(arrayItemOf(card.state, '2.4')).toEqual({ '2.4.1': '', '2.4.2': 0 })
+    expect(arrayItemOf(card.state, '2.4')).toEqual({ id: 'id_1', '2.4.1': '', '2.4.2': 0 })
     expect(arrayValueFits(card.state, '2.4', holdItems())).toBe(true)
     expect(fieldValueFits(card.state, elementOf(card, '2.4.1'), '短剑')).toBe(true)
     expect(
@@ -213,6 +219,7 @@ describe('数组 item 字段 · 形状与默认值（契约 §1.1 / §1.2）', (
     const card = childCard()
     expect(arrayValueFits(card.state, '2.4', childItems())).toBe(true)
     expect(arrayItemOf(card.state, '2.4')).toEqual({
+      id: 'id_1',
       '2.4.1': { [OWN]: '', [CHILD]: '' },
       '2.4.2': 0,
     })
@@ -243,12 +250,13 @@ describe('数组 item 字段 · 加孩子（契约 §1.3）', () => {
       '新孩子是文字',
     ).toMatchObject({ type: 'text' })
     expect(itemsOf(next)).toEqual([
-      { '2.4.1': { [OWN]: '短剑', [CHILD]: '' }, '2.4.2': 1 },
-      { '2.4.1': { [OWN]: '斗篷', [CHILD]: '' }, '2.4.2': 1 },
-      { '2.4.1': { [OWN]: '银币', [CHILD]: '' }, '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': { [OWN]: '短剑', [CHILD]: '' }, '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': { [OWN]: '斗篷', [CHILD]: '' }, '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': { [OWN]: '银币', [CHILD]: '' }, '2.4.2': 3 },
     ])
     expect(itemsOf(card), '原卡的 item 一个字都不许改').toEqual(holdItems())
     expect(arrayItemOf(next.state, '2.4')).toEqual({
+      id: 'id_1',
       '2.4.1': { [OWN]: '', [CHILD]: '' },
       '2.4.2': 0,
     })
@@ -277,9 +285,9 @@ describe('数组 item 字段 · 删孩子（契约 §1.4）', () => {
     const first = addChild(holdCard(), '2.4.1')
     const second = addChild(first, '2.4.1')
     const valued = setInitial(second, '2.4', [
-      { '2.4.1': { [OWN]: '短剑', [CHILD]: '锋利', '2.4.1.2': '轻' }, '2.4.2': 1 },
-      { '2.4.1': { [OWN]: '斗篷', [CHILD]: '轻柔', '2.4.1.2': '暖' }, '2.4.2': 1 },
-      { '2.4.1': { [OWN]: '银币', [CHILD]: '微光', '2.4.1.2': '重' }, '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': { [OWN]: '短剑', [CHILD]: '锋利', '2.4.1.2': '轻' }, '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': { [OWN]: '斗篷', [CHILD]: '轻柔', '2.4.1.2': '暖' }, '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': { [OWN]: '银币', [CHILD]: '微光', '2.4.1.2': '重' }, '2.4.2': 3 },
     ])
     await expectCardValid(valued, '两个孩子、值不同')
 
@@ -288,18 +296,18 @@ describe('数组 item 字段 · 删孩子（契约 §1.4）', () => {
       '2.4.1.1',
     ])
     expect(itemsOf(one)).toEqual([
-      { '2.4.1': { [OWN]: '短剑', [CHILD]: '轻' }, '2.4.2': 1 },
-      { '2.4.1': { [OWN]: '斗篷', [CHILD]: '暖' }, '2.4.2': 1 },
-      { '2.4.1': { [OWN]: '银币', [CHILD]: '重' }, '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': { [OWN]: '短剑', [CHILD]: '轻' }, '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': { [OWN]: '斗篷', [CHILD]: '暖' }, '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': { [OWN]: '银币', [CHILD]: '重' }, '2.4.2': 3 },
     ])
     await expectCardValid(one, '删掉一个孩子')
 
     const zero = removeNode(one, '2.4.1.1')
     expect(zero.state.filter((item) => item.code.startsWith('2.4.1.')).map((item) => item.code)).toEqual([])
     expect(itemsOf(zero)).toEqual([
-      { '2.4.1': '短剑', '2.4.2': 1 },
-      { '2.4.1': '斗篷', '2.4.2': 1 },
-      { '2.4.1': '银币', '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': '短剑', '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': '斗篷', '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': '银币', '2.4.2': 3 },
     ])
     await expectCardValid(zero, '删掉最后一个孩子')
     expect(itemsOf(valued)[0]['2.4.2'], '入参卡不许被改').toBe(1)
@@ -321,9 +329,9 @@ describe('数组 item 字段 · 校验（契约 §2）', () => {
       await expectBadValue(
         card,
         [
-          { '2.4.1': fieldValue, '2.4.2': 1 },
-          { '2.4.1': fieldValue, '2.4.2': 1 },
-          { '2.4.1': fieldValue, '2.4.2': 3 },
+          { id: 'id_1', '2.4.1': fieldValue, '2.4.2': 1 },
+          { id: 'id_2', '2.4.1': fieldValue, '2.4.2': 1 },
+          { id: 'id_3', '2.4.1': fieldValue, '2.4.2': 3 },
         ],
         note,
       )
@@ -347,7 +355,13 @@ describe('数组 item 字段 · 校验（契约 §2）', () => {
         textChild(CHILD, '附魔'),
         { code: '2.4.1.1.1', name: '深层', note: '', type: 'integer', min: 0, max: 5 },
       ],
-      items: [{ '2.4.1': { [OWN]: '短剑', [CHILD]: { '2.4.1.1.0': '锋', '2.4.1.1.1': 3 } }, '2.4.2': 1 }],
+      items: [
+        {
+          id: 'id_1',
+          '2.4.1': { [OWN]: '短剑', [CHILD]: { '2.4.1.1.0': '锋', '2.4.1.1.1': 3 } },
+          '2.4.2': 1,
+        },
+      ],
     })
     await expectCardValid(nested, '孙层是整数')
     const nestedBad = [
@@ -412,6 +426,7 @@ describe('数组 item 字段 · 校验（契约 §2）', () => {
       children: [textChild(CHILD, '附魔'), { code: '2.4.1.1.1', name: '深层', note: '', type: 'text' }],
       items: [
         {
+          id: 'id_1',
           '2.4.1': { [OWN]: '短剑', [CHILD]: { '2.4.1.1.0': '锋', '2.4.1.1.1': '深' } },
           '2.4.2': 1,
         },
@@ -419,7 +434,9 @@ describe('数组 item 字段 · 校验（契约 §2）', () => {
     })
     await expectCardValid(nested, '孙层键齐')
 
-    const withChild = (childValue) => [{ '2.4.1': { [OWN]: '短剑', [CHILD]: childValue }, '2.4.2': 1 }]
+    const withChild = (childValue) => [
+      { id: 'id_1', '2.4.1': { [OWN]: '短剑', [CHILD]: childValue }, '2.4.2': 1 },
+    ]
     for (const [note, childValue] of [
       ['缺孙层自身值 2.4.1.1.0', { '2.4.1.1.1': '深' }],
       ['缺孙层孩子 2.4.1.1.1', { '2.4.1.1.0': '锋' }],
@@ -436,10 +453,11 @@ describe('数组 item 字段 · 提示词与写（契约 §3）', () => {
     const prompt = await promptOf(card, reader({ reads: ['2.4'] }))
     const lines = linesOf(prompt, '<世界状态树>')
     expect(lines, '读了数组，状态块必须在').toHaveLength(1)
+    // 数组 item 在模型提示词里带 id（阶段 4 §7.1）
     expect(JSON.parse(payloadOf(lines[0]))).toEqual([
-      { 物品: { 自身: '短剑', 附魔: '锋利' }, 数量: 1 },
-      { 物品: { 自身: '斗篷', 附魔: '锋利' }, 数量: 1 },
-      { 物品: { 自身: '银币', 附魔: '锋利' }, 数量: 3 },
+      { id: 'id_1', ['物品']: { ['自身']: '短剑', ['附魔']: '锋利' }, ['数量']: 1 },
+      { id: 'id_2', ['物品']: { ['自身']: '斗篷', ['附魔']: '锋利' }, ['数量']: 1 },
+      { id: 'id_3', ['物品']: { ['自身']: '银币', ['附魔']: '锋利' }, ['数量']: 3 },
     ])
     for (const code of ['2.4.1', OWN, CHILD]) {
       expect(lines[0], `投影里出现了 code ${code}`).not.toContain(code)
@@ -452,9 +470,9 @@ describe('数组 item 字段 · 提示词与写（契约 §3）', () => {
     const lines = linesOf(prompt, '<世界状态树>')
     expect(lines).toHaveLength(1)
     expect(JSON.parse(payloadOf(lines[0])), '直接读标量字段 ⇒ 只出它自己的值').toEqual([
-      { 物品: '短剑' },
-      { 物品: '斗篷' },
-      { 物品: '银币' },
+      { id: 'id_1', ['物品']: '短剑' },
+      { id: 'id_2', ['物品']: '斗篷' },
+      { id: 'id_3', ['物品']: '银币' },
     ])
     expect(lines[0], '没读的字段一个键都不出现').not.toContain('数量')
     expect(lines[0], '标量字段的孩子（附魔）也要单独给 ref 才读得到').not.toContain('锋利')
@@ -467,8 +485,10 @@ describe('数组 item 字段 · 提示词与写（契约 §3）', () => {
     const lines = linesOf(prompt, '<世界状态树>')
     expect(lines, '读了 1，状态块必须在').toHaveLength(1)
     expect(JSON.parse(payloadOf(lines[0])), '父 → 数组 → 字段自身 + 孩子的完整组合').toEqual({
-      名称: '镇中心',
-      地点: [{ 名称: { 自身: '醉猫旅店', 描述: '炉火噼啪，麦酒和湿羊毛的味道' } }],
+      ['名称']: '镇中心',
+      ['地点']: [
+        { id: 'id_1', ['名称']: { ['自身']: '醉猫旅店', ['描述']: '炉火噼啪，麦酒和湿羊毛的味道' } },
+      ],
     })
     for (const code of ['1.2', '1.2.1', '1.2.1.0', '1.2.1.1']) {
       expect(lines[0], `投影里出现了 code ${code}`).not.toContain(code)
@@ -509,9 +529,9 @@ describe('数组 item 字段 · 提示词与写（契约 §3）', () => {
     const value = childItems(['长弓', '火把', '盾'], '尖').map((item) => item['2.4.1'])
     const next = applyWrite({ card, node, tree, path: '2.4.1', value })
     expect(next['2.4']).toEqual([
-      { '2.4.1': value[0], '2.4.2': 1 },
-      { '2.4.1': value[1], '2.4.2': 1 },
-      { '2.4.1': value[2], '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': value[0], '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': value[1], '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': value[2], '2.4.2': 3 },
     ])
     expect(next['2.4'][0]['2.4.1'], '第一项落的是字段对象本身').toEqual({
       '2.4.1.0': '长弓',
@@ -578,9 +598,9 @@ describe('数组 item 字段 · 提示词与写（契约 §3）', () => {
     const value = childItems(['长弓', '火把', '盾'], '尖').map((item) => item['2.4.1'])
     const next = applyWrite({ card, node, tree, path: '2.4.1', value })
     expect(next['2.4']).toEqual([
-      { '2.4.1': value[0], '2.4.2': 1 },
-      { '2.4.1': value[1], '2.4.2': 1 },
-      { '2.4.1': value[2], '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': value[0], '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': value[1], '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': value[2], '2.4.2': 3 },
     ])
     expect(next['2.4'][0]['2.4.1'][OWN], '自身值在').toBe('长弓')
     expect(next['2.4'][0]['2.4.1'][CHILD], '孩子值在').toBe('尖')
@@ -600,9 +620,9 @@ describe('数组 item 字段 · 提示词与写（契约 §3）', () => {
       value: ['锋利', '锐利', '微光'],
     })
     expect(next['2.4']).toEqual([
-      { '2.4.1': { [OWN]: '短剑', [CHILD]: '锋利' }, '2.4.2': 1 },
-      { '2.4.1': { [OWN]: '斗篷', [CHILD]: '锐利' }, '2.4.2': 1 },
-      { '2.4.1': { [OWN]: '银币', [CHILD]: '微光' }, '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': { [OWN]: '短剑', [CHILD]: '锋利' }, '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': { [OWN]: '斗篷', [CHILD]: '锐利' }, '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': { [OWN]: '银币', [CHILD]: '微光' }, '2.4.2': 3 },
     ])
     expect(next['2.4'][1]['2.4.1'][OWN], '父字段的自身值不动').toBe('斗篷')
     expect(next['2.4'][0]['2.4.2'], '兄弟字段不动').toBe(1)
@@ -625,9 +645,9 @@ describe('数组 item 字段 · 无孩子的旧行为不变（契约 §0 / §四
     const prompt = await promptOf(card, reader({ reads: ['2.4'] }))
     const lines = linesOf(prompt, '<世界状态树>')
     expect(JSON.parse(payloadOf(lines[0]))).toEqual([
-      { 物品: '短剑', 数量: 1 },
-      { 物品: '斗篷', 数量: 1 },
-      { 物品: '银币', 数量: 3 },
+      { id: 'id_1', ['物品']: '短剑', ['数量']: 1 },
+      { id: 'id_2', ['物品']: '斗篷', ['数量']: 1 },
+      { id: 'id_3', ['物品']: '银币', ['数量']: 3 },
     ])
 
     const { applyWrite } = await loadEngine()
@@ -635,9 +655,9 @@ describe('数组 item 字段 · 无孩子的旧行为不变（契约 §0 / §四
     const tree = holdSave(card).tree
     const next = applyWrite({ card, node, tree, path: '2.4.1', value: ['长弓', '火把', '盾'] })
     expect(next['2.4']).toEqual([
-      { '2.4.1': '长弓', '2.4.2': 1 },
-      { '2.4.1': '火把', '2.4.2': 1 },
-      { '2.4.1': '盾', '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': '长弓', '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': '火把', '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': '盾', '2.4.2': 3 },
     ])
   })
 })

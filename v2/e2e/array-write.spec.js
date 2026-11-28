@@ -116,12 +116,17 @@ test('模型 write_state 整份数组：合法值落盘、故事照常产出、�
     { '2.4.1': '长弓', '2.4.2': 7 },
     { '2.4.1': '火把', '2.4.2': 2 },
   ]
+  // 整表写入不带 id ⇒ 机器生成：本存档原有 id_1..id_3，新 id 从 id_4 起
+  const expected = [
+    { id: 'id_4', '2.4.1': '长弓', '2.4.2': 7 },
+    { id: 'id_5', '2.4.1': '火把', '2.4.2': 2 },
+  ]
   await routeSecondCall(page, 'write_state', { path: '2.4', value: next }, seen)
   await sendAction(page)
 
   await expect(page.locator('[data-line="narration"]')).toHaveCount(1, { timeout: 15_000 })
   await expect(page.locator('[data-error]')).toHaveCount(0)
-  expect(await storedItems(page)).toEqual(next)
+  expect(await storedItems(page)).toEqual(expected)
 
   expect(seen.length, '三个节点各一次请求').toBe(3)
   const checkPrompt = seen[1]
@@ -165,8 +170,8 @@ test('容器写 2.4 授权字段写 2.4.1：整列落盘、item 数不变、兄�
   await expect(page.locator('[data-line="narration"]')).toHaveCount(1, { timeout: 15_000 })
   await expect(page.locator('[data-error]')).toHaveCount(0)
   expect(await storedItems(page)).toEqual([
-    { '2.4.1': '长弓', '2.4.2': 1 },
-    { '2.4.1': '火把', '2.4.2': 1 },
-    { '2.4.1': '盾', '2.4.2': 3 },
+    { id: 'id_1', '2.4.1': '长弓', '2.4.2': 1 },
+    { id: 'id_2', '2.4.1': '火把', '2.4.2': 1 },
+    { id: 'id_3', '2.4.1': '盾', '2.4.2': 3 },
   ])
 })

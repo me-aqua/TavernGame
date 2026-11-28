@@ -75,7 +75,7 @@ function nestedObjectCard() {
     {
       '2.4.1': '短剑',
       '2.4.2.1': '普通',
-      '2.4.2.2': [{ '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }],
+      '2.4.2.2': [{ id: 'id_1', '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }],
     },
     nestedCard(),
   )
@@ -178,7 +178,7 @@ describe('数组 → 标量 · 第 1 项铺进字段孩子（增补 §3.2）', (
     expect(table['2.4.0']).toBe('')
     expect(table['2.4.1']).toBe('短剑')
     expect(table['2.4.2.1']).toBe('普通')
-    expect(table['2.4.2.2']).toEqual([{ '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }])
+    expect(table['2.4.2.2']).toEqual([{ id: 'id_1', '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }])
     expect(table).not.toHaveProperty('2.4.2')
     expect(table).not.toHaveProperty('2.4')
     expect(() => validateCard(next)).not.toThrow()
@@ -281,7 +281,8 @@ describe('既有形状 / 空范围（增补 §3.5）', () => {
     expect(next.state.find((item) => item.code === '2.4').type).toBe('array')
     expect(pieces(next).fields).toEqual(['2.4.1', '2.4.2'])
     expect(next.chain).toEqual(before.chain)
-    expect(tableOf(next)['2.4']).toEqual([{ '2.4.1': '短剑', '2.4.2': 7 }])
+    // 转换新建的 item 也要带 id（数组 item 一律带 id；空数组 ⇒ 第一条是 id_1）
+    expect(tableOf(next)['2.4']).toEqual([{ id: 'id_1', '2.4.1': '短剑', '2.4.2': 7 }])
     expect(tableOf(next)).not.toHaveProperty('2.4.1')
     expect(() => validateCard(next)).not.toThrow()
     expect(card).toEqual(before)
@@ -293,8 +294,12 @@ describe('既有形状 / 空范围（增补 §3.5）', () => {
     const next = setElementType(nestedObjectCard(), '2.4', 'array')
     expect(tableOf(next)['2.4']).toEqual([
       {
+        id: 'id_1',
         '2.4.1': '短剑',
-        '2.4.2': { '2.4.2.1': '普通', '2.4.2.2': [{ '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }] },
+        '2.4.2': {
+          '2.4.2.1': '普通',
+          '2.4.2.2': [{ id: 'id_1', '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }],
+        },
       },
     ])
     expect(() => validateCard(next)).not.toThrow()

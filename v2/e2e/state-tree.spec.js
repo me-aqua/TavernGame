@@ -116,14 +116,23 @@ test('示例卡：新建存档的 tree 就是 §7.2 那张扁平表（.0 与叶�
     '1.1.1': '醉猫旅店 · 一楼',
     1.2: '雨',
     1.3: '炉火噼啪，麦酒和湿羊毛的味道',
+    1.4: [
+      { id: 'id_1', '1.4.1': '微醺', '1.4.2': '脚步有点飘' },
+      { id: 'id_2', '1.4.1': '潮湿', '1.4.2': '衣服贴在身上' },
+    ],
     '2.0': '',
     2.1: '旅人',
     2.2: 80,
     2.3: '正常',
     2.4: [
-      { '2.4.1': '短剑', '2.4.2': 1 },
-      { '2.4.1': '斗篷', '2.4.2': 1 },
-      { '2.4.1': '银币', '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': '短剑', '2.4.2': 1, '2.4.3': '是' },
+      { id: 'id_2', '2.4.1': '斗篷', '2.4.2': 1, '2.4.3': '是' },
+      { id: 'id_3', '2.4.1': '银币', '2.4.2': 3, '2.4.3': '否' },
+    ],
+    2.5: 'id_1',
+    2.6: [
+      { id: 'id_1', '2.6.1': 'id_1', '2.6.2': '轻' },
+      { id: 'id_2', '2.6.1': 'id_2', '2.6.2': '中' },
     ],
   })
 })
@@ -381,7 +390,7 @@ test('enum values 改成不含旧值：initial 自动重置为第一项，保存
   expect(saved.state.find((item) => item.code === '1').initial['1.1.0']).toBe('B1')
 })
 
-test('类型下拉恰好四档（无结构体 / 无时间）；示例卡 1/2 是 text 空自身值；加孩子仍是 text', async ({
+test('类型下拉五档（无结构体 / 无时间，含引用）；示例卡 1/2 是 text 空自身值；加孩子仍是 text', async ({
   page,
 }) => {
   await openSample(page)
@@ -392,25 +401,25 @@ test('类型下拉恰好四档（无结构体 / 无时间）；示例卡 1/2 是
     await expect(page.locator('[data-field="initial"]')).toHaveValue('')
   }
 
-  // 非时间行的类型下拉恰好四档：结构体是后台形态，时间只住在根 0（它的类型行是模式选择器）
+  // 非时间行的类型下拉五档（作者四档 + 引用）：结构体是后台形态，时间只住在根 0（它的类型行是模式选择器）
   const types = await page
     .locator('[data-state-type] option')
     .evaluateAll((options) => options.map((option) => option.getAttribute('value')))
-  expect(types, '非时间行的类型下拉恰好四档').toEqual(['text', 'integer', 'enum', 'array'])
+  expect(types, '非时间行的类型下拉五档').toEqual(['text', 'integer', 'enum', 'array', 'ref'])
   expect(types, '类型下拉不许出现 object / 结构体').not.toContain('object')
   expect(types, '非时间行不许出现 time').not.toContain('time')
 
-  // 给 text 容器加孩子：类型不变，孩子落到 1.4
+  // 给 text 容器加孩子：类型不变，孩子落到下一个空位（示例卡 1.4 已是增益定义）
   await selectElement(page, '1')
   await page.locator(addChild('1')).click()
-  await expect(page.locator(row('1.4'))).toBeVisible()
+  await expect(page.locator(row('1.5'))).toBeVisible()
   await expect(page.locator('[data-state-type]'), '加孩子不转换类型').toHaveValue('text')
   expect(await save(page)).toBe(0)
   const saved = (await readStorage(page, KEYS.cards))[0]
   expect(saved.state.find((element) => element.code === '1')).toMatchObject({ type: 'text' })
   expect(saved.state.find((element) => element.code === '1').initial['1.0'], '根的自身值在 1.0').toBe('')
-  expect(saved.state.find((element) => element.code === '1').initial['1.4'], '新孩子的默认值补进根').toBe('')
-  expect(saved.state.some((element) => element.code === '1.4')).toBe(true)
+  expect(saved.state.find((element) => element.code === '1').initial['1.5'], '新孩子的默认值补进根').toBe('')
+  expect(saved.state.some((element) => element.code === '1.5')).toBe(true)
 })
 
 test('时间初值五格：每个输入框右边带自己的单位 年/月/日/时/分（秒没有了）', async ({ page }) => {

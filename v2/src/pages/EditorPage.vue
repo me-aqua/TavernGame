@@ -30,6 +30,7 @@ import ErrorPanel from '../components/ErrorPanel.vue'
 import NodeForm from '../components/NodeForm.vue'
 import PromptForm from '../components/PromptForm.vue'
 import PromptList from '../components/PromptList.vue'
+import SaveErrors from '../components/SaveErrors.vue'
 import StateForm from '../components/StateForm.vue'
 import StateTree from '../components/StateTree.vue'
 import WorkflowStrip from '../components/WorkflowStrip.vue'
@@ -92,12 +93,17 @@ const { visible: savedOk, flash: flashSaved } = useFlashMessage()
 /** 草稿动过没有（点【返回】时决定要不要确认） */
 const dirty = ref(false)
 
-/** 等着确认的那件事：删元素 / 删提示词 / 换时间模式 / 数组换对象（会丢 item）/ 带着改动离开 */
+/**
+ * 等着确认的那件事：删元素 / 删提示词 / 换时间模式 / 换类型（数组丢 item 或换成引用）/
+ * 删被引用 item 的级联清引用 / 带着改动离开。
+ */
 const pending = ref<
   | { kind: 'state'; code: string }
   | { kind: 'prompt'; id: string }
   | { kind: 'mode'; mode: TimeMode; select: HTMLSelectElement }
   | { kind: 'convert'; code: string; type: StateType; select: HTMLSelectElement; discarded: number }
+  | { kind: 'ref'; code: string; type: StateType; select: HTMLSelectElement }
+  | { kind: 'cascade'; message: string; run: () => void }
   | { kind: 'back' }
   | null
 >(null)
@@ -143,7 +149,7 @@ const middleTitle = computed(() => {
   return t('editor.editTitleEmpty')
 })
 
-/** 确认层的文案与确认按钮：删除说「删除」，换模式 / 换类型 / 离开说「确定」/「离开」 */
+/** 确认层的文案与确认按钮：删除说「删除」，换模式 / 换类型 / 清引用 / 离开说「确定」/「离开」 */
 const pendingMessage = computed(() => {
   if (pending.value?.kind === 'state') return t('editor.deleteStateConfirm')
   if (pending.value?.kind === 'prompt') return t('editor.deletePromptConfirm')
@@ -151,14 +157,16 @@ const pendingMessage = computed(() => {
   if (pending.value?.kind === 'convert') {
     return t('editor.arrayConvertConfirm', { count: pending.value.discarded })
   }
+  if (pending.value?.kind === 'ref') return t('editor.refConvertConfirm', { code: pending.value.code })
+  if (pending.value?.kind === 'cascade') return pending.value.message
   return t('editor.leaveConfirm')
 })
 const pendingConfirmLabel = computed(() =>
   pending.value?.kind === 'back'
     ? t('editor.leave')
-    : pending.value?.kind === 'mode' || pending.value?.kind === 'convert'
-      ? t('common.confirm')
-      : t('common.delete'),
+    : pending.value?.kind === 'state' || pending.value?.kind === 'prompt'
+      ? t('common.delete')
+      : t('common.confirm'),
 )
 
 /** 某一格当前用的预设 id：映射里有就用它，没有就是池子第一个（`''` = 一个预设都没有） */
@@ -426,11 +434,18 @@ function removeState(code: string): void {
  *
  * **数组换成任何别的类型都会丢 item**（只留第一个）：多于一项目时先弹确认
  * （`editor.arrayConvertConfirm`），取消 ⇒ 草稿一个字不动、下拉拨回去；确定 ⇒ 走同一条 `setElementType`。
+ *
+ * **引用（ref）的换入换出都要先弹确认**（引用契约 §九「弹窗警告」）：它会清空这个元素**及子元素**的
+ * 初始值、丢弃旧类型专属配置，且不把旧值转换成新值。
  */
 function retypeElement(code: string, type: StateType, select: HTMLSelectElement): void {
   const current = card.value
   if (!current) return
   const element = current.state.find((item) => item.code === code)
+  if (type === 'ref' || element?.type === 'ref') {
+    pending.value = { kind: 'ref', code, type, select }
+    return
+  }
   if (element?.type === 'array' && type !== 'array') {
     const discarded = arrayDiscardedCount(current, code)
     if (discarded > 0) {
@@ -457,6 +472,15 @@ function setInitialValue(path: string, value: TreeValue): void {
   updateCard((current) => setInitial(current, path, value))
 }
 
+/** 改这一局的当前值：只换 `save.tree` 的那一条键（卡快照与初始值一个字不动） */
+function setCurrentValue(path: string, value: TreeValue): void {
+  const current = save.value
+  if (!current) return
+  save.value = { ...current, tree: { ...current.tree, [path]: value } }
+  dirty.value = true
+  savedOk.value = false
+}
+
 /**
  * 换时间模式：**先确认、草稿此刻不动**（契约 §B5）。
  * 记下拉元素是因为「取消」时草稿没变，`:value` 不会重绘它 —— 得手动拨回去。
@@ -473,7 +497,7 @@ function cancelPending(): void {
   const target = pending.value
   pending.value = null
   if (target?.kind === 'mode') target.select.value = card.value?.state[0]?.timeMode ?? ''
-  if (target?.kind === 'convert') {
+  if (target?.kind === 'convert' || target?.kind === 'ref') {
     target.select.value = card.value?.state.find((item) => item.code === target.code)?.type ?? ''
   }
 }
@@ -513,7 +537,7 @@ function removePrompt(id: string): void {
   if (selectedPromptId.value === id) selectedPromptId.value = null
 }
 
-/** 确认层的「确定」：删元素 / 删提示词 / 换时间模式 / 带着改动离开；确认按钮的字由 `pendingConfirmLabel` 给 */
+/** 确认层的「确定」：删元素 / 删提示词 / 换时间模式 / 换类型 / 清引用 / 带着改动离开 */
 function confirmPending(): void {
   const target = pending.value
   pending.value = null
@@ -521,7 +545,9 @@ function confirmPending(): void {
   if (target.kind === 'state') removeState(target.code)
   else if (target.kind === 'prompt') removePrompt(target.id)
   else if (target.kind === 'mode') updateCard((current) => setTimeMode(current, target.mode))
-  else if (target.kind === 'convert') applyRetype(target.code, target.type, target.select)
+  else if (target.kind === 'convert' || target.kind === 'ref')
+    applyRetype(target.code, target.type, target.select)
+  else if (target.kind === 'cascade') target.run()
   else location.hash = routeHash({ name: 'home' })
 }
 
@@ -584,24 +610,7 @@ function goBack(): void {
 
     <ErrorPanel v-if="error" :error="error" />
 
-    <div v-if="saveIssues.length > 0" class="save-errors" data-save-errors>
-      <span class="save-failed">{{ t('editor.saveFailed') }}</span>
-      <button
-        v-for="(issue, at) in saveIssues"
-        :key="`${issue.code}-${issue.path}-${at}`"
-        type="button"
-        class="save-error"
-        data-save-error
-        :data-save-error-code="issue.code"
-        @click="selectIssue(issue)"
-      >
-        {{
-          issue.code === ''
-            ? issue.message
-            : t('editor.saveErrorLine', { code: issue.code, message: issue.message })
-        }}
-      </button>
-    </div>
+    <SaveErrors :issues="saveIssues" @select="selectIssue" />
 
     <div v-if="card" ref="rowEl" class="page-body editor-row">
       <section class="col" data-col="left" :style="{ width: `${columns.left}px` }">
@@ -660,7 +669,9 @@ function goBack(): void {
             @edit="(element) => patchElement(selectedElement!.code, element)"
             @retype="(type, select) => retypeElement(selectedElement!.code, type, select)"
             @initial="setInitialValue"
+            @current="setCurrentValue"
             @time-mode="requestTimeMode"
+            @cascade="(message, run) => (pending = { kind: 'cascade', message, run })"
           />
           <PromptForm
             v-else-if="selectedPrompt"
@@ -727,26 +738,6 @@ function goBack(): void {
 .save-ok {
   font-size: var(--fs3);
   color: var(--ink-soft);
-}
-
-/* 保存失败：页栏下面一条可换行的清单，每条都能点回那一格 */
-.save-errors {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
-}
-
-.save-failed {
-  font-size: var(--fs2);
-  color: var(--danger);
-}
-
-.save-error {
-  text-align: left;
 }
 
 .col {

@@ -54,7 +54,7 @@ async function storedItems(page) {
   return card.state.find((element) => element.code === '2').initial['2.4']
 }
 
-test('2.4.1 类型下拉恰好四档、+ 可见；加孩子后 item 渲染自身输入 + 子行，保存出对象形状', async ({
+test('2.4.1 类型下拉五档（含引用）、+ 可见；加孩子后 item 渲染自身输入 + 子行，保存出对象形状', async ({
   page,
 }) => {
   await openEditor(page, holdCard())
@@ -63,7 +63,7 @@ test('2.4.1 类型下拉恰好四档、+ 可见；加孩子后 item 渲染自身
   const types = await page
     .locator('[data-state-type] option')
     .evaluateAll((options) => options.map((option) => option.getAttribute('value')))
-  expect([...types].sort(), '数组字段的类型选项').toEqual(['array', 'enum', 'integer', 'text'])
+  expect([...types].sort(), '数组字段的类型选项').toEqual(['array', 'enum', 'integer', 'ref', 'text'])
   expect(types, '不许出现时间').not.toContain('time')
   expect(types, '不许出现结构体').not.toContain('object')
 
@@ -154,8 +154,8 @@ test('删掉 2.4.1 的最后一个子字段：每个 item 收成裸标量（旧�
   }
   expect(await save(page)).toBe(0)
   expect(await storedItems(page)).toEqual([
-    { '2.4.1': '短剑', '2.4.2': 1 },
-    { '2.4.1': '斗篷', '2.4.2': 1 },
-    { '2.4.1': '银币', '2.4.2': 3 },
+    { id: 'id_1', '2.4.1': '短剑', '2.4.2': 1 },
+    { id: 'id_2', '2.4.1': '斗篷', '2.4.2': 1 },
+    { id: 'id_3', '2.4.1': '银币', '2.4.2': 3 },
   ])
 })

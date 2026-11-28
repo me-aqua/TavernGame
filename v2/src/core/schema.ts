@@ -20,6 +20,7 @@ import {
   isTimeValue,
   pathsOf,
   refPathsOf,
+  refTreeIssues,
   valueFits,
 } from './statetree'
 import type { Card, ChainNode, Save, StateElement } from './types'
@@ -252,6 +253,7 @@ export function validateSave(save: Save, card?: Card): void {
   const timeMode = card?.state[0]?.type === 'time' ? card.state[0].timeMode : undefined
   for (const [path, value] of Object.entries(save.tree)) {
     if (typeof value === 'string' || (typeof value === 'number' && Number.isSafeInteger(value))) continue
+    if (value === null && (card === undefined || elementOfPath(card.state, path)?.type === 'ref')) continue
     if (path === '0') {
       if (isTimeValue(value, timeMode)) continue
       throw new AppError('E_VALIDATION', {
@@ -307,6 +309,14 @@ export function validateSave(save: Save, card?: Card): void {
         detail: { code: element.code },
       })
     }
+  }
+  const [refIssue] = refTreeIssues(card, save.tree)
+  if (refIssue !== undefined) {
+    throw new AppError('E_VALIDATION', {
+      message: refIssue.message,
+      nextStep: t('next.home'),
+      detail: { code: refIssue.code, path: refIssue.path },
+    })
   }
 }
 

@@ -89,10 +89,11 @@ describe('数组 · 状态段（§五）', () => {
     expect(lines, '数组只出一行，字段不单独出行').toHaveLength(1)
 
     const line = arrayLine(lines)
+    // 数组 item 在模型提示词里带 id（阶段 4 §7.1 例）；引用值另算
     expect(JSON.parse(payloadOf(line))).toEqual([
-      { 物品: '短剑', 数量: 1 },
-      { 物品: '斗篷', 数量: 1 },
-      { 物品: '银币', 数量: 3 },
+      { id: 'id_1', ['物品']: '短剑', ['数量']: 1 },
+      { id: 'id_2', ['物品']: '斗篷', ['数量']: 1 },
+      { id: 'id_3', ['物品']: '银币', ['数量']: 3 },
     ])
     expect(line, '不许出现字段 code').not.toContain('2.4.1')
     expect(line, '不许出现自身值槽').not.toContain('2.4.0')
@@ -116,10 +117,11 @@ describe('数组 · 状态段（§五）', () => {
     const line = arrayLine(stateLines(prompt))
     expect(JSON.parse(payloadOf(line))).toEqual([
       {
-        物品: '短剑',
-        属性: {
-          品质: '普通',
-          附魔: [{ 名称: '锋锐', 强度: 2 }],
+        id: 'id_1',
+        ['物品']: '短剑',
+        ['属性']: {
+          ['品质']: '普通',
+          ['附魔']: [{ id: 'id_1', ['名称']: '锋锐', ['强度']: 2 }],
         },
       },
     ])

@@ -34,9 +34,9 @@ describe('数组字段 · write_state 整列写（增补 §五）', () => {
     const next = await write({ card, node, tree, path: '2.4.1', value: ['长弓', '火把', '盾'] })
 
     expect(next['2.4']).toEqual([
-      { '2.4.1': '长弓', '2.4.2': 1 },
-      { '2.4.1': '火把', '2.4.2': 1 },
-      { '2.4.1': '盾', '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': '长弓', '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': '火把', '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': '盾', '2.4.2': 3 },
     ])
     expect(next['2.4']).toHaveLength(3)
     expect(tree['2.4'], '入参 tree 一个字都不许改').toEqual(holdItems())
@@ -51,9 +51,9 @@ describe('数组字段 · write_state 整列写（增补 §五）', () => {
     const next = await write({ card, node, tree, path: '2.4.1', value: ['长弓', '火把', '盾'] })
 
     expect(next['2.4']).toEqual([
-      { '2.4.1': '长弓', '2.4.2': 1 },
-      { '2.4.1': '火把', '2.4.2': 1 },
-      { '2.4.1': '盾', '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': '长弓', '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': '火把', '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': '盾', '2.4.2': 3 },
     ])
     expect(next['2.4']).toHaveLength(3)
     expect(tree['2.4'], '入参 tree 一个字都不许改').toEqual(holdItems())
@@ -159,8 +159,10 @@ describe('数组字段 · write_state 整列写（增补 §五）', () => {
       { '2.4.1': '长弓', '2.4.2': 7 },
       { '2.4.1': '火把', '2.4.2': 2 },
     ]
+    // 新 item 省略 id ⇒ 按旧数组最大 + 1 生成（旧数组是 id_1…id_3）
+    const expected = two.map((item, index) => ({ id: 'id_' + (4 + index), ...item }))
     const next = await write({ card, node, tree, path: '2.4', value: two })
-    expect(next['2.4']).toEqual(two)
+    expect(next['2.4']).toEqual(expected)
     const empty = await write({ card, node, tree, path: '2.4', value: [] })
     expect(empty['2.4']).toEqual([])
 
@@ -199,7 +201,7 @@ describe('数组字段 · write_state 整列写（增补 §五）', () => {
       node,
       tree,
       path: '2.4.2.2',
-      value: [[{ '2.4.2.2.1': '初火', '2.4.2.2.2': 3 }], []],
+      value: [[{ id: 'id_2', '2.4.2.2.1': '初火', '2.4.2.2.2': 3 }], []],
     })
     expect(arrayField['2.4'][0]['2.4.2']['2.4.2.2']).toHaveLength(1)
     expect(arrayField['2.4'][1]['2.4.2']['2.4.2.2']).toEqual([])
@@ -212,10 +214,10 @@ describe('数组字段 · write_state 整列写（增补 §五）', () => {
     const next = await write({ card, node, tree, path: '2.4.2.1', value: ['稀有', '普通'] })
     expect(next['2.4'][0]['2.4.2']['2.4.2.1']).toBe('稀有')
     expect(next['2.4'][1]['2.4.2']['2.4.2.1']).toBe('普通')
-    expect(next['2.4'][1]['2.4.2']['2.4.2.2']).toEqual([
-      { '2.4.2.2.1': '微光', '2.4.2.2.2': 1 },
-      { '2.4.2.2.1': '回响', '2.4.2.2.2': 9 },
-    ])
+    expect(
+      next['2.4'][1]['2.4.2']['2.4.2.2'].map((item) => item.id),
+      '整列写不动嵌套 item 的 id',
+    ).toEqual(['id_1', 'id_2'])
     expect(tree['2.4']).toEqual(twoOuterNestedItems())
   })
 
@@ -230,11 +232,15 @@ describe('数组字段 · write_state 整列写（增补 §五）', () => {
       path: '2.4.2.2.1',
       value: [['锋利'], ['微光', '余响']],
     })
-    expect(next['2.4'][0]['2.4.2']['2.4.2.2']).toEqual([{ '2.4.2.2.1': '锋利', '2.4.2.2.2': 2 }])
-    expect(next['2.4'][1]['2.4.2']['2.4.2.2']).toEqual([
-      { '2.4.2.2.1': '微光', '2.4.2.2.2': 1 },
-      { '2.4.2.2.1': '余响', '2.4.2.2.2': 9 },
-    ])
+    expect(
+      next['2.4'][0]['2.4.2']['2.4.2.2'].map((item) => item.id),
+      '替换后的嵌套 item 各自带 id',
+    ).toEqual(['id_1'])
+    expect(new Set(next['2.4'][1]['2.4.2']['2.4.2.2'].map((item) => item.id)).size, '同一层内 id 唯一').toBe(
+      2,
+    )
+    for (const item of next['2.4'][1]['2.4.2']['2.4.2.2'])
+      expect(item.id, '每项都要有 id').toMatch(/^id_\d+$/)
     expect(next['2.4']).toHaveLength(2)
   })
 
@@ -269,8 +275,8 @@ describe('数组字段 · write_state 整列写（增补 §五）', () => {
       path: '2.4.2.2',
       value: [
         [
-          { '2.4.2.2.1': '初火', '2.4.2.2.2': 3 },
-          { '2.4.2.2.1': '余烬', '2.4.2.2.2': 4 },
+          { id: 'id_2', '2.4.2.2.1': '初火', '2.4.2.2.2': 3 },
+          { id: 'id_3', '2.4.2.2.1': '余烬', '2.4.2.2.2': 4 },
         ],
         [],
       ],

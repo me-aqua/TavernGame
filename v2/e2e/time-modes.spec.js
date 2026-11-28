@@ -102,7 +102,7 @@ test.describe('B5 时间元素表单', () => {
 })
 
 test.describe('B6 时间类型只属于时间元素', () => {
-  test('非时间元素的类型行没有「时间」：恰好四档、页面不崩', async ({ page }) => {
+  test('非时间元素的类型行没有「时间」：五档、页面不崩', async ({ page }) => {
     const pageErrors = []
     page.on('pageerror', (error) => pageErrors.push(error.message))
     await boot(page, { storage: seeded() })
@@ -114,7 +114,13 @@ test.describe('B6 时间类型只属于时间元素', () => {
     const types = await typeRow(page)
       .locator('option')
       .evaluateAll((options) => options.map((option) => option.value))
-    expect(types, '非时间行的类型下拉恰好四档').toEqual(['text', 'integer', 'enum', 'array'])
+    expect(types, '非时间行的类型下拉五档（作者四档 + 引用）').toEqual([
+      'text',
+      'integer',
+      'enum',
+      'array',
+      'ref',
+    ])
     expect(types, '时间只住在根 0（它的行是模式选择器），非时间行不许出现 time').not.toContain('time')
 
     // 页面不崩：编辑器还在、没有未捕获异常

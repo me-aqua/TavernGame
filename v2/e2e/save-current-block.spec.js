@@ -22,10 +22,10 @@ const row = (code) => `[data-state-item="${code}"]`
 /** 三个「当前值」钩子：非根选中时应当一个都不出现 */
 const CURRENT = '[data-current-value], [data-current-array], [data-current-tree]'
 
-/** `save.tree` 的当前值：与 `holdCard()` 的初值（旅人 / 80 / 正常 / 短剑…）故意不同 */
+/** `save.tree` 的当前值：与 `holdCard()` 的初值（旅人 / 80 / 正常 / 短剑…）故意不同（item 自带隐藏 id） */
 const CURRENT_ITEMS = [
-  { '2.4.1': 'CUR_SWORD_ONLY', '2.4.2': 7 },
-  { '2.4.1': 'CUR_COIN_ONLY', '2.4.2': 3 },
+  { id: 'id_1', '2.4.1': 'CUR_SWORD_ONLY', '2.4.2': 7 },
+  { id: 'id_2', '2.4.1': 'CUR_COIN_ONLY', '2.4.2': 3 },
 ]
 
 function seeded() {

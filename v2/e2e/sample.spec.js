@@ -23,9 +23,31 @@ import { APP_PATH, boot, KEYS, readStorage, route } from './support/app.js'
 /** 内置样例的事实（来自 `v2/src/data/sample-card.json`；文案与结构都在这儿对一遍） */
 const SAMPLE = {
   name: '晨风镇',
-  // v5 §7.1 + 阶段 3：时间 / 世界（1.1 区域 + 1.1.1 地点 / 1.2 天气 / 1.3 氛围）/
-  // 玩家（2.1–2.3 + 2.4 背包数组：2.4.1 物品 / 2.4.2 数量）
-  stateCodes: ['0', '1', '1.1', '1.1.1', '1.2', '1.3', '2', '2.1', '2.2', '2.3', '2.4', '2.4.1', '2.4.2'],
+  // v5 §7.1 + 阶段 3 / 4：时间 / 世界（1.1 区域 + 1.1.1 地点 / 1.2 天气 / 1.3 氛围 / 1.4 增益定义）/
+  // 玩家（2.1–2.3 + 2.4 背包数组 + 2.5 主手引用 + 2.6 当前增益）
+  stateCodes: [
+    '0',
+    '1',
+    '1.1',
+    '1.1.1',
+    '1.2',
+    '1.3',
+    '1.4',
+    '1.4.1',
+    '1.4.2',
+    '2',
+    '2.1',
+    '2.2',
+    '2.3',
+    '2.4',
+    '2.4.1',
+    '2.4.2',
+    '2.4.3',
+    '2.5',
+    '2.6',
+    '2.6.1',
+    '2.6.2',
+  ],
   nodeIds: ['time', 'check', 'output'],
 }
 
@@ -93,10 +115,11 @@ test('首次打开就有「晨风镇」：结构完整、卡里没有 presetId',
   expect(stateOf('2.4')).not.toHaveProperty('initial')
   expect(stateOf('2.4.1')).toMatchObject({ type: 'text', name: '物品' })
   expect(stateOf('2.4.2')).toMatchObject({ type: 'integer', name: '数量', min: 0, max: 999 })
+  expect(stateOf('2.4.3')).toMatchObject({ type: 'enum', name: '可手持', values: ['是', '否'] })
   expect(stateOf('2').initial['2.4']).toEqual([
-    { '2.4.1': '短剑', '2.4.2': 1 },
-    { '2.4.1': '斗篷', '2.4.2': 1 },
-    { '2.4.1': '银币', '2.4.2': 3 },
+    { id: 'id_1', '2.4.1': '短剑', '2.4.2': 1, '2.4.3': '是' },
+    { id: 'id_2', '2.4.1': '斗篷', '2.4.2': 1, '2.4.3': '是' },
+    { id: 'id_3', '2.4.1': '银币', '2.4.2': 3, '2.4.3': '否' },
   ])
   // 人物（字典）与线索不在 2.1 里：不许换个 code 偷偷留着
   expect(cards[0].state.map((element) => element.name)).not.toEqual(expect.arrayContaining(['人物', '线索']))

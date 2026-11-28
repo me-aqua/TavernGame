@@ -39,6 +39,7 @@ import {
   integerValueFits,
   fieldWriteCoveredBy,
   isFieldRef,
+  valueFits,
   isRecord,
   isTimeValue,
   normalizeWriteValue,
@@ -47,6 +48,12 @@ import {
   type WriteValueProblem,
   refElementOf,
   refPathsOf,
+  refTreeIssues,
+  refValueIssues,
+  assignIdsDeep,
+  withItemIds,
+  itemIdsOf,
+  isItemId,
   unitsOfMode,
 } from './statetree'
 import { advanceTimeArgsOf, writeStateArgsOf } from './tool-definitions'
@@ -159,8 +166,18 @@ export function applyWrite({
       detail: { nodeId: node.id, path },
     })
   }
+  const coveredRefs = node.writable.flatMap((ref) => refPathsOf(card.state, ref))
+  /** 写源数组容器 ⇒ 自动获得直接引用者的**自身值**写权限（字段写不传播、反向不传播） */
+  const derived = new Set<string>()
+  for (const element of card.state) {
+    if (element.type !== 'ref' || element.refSource === undefined) continue
+    if (!coveredRefs.includes(element.refSource)) continue
+    const [ownPath] = pathsOf(card.state, element.code)
+    if (ownPath !== undefined) derived.add(ownPath)
+  }
   const covered =
-    node.writable.flatMap((ref) => refPathsOf(card.state, ref)).includes(path) ||
+    derived.has(path) ||
+    coveredRefs.includes(path) ||
     // 字段写：逐字引用，或者它的**数组容器**祖先（容器写 ⊇ 字段写；字段引用不授权整表）
     (field !== undefined && fieldWriteCoveredBy(card.state, node.writable, path))
   if (!covered) {
@@ -180,6 +197,19 @@ export function applyWrite({
       detail: { path },
     })
   }
+  // ref 自身值为 null 时，关系子元素不生效：写它之前必须先有目标
+  for (const ref of card.state) {
+    if (ref.type !== 'ref') continue
+    if (!path.startsWith(`${ref.code}.`) || path === `${ref.code}.0`) continue
+    const ownPath = childrenOf(card.state, ref.code).length > 0 ? `${ref.code}.0` : ref.code
+    if ((tree[ownPath] ?? null) === null) {
+      throw new AppError('E_VALIDATION', {
+        message: t('error.writeRefChildEmpty', { code: ref.code }),
+        nextStep: t('next.editor'),
+        detail: { code: ref.code, path },
+      })
+    }
+  }
   /** 值 / 范围不合就报这一条（中文，带上路径与类型，方便排障） */
   const reject = () =>
     new AppError('E_VALIDATION', {
@@ -198,7 +228,7 @@ export function applyWrite({
             : t('error.writeValueAmbiguous', {
                 path,
                 name: problem.name,
-                fields: problem.fields.join('、'),
+                fields: problem.fields.join(t('prompt.enumSeparator')),
               }),
       nextStep: t('next.editor'),
       detail: { path, ...problem },
@@ -223,7 +253,16 @@ export function applyWrite({
         ? undefined
         : patchFieldLayer(card.state, arrayCode, tree[arrayCode], path, incoming)
     if (patched === undefined) throw reject()
-    return { ...tree, [arrayCode]: patched as Tree[string] }
+    const nextTree = { ...tree, [arrayCode]: patched as Tree[string] }
+    const [refIssue] = refTreeIssues(card, nextTree)
+    if (refIssue !== undefined) {
+      throw new AppError('E_VALIDATION', {
+        message: refIssue.message,
+        nextStep: t('next.editor'),
+        detail: { code: refIssue.code, path: refIssue.path },
+      })
+    }
+    return nextTree
   }
   // 值的类型与范围由元素决定；数字 / 下拉的规矩与卡校验同一份（`statetree`），这里不重写
   if (element.type === 'text') {
@@ -238,12 +277,61 @@ export function applyWrite({
     if (!integerValueFits(element, numeric) || !integerStepFits(element, numeric, tree[path])) throw reject()
     value = numeric
   } else if (element.type === 'array') {
-    // 数组整表替换：先把提示词里的中文名 / 自身归一化成 code，再按字段定义严格收
+    // 数组整表替换：先归一中文字段名，再补 / 保留隐藏 id（新 item 由机器生成）
     const incoming = normalize(value)
-    if (incoming === undefined || !arrayValueFits(card.state, path, incoming)) throw reject()
-    value = incoming
+    if (incoming === undefined || !Array.isArray(incoming)) throw reject()
+    const oldIds = new Set(itemIdsOf(tree[path]))
+    for (const item of incoming) {
+      if (isRecord(item) && 'id' in item && !isItemId(item.id)) {
+        throw new AppError('E_VALIDATION', {
+          message: t('error.writeValueUnknown', { path, key: String(item.id) }),
+          nextStep: t('next.editor'),
+          detail: { path, id: item.id },
+        })
+      }
+    }
+    const supplied = itemIdsOf(incoming)
+    if (new Set(supplied).size !== supplied.length) {
+      throw new AppError('E_VALIDATION', {
+        message: t('error.writeValueDuplicate', { path, field: 'id' }),
+        nextStep: t('next.editor'),
+        detail: { path, field: 'id' },
+      })
+    }
+    for (const id of supplied) {
+      if (!oldIds.has(id)) {
+        throw new AppError('E_VALIDATION', {
+          message: t('error.writeValueUnknown', { path, key: id }),
+          nextStep: t('next.editor'),
+          detail: { path, id },
+        })
+      }
+    }
+    const withIds = assignIdsDeep(card.state, element, withItemIds(incoming, [...oldIds]), tree[path])
+    if (!arrayValueFits(card.state, path, withIds)) throw reject()
+    value = withIds
+  } else if (element.type === 'ref') {
+    const sourceItems = element.refSource === undefined ? undefined : tree[element.refSource]
+    const [refIssue] = refValueIssues(card.state, element, value, sourceItems)
+    if (refIssue !== undefined) {
+      throw new AppError('E_VALIDATION', {
+        message: refIssue,
+        nextStep: t('next.editor'),
+        detail: { path, code: element.code },
+      })
+    }
+    if (!valueFits(card.state, element, value)) throw reject()
   }
-  return { ...tree, [path]: value as Tree[string] }
+  const nextTree = { ...tree, [path]: value as Tree[string] }
+  const [refIssue] = refTreeIssues(card, nextTree)
+  if (refIssue !== undefined) {
+    throw new AppError('E_VALIDATION', {
+      message: refIssue.message,
+      nextStep: t('next.editor'),
+      detail: { code: refIssue.code, path: refIssue.path },
+    })
+  }
+  return nextTree
 }
 
 /**
@@ -287,8 +375,10 @@ function patchFieldInItem(
   const nextCode = `${container}.${ref.slice(container.length + 1).split('.')[0]}`
   const next = { ...item } as ItemObject
   if (nextCode === ref) {
-    if (!fieldValueFits(state, elementAt(state, ref), incoming)) return undefined
-    next[ref] = incoming as ItemValue
+    const field = elementAt(state, ref)
+    const fixed = assignIdsDeep(state, field, incoming, item[ref])
+    if (!fieldValueFits(state, field, fixed)) return undefined
+    next[ref] = fixed as ItemValue
     return next
   }
   const field = elementAt(state, nextCode)

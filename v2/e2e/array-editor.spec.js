@@ -91,7 +91,7 @@ test('加一项：默认值（物品空串 / 数量 0），保存后初始值多
   expect(await save(page)).toBe(0)
   const items = await storedItems(page)
   expect(items).toHaveLength(4)
-  expect(items[3]).toEqual({ '2.4.1': '', '2.4.2': 0 })
+  expect(items[3]).toEqual({ id: 'id_4', '2.4.1': '', '2.4.2': 0 })
 })
 
 test('删第一项：位置前移、索引重排成 1..n、保存后只剩原来的第 2 / 3 项', async ({ page }) => {
@@ -109,8 +109,8 @@ test('删第一项：位置前移、索引重排成 1..n、保存后只剩原来
 
   expect(await save(page)).toBe(0)
   expect(await storedItems(page)).toEqual([
-    { '2.4.1': '斗篷', '2.4.2': 1 },
-    { '2.4.1': '银币', '2.4.2': 3 },
+    { id: 'id_2', '2.4.1': '斗篷', '2.4.2': 1 },
+    { id: 'id_3', '2.4.1': '银币', '2.4.2': 3 },
   ])
 })
 
@@ -128,7 +128,7 @@ test('空数组：显示空态、能加一项、保存 []；刷新后仍是空�
   await page.locator(`${ARRAY} [data-array-add]`).click()
   await expect(page.locator(ITEMS)).toHaveCount(1)
   expect(await save(page)).toBe(0)
-  expect(await storedItems(page)).toEqual([{ '2.4.1': '', '2.4.2': 0 }])
+  expect(await storedItems(page)).toEqual([{ id: 'id_1', '2.4.1': '', '2.4.2': 0 }])
 
   await page.reload()
   await selectElement(page, '2')
@@ -144,9 +144,9 @@ test('编辑 item 字段：文本与整数都落到 initial["2.4"]', async ({ pa
 
   expect(await save(page)).toBe(0)
   const items = await storedItems(page)
-  expect(items[0]).toEqual({ '2.4.1': '长弓', '2.4.2': 7 })
-  expect(items[1]).toEqual({ '2.4.1': '斗篷', '2.4.2': 42 })
-  expect(items[2]).toEqual({ '2.4.1': '银币', '2.4.2': 3 })
+  expect(items[0]).toEqual({ id: 'id_1', '2.4.1': '长弓', '2.4.2': 7 })
+  expect(items[1]).toEqual({ id: 'id_2', '2.4.1': '斗篷', '2.4.2': 42 })
+  expect(items[2]).toEqual({ id: 'id_3', '2.4.1': '银币', '2.4.2': 3 })
 })
 
 test('加字段：2.4.3 默认值补进所有现存 item，保存后每项都有', async ({ page }) => {
@@ -164,7 +164,7 @@ test('加字段：2.4.3 默认值补进所有现存 item，保存后每项都有
   expect(await save(page)).toBe(0)
   const items = await storedItems(page)
   for (const item of items) expect(item['2.4.3']).toBe('')
-  expect(items[0]).toEqual({ '2.4.1': '短剑', '2.4.2': 1, '2.4.3': '' })
+  expect(items[0]).toEqual({ id: 'id_1', '2.4.1': '短剑', '2.4.2': 1, '2.4.3': '' })
 })
 
 test('删字段：删 2.4.1，item 的键重排（旧 2.4.2 变 2.4.1），保存后只剩数量', async ({ page }) => {
@@ -182,7 +182,11 @@ test('删字段：删 2.4.1，item 的键重排（旧 2.4.2 变 2.4.1），保�
   await expect(page.locator(`${itemAt(1)} [data-array-field="2.4.2"]`)).toHaveCount(0)
 
   expect(await save(page)).toBe(0)
-  expect(await storedItems(page)).toEqual([{ '2.4.1': 1 }, { '2.4.1': 1 }, { '2.4.1': 3 }])
+  expect(await storedItems(page)).toEqual([
+    { id: 'id_1', '2.4.1': 1 },
+    { id: 'id_2', '2.4.1': 1 },
+    { id: 'id_3', '2.4.1': 3 },
+  ])
 })
 
 test('类型下拉有「数组」；2.4 的当前类型是 array；标量字段也有加子元素', async ({ page }) => {
@@ -219,10 +223,11 @@ test('嵌套字段在初始值块里递归显示中文名，且能保存原值',
   const items = await storedItems(page)
   expect(items).toEqual([
     {
+      id: 'id_1',
       '2.4.1': '短剑',
       '2.4.2': {
         '2.4.2.1': '普通',
-        '2.4.2.2': [{ '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }],
+        '2.4.2.2': [{ id: 'id_1', '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }],
       },
     },
   ])

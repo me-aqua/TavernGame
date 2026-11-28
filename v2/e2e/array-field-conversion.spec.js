@@ -2,7 +2,7 @@
  * 本票 DOM 判据：**有字段的数组字段**（数组子树里）→ `text` / `integer` / `enum`。
  *
  * 口径见 `.team/test/2026-11-28/契约-数组字段转标量-类型下拉-撤销重做.md` §2：
- *   · 类型下拉给四档（`text` / `integer` / `enum` / `array`）；
+ *   · 类型下拉给五档（`text` / `integer` / `enum` / `array` / `ref`）；
  *   · 丢弃数 > 0 先弹 `[data-confirm]`，文案含丢弃数；取消 ⇒ 草稿不动、下拉回 `array`；
  *   · 确定 ⇒ 每个外层实例取第一个内层 item（字段值成孩子值、自己的默认值写 `<字段>.0`），其余丢弃；
  *   · 0 丢弃不弹确认；enum 的白名单从源元素保留；
@@ -50,24 +50,25 @@ function fieldArrayCard(over = {}) {
   }
   return withInitialValue(card, '2.4', [
     {
+      id: 'id_1',
       '2.4.1': '短剑',
       '2.4.2': 1,
       '2.4.3': [
-        { '2.4.3.1': '锋利', '2.4.3.2': 3 },
-        { '2.4.3.1': '旧词条', '2.4.3.2': 9 },
+        { id: 'id_1', '2.4.3.1': '锋利', '2.4.3.2': 3 },
+        { id: 'id_2', '2.4.3.1': '旧词条', '2.4.3.2': 9 },
       ],
     },
-    { '2.4.1': '斗篷', '2.4.2': 1, '2.4.3': [{ '2.4.3.1': '轻柔', '2.4.3.2': 4 }] },
-    { '2.4.1': '银币', '2.4.2': 3, '2.4.3': [] },
+    { id: 'id_2', '2.4.1': '斗篷', '2.4.2': 1, '2.4.3': [{ id: 'id_1', '2.4.3.1': '轻柔', '2.4.3.2': 4 }] },
+    { id: 'id_3', '2.4.1': '银币', '2.4.2': 3, '2.4.3': [] },
   ])
 }
 
 /** 每项内层数组都 ≤ 1：丢弃数为 0（不该弹确认） */
 function oneInnerEachCard(over = {}) {
   const card = withInitialValue(fieldArrayCard(), '2.4', [
-    { '2.4.1': '短剑', '2.4.2': 1, '2.4.3': [{ '2.4.3.1': '锋利', '2.4.3.2': 3 }] },
-    { '2.4.1': '斗篷', '2.4.2': 1, '2.4.3': [] },
-    { '2.4.1': '银币', '2.4.2': 3, '2.4.3': [{ '2.4.3.1': '微光', '2.4.3.2': 2 }] },
+    { id: 'id_1', '2.4.1': '短剑', '2.4.2': 1, '2.4.3': [{ id: 'id_1', '2.4.3.1': '锋利', '2.4.3.2': 3 }] },
+    { id: 'id_2', '2.4.1': '斗篷', '2.4.2': 1, '2.4.3': [] },
+    { id: 'id_3', '2.4.1': '银币', '2.4.2': 3, '2.4.3': [{ id: 'id_1', '2.4.3.1': '微光', '2.4.3.2': 2 }] },
   ])
   return { ...card, ...over }
 }
@@ -107,13 +108,19 @@ async function stored(page, code) {
 }
 
 test.describe('有字段的数组字段 → text（§2）', () => {
-  test('四档下拉；>0 丢弃先确认（含数字）；取消不动；确定后每个外层实例取第一个内层 item', async ({
+  test('五档下拉；>0 丢弃先确认（含数字）；取消不动；确定后每个外层实例取第一个内层 item', async ({
     page,
   }) => {
     const card = fieldArrayCard({ id: 'c-field-scalar-text' })
     await openEditor(page, card)
 
-    expect(await typeValues(page), '有字段的数组字段也列四档').toEqual(['text', 'integer', 'enum', 'array'])
+    expect(await typeValues(page), '有字段的数组字段也列五档').toEqual([
+      'text',
+      'integer',
+      'enum',
+      'array',
+      'ref',
+    ])
 
     await page.locator(typeSelect).selectOption('text')
     await expect(page.locator('[data-confirm]'), '丢弃数 1 > 0 必须先确认').toBeVisible()

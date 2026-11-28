@@ -66,18 +66,20 @@ export function timeElement() {
 export function bagItems() {
   return [
     {
+      id: 'id_1',
       '2.2.1': 'SWORD',
       '2.2.2': 1,
       '2.2.3': { '2.2.3.0': 'NOTE_N0', '2.2.3.1': 'DETAIL_D0' },
       '2.2.4': { '2.2.4.1': 'TAG_COMMON' },
-      '2.2.5': [{ '2.2.5.1': 'WORD_FIRE' }],
+      '2.2.5': [{ id: 'id_1', '2.2.5.1': 'WORD_FIRE' }],
     },
     {
+      id: 'id_2',
       '2.2.1': 'SHIELD',
       '2.2.2': 2,
       '2.2.3': { '2.2.3.0': 'NOTE_N1', '2.2.3.1': 'DETAIL_D1' },
       '2.2.4': { '2.2.4.1': 'TAG_RARE' },
-      '2.2.5': [{ '2.2.5.1': 'WORD_ICE' }],
+      '2.2.5': [{ id: 'id_1', '2.2.5.1': 'WORD_ICE' }],
     },
   ]
 }
@@ -90,7 +92,7 @@ export function rootInitials() {
       '1.1.0': 'REGION_OWN',
       '1.1.1': 'SITE_X',
       1.2: 'WEATHER_SUN',
-      1.3: [{ '1.3.1': 'RING', '1.3.2': 2 }],
+      1.3: [{ id: 'id_1', '1.3.1': 'RING', '1.3.2': 2 }],
     },
     2: {
       '2.0': 'PLAYER_OWN',
@@ -98,14 +100,14 @@ export function rootInitials() {
       2.2: bagItems(),
       // object 没有自己的值：它的孩子就是扁平表里的孩子路径（不能嵌成 `2.3: {...}`）
       '2.3.1': 'QUALITY_RARE',
-      '2.3.2': [{ '2.3.2.1': 'ENCHANT_FIRE', '2.3.2.2': 9 }],
+      '2.3.2': [{ id: 'id_1', '2.3.2.1': 'ENCHANT_FIRE', '2.3.2.2': 9 }],
       '2.4.0': 'NOTE_OWN',
       '2.4.1': 'NOTE_DETAIL',
     },
     3: {
       3.1: 'LANG_ZH',
       3.2: 5,
-      3.3: [{ '3.3.1': 'LIST_X' }],
+      3.3: [{ id: 'id_1', '3.3.1': 'LIST_X' }],
       // object 里放一个「标量 + 孩子」：container 读整段时，它的孩子也要在（回归）
       '3.4.0': 'CONFIG_NOTE',
       '3.4.1': 'CONFIG_DETAIL',

@@ -146,7 +146,7 @@ describe('读投影 · 标量元素（含孩子）只覆盖自己', () => {
     const lines = await stateLinesOf(['1', '1.3.1'])
     expect(lines.map(codeOf), '父标量不吞子数组').toEqual(['1', '1.3'])
     expect(payloadOf(lines[0])).toBe('WORLD_OWN')
-    expect(payloadOf(lines[1]), '只选中字段 1.3.1').toEqual([{ item: 'RING' }])
+    expect(payloadOf(lines[1]), '只选中字段 1.3.1').toEqual([{ id: 'id_1', item: 'RING' }])
   })
 
   it('[R4] 读 enum 元素 1.1（有孩子）⇒ 只有自己，孩子 1.1.1 不出现', async () => {
@@ -222,8 +222,8 @@ describe('读投影 · object / array 容器仍整段（回归）', () => {
     expect(payloadOf(lines[0])).toEqual({
       lang: 'LANG_ZH',
       volume: 5,
-      list: [{ entry: 'LIST_X' }],
-      note: { 自身: 'CONFIG_NOTE', detail: 'CONFIG_DETAIL' },
+      list: [{ id: 'id_1', entry: 'LIST_X' }],
+      note: { ['自身']: 'CONFIG_NOTE', detail: 'CONFIG_DETAIL' },
     })
   })
 
@@ -236,7 +236,7 @@ describe('读投影 · object / array 容器仍整段（回归）', () => {
   it('[C3] 读 array 3.3 ⇒ 整份 item，不出现兄弟 3.1 / 3.2', async () => {
     const lines = await stateLinesOf(['3.3'])
     expect(lines.map(codeOf)).toEqual(['3.3'])
-    expect(payloadOf(lines[0])).toEqual([{ entry: 'LIST_X' }])
+    expect(payloadOf(lines[0])).toEqual([{ id: 'id_1', entry: 'LIST_X' }])
   })
 
   it('[C4] 读 array 2.2 ⇒ 每个 item 的字段全在（含标量字段自己的值 + 孩子）', async () => {
@@ -244,18 +244,20 @@ describe('读投影 · object / array 容器仍整段（回归）', () => {
     expect(lines.map(codeOf)).toEqual(['2.2'])
     expect(payloadOf(lines[0])).toEqual([
       {
+        id: 'id_1',
         item: 'SWORD',
         count: 1,
-        note: { 自身: 'NOTE_N0', detail: 'DETAIL_D0' },
+        note: { ['自身']: 'NOTE_N0', detail: 'DETAIL_D0' },
         tags: { kind: 'TAG_COMMON' },
-        entries: [{ word: 'WORD_FIRE' }],
+        entries: [{ id: 'id_1', word: 'WORD_FIRE' }],
       },
       {
+        id: 'id_2',
         item: 'SHIELD',
         count: 2,
-        note: { 自身: 'NOTE_N1', detail: 'DETAIL_D1' },
+        note: { ['自身']: 'NOTE_N1', detail: 'DETAIL_D1' },
         tags: { kind: 'TAG_RARE' },
-        entries: [{ word: 'WORD_ICE' }],
+        entries: [{ id: 'id_1', word: 'WORD_ICE' }],
       },
     ])
   })
@@ -270,21 +272,27 @@ describe('读投影 · object / array 容器仍整段（回归）', () => {
   it('[C6] 字段引用 2.2.1（叶子）⇒ 每个 item 只挑这一格', async () => {
     const lines = await stateLinesOf(['2.2.1'])
     expect(lines.map(codeOf)).toEqual(['2.2'])
-    expect(payloadOf(lines[0])).toEqual([{ item: 'SWORD' }, { item: 'SHIELD' }])
+    expect(payloadOf(lines[0])).toEqual([
+      { id: 'id_1', item: 'SWORD' },
+      { id: 'id_2', item: 'SHIELD' },
+    ])
   })
 
   it('[C7] 字段引用 2.2.4（object）⇒ 每个 item 只挑这一格，孩子整段', async () => {
     const lines = await stateLinesOf(['2.2.4'])
     expect(lines.map(codeOf)).toEqual(['2.2'])
-    expect(payloadOf(lines[0])).toEqual([{ tags: { kind: 'TAG_COMMON' } }, { tags: { kind: 'TAG_RARE' } }])
+    expect(payloadOf(lines[0])).toEqual([
+      { id: 'id_1', tags: { kind: 'TAG_COMMON' } },
+      { id: 'id_2', tags: { kind: 'TAG_RARE' } },
+    ])
   })
 
   it('[C8] 字段引用 2.2.5（array）⇒ 每个 item 只挑这一格，嵌套 item 整段', async () => {
     const lines = await stateLinesOf(['2.2.5'])
     expect(lines.map(codeOf)).toEqual(['2.2'])
     expect(payloadOf(lines[0])).toEqual([
-      { entries: [{ word: 'WORD_FIRE' }] },
-      { entries: [{ word: 'WORD_ICE' }] },
+      { id: 'id_1', entries: [{ id: 'id_1', word: 'WORD_FIRE' }] },
+      { id: 'id_2', entries: [{ id: 'id_1', word: 'WORD_ICE' }] },
     ])
   })
 
@@ -292,8 +300,8 @@ describe('读投影 · object / array 容器仍整段（回归）', () => {
     const lines = await stateLinesOf(['2.2.3.1'])
     expect(lines.map(codeOf)).toEqual(['2.2'])
     expect(payloadOf(lines[0])).toEqual([
-      { note: { detail: 'DETAIL_D0' } },
-      { note: { detail: 'DETAIL_D1' } },
+      { id: 'id_1', note: { detail: 'DETAIL_D0' } },
+      { id: 'id_2', note: { detail: 'DETAIL_D1' } },
     ])
   })
 })
@@ -306,7 +314,10 @@ describe('读投影 · 数组 item 字段', () => {
   it('[F1] 字段引用 2.2.3（标量 + 孩子）⇒ 每个 item 只有自己的值', async () => {
     const lines = await stateLinesOf(['2.2.3'])
     expect(lines.map(codeOf)).toEqual(['2.2'])
-    expect(payloadOf(lines[0])).toEqual([{ note: 'NOTE_N0' }, { note: 'NOTE_N1' }])
+    expect(payloadOf(lines[0])).toEqual([
+      { id: 'id_1', note: 'NOTE_N0' },
+      { id: 'id_2', note: 'NOTE_N1' },
+    ])
     expect(JSON.stringify(payloadOf(lines[0]))).not.toContain('DETAIL_D0')
   })
 
@@ -314,8 +325,8 @@ describe('读投影 · 数组 item 字段', () => {
     const lines = await stateLinesOf(['2.2.3', '2.2.3.1'])
     expect(lines.map(codeOf)).toEqual(['2.2'])
     expect(payloadOf(lines[0])).toEqual([
-      { note: { 自身: 'NOTE_N0', detail: 'DETAIL_D0' } },
-      { note: { 自身: 'NOTE_N1', detail: 'DETAIL_D1' } },
+      { id: 'id_1', note: { ['自身']: 'NOTE_N0', detail: 'DETAIL_D0' } },
+      { id: 'id_2', note: { ['自身']: 'NOTE_N1', detail: 'DETAIL_D1' } },
     ])
   })
 })
@@ -399,12 +410,12 @@ describe('写授权 · object 容器覆盖全部孩子（含数组字段）', ()
 
   it('[A7] `writable: [3]` + 写子数组 3.3（整表）⇒ 收', async () => {
     const next = await writeOf(['3'], '3.3', [{ '3.3.1': 'Y' }])
-    expect(next['3.3']).toEqual([{ '3.3.1': 'Y' }])
+    expect(next['3.3'].map((item) => item['3.3.1'])).toEqual(['Y'])
   })
 
   it('[A8] `writable: [3]` + 写子数组的字段 3.3.1 ⇒ 收（object 覆盖整棵子树）', async () => {
     const next = await writeOf(['3'], '3.3.1', ['Y'])
-    expect(next['3.3']).toEqual([{ '3.3.1': 'Y' }])
+    expect(next['3.3'].map((item) => item['3.3.1'])).toEqual(['Y'])
   })
 })
 

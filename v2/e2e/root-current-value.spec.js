@@ -17,11 +17,11 @@ const CARD_ID = 'c-root-current-block'
 
 const row = (code) => `[data-state-item="${code}"]`
 
-/** 数组根的当前值 / 初值故意不同：值断言能证明读的是 `save.tree` */
-const INIT_ITEMS = [{ 3.1: 'INIT_ITEM', 3.2: 1 }]
+/** 数组根的当前值 / 初值故意不同：值断言能证明读的是 `save.tree`（item 自带隐藏 id） */
+const INIT_ITEMS = [{ id: 'id_1', 3.1: 'INIT_ITEM', 3.2: 1 }]
 const CURRENT_ITEMS = [
-  { 3.1: 'CUR_SWORD', 3.2: 5 },
-  { 3.1: 'CUR_COIN', 3.2: 9 },
+  { id: 'id_1', 3.1: 'CUR_SWORD', 3.2: 5 },
+  { id: 'id_2', 3.1: 'CUR_COIN', 3.2: 9 },
 ]
 
 /**

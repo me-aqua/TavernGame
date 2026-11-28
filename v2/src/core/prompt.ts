@@ -18,7 +18,7 @@
  * 没有写权限也要说清楚）。
  * 眼睛语义一句话：`reads` 里有它就读，没有就一个字符都不出现；`writable` 只进 `<可写状态>`。
  */
-import type { Card, ChainNode, Save, SaveEvent, TimeMode, TimeValue, Tree } from './types'
+import type { Card, ChainNode, ItemObject, Save, SaveEvent, TimeMode, TimeValue, Tree } from './types'
 import { OPENING_PROMPT_ID } from './schema'
 import {
   childrenOf,
@@ -33,6 +33,9 @@ import {
   refElementOf,
   refPathsOf,
   arrayRootOf,
+  isRecord,
+  refBoundsOf,
+  refValueOf,
 } from './statetree'
 import { holidaysOf } from './holidays'
 import { t } from '../i18n'
@@ -46,6 +49,53 @@ interface BuildPromptArgs {
   outputs: Record<string, string>
 }
 
+/** 一份「引用已经解析成投影」的树副本：状态段按它投影（源 item 改了，引用自然看到新值） */
+function resolveRefTree(card: Card, tree: Tree): Tree {
+  const out: Tree = { ...tree }
+  for (const element of card.state) {
+    if (element.type === 'ref') {
+      const [path] = pathsOf(card.state, element.code)
+      if (path === undefined) continue
+      const sourceItems = element.refSource === undefined ? undefined : tree[element.refSource]
+      out[path] = refValueOf(card.state, element, tree[path], sourceItems) as Tree[string]
+    }
+    if (element.type === 'array' && Array.isArray(tree[element.code])) {
+      out[element.code] = (tree[element.code] as unknown[]).map((item) =>
+        isRecord(item) ? resolveRefItem(card, element.code, item, tree) : item,
+      ) as Tree[string]
+    }
+  }
+  return out
+}
+
+/** 一个数组 item 里的引用字段（含嵌套数组 / 对象字段）递归解析成投影对象 */
+function resolveRefItem(
+  card: Card,
+  container: string,
+  item: Record<string, unknown>,
+  tree: Tree,
+): ItemObject {
+  const out: ItemObject = { ...(item as ItemObject) }
+  for (const field of childrenOf(card.state, container)) {
+    if (!(field.code in out)) continue
+    const value = out[field.code]
+    if (field.type === 'ref') {
+      const sourceItems = field.refSource === undefined ? undefined : tree[field.refSource]
+      out[field.code] = refValueOf(card.state, field, value, sourceItems) as ItemObject[string]
+      continue
+    }
+    if (field.type === 'array' && Array.isArray(value)) {
+      out[field.code] = value.map((nested) =>
+        isRecord(nested) ? resolveRefItem(card, field.code, nested, tree) : nested,
+      ) as ItemObject[string]
+      continue
+    }
+    if (field.type === 'object' && isRecord(value)) {
+      out[field.code] = resolveRefItem(card, field.code, value, tree) as ItemObject[string]
+    }
+  }
+  return out
+}
 /**
  * 一个字段在这份**选择**里要投影到什么程度（读权限可以只开某个字段引用）：
  *   · `full` —— 整格都投影（容器读全 / 正好选中这个字段 / 选中了它的祖先）；
@@ -101,6 +151,7 @@ function projectField(
   full = true,
   fromSelection = false,
 ): unknown {
+  if (field.type === 'ref') return value
   if (field.type === 'array') return arrayOf(state, field.code, value, selected)
   if (field.type === 'object') return structOf(state, field.code, value, selected)
   const children = childrenOf(state, field.code)
@@ -144,7 +195,13 @@ function projectField(
 
 /** 一个数组值按中文名投影：每个 item 是一个结构体（`[]` 就是空数组；`selected` 只挑字段） */
 function arrayOf(state: Card['state'], code: string, value: unknown, selected?: string[]): unknown[] {
-  return Array.isArray(value) ? value.map((item) => structOf(state, code, item, selected)) : []
+  if (!Array.isArray(value)) return []
+  return value.map((item) => {
+    const projected = structOf(state, code, item, selected) as Record<string, unknown>
+    // 模型提示词里数组 item 带隐藏 id（整表写入时用来保留身份）；玩家 / 编辑器看不到
+    const id = isRecord(item) && typeof item.id === 'string' ? item.id : undefined
+    return id !== undefined ? { id, ...projected } : projected
+  })
 }
 
 /**
@@ -161,6 +218,16 @@ function subtreeOf(
   element: Card['state'][number],
   insideContainer = false,
 ): unknown {
+  if (element.type === 'ref') {
+    const children = childrenOf(state, element.code)
+    const ownPath = children.length > 0 ? `${element.code}.0` : element.code
+    const own = tree[ownPath] ?? null
+    if (children.length === 0 || own === null) return own
+    return {
+      [t('prompt.ownKey')]: own,
+      ...Object.fromEntries(children.map((child) => [child.name, subtreeOf(state, tree, child, true)])),
+    }
+  }
   if (element.type === 'array') return arrayOf(state, element.code, tree[element.code])
   const children = childrenOf(state, element.code)
   if (element.type === 'object') {
@@ -337,11 +404,12 @@ function stateLinesOf(card: Card, tree: Tree, reads: string[]): string[] {
  * 数组（`type: 'array'`）说清「整表替换 + 每项的字段」，字段用中文名、不出现 code。
  */
 function writeRuleOf(state: Card['state'], element: Card['state'][number]): string {
+  if (element.type === 'ref') return refWriteRuleOf(state, element)
   if (element.type === 'array') {
     return t('prompt.writableArray', { fields: arrayFieldRulesOf(state, element.code) })
   }
   if (element.type === 'enum') {
-    return t('prompt.writableEnum', { values: (element.values ?? []).join('、') })
+    return t('prompt.writableEnum', { values: (element.values ?? []).join(t('prompt.enumSeparator')) })
   }
   if (element.type === 'integer') {
     const { min, max, stepMin, stepMax } = integerRangeOf(element)
@@ -350,6 +418,22 @@ function writeRuleOf(state: Card['state'], element: Card['state'][number]): stri
   return t('prompt.writableText')
 }
 
+/** 引用在可写段里的说明：源数组 / 筛选 / 数量 / 可写 null（投影字段是只读视图） */
+function refWriteRuleOf(state: Card['state'], element: Card['state'][number]): string {
+  const source = element.refSource ?? ''
+  const sourceName = state.find((item) => item.code === source)?.name ?? source
+  const filter =
+    element.refFilter === undefined
+      ? ''
+      : t('prompt.refFilterPart', {
+          field: element.refFilter.field,
+          value: JSON.stringify(element.refFilter.value),
+        })
+  const { min, max } = refBoundsOf(element)
+  const target = max === 1 ? t('prompt.refSingleTarget') : t('prompt.refMultiTarget')
+  const range = max === 1 ? t('prompt.refSingleRange') : t('prompt.refMultiRange', { min, max })
+  return t('prompt.writableRef', { source, name: sourceName, target, filter, range })
+}
 /** 数组字段的清单文案：`物品 = 文本；数量 = 整数 0..999`（中文名打头，嵌套字段递归） */
 export function arrayFieldRulesOf(state: Card['state'], code: string): string {
   return childrenOf(state, code)
@@ -359,6 +443,7 @@ export function arrayFieldRulesOf(state: Card['state'], code: string): string {
 
 /** 一个数组字段的类型说明：标量给类型与范围，对象 / 数组字段把子字段套在括号里 */
 export function fieldRuleOf(state: Card['state'], field: Card['state'][number]): string {
+  if (field.type === 'ref') return refWriteRuleOf(state, field)
   if (field.type === 'object')
     return t('prompt.arrayObject', { fields: arrayFieldRulesOf(state, field.code) })
   if (field.type === 'array') return t('prompt.arrayNested', { fields: arrayFieldRulesOf(state, field.code) })
@@ -370,7 +455,7 @@ export function fieldRuleOf(state: Card['state'], field: Card['state'][number]):
     return t('prompt.writableIntegerShort', { min, max })
   }
   if (field.type === 'enum') {
-    return t('prompt.writableEnumShort', { values: (field.values ?? []).join('、') })
+    return t('prompt.writableEnumShort', { values: (field.values ?? []).join(t('prompt.enumSeparator')) })
   }
   return t('prompt.writableTextShort')
 }
@@ -444,7 +529,7 @@ export function buildPrompt({ card, save, node, action, outputs }: BuildPromptAr
   }
 
   // 状态段：读到的每个引用一行；**正文逐字接在格式后面**（不经过插值，JSON 里的花括号不会被吃掉）
-  const stateLines = stateLinesOf(card, save.tree, node.reads)
+  const stateLines = stateLinesOf(card, resolveRefTree(card, save.tree), node.reads)
   if (stateLines.length > 0) blocks.push(`<${t('prompt.stateBlock')}>\n${stateLines.join('\n')}`)
 
   // 可写状态段：`writable` 按 `pathsOf` 展开；**输出节点整段不出现**（它什么也不写，

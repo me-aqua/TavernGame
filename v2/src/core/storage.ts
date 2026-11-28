@@ -13,6 +13,7 @@
 import { t } from '../i18n'
 import { AppError } from './errors'
 import { validateCard, validateSave } from './schema'
+import { migrateCard, migrateSave } from './item-migration'
 import type { Card, NodeModels, Preset, Save, Settings } from './types'
 
 export const STORAGE_KEYS = {
@@ -147,7 +148,7 @@ export function createStorage(backend: StorageBackend = browserBackend()): Stora
   return {
     // 读全部卡；逐张过结构校验，坏一张就抛（不静默丢）
     loadCards() {
-      const cards = parseArray(STORAGE_KEYS.cards) as Card[]
+      const cards = (parseArray(STORAGE_KEYS.cards) as Card[]).map(migrateCard)
       for (const card of cards) validateCard(card)
       return cards
     },
@@ -155,8 +156,9 @@ export function createStorage(backend: StorageBackend = browserBackend()): Stora
     loadCardEntries(): CardEntry[] {
       return parseArray(STORAGE_KEYS.cards).map((raw) => {
         try {
-          validateCard(raw as Card)
-          return { raw, card: raw as Card }
+          const card = migrateCard(raw as Card)
+          validateCard(card)
+          return { raw: card, card }
         } catch (cause) {
           return entryError(raw, cause)
         }
@@ -171,8 +173,9 @@ export function createStorage(backend: StorageBackend = browserBackend()): Stora
           nextStep: t('next.home'),
         })
       }
-      validateCard(target as Card)
-      return target as Card
+      const card = migrateCard(target as Card)
+      validateCard(card)
+      return card
     },
     saveCards(cards) {
       write(STORAGE_KEYS.cards, cards)
@@ -183,7 +186,7 @@ export function createStorage(backend: StorageBackend = browserBackend()): Stora
     },
     // 读全部存档；逐份过结构校验
     loadSaves() {
-      const saves = parseArray(STORAGE_KEYS.saves) as Save[]
+      const saves = (parseArray(STORAGE_KEYS.saves) as Save[]).map(migrateSave)
       for (const save of saves) validateSave(save)
       return saves
     },
@@ -192,15 +195,16 @@ export function createStorage(backend: StorageBackend = browserBackend()): Stora
     loadSaveEntries(): SaveEntry[] {
       return parseArray(STORAGE_KEYS.saves).map((raw) => {
         try {
-          validateSave(raw as Save)
-          if (snapshotNameOf(raw) === undefined) {
+          const save = migrateSave(raw as Save)
+          validateSave(save)
+          if (snapshotNameOf(save) === undefined) {
             throw new AppError('E_VALIDATION', {
               message: t('error.snapshotMissing'),
               nextStep: t('next.home'),
             })
           }
-          validateCard((raw as { cardSnapshot: Card }).cardSnapshot)
-          return { raw, save: raw as Save }
+          validateCard(save.cardSnapshot)
+          return { raw: save, save }
         } catch (cause) {
           return entryError(raw, cause)
         }
@@ -215,8 +219,9 @@ export function createStorage(backend: StorageBackend = browserBackend()): Stora
           nextStep: t('next.home'),
         })
       }
-      validateSave(target as Save)
-      return target as Save
+      const save = migrateSave(target as Save)
+      validateSave(save)
+      return save
     },
     saveSaves(saves) {
       write(STORAGE_KEYS.saves, saves)

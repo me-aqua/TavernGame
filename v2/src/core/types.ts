@@ -47,27 +47,29 @@ export interface Holidays {
   traditional: boolean
 }
 
-export type StateType = 'time' | 'text' | 'integer' | 'enum' | 'object' | 'array'
+export type StateType = 'time' | 'text' | 'integer' | 'enum' | 'object' | 'array' | 'ref'
 
 /** 一个状态元素自己的标量值；结构体（`object`）与数组（`array`）没有这一格 */
-export type StateValue = string | number | TimeValue
+export type StateValue = string | number | TimeValue | null
 
 /**
  * 数组 item 里一个字段的值：标量 / 嵌套对象 / 嵌套数组。
  * 键是字段的完整 code（`2.4.1`），不是中文名、不是下标（CONTRACT §2.6）。
  */
-export type ItemValue = string | number | ItemObject | ItemValue[]
+export type ItemValue = string | number | ItemObject | ItemValue[] | null
 
 /** 数组的一个 item：以字段完整 code 为键的普通对象（同构，没有隐藏 id） */
 export interface ItemObject {
-  [fieldCode: string]: ItemValue
+  /** 数组 item 的隐藏 id（id_1…；只在含引用的卡里出现） */
+  id?: string
+  [fieldCode: string]: ItemValue | undefined
 }
 
 /** 数组元素的值：item 结构体列表；空数组 `[]` 合法 */
 export type ArrayValue = ItemObject[]
 
 /** 树里的一条值：标量 / 时间 / 数组 / item 对象（后者只出现在数组值内部） */
-export type TreeValue = StateValue | ArrayValue | ItemObject
+export type TreeValue = StateValue | ArrayValue | ItemObject | null
 
 /**
  * 根元素的 `initial`：**整棵子树的扁平值表**（键是完整 code，与存档 `tree` 同一套口径）。
@@ -103,6 +105,12 @@ export interface StateElement {
   holidays?: Holidays
   /** 根元素：整棵子树的初始值（时间根就是时间值本身）；子元素不许有这一格 */
   initial?: StateValue | InitialTable
+  /** 仅 ref：引用源（必须是数组元素的 code） */
+  refSource?: string
+  /** 仅 ref：投影字段（源 item 的直接子字段 code，至少一个） */
+  refFields?: string[]
+  /** 仅 ref：可选单字段等值筛选 */
+  refFilter?: { field: string; value: string | number }
 }
 
 export type NodeType = 'time' | 'normal' | 'output'

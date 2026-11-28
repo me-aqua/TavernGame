@@ -93,14 +93,14 @@ async function stored(page, code) {
 }
 
 test.describe('数组行的类型下拉（增补 §四.1）', () => {
-  test('恰好 text / integer / enum / array；没有 object / time / 结构体', async ({ page }) => {
+  test('恰好 text / integer / enum / array / ref；没有 object / time / 结构体', async ({ page }) => {
     await openEditor(page, holdCard({ id: 'c-conv-options' }))
     const options = await typeOptions(page)
     expect(
       options.map((option) => option.value),
-      '数组行只有四档，顺序就是这四档',
-    ).toEqual(['text', 'integer', 'enum', 'array'])
-    expect(options.map((option) => option.text)).toEqual(['文字', '数字', '下拉', '数组'])
+      '数组行五档，顺序就是这五档',
+    ).toEqual(['text', 'integer', 'enum', 'array', 'ref'])
+    expect(options.map((option) => option.text)).toEqual(['文字', '数字', '下拉', '数组', '引用'])
     expect(options.map((option) => option.value)).not.toContain('object')
     expect(options.map((option) => option.value)).not.toContain('time')
     expect(options.map((option) => option.text)).not.toContain('结构体')
@@ -124,17 +124,18 @@ test.describe('数组行的类型下拉（增补 §四.1）', () => {
     }
   })
 
-  test('有字段的数组字段（item schema 里）也列四档（本票放开）', async ({ page }) => {
+  test('有字段的数组字段（item schema 里）也列五档（本票放开）', async ({ page }) => {
     await openEditor(page, nestedCard({ id: 'c-conv-field' }), '2.4.2.2')
     expect((await typeOptions(page)).map((option) => option.value)).toEqual([
       'text',
       'integer',
       'enum',
       'array',
+      'ref',
     ])
   })
 
-  test('没有字段的数组字段：四档；改回文字后每项取默认值、保存通过（往返契约 §6）', async ({ page }) => {
+  test('没有字段的数组字段：五档；改回文字后每项取默认值、保存通过（往返契约 §6）', async ({ page }) => {
     await openEditor(page, holdCard({ id: 'c-conv-field-roundtrip' }), '2.4.1')
 
     // text 字段 → array：这是 0 字段的数组字段（中间态是坏卡，只活在草稿里）。
@@ -143,8 +144,8 @@ test.describe('数组行的类型下拉（增补 §四.1）', () => {
     await expect(page.locator('[data-confirm]'), '0 项不弹确认').toHaveCount(0)
     expect(
       (await typeOptions(page)).map((option) => option.value),
-      '没有字段的数组字段也要能换回去（text / integer / enum / array）',
-    ).toEqual(['text', 'integer', 'enum', 'array'])
+      '没有字段的数组字段也要能换回去（text / integer / enum / array / ref）',
+    ).toEqual(['text', 'integer', 'enum', 'array', 'ref'])
 
     // 改回 text：每个外层 item 里的那一格回到空串；保存重新通过。
     await page.locator(typeSelect).selectOption('text')
@@ -159,9 +160,9 @@ test.describe('数组行的类型下拉（增补 §四.1）', () => {
       '不凭空造孩子',
     ).toBe(false)
     expect(table['2.4'], '每一项回到 text 默认值').toEqual([
-      { '2.4.1': '', '2.4.2': 1 },
-      { '2.4.1': '', '2.4.2': 1 },
-      { '2.4.1': '', '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': '', '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': '', '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': '', '2.4.2': 3 },
     ])
     expect(table).not.toHaveProperty('2.4.1')
   })
@@ -226,7 +227,7 @@ test.describe('数组 → 数字 / 下拉（增补 §四.2）', () => {
   test('数字：1 项不弹确认；own `.0` = 0；孩子取第 1 项', async ({ page }) => {
     const card = withTable(holdCard({ id: 'c-conv-int' }), {
       ...tableOf(holdCard()),
-      2.4: [{ '2.4.1': '长弓', '2.4.2': 7 }],
+      2.4: [{ id: 'id_1', '2.4.1': '长弓', '2.4.2': 7 }],
     })
     await openEditor(page, card)
     await page.locator(typeSelect).selectOption('integer', { timeout: 3_000 })
@@ -245,7 +246,7 @@ test.describe('数组 → 数字 / 下拉（增补 §四.2）', () => {
     const base = holdCard({ id: 'c-conv-enum' })
     const card = withTable(withElement(base, '2.4', { values: ['甲', '乙'] }), {
       ...tableOf(base),
-      2.4: [{ '2.4.1': '短剑', '2.4.2': 1 }],
+      2.4: [{ id: 'id_1', '2.4.1': '短剑', '2.4.2': 1 }],
     })
     await openEditor(page, card)
     await page.locator(typeSelect).selectOption('enum', { timeout: 3_000 })
@@ -377,7 +378,7 @@ test.describe('存档编辑器：类型锁死（结构冻结）', () => {
         2.1: '旅人',
         2.2: 80,
         2.3: '正常',
-        2.4: [{ '2.4.1': '短剑', '2.4.2': 1 }],
+        2.4: [{ id: 'id_1', '2.4.1': '短剑', '2.4.2': 1 }],
       },
       events: [],
       updatedAt: '2026-01-01T00:00:00.000Z',

@@ -26,6 +26,7 @@ import {
 import { integerRangeOf, valueFits } from './state-values'
 import { elementOfPath, pathsOf } from './state-data'
 import { isFieldRef } from './state-refs'
+import { isItemId, refDefinitionIssues, refValueIssues } from './state-ref-type'
 import { HOLIDAY_GROUPS } from './holidays'
 import { TIME_MODES, isTimeValue } from './timevalue'
 import type { Card, Holidays, StateElement, Tree } from './types'
@@ -116,7 +117,7 @@ function stateIssues(card: Card, checkInitial: boolean): CardIssue[] {
     if (codeDepth(element.code) > MAX_DEPTH) {
       add(element.code, element.code, t('issue.depth', { code: element.code, max: MAX_DEPTH }))
     }
-    if (!['time', 'text', 'integer', 'enum', 'object', 'array'].includes(element.type)) {
+    if (!['time', 'text', 'integer', 'enum', 'object', 'array', 'ref'].includes(element.type)) {
       add(element.code, element.code, t('issue.badType', { code: element.code, type: String(element.type) }))
     }
     const parent = parentOfCode(element.code)
@@ -165,6 +166,7 @@ function stateIssues(card: Card, checkInitial: boolean): CardIssue[] {
     // 数字 / 下拉的专属格子：上下限与白名单本身坏没坏（与初始值无关，永远判）
     if (element.type === 'integer') issues.push(...integerIssues(element))
     else if (element.type === 'enum') issues.push(...enumIssues(element))
+    else if (element.type === 'ref') issues.push(...refDefinitionIssues(state, element))
     if (element.type !== 'time') continue
     // 时间元素：模式、节日格子、时间值本身（存量）：三条各自独立，缺一条就说一条
     const mode = element.timeMode
@@ -185,9 +187,104 @@ function stateIssues(card: Card, checkInitial: boolean): CardIssue[] {
     }
   }
   if (checkInitial) issues.push(...initialIssues(card))
+  issues.push(...refTreeIssues(card, initialTreeOfLoose(card)))
   return issues
 }
 
+/** 初值树的容错版：坏卡（缺 initial / 坏 code）也能拿来做引用检查，不抛错 */
+function initialTreeOfLoose(card: Card): Tree {
+  const tree: Tree = {}
+  for (const root of card.state) {
+    if (root.code.includes('.')) continue
+    if (root.type === 'time') {
+      if (root.initial !== undefined) tree[root.code] = root.initial as Tree[string]
+      continue
+    }
+    if (isRecord(root.initial)) Object.assign(tree, root.initial)
+  }
+  return tree
+}
+
+/** 全树的引用值 + 数组 item id 问题（卡初始值 / 存档树共用一把尺） */
+export function refTreeIssues(card: Card, tree: Tree): CardIssue[] {
+  const issues: CardIssue[] = []
+  for (const element of card.state) {
+    if (element.type !== 'ref') continue
+    const [path] = pathsOf(card.state, element.code)
+    if (path === undefined || !(path in tree)) continue
+    const sourceItems = element.refSource === undefined ? undefined : tree[element.refSource]
+    for (const message of refValueIssues(card.state, element, tree[path], sourceItems)) {
+      issues.push({ code: element.code, path, message, errorCode: 'E_VALIDATION' })
+    }
+  }
+  for (const element of card.state) {
+    if (element.type !== 'array') continue
+    const [path] = pathsOf(card.state, element.code)
+    if (path === undefined || !(path in tree)) continue
+    const items = tree[path]
+    if (!Array.isArray(items)) continue
+    {
+      const seen = new Set<string>()
+      for (const item of items) {
+        const id = isRecord(item) ? item.id : undefined
+        if (!isItemId(id)) {
+          issues.push({
+            code: element.code,
+            path,
+            message: t('issue.itemIdMissing', { code: element.code }),
+            errorCode: 'E_VALIDATION',
+          })
+          continue
+        }
+        if (seen.has(id)) {
+          issues.push({
+            code: element.code,
+            path,
+            message: t('issue.itemIdDuplicate', { code: element.code, id }),
+            errorCode: 'E_VALIDATION',
+          })
+        }
+        seen.add(id)
+      }
+    }
+    for (const item of items) {
+      if (isRecord(item)) issues.push(...itemRefIssues(card, element.code, item, tree, path))
+    }
+  }
+  return issues
+}
+
+/** 一个 item 里的引用字段（含嵌套数组 / 对象字段）逐个判值 */
+function itemRefIssues(
+  card: Card,
+  container: string,
+  item: Record<string, unknown>,
+  tree: Tree,
+  path: string,
+): CardIssue[] {
+  const issues: CardIssue[] = []
+  for (const field of childrenOf(card.state, container)) {
+    const value = item[field.code]
+    if (value === undefined) continue
+    if (field.type === 'ref') {
+      const sourceItems = field.refSource === undefined ? undefined : tree[field.refSource]
+      for (const message of refValueIssues(card.state, field, value, sourceItems)) {
+        issues.push({ code: field.code, path, message, errorCode: 'E_VALIDATION' })
+      }
+      continue
+    }
+    if (field.type === 'array' && Array.isArray(value)) {
+      for (const nested of value) {
+        if (isRecord(nested)) issues.push(...itemRefIssues(card, field.code, nested, tree, path))
+      }
+      continue
+    }
+    if (field.type === 'object' && isRecord(value)) {
+      issues.push(...itemRefIssues(card, field.code, value, tree, path))
+    }
+  }
+  return issues
+}
 /** 数字元素的上下限 / 步幅本身坏没坏（顺序、正负、整数、上限都与校验同一把尺） */
 function integerIssues(element: StateElement): CardIssue[] {
   const issue = (message: string): CardIssue[] => [
@@ -316,6 +413,7 @@ export function saveTreeIssues(card: Card, tree: Tree): CardIssue[] {
       })
     }
   }
+  issues.push(...refTreeIssues(card, tree))
   return issues
 }
 

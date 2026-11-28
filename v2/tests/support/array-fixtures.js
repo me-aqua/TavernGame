@@ -19,12 +19,12 @@
 /** 时间初值：2024-02-10（周六）08:30 */
 export const TIME = { year: 2024, month: 2, day: 10, hour: 8, minute: 30 }
 
-/** 背包的三项初始值（键是字段 code，不是中文名） */
+/** 背包的三项初始值（键是字段 code，不是中文名；item 带隐藏 id，阶段 4 起所有数组 item 都有） */
 export function holdItems() {
   return [
-    { '2.4.1': '短剑', '2.4.2': 1 },
-    { '2.4.1': '斗篷', '2.4.2': 1 },
-    { '2.4.1': '银币', '2.4.2': 3 },
+    { id: 'id_1', '2.4.1': '短剑', '2.4.2': 1 },
+    { id: 'id_2', '2.4.1': '斗篷', '2.4.2': 1 },
+    { id: 'id_3', '2.4.1': '银币', '2.4.2': 3 },
   ]
 }
 
@@ -129,14 +129,15 @@ export function holdCard(over = {}) {
   }
 }
 
-/** 嵌套背包的初始值：object 字段里再套一个 array 字段（深度 5） */
+/** 嵌套背包的初始值：object 字段里再套一个 array 字段（深度 5；两层数组的 item 各自从 id_1 起） */
 export function nestedItems() {
   return [
     {
+      id: 'id_1',
       '2.4.1': '短剑',
       '2.4.2': {
         '2.4.2.1': '普通',
-        '2.4.2.2': [{ '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }],
+        '2.4.2.2': [{ id: 'id_1', '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }],
       },
     },
   ]
@@ -200,7 +201,7 @@ export function nestedCard(over = {}) {
 
 /** 深度 5 的初始值：2.4.1(object) → 2.4.1.1(object) → 2.4.1.1.1(text) */
 export function deepItems() {
-  return [{ '2.4.1': { '2.4.1.1': { '2.4.1.1.1': 'L5' } } }]
+  return [{ id: 'id_1', '2.4.1': { '2.4.1.1': { '2.4.1.1.1': 'L5' } } }]
 }
 
 /** 深度 5（`2.4.1.1.1`）合法 */
@@ -225,7 +226,7 @@ export function tooDeepCard() {
   return arrayFieldCard({
     id: 'c-too-deep-array',
     name: 'too deep array card',
-    initial: [{ '2.4.1': { '2.4.1.1': { '2.4.1.1.1': { '2.4.1.1.1.1': 'L6' } } } }],
+    initial: [{ id: 'id_1', '2.4.1': { '2.4.1.1': { '2.4.1.1.1': { '2.4.1.1.1.1': 'L6' } } } }],
     fields: [
       element('2.4.1', 'object', { name: '层一' }),
       element('2.4.1.1', 'object', { name: '层二' }),

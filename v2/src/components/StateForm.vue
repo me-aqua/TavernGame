@@ -11,7 +11,9 @@
  * 各类型的格子：
  *   · `text` 初始值一个文本框；`integer` 上下限 + 单次步幅 + 初始值；`enum` 取值白名单（一行一个）+ 初始值下拉；
  *   · `object` 没有自身值（初始值那一格整块不出现）；`time` 是时间值 + 三个节日勾选；
- *   · `array` 的初始值是一份 item 列表（`ArrayValue` 组件），每项的字段值住在那份 JSON 里。
+ *   · `array` 的初始值是一份 item 列表（`ArrayValue` 组件），每项的字段值住在那份 JSON 里；
+ *   · `ref` 的结构格子是 `RefForm`（引用自 / 引用字段 / 筛选 / 最少最多），值格子是 `RefValueEditor`
+ *     （单引用一行或「选择引用」、多引用行构建器）；它的**关系子元素**在自身值为 `null` 时不渲染。
  *
  * 初始值只挂在**根元素**上（CONTRACT §2.2 · A4），所以「初始值块」只在选中的是根元素时渲染：
  *   · 每一行 = 一条值路径（`pathsOf` 顺序），从左到右是**显示编号 → 中文名 → 值控件**；
@@ -28,6 +30,10 @@
  */
 import { computed, ref, watch } from 'vue'
 import ArrayValue from './ArrayValue.vue'
+import RefForm from './RefForm.vue'
+import RefValueEditor from './RefValueEditor.vue'
+import { blockedByRef, refItemsOf, refUsesOf } from './ref-support'
+import type { RefChange, RefUse } from './ref-support'
 import { HOLIDAY_GROUPS, NO_HOLIDAYS } from '../core/holidays'
 import {
   TIME_MODES,
@@ -72,10 +78,14 @@ const emit = defineEmits<{
   initial: [path: string, value: TreeValue]
   /** 换时间模式（要确认）：把下拉元素一起带上，取消时好拨回去 */
   'time-mode': [mode: TimeMode, select: HTMLSelectElement]
+  /** 改存档当前值：`path` 是值路径，写进这一份存档的 `save.tree`（卡快照一个字不动） */
+  current: [path: string, value: TreeValue]
+  /** 删 item 会清掉引用时要确认：文案 + 确认后才真做的动作（取消 ⇒ 一个字不动） */
+  cascade: [message: string, run: () => void]
 }>()
 
 /** 作者能选的类型（`object` 是「有孩子」的形态：只在导入的卡里照实显示，不是可选类型） */
-const TYPES: StateType[] = ['text', 'integer', 'enum', 'array']
+const TYPES: StateType[] = ['text', 'integer', 'enum', 'array', 'ref']
 
 /** 类型标签住文案表：`editor.typeText` / `editor.typeInteger` / … */
 function typeLabel(type: StateType): string {
@@ -84,22 +94,23 @@ function typeLabel(type: StateType): string {
 
 /**
  * 类型下拉的可选档（老板口径）：**「结构体」不是可选类型，它就是「有孩子」**。
- *   · 数组（任何行）⇒ `text` / `integer` / `enum` / `array`（换成标量时字段留成孩子、
+ *   · 数组（任何行）⇒ `text` / `integer` / `enum` / `array` / `ref`（换成标量时字段留成孩子、
  *     第 1 项的值铺进孩子、自己的默认值写 `<code>.0`；数组字段逐 item 取第一个 item，其余丢弃）；
  *   · 对象（数组子树之外，导入的卡）⇒ 不列 `object`（结构体是内部形态）；只列作者选项（含 `array`）；
- *   · 数组子树里的标量字段 ⇒ `text` / `integer` / `enum` / `array`（没有 object）；
+ *   · 数组子树里的标量字段 ⇒ `text` / `integer` / `enum` / `array` / `ref`（没有 object）；
  *   · 数组子树里的对象字段 ⇒ 只有 `object`（容器字段不换类型，数据层也拒）；
- *   · 其它元素 ⇒ 作者选项（`text` / `integer` / `enum` / `array`；时间行是模式选择器，不在这一列）。
+ *   · 其它元素 ⇒ 作者选项（`text` / `integer` / `enum` / `array` / `ref`；时间行是模式选择器，不在这一列）。
+ * `ref` 与文字 / 数字 / 下拉 / 数组互转（数据层清空自身与子元素初始值、不搬运旧值）；`ref` ↔ 时间拒绝。
  */
 const typeOptions = computed<StateType[]>(() => {
   const element = props.element
   const field = isInsideArray(props.state, element.code)
-  if (element.type === 'array') return ['text', 'integer', 'enum', 'array']
+  if (element.type === 'array') return ['text', 'integer', 'enum', 'array', 'ref']
   // 「结构体」任何一行都不出现在下拉里（它是内部形态）：导入的 object 元素只列作者选项
   // 数组子树里的容器字段不换类型（逐 item 转换是另一票）：对象字段只留 object
   if (element.type === 'object') return field ? ['object'] : ['text', 'integer', 'enum', 'array']
   // 数组里的标量字段：作者选项去掉时间（时间不能当字段）
-  if (field) return ['text', 'integer', 'enum', 'array']
+  if (field) return ['text', 'integer', 'enum', 'array', 'ref']
   return [...TYPES]
 })
 
@@ -139,6 +150,11 @@ const paths = computed(() => pathsOf(props.state, props.element.code))
 /** 标量值路径：一行一个控件（数组路径另有整块编辑组件） */
 const scalarPaths = computed(() => paths.value.filter((path) => ownerOf(path)?.type !== 'array'))
 
+/** 初始值块真正渲染的标量行：ref 还没有目标时，它的关系子元素整块不出现 */
+const initialRows = computed(() =>
+  scalarPaths.value.filter((path) => !blockedByRef(props.state, path, (key) => table.value[key])),
+)
+
 /** 数组值路径：初始值块里的 item 列表编辑块（`[data-array]`） */
 const arrayPaths = computed(() => paths.value.filter((path) => ownerOf(path)?.type === 'array'))
 
@@ -159,8 +175,12 @@ const showsInitial = computed(() => !props.initialLocked && isRoot.value)
 /** 当前值树：只在**存档模式 + 根元素**时渲染（这一局的 `save.tree` 一次列全） */
 const showsCurrentTree = computed(() => Boolean(props.initialLocked && isRoot.value && props.currentTree))
 
-/** 当前值树的行 = 这个根元素覆盖的值路径（顺序同 `pathsOf`） */
-const currentTreePaths = computed(() => pathsOf(props.state, props.element.code))
+/** 当前值树的行 = 这个根元素覆盖的值路径（顺序同 `pathsOf`；ref 没目标时它的关系子元素不出现） */
+const currentRows = computed(() =>
+  pathsOf(props.state, props.element.code).filter(
+    (path) => !blockedByRef(props.state, path, (key) => props.currentTree?.[key]),
+  ),
+)
 
 /** 一条值路径的当前值（读自 `save.tree`） */
 function currentTreeValueOf(path: string): TreeValue | undefined {
@@ -190,6 +210,14 @@ function valuesOf(path: string): string[] {
 
 function valueOfPath(path: string): TreeValue | undefined {
   return table.value[path]
+}
+
+/** 有哪些引用直接指向这个数组、它们现在是什么值（删 item 前要先按 `min` 判） */
+const refsOfArray = (code: string): RefUse[] => refUsesOf(props.state, code, (path) => table.value[path])
+
+/** 删 item 之后被清掉的引用值：一条条写回所属根元素的初始值表 */
+function applyRefChanges(changes: RefChange[]): void {
+  for (const change of changes) emit('initial', change.path, change.value as TreeValue)
 }
 
 /** 这一行是不是根元素自己的值（`object` 没有自身值；只有自己那一行带 `[data-field="initial"]`） */
@@ -339,7 +367,7 @@ function requestMode(event: Event): void {
             <option v-for="item in TIME_MODES" :key="item" :value="item">{{ modeLabel(item) }}</option>
           </template>
           <template v-else>
-            <!-- 选项由 `typeOptions` 决定：数组行 = text/integer/enum/array；数组字段四档（0 个字段 / 有字段都一样）；对象行多一档 object -->
+            <!-- 选项由 `typeOptions` 决定：数组行 / 数组字段各四档（text / integer / enum / array）再各加一档 ref；对象行多一档 object -->
             <option v-for="type in typeOptions" :key="type" :value="type">{{ typeLabel(type) }}</option>
           </template>
         </select>
@@ -368,6 +396,14 @@ function requestMode(event: Event): void {
         <!-- 草稿：打字只改本地文本（回车 / 空行原样保留），blur / 保存才归一化并写卡 -->
         <textarea class="values" data-field="values" v-model="valuesDraft" @blur="commitValues"></textarea>
       </label>
+
+      <!-- 引用：引用自 / 引用字段 / 筛选 / 最少最多（值格子在各值路径那一行，与别的类型同一把尺） -->
+      <RefForm
+        v-if="element.type === 'ref'"
+        :state="state"
+        :element="element"
+        @edit="(next) => emit('edit', next)"
+      />
 
       <template v-if="element.type === 'integer'">
         <label class="field-row">
@@ -433,11 +469,11 @@ function requestMode(event: Event): void {
       </div>
     </div>
 
-    <!-- 存档模式 · 根元素：这一局的当前值树（只读；`save.tree` 一次列全，含数组 item） -->
+    <!-- 存档模式 · 根元素：这一局的当前值树（`save.tree` 一次列全，含数组 item）；ref 那一行可改 -->
     <div v-if="showsCurrentTree" class="current-tree stack" :data-current-tree="element.code">
       <span class="field-label">{{ t('editor.fieldCurrent') }}</span>
       <div
-        v-for="path in currentTreePaths"
+        v-for="path in currentRows"
         :key="path"
         class="initial-row"
         :data-current-tree-row="path"
@@ -448,6 +484,15 @@ function requestMode(event: Event): void {
         <div v-if="ownerOf(path)?.type === 'array'" class="current-array">
           <ArrayValue :state="state" :code="path" :value="currentTreeValueOf(path)" current top disabled />
         </div>
+        <!-- ref 的当前值用同一套行构建器改（候选从 `save.tree` 的当前数组现算） -->
+        <RefValueEditor
+          v-else-if="ownerOf(path)?.type === 'ref'"
+          :state="state"
+          :element="ownerOf(path)!"
+          :items="refItemsOf(state, ownerOf(path)!, currentTree)"
+          :value="currentTreeValueOf(path)"
+          @change="(value) => emit('current', path, value)"
+        />
         <span v-else class="current" :data-current-tree-value="path">{{ currentTreeTextOf(path) }}</span>
       </div>
     </div>
@@ -475,7 +520,7 @@ function requestMode(event: Event): void {
       <!-- 其余根元素：每条值路径一行，编号 → 中文名 → 值控件；缩进与左栏同一把尺 -->
       <div v-else class="initial-rows">
         <div
-          v-for="path in scalarPaths"
+          v-for="path in initialRows"
           :key="path"
           class="initial-row"
           :data-initial-row="path"
@@ -503,6 +548,15 @@ function requestMode(event: Event): void {
             />
             <span class="initial-range" data-initial-range>{{ rangeOf(path) }}</span>
           </template>
+          <!-- 引用：零条就是 null（没有「选择引用」以外的空态名字），候选按筛选条件从源数组现算 -->
+          <RefValueEditor
+            v-else-if="ownerOf(path)?.type === 'ref'"
+            :state="state"
+            :element="ownerOf(path)!"
+            :items="refItemsOf(state, ownerOf(path)!)"
+            :value="valueOfPath(path)"
+            @change="(value) => emit('initial', path, value)"
+          />
           <input
             v-else
             :data-field="isOwn(path) ? 'initial' : undefined"
@@ -524,12 +578,16 @@ function requestMode(event: Event): void {
             <span class="initial-code" data-initial-code>{{ displayCode(path) }}</span>
             <span class="initial-name ellipsis" :data-initial-name="path">{{ nameOf(path) }}</span>
           </div>
+          <!-- 删 item 会清掉引用：先按 min 判，能清就弹确认，低于 min 就整笔拒绝 -->
           <ArrayValue
             :state="state"
             :code="path"
             :value="valueOfPath(path)"
             top
+            :refs-of="refsOfArray"
+            :confirm="(message, run) => emit('cascade', message, run)"
             @change="(value) => emit('initial', path, value)"
+            @refs="applyRefChanges"
           />
         </div>
       </div>

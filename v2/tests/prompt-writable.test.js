@@ -148,6 +148,8 @@ function expectIntegerValueShape(constraint, label) {
  * 文本 / 下拉 = JSON 字符串；整数 = JSON 整数且明确排除字符串 / 小数；时间不走 write_state。
  */
 function expectJsonValueShape(line, spec) {
+  // 引用行写的是 id（或 null），不是 JSON 标量；id 的形状由 ref 分支自己的断言管
+  if (spec.type === 'ref') return
   if (spec.type === 'text') {
     expect(line.constraint, `${spec.path} 的文本行必须写明「JSON 字符串」`).toContain('JSON 字符串')
     expect(line.constraint, `${spec.path} 的文本行串了别的类型`).not.toMatch(/JSON 整数|下拉|advance_time/)
@@ -219,7 +221,16 @@ function expectWritableLines(prompt, specs) {
           )
         }
       }
-      expect(line.constraint, `${spec.path} 的数组约束里出现了字段 code`).not.toContain('2.4.1')
+      expect(line.constraint, `${spec.path} 的数组约束里出现了自己的子字段 code`).not.toContain(
+        `${spec.path}.`,
+      )
+    } else if (spec.type === 'ref') {
+      // 引用行：只写引用值（item id / null），投影字段是只读视图
+      expect(line.constraint, `${spec.path} 的引用约束要写明是引用`).toContain('引用')
+      expect(line.constraint, `${spec.path} 的引用约束要点名源数组 ${spec.source}`).toContain(spec.source)
+      expect(line.constraint, `${spec.path} 的引用约束要写 item id`).toContain('item id')
+      expect(line.constraint, `${spec.path} 的引用约束要写最多几个`).toContain(`最多 ${spec.max} 个`)
+      if (spec.min === 0) expect(line.constraint, `${spec.path} 可空时要写 null`).toContain('null')
     } else {
       throw new Error(`未知的期望类型：${spec.type}`)
     }
@@ -262,7 +273,7 @@ describe('可写状态块：非 output 节点都有，位置在状态树之后',
 })
 
 describe('可写状态块：路径来自 node.writable（refPathsOf 覆盖），未列出的只读', () => {
-  it('示例卡 check：8 条值路径（1.1 与 1.1.1 各自显式开着），且不含时间 0', async () => {
+  it('示例卡 check：11 条值路径（1.1 与 1.1.1 各自显式开着；含 1.4 / 2.5 / 2.6），且不含时间 0', async () => {
     const card = sampleCard()
     const save = await sampleSave(card)
     const prompt = await promptOf({ card, save, node: nodeOf(card, 'check') })
@@ -277,6 +288,15 @@ describe('可写状态块：路径来自 node.writable（refPathsOf 覆盖），
       { path: '1.1.1', name: '地点', type: 'text' },
       { path: '1.2', name: '天气', type: 'enum', values: ['晴', '阴', '雨', '雪', '雾'] },
       { path: '1.3', name: '氛围', type: 'text' },
+      {
+        path: '1.4',
+        name: '增益定义',
+        type: 'array',
+        fields: [
+          { name: '名称', type: 'text' },
+          { name: '描述', type: 'text' },
+        ],
+      },
       { path: '2.1', name: '名字', type: 'text' },
       { path: '2.2', name: '体力', type: 'integer', min: 0, max: 100, stepMin: 1, stepMax: 10 },
       { path: '2.3', name: '状态', type: 'enum', values: ['正常', '受伤', '疲惫', '中毒'] },
@@ -287,6 +307,17 @@ describe('可写状态块：路径来自 node.writable（refPathsOf 覆盖），
         fields: [
           { name: '物品', type: 'text' },
           { name: '数量', type: 'integer', min: 0, max: 999 },
+          { name: '可手持', type: 'enum' },
+        ],
+      },
+      { path: '2.5', name: '主手', type: 'ref', source: '2.4', min: 0, max: 1 },
+      {
+        path: '2.6',
+        name: '当前增益',
+        type: 'array',
+        fields: [
+          { name: '来源', type: 'ref' },
+          { name: '严重程度', type: 'enum' },
         ],
       },
     ])
@@ -313,7 +344,7 @@ describe('可写状态块：路径来自 node.writable（refPathsOf 覆盖），
     )
   })
 
-  it('示例卡 check：8 条路径每一行都写明 JSON 值形态；2.2「体力」行明确是 JSON 整数', async () => {
+  it('示例卡 check：11 条路径每一行都写明值形态；2.2「体力」行明确是 JSON 整数', async () => {
     const card = sampleCard()
     const save = await sampleSave(card)
     const prompt = await promptOf({ card, save, node: nodeOf(card, 'check') })
@@ -322,11 +353,11 @@ describe('可写状态块：路径来自 node.writable（refPathsOf 覆盖），
     expect(
       lines.map((line) => line.path),
       '示例卡 check 的可写路径清单',
-    ).toHaveLength(8)
+    ).toHaveLength(11)
     for (const line of lines) {
-      expect(line.constraint, `${line.path} 这一行没写合法 JSON 值形态`).toMatch(
-        /JSON 字符串|JSON 整数|JSON 数组/,
-      )
+      // 引用行写的是 item id / null（不是 JSON 标量）；其余行必须点名 JSON 值形态
+      const wants = line.path === '2.5' ? /item id/ : /JSON 字符串|JSON 整数|JSON 数组/
+      expect(line.constraint, `${line.path} 这一行没写合法值形态`).toMatch(wants)
     }
 
     const stamina = lines.find((line) => line.path === '2.2')

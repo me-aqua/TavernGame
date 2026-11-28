@@ -63,8 +63,10 @@ describe('数组 · applyWrite 整表替换（§六）', () => {
       { '2.4.1': '长弓', '2.4.2': 7 },
       { '2.4.1': '火把', '2.4.2': 2 },
     ]
+    // 新 item 省略 id ⇒ 引擎按「当前最大编号 + 1」生成（旧数组是 id_1…id_3）
+    const expected = next.map((item, index) => ({ id: `id_${4 + index}`, ...item }))
     const written = applyWrite({ card, node, tree, path: '2.4', value: next })
-    expect(written['2.4']).toEqual(next)
+    expect(written['2.4']).toEqual(expected)
     expect(tree['2.4'], '入参 tree 一个字都不许改').toEqual(holdItems())
     expect(Object.keys(written), '不许冒出 2.4.0 / 2.4.1 键').not.toContain('2.4.0')
   })
@@ -76,7 +78,7 @@ describe('数组 · applyWrite 整表替换（§六）', () => {
     const tree = holdSave(card).tree
     const one = applyWrite({ card, node, tree, path: '2.4', value: [{ '2.4.1': '银币', '2.4.2': 100 }] })
     expect(one['2.4']).toHaveLength(1)
-    expect(one['2.4'][0]).toEqual({ '2.4.1': '银币', '2.4.2': 100 })
+    expect(one['2.4'][0]).toEqual({ id: 'id_4', '2.4.1': '银币', '2.4.2': 100 })
 
     const empty = applyWrite({ card, node, tree, path: '2.4', value: [] })
     expect(empty['2.4']).toEqual([])
@@ -86,6 +88,8 @@ describe('数组 · applyWrite 整表替换（§六）', () => {
     const { applyWrite } = await loadEngine()
     const card = nestedCard()
     const node = card.chain.find((item) => item.id === 'check')
+    // 外层 item 换成全新的一条（省略 id ⇒ 生成 id_2，旧数组只有 id_1）；
+    // 嵌套数组的旧 item 也是 id_1 ⇒ 新嵌套 item 取旧最大 + 1（id_2 / id_3）
     const next = [
       {
         '2.4.1': '法杖',
@@ -98,8 +102,21 @@ describe('数组 · applyWrite 整表替换（§六）', () => {
         },
       },
     ]
+    const expected = [
+      {
+        id: 'id_2',
+        '2.4.1': '法杖',
+        '2.4.2': {
+          '2.4.2.1': '稀有',
+          '2.4.2.2': [
+            { id: 'id_2', '2.4.2.2.1': '回响', '2.4.2.2.2': 9 },
+            { id: 'id_3', '2.4.2.2.1': '微光', '2.4.2.2.2': 1 },
+          ],
+        },
+      },
+    ]
     const written = applyWrite({ card, node, tree: holdSave(card).tree, path: '2.4', value: next })
-    expect(written['2.4']).toEqual(next)
+    expect(written['2.4']).toEqual(expected)
   })
 
   it('item 形状不对 ⇒ E_VALIDATION + 中文，tree 一个字不动', async () => {
@@ -108,14 +125,14 @@ describe('数组 · applyWrite 整表替换（§六）', () => {
     const node = card.chain.find((item) => item.id === 'check')
     const tree = holdSave(card).tree
     const bad = [
-      ['不是数组', { '2.4.1': '短剑', '2.4.2': 1 }],
+      ['不是数组', { id: 'id_1', '2.4.1': '短剑', '2.4.2': 1 }],
       ['item 不是对象', ['短剑']],
-      ['缺字段', [{ '2.4.1': '短剑' }]],
-      ['多字段', [{ '2.4.1': '短剑', '2.4.2': 1, '2.4.3': 'X' }]],
-      ['多出隐藏 id', [{ '2.4.1': '短剑', '2.4.2': 1, id: 'it_1' }]],
-      ['text 写成数字', [{ '2.4.1': 7, '2.4.2': 1 }]],
-      ['integer 写成字符串', [{ '2.4.1': '短剑', '2.4.2': '1' }]],
-      ['integer 越界', [{ '2.4.1': '短剑', '2.4.2': 1000 }]],
+      ['缺字段', [{ id: 'id_1', '2.4.1': '短剑' }]],
+      ['多字段', [{ id: 'id_1', '2.4.1': '短剑', '2.4.2': 1, '2.4.3': 'X' }]],
+      ['id 不是 id_N 形状', [{ id: 'it_1', '2.4.1': '短剑', '2.4.2': 1 }]],
+      ['text 写成数字', [{ id: 'id_1', '2.4.1': 7, '2.4.2': 1 }]],
+      ['integer 写成字符串', [{ id: 'id_1', '2.4.1': '短剑', '2.4.2': '1' }]],
+      ['integer 越界', [{ id: 'id_1', '2.4.1': '短剑', '2.4.2': 1000 }]],
     ]
     for (const [note, value] of bad) {
       const error = errorOf(() => applyWrite({ card, node, tree, path: '2.4', value }))
@@ -144,6 +161,7 @@ describe('数组 · applyWrite 整表替换（§六）', () => {
     const card = patchElement(holdCard(), '2.4.2', { stepMin: 50, stepMax: 100 })
     const node = card.chain.find((item) => item.id === 'check')
     const next = [{ '2.4.1': '银币', '2.4.2': 1 }]
+    const expected = [{ id: 'id_4', ...next[0] }]
     const written = applyWrite({
       card,
       node,
@@ -151,7 +169,7 @@ describe('数组 · applyWrite 整表替换（§六）', () => {
       path: '2.4',
       value: next,
     })
-    expect(written['2.4']).toEqual(next)
+    expect(written['2.4']).toEqual(expected)
   })
 
   it('路径不在 writable 覆盖内 / 不是引用 ⇒ E_CHAIN（容器授权字段写在另一份判据里）', async () => {

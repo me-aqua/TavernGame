@@ -28,6 +28,7 @@ import {
 } from './state-codes'
 import { fieldDefaultOf } from './state-values'
 import { addChildValue, arrayRootOf, cloneValue, remapArrayValue, structsAt } from './state-array'
+import { nextItemIdOf } from './state-ref-type'
 import { NO_HOLIDAYS } from './holidays'
 import { defaultTimeOf } from './timevalue'
 import type {
@@ -218,6 +219,23 @@ export function removeNode(card: Card, code: string): Card {
   const element = elementAt(card.state, code)
   if (element.type === 'time') throw invalid(t('error.timeNotRemovable'), { code })
 
+  // 删源数组 / 被投影或筛选的字段：引用会悬空 ⇒ 一律拒绝（item 删除才走条件级联）
+  const refs = card.state.filter((item) => item.type === 'ref')
+  const inside = (path: string) => path === code || path.startsWith(`${code}.`)
+  const sourceRef = refs.find((ref) => ref.refSource !== undefined && inside(ref.refSource))
+  const fieldRef = refs.find(
+    (ref) =>
+      (ref.refFields ?? []).some(inside) || (ref.refFilter !== undefined && inside(ref.refFilter.field)),
+  )
+  if (sourceRef !== undefined) {
+    throw invalid(t('issue.removeRefSource', { code, ref: sourceRef.code }), { code, ref: sourceRef.code })
+  }
+  if (fieldRef !== undefined) {
+    throw invalid(t('issue.removeRefField', { code, ref: fieldRef.code }), {
+      code,
+      ref: fieldRef.code,
+    })
+  }
   const removed = new Set(subtreeCodes(card.state, code))
   const parent = parentOfCode(code)
   // 根 = `parentOfCode` 返回 undefined（全模块唯一的根判据）
@@ -343,6 +361,12 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
   if (element.type === 'array' && type === 'object') {
     throw invalid(t('issue.arrayToObject', { code }), { code, type })
   }
+  if (element.type === 'ref' && type === 'object') {
+    throw invalid(t('issue.arrayToObject', { code }), { code, type })
+  }
+  if (element.type === 'time' && type === 'ref') {
+    throw invalid(t('issue.typeFromTime', { code }), { code, type })
+  }
   // 数组子树里的字段是 schema：容器字段（object / array）默认不换类型；但**数组字段可以换标量**
   // （逐 item 转换：每个外层实例取第一个 item 的字段值做孩子值，第 2 项起丢弃；0 字段 ⇒ 标量默认值）。
   if (isInsideArray(card.state, code)) {
@@ -370,6 +394,9 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
   delete next.stepMax
   delete next.timeMode
   delete next.holidays
+  delete next.refSource
+  delete next.refFields
+  delete next.refFilter
   // enum 目标：**保留源元素上已有的 values**（导入的数组元素可能带），own 默认从第一项来；
   // 没有 values ⇒ 空白名单（坏卡，等作者补）。
   if (type === 'enum') next.values = Array.isArray(element.values) ? [...element.values] : []
@@ -387,11 +414,20 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
             : fieldDefaultOf(card.state, next)
     }
     table[arrayRoot] = value
-  } else if (type === 'array' && childrenOf(card.state, code).length > 0) {
+  } else if (type === 'ref') {
+    // → ref：清空自身与子元素初始值；ref 空值就是 null（不搬运旧值）；min/max 缺省 0/1
+    const ownPath = childrenOf(card.state, code).length > 0 ? `${code}.0` : code
+    clearTableSubtree(table, code)
+    table[ownPath] = null
+    writeItemToTable(card.state, code, defaultItemOf(card.state, code), table)
+    next.min = 0
+    next.max = 1
+  } else if (type === 'array' && element.type !== 'ref' && childrenOf(card.state, code).length > 0) {
     // 有孩子的元素（object 或有孩子的标量）→ 数组：自己的值清掉，当前孩子值收成**一个 item**；
     // 后代一条值路径都没有 ⇒ `[]`（`<code>.0` 是自己的值，不算孩子值）。
     const hasChildValue = pathsOf(card.state, code).some((path) => path !== `${code}.0` && path in table)
     const item = hasChildValue ? readObjectFromTable(card.state, code, table) : undefined
+    if (item !== undefined) item.id = nextItemIdOf(table[code])
     clearTableSubtree(table, code)
     table[code] = item === undefined ? [] : [item]
   } else if (element.type === 'array') {
@@ -407,6 +443,11 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
       // 数组的值住在自己的 code：先清掉这棵子树在表里的键，再写一份空数组
       clearTableSubtree(table, code)
       table[code] = []
+    } else if (element.type === 'ref') {
+      // ref → 标量 / 结构：清空自身与子元素初始值，写目标类型默认值（不改写旧 id）
+      clearTableSubtree(table, code)
+      table[childrenOf(card.state, code).length > 0 ? `${code}.0` : code] = ownInitialOf(next)
+      writeItemToTable(card.state, code, defaultItemOf(card.state, code), table)
     } else {
       delete table[ownPath]
       const initial = defaultInitialOf(type)
@@ -457,11 +498,21 @@ function fieldArrayValueOf(state: StateElement[], element: StateElement, value: 
   const source = isRecord(value) ? value : {}
   if (!children.some((child) => child.code in source)) return []
   return [
-    Object.fromEntries(
-      children.map((child) => [child.code, source[child.code] ?? fieldDefaultOf(state, child)]),
-    ) as ItemObject,
+    {
+      id: nextItemIdOf([]),
+      ...(Object.fromEntries(
+        children.map((child) => [child.code, source[child.code] ?? fieldDefaultOf(state, child)]),
+      ) as ItemObject),
+    },
   ]
 }
+/** 一个元素的孩子字段默认值（换类型清空子元素初始值时用） */
+function defaultItemOf(state: StateElement[], code: string): ItemObject {
+  return Object.fromEntries(
+    childrenOf(state, code).map((child) => [child.code, fieldDefaultOf(state, child)]),
+  )
+}
+
 /** 清掉一个 code 子树在初始值表里的所有键（数组 / 对象换类型时先腾空） */
 function clearTableSubtree(table: InitialTable, code: string): void {
   for (const key of Object.keys(table)) {

@@ -88,11 +88,18 @@ describe('数组 · item 形状（§3.2）', () => {
       ['非对象（字符串）', ['短剑']],
       ['非对象（null）', [null]],
       ['非对象（数组）', [[]]],
-      ['缺字段', [{ '2.4.1': '短剑' }]],
-      ['多字段', [{ '2.4.1': '短剑', '2.4.2': 1, '2.4.3': 'X' }]],
-      ['多出隐藏 id', [{ '2.4.1': '短剑', '2.4.2': 1, id: 'it_1' }]],
-      ['多出 order', [{ '2.4.1': '短剑', '2.4.2': 1, order: 1 }]],
-      ['两项字段不同构', [{ '2.4.1': '短剑', '2.4.2': 1 }, { '2.4.1': '斗篷' }]],
+      ['缺字段', [{ id: 'id_1', '2.4.1': '短剑' }]],
+      ['多字段', [{ id: 'id_1', '2.4.1': '短剑', '2.4.2': 1, '2.4.3': 'X' }]],
+      ['缺 id', [{ '2.4.1': '短剑', '2.4.2': 1 }]],
+      ['id 不是 id_N 形状', [{ id: 'it_1', '2.4.1': '短剑', '2.4.2': 1 }]],
+      ['多出 order', [{ id: 'id_1', '2.4.1': '短剑', '2.4.2': 1, order: 1 }]],
+      [
+        '两项字段不同构',
+        [
+          { id: 'id_1', '2.4.1': '短剑', '2.4.2': 1 },
+          { id: 'id_2', '2.4.1': '斗篷' },
+        ],
+      ],
     ]
     for (const [note, value] of bad) {
       expect(await arrayFits(state, '2.4', value), note).toBe(false)
@@ -103,11 +110,11 @@ describe('数组 · item 形状（§3.2）', () => {
   it('字段类型严格收：text / integer / enum 的值错了就假', async () => {
     const state = holdCard().state
     const cases = [
-      ['text 写成数字', [{ '2.4.1': 7, '2.4.2': 1 }]],
-      ['integer 写成数字字符串', [{ '2.4.1': '短剑', '2.4.2': '1' }]],
-      ['integer 写成小数', [{ '2.4.1': '短剑', '2.4.2': 1.5 }]],
-      ['integer 超上限', [{ '2.4.1': '短剑', '2.4.2': 1000 }]],
-      ['integer 低于下限', [{ '2.4.1': '短剑', '2.4.2': -1 }]],
+      ['text 写成数字', [{ id: 'id_1', '2.4.1': 7, '2.4.2': 1 }]],
+      ['integer 写成数字字符串', [{ id: 'id_1', '2.4.1': '短剑', '2.4.2': '1' }]],
+      ['integer 写成小数', [{ id: 'id_1', '2.4.1': '短剑', '2.4.2': 1.5 }]],
+      ['integer 超上限', [{ id: 'id_1', '2.4.1': '短剑', '2.4.2': 1000 }]],
+      ['integer 低于下限', [{ id: 'id_1', '2.4.1': '短剑', '2.4.2': -1 }]],
     ]
     for (const [note, value] of cases) {
       expect(await arrayFits(state, '2.4', value), note).toBe(false)
@@ -120,10 +127,10 @@ describe('数组 · item 形状（§3.2）', () => {
         { code: '2.4.2', name: '品质', note: '', type: 'enum', values: ['普通', '稀有'] },
       ],
     })
-    const good = [{ '2.4.1': '短剑', '2.4.2': '普通' }]
+    const good = [{ id: 'id_1', '2.4.1': '短剑', '2.4.2': '普通' }]
     expect(await arrayFits(enumCard.state, '2.4', good), '正控：enum 在白名单内').toBe(true)
     expect(
-      await arrayFits(enumCard.state, '2.4', [{ '2.4.1': '短剑', '2.4.2': 'X' }]),
+      await arrayFits(enumCard.state, '2.4', [{ id: 'id_1', '2.4.1': '短剑', '2.4.2': 'X' }]),
       'enum 不在白名单',
     ).toBe(false)
     expect(enumCard.state.filter((item) => item.code === '2.4.2')).toHaveLength(1)
@@ -181,16 +188,16 @@ describe('数组 · item 形状（§3.2）', () => {
     const card = withInitialValue(
       withElement(holdCard(), { code: '2.4.1.1', name: '附魔', note: '', type: 'text' }),
       '2.4',
-      [{ '2.4.1': { '2.4.1.0': '短剑', '2.4.1.1': '锋利' }, '2.4.2': 1 }],
+      [{ id: 'id_1', '2.4.1': { '2.4.1.0': '短剑', '2.4.1.1': '锋利' }, '2.4.2': 1 }],
     )
-    const value = [{ '2.4.1': { '2.4.1.0': '短剑', '2.4.1.1': '锋利' }, '2.4.2': 1 }]
+    const value = [{ id: 'id_1', '2.4.1': { '2.4.1.0': '短剑', '2.4.1.1': '锋利' }, '2.4.2': 1 }]
     expect(await arrayFits(card.state, '2.4', value), '正控：自身值 + 孩子').toBe(true)
     const { cardIssues } = await loadState()
     expect(cardIssues(card), '有自身值 + 孩子的字段是合法卡').toEqual([])
     const { validateCard } = await loadSchema()
     expect(() => validateCard(card)).not.toThrow()
 
-    const bare = withInitialValue(card, '2.4', [{ '2.4.1': '短剑', '2.4.2': 1 }])
+    const bare = withInitialValue(card, '2.4', [{ id: 'id_1', '2.4.1': '短剑', '2.4.2': 1 }])
     await expectIssue(bare, '2.4', '有孩子的字段仍写裸标量')
     await expectReject(bare, '有孩子的字段仍写裸标量')
   })
@@ -208,9 +215,11 @@ describe('数组 · item 形状（§3.2）', () => {
 
   it('深度 6 被拦（定义层与普通元素同一把尺）', async () => {
     await expectIssue(tooDeepCard(), '2.4.1.1.1.1', '深度 6')
-    expect(await arrayFits(deepCard().state, '2.4', [{ '2.4.1': { '2.4.1.1': { '2.4.1.1.1': 'X' } } }])).toBe(
-      true,
-    )
+    expect(
+      await arrayFits(deepCard().state, '2.4', [
+        { id: 'id_1', '2.4.1': { '2.4.1.1': { '2.4.1.1.1': 'X' } } },
+      ]),
+    ).toBe(true)
   })
 })
 
@@ -230,9 +239,10 @@ describe('数组 · 初始值表（§3.1）', () => {
 
   it('2.4 的值不是合法数组 / 形状不对都拦，消息指到 2.4', async () => {
     for (const [note, value] of [
-      ['不是数组', { '2.4.1': '短剑', '2.4.2': 1 }],
-      ['item 缺字段', [{ '2.4.1': '短剑' }]],
-      ['item 多字段', [{ '2.4.1': '短剑', '2.4.2': 1, id: 'it_1' }]],
+      ['不是数组', { id: 'id_1', '2.4.1': '短剑', '2.4.2': 1 }],
+      ['item 缺字段', [{ id: 'id_1', '2.4.1': '短剑' }]],
+      ['item 多字段', [{ id: 'id_1', '2.4.1': '短剑', '2.4.2': 1, order: 1 }]],
+      ['item 缺 id', [{ '2.4.1': '短剑', '2.4.2': 1 }]],
     ]) {
       await expectIssue(withInitialValue(holdCard(), '2.4', value), '2.4', note)
       await expectReject(withInitialValue(holdCard(), '2.4', value), note)
@@ -282,7 +292,7 @@ describe('数组 · 存档校验（§3.3）', () => {
   it('数组值形状不对 ⇒ E_VALIDATION；没有卡时数组按 JSON 形状收下', async () => {
     const { validateSave } = await loadSchema()
     const card = holdCard()
-    const badTree = { ...holdSave(card).tree, 2.4: [{ '2.4.1': '短剑' }] }
+    const badTree = { ...holdSave(card).tree, 2.4: [{ id: 'id_1', '2.4.1': '短剑' }] }
     const error = errorOf(() => validateSave(holdSave(card, { tree: badTree }), card))
     expect(error?.code).toBe('E_VALIDATION')
     expect(error.message).toMatch(CJK)

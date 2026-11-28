@@ -8,6 +8,7 @@
  * 所有函数都返回**新值**，不修改传进来的数组 / 对象（草稿是共享的，改到原卡就是「值悄悄丢了」）。
  */
 import { childrenOf, elementAt, isRecord, parentOfCode } from './state-codes'
+import { isItemId } from './state-ref-type'
 import type { ArrayValue, ItemObject, ItemValue, StateElement } from './types'
 
 /** 深拷贝一条树值：数组与普通对象都逐层复制，标量原样 */
@@ -100,6 +101,8 @@ function remapStruct(
 ): ItemObject {
   const source = isRecord(value) ? value : {}
   const out: ItemObject = {}
+  // 隐藏 id 不随字段改名 / 删除而变
+  if (isItemId(source.id)) out.id = source.id
   for (const field of childrenOf(state, code)) {
     if (removed.has(field.code)) continue
     out[mapping.get(field.code) ?? field.code] = remapField(

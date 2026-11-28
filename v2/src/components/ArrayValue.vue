@@ -18,11 +18,21 @@
  *   · 整数字段每一行在输入框右边带 `[data-array-range]` 小字 `min~max`（`integerRangeOf` 的生效上下限，
  *     与 `StateForm` 的 `[data-initial-range]` 同一把尺）。
  *
+ * **引用（ref）字段**（`2.6.1 来源` 这种）：值格子换成 `RefValueEditor`（别的字段仍是各自的控件），
+ * 候选从 `sourceItems` 给的源数组值里现算（卡模式默认读卡里的初始值，跨根按 code 找）。
+ *
+ * **删 item 会清掉引用**（引用契约 §8.3）：删之前先看有哪些引用指向这个数组 ——
+ * 删完都会低于 `min` ⇒ 整笔拒绝（`[data-delete-error]` 点名它们）；都还合法 ⇒ 先弹确认
+ * （`confirm` 交给页面那一层），确认后才删 item 并把新引用值交给上层写回。
+ *
  * `top` 只由初始值块传 true：`[data-array-item]` / `data-array-index` 是**顶层 item 列表**的钩子，
  * 嵌套数组不重复挂它（否则「外层有几个 item」会被内层的 item 数污染）。
  */
-import { computed } from 'vue'
-import { arrayItemOf, childrenOf, integerRangeOf, isRecord } from '../core/statetree'
+import { ref, computed } from 'vue'
+import RefValueEditor from './RefValueEditor.vue'
+import { cascadeOf, initialItemsOf } from './ref-support'
+import type { RefChange, RefUse } from './ref-support'
+import { arrayItemOf, childrenOf, integerRangeOf, isItemId, isRecord } from '../core/statetree'
 import type { ArrayValue, ItemObject, ItemValue, StateElement } from '../core/types'
 import { t } from '../i18n'
 
@@ -37,10 +47,18 @@ const props = defineProps<{
   /** 顶层初始值块：给 item 挂 `[data-array-item]` / `[data-array-index]` */
   top?: boolean
   disabled?: boolean
+  /** 源数组值的取法（ref 字段的候选）：缺省读卡里的初始值（跨根按 code 找） */
+  sourceItems?: (code: string) => unknown
+  /** 有哪些引用直接指向这个数组（删 item 前要按 min 判）：缺省 = 不做引用检查 */
+  refsOf?: (code: string) => RefUse[]
+  /** 删 item 会清掉引用时的确认（文案 → 确认后执行）：缺省 = 不弹确认、直接删 */
+  confirm?: (message: string, run: () => void) => void
 }>()
 const emit = defineEmits<{
   /** 这一层的整份值（数组 = item 列表；object = 那个对象） */
   change: [value: ArrayValue | ItemObject]
+  /** 删 item 之后被清掉的引用值（上层按值路径写回初始值表） */
+  refs: [changes: RefChange[]]
 }>()
 
 /** 这个容器的元素类型决定渲染形态（数组 ⇒ item 列表，别的 ⇒ object 字段块） */
@@ -67,12 +85,48 @@ function setField(index: number, fieldCode: string, value: ItemValue): void {
 
 /** 追加一项：默认值来自 `arrayItemOf`（与「加字段」共用同一个真源） */
 function addItem(): void {
-  commit([...items.value, arrayItemOf(props.state, props.code)])
+  commit([...items.value, arrayItemOf(props.state, props.code, items.value)])
 }
 
-/** 删掉一项：剩下的按新顺序重排（`data-array-index` 是 1 基位置，重排由渲染自动完成） */
+/** 被删除 item 挡住时的那条红字（点名会掉到 `min` 以下的引用） */
+const deleteError = ref<string | null>(null)
+
+/**
+ * 删掉一项：先看有哪些引用指向这个数组 ——
+ *   · 删完会低于 `min` ⇒ 整笔拒绝，红字点名那些引用，item 一个都不动；
+ *   · 删完都还合法 ⇒ 有引用就先让页面弹确认（「删除并清空 N 个引用」），确认后才删；
+ *   · 没有引用 ⇒ 直接删（`confirm` / `refsOf` 没给也一样）。
+ */
 function removeItem(index: number): void {
-  commit(items.value.filter((_, at) => at !== index))
+  const list = items.value
+  const target = list[index]
+  const id = isRecord(target) && isItemId(target.id) ? target.id : undefined
+  const uses = id === undefined ? [] : (props.refsOf?.(props.code) ?? [])
+  const { changes, blocked } = cascadeOf(uses, id ?? '')
+  if (blocked.length > 0) {
+    deleteError.value = t('editor.refDeleteBlocked', {
+      refs: blocked.map((use) => use.element.code).join(' / '),
+    })
+    return
+  }
+  deleteError.value = null
+  /** 真做的那一步：先写回被清掉的引用值，再删 item */
+  const remove = (): void => {
+    if (changes.length > 0) emit('refs', changes)
+    commit(list.filter((_, at) => at !== index))
+  }
+  if (changes.length === 0 || props.confirm === undefined) {
+    remove()
+    return
+  }
+  props.confirm(t('editor.refCascadeConfirm', { count: changes.length }), remove)
+}
+
+/** 源数组的 item 列表（ref 字段的候选）：卡模式默认读卡里的初始值，当前值模式由上层给 */
+function itemsOfSource(code: string | undefined): unknown {
+  if (code === undefined) return undefined
+  if (props.sourceItems !== undefined) return props.sourceItems(code)
+  return initialItemsOf(props.state, code)
 }
 
 /** 整数控件的 `min~max` 小字：与校验共用 `integerRangeOf` 的生效上下限 */
@@ -91,6 +145,8 @@ function hasChildren(field: StateElement): boolean {
 
 /** 标量字段自己的值：有孩子时是 `{<code>.0>: …, 孩子: …}` 里的那一格，没孩子就是裸值 */
 function ownValue(raw: ItemValue | undefined, field: StateElement): ItemValue {
+  // 引用的空值就是 null（不是空串）：少了这一条，值编辑器会把它读成「一条空引用」
+  if (field.type === 'ref') return raw ?? null
   if (!hasChildren(field)) return (raw ?? '') as ItemValue
   return (isRecord(raw) ? (raw[`${field.code}.0`] ?? '') : '') as ItemValue
 }
@@ -173,6 +229,16 @@ function onInteger(index: number, field: StateElement, event: Event): void {
             :disabled="disabled"
             @input="onText(index, field, $event)"
           />
+          <!-- 引用字段（`2.6.1 来源` 这种）：值格子是同一套行构建器，候选来自它自己的源数组 -->
+          <RefValueEditor
+            v-else-if="field.type === 'ref'"
+            :state="state"
+            :element="field"
+            :items="itemsOfSource(field.refSource)"
+            :value="ownValue(item[field.code], field)"
+            :disabled="disabled"
+            @change="(value) => setOwnValue(index, field, value as ItemValue)"
+          />
           <!-- 对象 / 数组字段：值整份挂在字段 code 上，孩子由下一层组件渲染 -->
           <!-- 删除按钮与**第一个字段同一行**：卡片直接从第一行开始，没有空白首行 -->
           <button
@@ -194,7 +260,11 @@ function onInteger(index: number, field: StateElement, event: Event): void {
           :code="field.code"
           :value="item[field.code]"
           :disabled="disabled"
+          :source-items="sourceItems"
+          :refs-of="refsOf"
+          :confirm="confirm"
           @change="(value) => setField(index, field.code, value)"
+          @refs="(changes) => emit('refs', changes)"
         />
       </div>
       <!-- 一个字段都没有的坏卡没有「第一行」可挂：单独给一行，按钮不至于消失 -->
@@ -215,6 +285,8 @@ function onInteger(index: number, field: StateElement, event: Event): void {
     <span v-if="isArray && items.length === 0" class="empty" data-array-empty>{{
       t('editor.arrayEmpty')
     }}</span>
+    <!-- 删除被引用 item 被拒的原因：点名会低于 min 的那些引用，item 一个都不许少 -->
+    <span v-if="deleteError !== null" class="delete-error" data-delete-error>{{ deleteError }}</span>
     <button v-if="isArray && !disabled" type="button" class="add" data-array-add @click="addItem">
       {{ t('editor.arrayAdd') }}
     </button>
@@ -300,6 +372,11 @@ function onInteger(index: number, field: StateElement, event: Event): void {
 .empty {
   font-size: var(--fs3);
   color: var(--ink-soft);
+}
+
+.delete-error {
+  font-size: var(--fs3);
+  color: var(--danger);
 }
 
 .add {

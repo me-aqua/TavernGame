@@ -96,7 +96,7 @@ function scalarWithChildrenCard({ nested = false } = {}) {
         '2.4.0': '背包自身',
         '2.4.1': '短剑',
         '2.4.2.1': '普通',
-        '2.4.2.2': [{ '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }],
+        '2.4.2.2': [{ id: 'id_1', '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }],
       }
     : {
         2.1: '旅人',
@@ -123,7 +123,7 @@ function nestedObjectCard() {
     {
       '2.4.1': '短剑',
       '2.4.2.1': '普通',
-      '2.4.2.2': [{ '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }],
+      '2.4.2.2': [{ id: 'id_1', '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }],
     },
     nestedCard(),
   )
@@ -162,10 +162,11 @@ describe('数组字段没有字段：换回标量（往返契约 §2）', () => 
     expect(tableOf(back), '字段的值住在 item 里，不写回根表').not.toHaveProperty('2.4.1')
     expect(cardIssues(back)).toEqual([])
     expect(() => validateCard(back)).not.toThrow()
+    // 中间那一步 text → array 造出来的 item 也要带 id（阶段 4），换回 text 时 id 留着
     expect(initialTreeOf(back)['2.4']).toEqual([
-      { '2.4.1': '', '2.4.2': 1 },
-      { '2.4.1': '', '2.4.2': 1 },
-      { '2.4.1': '', '2.4.2': 3 },
+      { id: 'id_1', '2.4.1': '', '2.4.2': 1 },
+      { id: 'id_2', '2.4.1': '', '2.4.2': 1 },
+      { id: 'id_3', '2.4.1': '', '2.4.2': 3 },
     ])
     expect(back.chain, '引用逐字保留').toEqual(before.chain)
     expect(card, '入参卡一个字都不许改').toEqual(before)
@@ -251,7 +252,7 @@ describe('有孩子的元素 → 数组：当前孩子值收成一个 item（往
     expect(element.type).toBe('array')
     expect(element.values, '旧类型的格子清掉').toBeUndefined()
     expect(subtreeCodesOf(array), '孩子定义一个都不许少 / 不许改名').toEqual(subtreeCodesOf(card))
-    expect(itemsOf(array), '当前孩子值收成一个 item').toEqual([{ '2.4.1': '短剑', '2.4.2': 1 }])
+    expect(itemsOf(array), '当前孩子值收成一个 item').toEqual([{ id: 'id_1', '2.4.1': '短剑', '2.4.2': 1 }])
     expect(itemsOf(array)).toHaveLength(1)
     expect(tableOf(array), '自己的值清掉').not.toHaveProperty('2.4.0')
     expect(tableOf(array), '孩子值不再摊在根表里').not.toHaveProperty('2.4.1')
@@ -272,10 +273,15 @@ describe('有孩子的元素 → 数组：当前孩子值收成一个 item（往
     const { setElementType, cardIssues } = await loadState()
     const { validateCard } = await loadSchema()
     const array = setElementType(scalarWithChildrenCard({ nested: true }), '2.4', 'array')
+    // 转换新建的 item 与它里面嵌套数组的 item 都要带 id（各自从 id_1 起）
     expect(itemsOf(array)).toEqual([
       {
+        id: 'id_1',
         '2.4.1': '短剑',
-        '2.4.2': { '2.4.2.1': '普通', '2.4.2.2': [{ '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }] },
+        '2.4.2': {
+          '2.4.2.1': '普通',
+          '2.4.2.2': [{ id: 'id_1', '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }],
+        },
       },
     ])
     expect(tableOf(array)).not.toHaveProperty('2.4.0')
@@ -293,7 +299,7 @@ describe('有孩子的元素 → 数组：当前孩子值收成一个 item（往
       '2.4.1': '',
       '2.4.2': 0,
     })
-    expect(itemsOf(setElementType(card, '2.4', 'array'))).toEqual([{ '2.4.1': '', '2.4.2': 0 }])
+    expect(itemsOf(setElementType(card, '2.4', 'array'))).toEqual([{ id: 'id_1', '2.4.1': '', '2.4.2': 0 }])
   })
 
   it('根元素（有孩子的标量）→ array：根自己的 initial 表整张换成一个 item、卡合法', async () => {
@@ -310,7 +316,7 @@ describe('有孩子的元素 → 数组：当前孩子值收成一个 item（往
     const array = setElementType(card, '1', 'array')
     const root = array.state.find((item) => item.code === '1')
     expect(root.type).toBe('array')
-    expect(root.initial, '根元素自己的 initial 就是整份数组').toEqual({ 1: [{ 1.1: 'A1' }] })
+    expect(root.initial, '根元素自己的 initial 就是整份数组').toEqual({ 1: [{ id: 'id_1', 1.1: 'A1' }] })
     expect(Object.keys(root.initial)).not.toContain('1.0')
     expect(cardIssues(array)).toEqual([])
     expect(() => validateCard(array)).not.toThrow()
@@ -351,7 +357,7 @@ describe('object → array：既有行为回归（往返契约 §4）', () => {
 
     expect(array.state.find((item) => item.code === '2.4').type).toBe('array')
     expect(subtreeCodesOf(array)).toEqual(subtreeCodesOf(card))
-    expect(itemsOf(array)).toEqual([{ '2.4.1': '短剑', '2.4.2': 7 }])
+    expect(itemsOf(array)).toEqual([{ id: 'id_1', '2.4.1': '短剑', '2.4.2': 7 }])
     expect(tableOf(array)).not.toHaveProperty('2.4.1')
     expect(tableOf(array)).not.toHaveProperty('2.4.2')
     expect(array.chain).toEqual(before.chain)
@@ -364,10 +370,15 @@ describe('object → array：既有行为回归（往返契约 §4）', () => {
     const { setElementType, cardIssues } = await loadState()
     const { validateCard } = await loadSchema()
     const array = setElementType(nestedObjectCard(), '2.4', 'array')
+    // 转换新建的 item 与它里面嵌套数组的 item 都要带 id（各自从 id_1 起）
     expect(itemsOf(array)).toEqual([
       {
+        id: 'id_1',
         '2.4.1': '短剑',
-        '2.4.2': { '2.4.2.1': '普通', '2.4.2.2': [{ '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }] },
+        '2.4.2': {
+          '2.4.2.1': '普通',
+          '2.4.2.2': [{ id: 'id_1', '2.4.2.2.1': '锋锐', '2.4.2.2.2': 2 }],
+        },
       },
     ])
     expect(cardIssues(array)).toEqual([])
@@ -420,8 +431,8 @@ describe('array → 标量：自己 + 孩子的搬运（往返契约 §5）', ()
       {
         ...tableOf(base),
         2.4: [
-          { '2.4.1': '短剑', '2.4.2': { '2.4.2.0': '锋利', '2.4.2.1': '旧剑' } },
-          { '2.4.1': '斗篷', '2.4.2': { '2.4.2.0': '普通', '2.4.2.1': '布' } },
+          { id: 'id_1', '2.4.1': '短剑', '2.4.2': { '2.4.2.0': '锋利', '2.4.2.1': '旧剑' } },
+          { id: 'id_2', '2.4.1': '斗篷', '2.4.2': { '2.4.2.0': '普通', '2.4.2.1': '布' } },
         ],
       },
     )
