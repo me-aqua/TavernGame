@@ -17,8 +17,13 @@
  *
  * `structureLocked`（存档编辑器）把 `+` / 加子元素 / 删除**整块拿掉**（不渲染、不是禁用）：
  * 那一侧的卡结构是冻结的，只许改名字 / 备注 / 提示词与眼睛。
+ *
+ * 引用（`ref`）那一行在写眼睛旁边还挂一枚 `[data-derived-write="<源数组 code>"]` 小标签
+ * （「随 2.4 级联」，引用契约 §8.4）：写源数组容器 ⇒ 引擎自动给**直接引用者自身值**的写权限。
+ * 它只说明「派生」这件事，**不改眼睛的 all / none**：`data-on` / `data-tri` 仍只反映 `writable` 里那一格。
  */
-import { MAX_DEPTH, codeDepth, refCoveredBy } from '../core/statetree'
+import { computed } from 'vue'
+import { MAX_DEPTH, codeDepth, refCoveredBy, refPathsOf } from '../core/statetree'
 import type { ChainNode, StateElement } from '../core/types'
 import { t } from '../i18n'
 
@@ -64,6 +69,26 @@ function triOf(field: 'read' | 'write', code: string): 'all' | 'none' {
  */
 function showsAddChild(element: StateElement): boolean {
   return element.type !== 'time' && codeDepth(element.code) < MAX_DEPTH
+}
+
+/**
+ * 每个引用元素的**派生写来源**（值 = 源数组 code）：这一列写权限按值路径展开之后包含它的 `refSource`
+ * ⇒ 引擎在 `applyWrite` 里会自动给它**自身值**的写权限（引用契约 §8.4：只给自身值、不给关系子元素；
+ * 字段写不传播、反向不传播）。展开用 `refPathsOf`，与引擎的 `coveredRefs` 是同一把尺。
+ */
+const derivedWrites = computed(() => {
+  const covered = (props.node?.writable ?? []).flatMap((ref) => refPathsOf(props.elements, ref))
+  const map = new Map<string, string>()
+  for (const element of props.elements) {
+    if (element.type !== 'ref' || element.refSource === undefined) continue
+    if (covered.includes(element.refSource)) map.set(element.code, element.refSource)
+  }
+  return map
+})
+
+/** 这一行的派生写来源；没有派生权限 ⇒ `''`（模板据此决定画不画那枚标签） */
+function derivedOf(code: string): string {
+  return derivedWrites.value.get(code) ?? ''
 }
 </script>
 
@@ -122,6 +147,15 @@ function showsAddChild(element: StateElement): boolean {
           >
             {{ t('editor.eyeWrite') }}
           </button>
+          <!-- 派生写权限（源数组容器在这一列写权限里 ⇒ 引用自身值可写）：只说明来源，不改眼睛的两态 -->
+          <span
+            v-if="showsWrite() && derivedOf(element.code) !== ''"
+            class="derived"
+            :data-derived-write="derivedOf(element.code)"
+            :title="t('editor.derivedWriteTitle', { source: derivedOf(element.code) })"
+          >
+            {{ t('editor.derivedWrite', { source: derivedOf(element.code) }) }}
+          </span>
         </template>
         <button
           v-if="!structureLocked && selectedCode !== null && showsAddChild(element)"
@@ -207,5 +241,28 @@ function showsAddChild(element: StateElement): boolean {
 .state-name {
   flex: 1 1 auto;
   font-size: var(--fs2);
+}
+
+/*
+ * 派生写权限的小标签：「随 2.4 级联」。虚线边框 + 次要字色 —— 它是一条说明，不是可点的 chip
+ * （点它不切换任何东西；切换仍只在旁边那颗写眼睛上）。
+ */
+.derived {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  height: var(--control-h);
+  padding: 0 6px;
+  font-size: var(--fs3);
+  line-height: 1;
+  color: var(--ink-soft);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+}
+
+/* 选中行是深底浅字：标签跟着换浅色，别在 accent 底上留一行看不清的灰 */
+.state-row.selected .derived {
+  color: var(--active-ink);
+  border-color: var(--active-ink);
 }
 </style>

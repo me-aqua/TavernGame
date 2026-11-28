@@ -250,6 +250,44 @@ export function refTreeIssues(card: Card, tree: Tree): CardIssue[] {
     for (const item of items) {
       if (isRecord(item)) issues.push(...itemRefIssues(card, element.code, item, tree, path))
     }
+    issues.push(...nestedIdIssues(card, element.code, items, path))
+  }
+  return issues
+}
+
+/** 嵌套数组里的 item id 也要有、且不重复（数组各自编号） */
+function nestedIdIssues(card: Card, code: string, items: unknown[], path: string): CardIssue[] {
+  const issues: CardIssue[] = []
+  for (const field of childrenOf(card.state, code)) {
+    if (field.type !== 'array') continue
+    for (const item of items) {
+      if (!isRecord(item)) continue
+      const nested = item[field.code]
+      if (!Array.isArray(nested)) continue
+      const seen = new Set<string>()
+      for (const entry of nested) {
+        const id = isRecord(entry) ? entry.id : undefined
+        if (!isItemId(id)) {
+          issues.push({
+            code: field.code,
+            path,
+            message: t('issue.itemIdMissing', { code: field.code }),
+            errorCode: 'E_VALIDATION',
+          })
+          continue
+        }
+        if (seen.has(id)) {
+          issues.push({
+            code: field.code,
+            path,
+            message: t('issue.itemIdDuplicate', { code: field.code, id }),
+            errorCode: 'E_VALIDATION',
+          })
+        }
+        seen.add(id)
+      }
+      issues.push(...nestedIdIssues(card, field.code, nested, path))
+    }
   }
   return issues
 }

@@ -7,17 +7,13 @@
  * 可选单字段等值筛选、`0 <= min <= max`、`max >= 1`、`max <= 999`。
  */
 import { t } from '../i18n'
+import { AppError } from './errors'
 import { childrenOf, isRecord } from './state-codes'
 import type { CardIssue } from './state-issues'
 import type { ItemValue, StateElement } from './types'
 
 /** `max` 第一版上限（引用契约 §三） */
 export const REF_MAX_LIMIT = 999
-
-/** 这个元素是不是引用 */
-export function isRefElement(element: StateElement | undefined): element is StateElement {
-  return element?.type === 'ref'
-}
 
 /** 源数组元素（不存在 / 不是数组 ⇒ undefined） */
 export function refSourceOf(state: StateElement[], element: StateElement): StateElement | undefined {
@@ -246,24 +242,23 @@ export function refValueIssues(
     return item[field.code] === filter.value
   }
   /** 判一条 id：形状、存在、筛选 */
-  const checkOne = (id: unknown, label: string): void => {
+  const checkOne = (id: unknown): void => {
     if (!isItemId(id)) {
-      issues.push(t('issue.refMsg22', { p1: element.code, p2: label, p3: JSON.stringify(id) }))
+      issues.push(t('issue.refMsg22', { p1: element.code, p2: JSON.stringify(id) }))
       return
     }
     const item = sourceId(id)
     if (item === undefined) {
-      issues.push(t('issue.refMsg23', { p1: element.code, p2: label, p3: id, p4: source.code }))
+      issues.push(t('issue.refMsg23', { p1: element.code, p2: id, p3: source.code }))
       return
     }
     if (!filterPass(item)) {
       issues.push(
         t('issue.refMsg24', {
           p1: element.code,
-          p2: label,
-          p3: id,
-          p4: String(filter?.field),
-          p5: JSON.stringify(filter?.value),
+          p2: id,
+          p3: String(filter?.field),
+          p4: JSON.stringify(filter?.value),
         }),
       )
     }
@@ -282,7 +277,7 @@ export function refValueIssues(
       if (typeof id === 'string' && seen.has(id))
         issues.push(t('issue.refMsg27', { p1: element.code, p2: id }))
       if (typeof id === 'string') seen.add(id)
-      checkOne(id, ' id')
+      checkOne(id)
     }
     if (value.length < min) issues.push(t('issue.refMsg28', { p1: element.code, p2: min, p3: value.length }))
     if (value.length > max) issues.push(t('issue.refMsg29', { p1: element.code, p2: max, p3: value.length }))
@@ -293,10 +288,10 @@ export function refValueIssues(
     return issues
   }
   if (typeof value !== 'string') {
-    issues.push(t('issue.refMsg31', { p1: element.code }))
+    issues.push(t('issue.refMsg30', { p1: element.code }))
     return issues
   }
-  checkOne(value, '')
+  checkOne(value)
   return issues
 }
 
@@ -312,9 +307,24 @@ export function assignIdsDeep(
     const oldItems = Array.isArray(oldValue) ? oldValue : []
     const oldIds = new Set(itemIdsOf(oldItems))
     const supplied = itemIdsOf(value)
+    if (new Set(supplied).size !== supplied.length) {
+      throw new AppError('E_VALIDATION', {
+        message: t('issue.itemIdDuplicate', { code: field.code, id: supplied.join(', ') }),
+        nextStep: t('next.editor'),
+        detail: { code: field.code, id: supplied },
+      })
+    }
+
     let next = Number(nextItemIdOf([...oldIds, ...supplied].map((id) => ({ id }))).slice(3))
     const fixed = value.map((item, index) => {
       if (!isRecord(item)) return item
+      if ('id' in item && !isItemId(item.id)) {
+        throw new AppError('E_VALIDATION', {
+          message: t('issue.itemIdInvalid', { code: field.code, id: String(item.id) }),
+          nextStep: t('next.editor'),
+          detail: { code: field.code, id: item.id },
+        })
+      }
       const oldItem = Array.isArray(oldValue) && isRecord(oldValue[index]) ? oldValue[index] : {}
       const withId = isItemId(item.id) ? item : { ...item, id: `id_${next++}` }
       for (const child of childrenOf(state, field.code)) {

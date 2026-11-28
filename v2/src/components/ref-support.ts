@@ -7,7 +7,9 @@
  * 这里不重复判一遍合法性 —— 那是 `refDefinitionIssues` / `refValueIssues` 的事。
  */
 import {
+  arrayRootOf,
   childrenOf,
+  isInsideArray,
   isItemId,
   isMultiRef,
   isRecord,
@@ -24,6 +26,8 @@ export interface RefUse {
   element: StateElement
   path: string
   value: unknown
+  /** 数组 item 里的引用（`2.6.1`）：值住在 item 里，没有扁平值路径 */
+  item?: boolean
 }
 
 /** 引用源的一档：`selectable = false` 的是包含自己的数组（引用它会递归） */
@@ -109,12 +113,24 @@ export function rowTextOf(
 
 /** 所有**直接**指向 `code` 这个数组的引用（`valueOf` 给它们现在的值） */
 export function refUsesOf(state: StateElement[], code: string, valueOf: (path: string) => unknown): RefUse[] {
-  return state
-    .filter((item) => item.type === 'ref' && item.refSource === code)
-    .flatMap((element) => {
-      const [path] = pathsOf(state, element.code)
-      return path === undefined ? [] : [{ element, path, value: valueOf(path) }]
-    })
+  const uses: RefUse[] = []
+  for (const element of state) {
+    if (element.type !== 'ref' || element.refSource !== code) continue
+    if (isInsideArray(state, element.code)) {
+      // item 级引用：值在每个 item 的字段里（没有扁平值路径）
+      const root = arrayRootOf(state, element.code)
+      const items = root === undefined ? undefined : valueOf(root)
+      if (!Array.isArray(items)) continue
+      for (const item of items) {
+        if (!isRecord(item)) continue
+        uses.push({ element, path: root as string, value: item[element.code], item: true })
+      }
+      continue
+    }
+    const [path] = pathsOf(state, element.code)
+    if (path !== undefined) uses.push({ element, path, value: valueOf(path) })
+  }
+  return uses
 }
 
 /**
@@ -153,6 +169,14 @@ export function cascadeOf(uses: RefUse[], id: string): { changes: RefChange[]; b
   const blocked: RefUse[] = []
   for (const use of uses) {
     const { min } = refBoundsOf(use.element)
+    if (use.item === true) {
+      // item 级引用没有扁平值路径：删源 item 时一律显式阻断，让人先改那个 item 字段
+      const affected = isMultiRef(use.element)
+        ? Array.isArray(use.value) && use.value.includes(id)
+        : use.value === id
+      if (affected) blocked.push(use)
+      continue
+    }
     if (isMultiRef(use.element)) {
       const ids = Array.isArray(use.value) ? use.value.filter(isItemId) : []
       if (!ids.includes(id)) continue

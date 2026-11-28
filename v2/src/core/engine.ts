@@ -51,9 +51,7 @@ import {
   refTreeIssues,
   refValueIssues,
   assignIdsDeep,
-  withItemIds,
   itemIdsOf,
-  isItemId,
   unitsOfMode,
 } from './statetree'
 import { advanceTimeArgsOf, writeStateArgsOf } from './tool-definitions'
@@ -277,27 +275,11 @@ export function applyWrite({
     if (!integerValueFits(element, numeric) || !integerStepFits(element, numeric, tree[path])) throw reject()
     value = numeric
   } else if (element.type === 'array') {
-    // 数组整表替换：先归一中文字段名，再补 / 保留隐藏 id（新 item 由机器生成）
+    // 数组整表替换：先归一中文字段名，再补 / 保留隐藏 id（旧 id 必须原样带回，新 item 由机器生成）
     const incoming = normalize(value)
     if (incoming === undefined || !Array.isArray(incoming)) throw reject()
     const oldIds = new Set(itemIdsOf(tree[path]))
-    for (const item of incoming) {
-      if (isRecord(item) && 'id' in item && !isItemId(item.id)) {
-        throw new AppError('E_VALIDATION', {
-          message: t('error.writeValueUnknown', { path, key: String(item.id) }),
-          nextStep: t('next.editor'),
-          detail: { path, id: item.id },
-        })
-      }
-    }
     const supplied = itemIdsOf(incoming)
-    if (new Set(supplied).size !== supplied.length) {
-      throw new AppError('E_VALIDATION', {
-        message: t('error.writeValueDuplicate', { path, field: 'id' }),
-        nextStep: t('next.editor'),
-        detail: { path, field: 'id' },
-      })
-    }
     for (const id of supplied) {
       if (!oldIds.has(id)) {
         throw new AppError('E_VALIDATION', {
@@ -307,7 +289,7 @@ export function applyWrite({
         })
       }
     }
-    const withIds = assignIdsDeep(card.state, element, withItemIds(incoming, [...oldIds]), tree[path])
+    const withIds = assignIdsDeep(card.state, element, incoming, tree[path])
     if (!arrayValueFits(card.state, path, withIds)) throw reject()
     value = withIds
   } else if (element.type === 'ref') {

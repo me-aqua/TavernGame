@@ -321,7 +321,34 @@ export function removeNode(card: Card, code: string): Card {
     }),
   }))
 
-  return { ...card, state: nextState, chain }
+  // ref 定义里的 code 也要跟着重排（源数组 / 投影字段 / 筛选字段）；指向已删的 ⇒ 拒绝
+  const remapRefCode = (path: string, refCode: string): string => {
+    const mapped = mapCode(path)
+    if (mapped === undefined) {
+      throw invalid(t('issue.removeRefDangling', { code, ref: refCode, target: path }), {
+        code,
+        ref: refCode,
+        target: path,
+      })
+    }
+    return mapped
+  }
+  const remappedState = nextState.map((item) => {
+    if (item.type !== 'ref') return item
+    const filter = item.refFilter
+    return {
+      ...item,
+      ...(item.refSource === undefined ? {} : { refSource: remapRefCode(item.refSource, item.code) }),
+      ...(item.refFields === undefined
+        ? {}
+        : { refFields: item.refFields.map((field) => remapRefCode(field, item.code)) }),
+      ...(filter === undefined
+        ? {}
+        : { refFilter: { ...filter, field: remapRefCode(filter.field, item.code) } }),
+    }
+  })
+
+  return { ...card, state: remappedState, chain }
 }
 
 /**
@@ -363,9 +390,6 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
   }
   if (element.type === 'ref' && type === 'object') {
     throw invalid(t('issue.arrayToObject', { code }), { code, type })
-  }
-  if (element.type === 'time' && type === 'ref') {
-    throw invalid(t('issue.typeFromTime', { code }), { code, type })
   }
   // 数组子树里的字段是 schema：容器字段（object / array）默认不换类型；但**数组字段可以换标量**
   // （逐 item 转换：每个外层实例取第一个 item 的字段值做孩子值，第 2 项起丢弃；0 字段 ⇒ 标量默认值）。
