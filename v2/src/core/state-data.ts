@@ -320,6 +320,8 @@ export function removeNode(card: Card, code: string): Card {
  */
 export function setElementType(card: Card, code: string, type: StateType): Card {
   const element = elementAt(card.state, code)
+  // 同一个类型 ⇒ 什么都不做（值 / 字段原样；只有下拉真的换了档才走下面的搬运）
+  if (element.type === type) return card
   if (type === 'time' && element.type !== 'time') {
     throw invalid(t('issue.typeToTime', { code }), { code, type })
   }

@@ -5,12 +5,12 @@
  * 字段定义（`2.4.1`）**不是**值路径。权限引用可以更细：`2.4` = 整个数组（含增删项目），
  * `2.4.1` = 所有 item 里的「物品」这一格（整列替换，不增删项目）。两者都在这一份里解析。
  *
- * 覆盖规则：一个引用覆盖它自己；**数组容器 / 数组字段**那类祖先引用覆盖它下面的字段引用
- * （`2.4` 覆盖 `2.4.1`、`2.4.2` 覆盖 `2.4.2.1`），所以「整表可写」自然也允许写其中一格。
+ * **覆盖（`refCoveredBy`）只用于读投影与眼睛三态**：一个引用覆盖自己 + 整棵子树。
+ * **写权限不按覆盖**：`applyWrite` 要求 `path` 与 `writable` 里某一条**逐字相等**（容器不授权字段写，
+ * 字段也不授权整表写）—— 见 `engine.ts` 的 `applyWrite`。
  */
 import { elementAt, isInsideArray, parentOfCode } from './state-codes'
 import { pathsOf, elementOfPath } from './state-data'
-import { arrayRootOf } from './state-array'
 import type { StateElement } from './types'
 
 /**
@@ -39,7 +39,7 @@ export function refsUnder(state: StateElement[], code: string): string[] {
 
 /**
  * `list` 里有没有哪个引用覆盖 `ref`：引用覆盖**自己 + 整棵子树**，所以祖先 code 也算
- * （`2.4` 覆盖 `2.4.1`、`2` 也覆盖 `2.4.1`）。
+ * （`2.4` 覆盖 `2.4.1`、`2` 也覆盖 `2.4.1`）。**只给读投影 / 眼睛三态用**；写权限走精确引用。
  * 非字段引用只认自身（它们由值路径那一套管，不在这里重复）。
  */
 export function refCoveredBy(state: StateElement[], list: string[], ref: string): boolean {
@@ -47,19 +47,6 @@ export function refCoveredBy(state: StateElement[], list: string[], ref: string)
   if (!isFieldRef(state, ref)) return false
   for (let at = parentOfCode(ref); at !== undefined; at = parentOfCode(at)) {
     if (list.includes(at)) return true
-  }
-  return false
-}
-
-/**
- * 这个字段引用从所属数组根走到它自己，中间有没有穿过**数组字段**（`2.4.2.2.1` 要穿 `2.4.2.2`）。
- * 穿过的写没法表达成「每个顶层 item 一格」（那一格是嵌套数组里的第几项），引擎按 `E_VALIDATION` 拒。
- */
-export function crossesArrayField(state: StateElement[], ref: string): boolean {
-  const root = arrayRootOf(state, ref)
-  if (root === undefined) return false
-  for (let at = parentOfCode(ref); at !== undefined && at !== root; at = parentOfCode(at)) {
-    if (elementAt(state, at).type === 'array') return true
   }
   return false
 }

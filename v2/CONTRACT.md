@@ -375,7 +375,7 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - `chain` 至少 1 个节点；`type === 'output'` 恰好 1 个（0 个 / ≥2 个都错）；`type === 'time'` 最多 1 个。
 - 节点 `type` 只能是 `'time' | 'normal' | 'output'`（别的值 ⇒ `E_VALIDATION`）；节点 `id` 唯一；`historyTurns` 是 ≥0 的整数；`retryCount` 缺省合法（按 0），给了就必须是 `0..5` 的整数（`-1` / `6` / `1.5` / `'1'` ⇒ `E_CHAIN`，`detail = { nodeId, retryCount }`，`message` 点名节点 id 与区间）。
 - `readsUpstream` 里的每个 id 都必须在链上，且**排在它前面**（首节点只能为空）。
-- `reads` 引用必须存在（提示词 id、元素 code，或合法的 `<code>.0` 自身值路径）；`writable` 引用必须是元素 code 或合法的 `<code>.0`；悬空 / 叶子 `.0` / `object` 的 `.0` / 时间 `0.0` / **数组的字段 code（`2.4.1`）与 `2.4.0`** ⇒ `E_VALIDATION`（点名那个引用）。
+- `reads` 引用必须存在（提示词 id、元素 code、合法的 `<code>.0` 自身值路径，或**数组字段引用** `2.4.1` / `2.4.2.2.1`）；`writable` 引用必须是元素 code、合法的 `<code>.0` 或数组字段引用；悬空 / 叶子 `.0` / `object` 的 `.0` / 时间 `0.0` / `2.4.0` / 字段的 `.0`（`2.4.1.0`）⇒ `E_VALIDATION`（点名那个引用）。
 - **写权限只由 `writable` 决定**：`time` / `normal` 都可以写任意 code（含 `'0'` 与数组容器 code），工具按 code 覆盖到的值路径派生；`output` 的必须是 `[]`。
 - **状态树那半的规矩**由 `core/state-issues.ts` 的 `cardIssues(card, { initial })` 给出（`code` / `path` / 中文 `message`，外加 `validateCard` 抛第一条时用的 `errorCode`）：编号铁律（含顶层根 1..n）、深度 ≤ 5、`object` 有孩子、`time` 的 `timeMode` / 节日格子 / 时间值、enum / integer 的格子、父 code 存在、孩子连续编号；**数组**另有四条：数组必须有 ≥1 个字段、`object` / `array` 字段必须有孩子、标量字段不许有孩子、数组字段不能是 `time`（嵌套子孙也拦）；**初始值这一族**只看根元素（子元素带 `initial` ⇒ 一条问题；根缺 `initial` / 少值路径 / 多键（含 `2.4.0` 与字段 code）/ 值不合类型与上下限或 item 形状 ⇒ 各一条，`path` 点名那一条）。`initial: false`（存档模式）⇒ 初始值这一族整块不判。保存按钮与 `validateCard` 共用这一份清单，不各判一套。
 - **`prompts` 里必须有 `id === 'opening'` 的那一块**（缺 ⇒ `E_VALIDATION`，不补）。
