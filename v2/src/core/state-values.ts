@@ -10,7 +10,8 @@
  * 没有子字段时仍就是一个裸标量（不凭空多一层对象）。对象字段没有自身值（只有孩子），
  * 数组字段的值是嵌套 item 列表。
  */
-import { INTEGER_LIMIT, childrenOf, isRecord } from './state-codes'
+import { INTEGER_LIMIT, childrenOf, elementAt, isInsideArray, isRecord } from './state-codes'
+import { arrayRootOf } from './state-array'
 import { isTimeValue } from './timevalue'
 import type { ArrayValue, ItemObject, ItemValue, StateElement } from './types'
 
@@ -161,4 +162,181 @@ export function arrayItemOf(state: StateElement[], code: string): ItemObject {
   return Object.fromEntries(
     childrenOf(state, code).map((field) => [field.code, fieldDefaultOf(state, field)]),
   )
+}
+
+/**
+ * 写值归一化失败的种类（engine 用它拼中文消息 + detail）：
+ *   · `unknown` —— 键既不是字段中文名也不是字段 code；
+ *   · `duplicate` —— 同一个字段在同一层被写了两次（名字 + code / `自身` + `<code>.0`）；
+ *   · `ambiguous` —— 键同时命中多个字段（兄弟同名 / 名字与别的字段 code 撞车）。
+ */
+export type WriteValueProblem =
+  | { kind: 'unknown'; key: string }
+  | { kind: 'duplicate'; field: string }
+  | { kind: 'ambiguous'; name: string; fields: string[] }
+
+/** `normalizeWriteValue` 的失败信号（结构性形状不对仍返回 `undefined`，交给现有 `valueNotFit`） */
+export class WriteValueError extends Error {
+  readonly problem: WriteValueProblem
+
+  constructor(problem: WriteValueProblem) {
+    super(`write value: ${problem.kind}`)
+    this.problem = problem
+  }
+}
+
+/**
+ * **写值归一化**（`write_state` 专用，唯一一份）：提示词里给模型看的是**中文名**，
+ * 落盘要的是 code。这里把入参对象里的键统一映射回 code：
+ *   · 数组整表（`2.4`）：每个 item 的字段名 / code 都认，递归（嵌套数组 / 对象 / 有孩子的标量）；
+ *   · 字段列（`2.4.1`）：每项的字段对象同样认名字与 `自身`，`自身` ⇒ `<code>.0`；
+ *   · **未知键 / 同一个字段出现两次 / 名字有歧义 ⇒ 抛 `WriteValueError`**（engine 报
+ *     `E_VALIDATION`，tree 不动）；结构本身不是对象 / 数组 ⇒ `undefined`（走现有 `valueNotFit`）。
+ * 只做映射，不做校验：映射完仍走 `arrayValueFits` / `fieldValueFits`；提示词那一侧不改（只发中文名）。
+ */
+export function normalizeWriteValue(
+  state: StateElement[],
+  path: string,
+  value: unknown,
+): unknown | undefined {
+  const element = elementAt(state, path)
+  if (isInsideArray(state, path)) {
+    const root = arrayRootOf(state, path) as string
+    return normalizeColumn(state, root, path, value)
+  }
+  if (element.type !== 'array' || !Array.isArray(value)) return undefined
+  const items: ItemObject[] = []
+  for (const item of value) {
+    const normalized = normalizeStructInput(state, path, item)
+    if (normalized === undefined) return undefined
+    items.push(normalized)
+  }
+  return items
+}
+
+/** 字段列：外层每项一个值；穿过 `array` 字段时按层再套数组（与 `patchFieldLayer` 同构） */
+function normalizeColumn(
+  state: StateElement[],
+  container: string,
+  ref: string,
+  value: unknown,
+): unknown[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const out: unknown[] = []
+  for (const entry of value) {
+    const normalized = normalizeColumnEntry(state, container, ref, entry)
+    if (normalized === undefined) return undefined
+    out.push(normalized)
+  }
+  return out
+}
+
+/** 一个外层 item 的值：沿路径下钻 —— `array` 字段吃一层，对象 / 有孩子的标量只是路径段 */
+function normalizeColumnEntry(
+  state: StateElement[],
+  container: string,
+  ref: string,
+  entry: unknown,
+): unknown | undefined {
+  let at = container
+  const current = entry
+  for (;;) {
+    const nextCode = `${at}.${ref.slice(at.length + 1).split('.')[0]}`
+    if (nextCode === ref) return normalizeFieldInput(state, elementAt(state, ref), current)
+    const field = elementAt(state, nextCode)
+    if (field.type !== 'array') {
+      at = nextCode
+      continue
+    }
+    if (!Array.isArray(current)) return undefined
+    const out: unknown[] = []
+    for (const itemValue of current) {
+      const normalized = normalizeColumnEntry(state, nextCode, ref, itemValue)
+      if (normalized === undefined) return undefined
+      out.push(normalized)
+    }
+    return out
+  }
+}
+
+/** 一个结构体（数组 item / 对象字段）的入参：键 = 字段中文名或 code */
+function normalizeStructInput(state: StateElement[], code: string, value: unknown): ItemObject | undefined {
+  if (!isRecord(value)) return undefined
+  const out: ItemObject = {}
+  const seen = new Set<string>()
+  for (const [key, raw] of Object.entries(value)) {
+    const field = lookupField(state, code, key)
+    if (seen.has(field.code)) throw new WriteValueError({ kind: 'duplicate', field: field.code })
+    seen.add(field.code)
+    const normalized = normalizeFieldInput(state, field, raw)
+    if (normalized === undefined) return undefined
+    out[field.code] = normalized
+  }
+  return out
+}
+
+/** 一个字段值的入参：对象 / 数组递归；有孩子的标量认 `自身` 与孩子名 */
+function normalizeFieldInput(
+  state: StateElement[],
+  field: StateElement,
+  value: unknown,
+): ItemValue | undefined {
+  if (field.type === 'object') return normalizeStructInput(state, field.code, value)
+  if (field.type === 'array') {
+    if (!Array.isArray(value)) return undefined
+    const items: ItemObject[] = []
+    for (const item of value) {
+      const normalized = normalizeStructInput(state, field.code, item)
+      if (normalized === undefined) return undefined
+      items.push(normalized)
+    }
+    return items
+  }
+  const children = childrenOf(state, field.code)
+  if (children.length === 0) return value as ItemValue
+  if (!isRecord(value)) return undefined
+  const out: ItemObject = {}
+  const seen = new Set<string>()
+  for (const [key, raw] of Object.entries(value)) {
+    if (key === '自身' || key === `${field.code}.0`) {
+      if (seen.has('own')) throw new WriteValueError({ kind: 'duplicate', field: field.code })
+      seen.add('own')
+      out[`${field.code}.0`] = raw as ItemValue
+      continue
+    }
+    const child = lookupField(state, field.code, key)
+    if (seen.has(child.code)) throw new WriteValueError({ kind: 'duplicate', field: child.code })
+    seen.add(child.code)
+    const normalized = normalizeFieldInput(state, child, raw)
+    if (normalized === undefined) return undefined
+    out[child.code] = normalized
+  }
+  return out
+}
+
+/**
+ * 一个键对应哪个字段：`field.code === key` 与 `field.name === key` 各算一次命中；
+ * 必须**恰好命中一个字段**（同一个字段的 code 与名字同时命中不算歧义）。
+ * 未知 ⇒ `unknown`；兄弟同名 / 名字撞上别的字段 code ⇒ `ambiguous`（带候选 code）。
+ */
+function lookupField(state: StateElement[], code: string, key: string): StateElement {
+  const children = childrenOf(state, code)
+  const byCode = children.find((child) => child.code === key)
+  const byName = children.filter((child) => child.name === key)
+  if (byCode !== undefined) {
+    if (byName.length === 0 || (byName.length === 1 && byName[0].code === byCode.code)) return byCode
+    throw new WriteValueError({
+      kind: 'ambiguous',
+      name: key,
+      fields: [
+        byCode.code,
+        ...byName.filter((child) => child.code !== byCode.code).map((child) => child.code),
+      ],
+    })
+  }
+  if (byName.length === 1) return byName[0]
+  if (byName.length > 1) {
+    throw new WriteValueError({ kind: 'ambiguous', name: key, fields: byName.map((child) => child.code) })
+  }
+  throw new WriteValueError({ kind: 'unknown', key })
 }

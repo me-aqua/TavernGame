@@ -41,7 +41,10 @@ import {
   isFieldRef,
   isRecord,
   isTimeValue,
+  normalizeWriteValue,
   pathsOf,
+  WriteValueError,
+  type WriteValueProblem,
   refElementOf,
   refPathsOf,
   unitsOfMode,
@@ -184,12 +187,41 @@ export function applyWrite({
       nextStep: t('next.editor'),
       detail: { path, value, type: (element ?? field)?.type },
     })
+  /** 归一化失败（未知键 / 同字段写两次 / 同名歧义）：中文消息点名路径与出问题的字段 */
+  const rejectNormalize = (problem: WriteValueProblem) =>
+    new AppError('E_VALIDATION', {
+      message:
+        problem.kind === 'unknown'
+          ? t('error.writeValueUnknown', { path, key: problem.key })
+          : problem.kind === 'duplicate'
+            ? t('error.writeValueDuplicate', { path, field: problem.field })
+            : t('error.writeValueAmbiguous', {
+                path,
+                name: problem.name,
+                fields: problem.fields.join('、'),
+              }),
+      nextStep: t('next.editor'),
+      detail: { path, ...problem },
+    })
+  /** 把提示词的中文名 / 自身 换成 code；归一化失败 ⇒ 点名字段的 E_VALIDATION */
+  const normalize = (incoming: unknown): unknown | undefined => {
+    try {
+      return normalizeWriteValue(card.state, path, incoming)
+    } catch (cause) {
+      if (cause instanceof WriteValueError) throw rejectNormalize(cause.problem)
+      throw cause
+    }
+  }
   // 数组字段（`2.4.1` 这类引用，没有值路径）：整列替换。
   // 值**按数组层嵌套**：最外层长度 = 外层 item 数；路上每穿过一个 array 字段就多一层数组，
   // 每层长度 = 那一层的当前 item 数；最内层按字段类型判。形状不对 ⇒ `E_VALIDATION`，tree 不动。
   if (element === undefined) {
     const arrayCode = arrayRootOf(card.state, path) as string
-    const patched = patchFieldLayer(card.state, arrayCode, tree[arrayCode], path, value)
+    const incoming = normalize(value)
+    const patched =
+      incoming === undefined
+        ? undefined
+        : patchFieldLayer(card.state, arrayCode, tree[arrayCode], path, incoming)
     if (patched === undefined) throw reject()
     return { ...tree, [arrayCode]: patched as Tree[string] }
   }
@@ -206,8 +238,10 @@ export function applyWrite({
     if (!integerValueFits(element, numeric) || !integerStepFits(element, numeric, tree[path])) throw reject()
     value = numeric
   } else if (element.type === 'array') {
-    // 数组整表替换：item 形状按字段定义严格收（不做数字字符串收编、不判步幅）
-    if (!arrayValueFits(card.state, path, value)) throw reject()
+    // 数组整表替换：先把提示词里的中文名 / 自身归一化成 code，再按字段定义严格收
+    const incoming = normalize(value)
+    if (incoming === undefined || !arrayValueFits(card.state, path, incoming)) throw reject()
+    value = incoming
   }
   return { ...tree, [path]: value as Tree[string] }
 }
