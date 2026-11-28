@@ -310,19 +310,22 @@ export function removeNode(card: Card, code: string): Card {
  * 换一个元素的类型：清掉旧类型的专属格子（values / 上下限 / 步幅 / 模式 / 节日），
  * **所属根的初始值表不整张删**（它还要装新值）—— 只改这一格，并按新类型补默认值：
  *   · 新类型 `object` ⇒ 自己那条值路径从表里删掉（结构体没有自身值）；
- *   · 新类型 `array` ⇒ 清掉这个 code 子树在表里的所有键，写入 `table[code] = []`；
+ *   · 新类型 `array`：**没有孩子** ⇒ 清掉这个 code 子树在表里的所有键，写入 `table[code] = []`；
+ *     **有孩子**（object 或有孩子的标量）⇒ 自己的值清掉，当前孩子值收成**一个 item**（长度 1），
+ *     孩子一条值路径都没有 ⇒ `[]`；
  *   · 有孩子 ⇒ 默认值写在 `<code>.0`；没孩子 ⇒ 写在 `<code>`；
  *   · 旧类型 `object`、新类型是标量 ⇒ 补一条自己的值路径。
  * 孩子不动（换类型不搬孩子）。非 `time` 元素换成 `time` ⇒ `E_VALIDATION`。
  *
  * **数组换类型**（卡编辑器；增补票）：只对数组子树之外的容器，字段 code 原样保留（孩子不动）：
  *   · 数组 → `text` / `integer` / `enum`：字段留成孩子，初始值取**第一个 item** 铺进孩子路径，
- *     自己的默认值写 `<code>.0`（0 项 ⇒ 各字段默认值 + 自己的默认值）；
- *   · 对象 → 数组：对象的字段变成 item 的字段；对象当前的字段值拼成**一个 item**（长度 1）；
- *     对象没有字段可拼 ⇒ 空数组 `[]`；
+ *     自己的默认值写 `<code>.0`（0 项 ⇒ 各字段默认值 + 自己的默认值）；有孩子的标量字段按
+ *     `<字段>.0` + 孩子路径铺，不留中间键；
+ *   · 有孩子的元素 → 数组：见上（own 值清掉、孩子值收一个 item）；
  *   · `array → object` / `array ⇄ time` 一律 `E_VALIDATION`（结构体不可选、时间不能换）。
  * **数组子树里的字段**：标量字段之间照常换（每个实例写新类型的默认值）；容器字段（`object` / `array`）
- * 不换类型 —— 逐 item 的容器转换不在本票范围，数据层与下拉一起拒。
+ * 不换类型 —— 逐 item 的容器转换不在本票范围，数据层与下拉一起拒。**例外（t64）**：
+ * **0 个字段**的数组字段可以换回 `text` / `integer` / `enum`（每个外层实例写标量默认值）。
  */
 export function setElementType(card: Card, code: string, type: StateType): Card {
   const element = elementAt(card.state, code)
@@ -340,13 +343,22 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
   if (element.type === 'array' && type === 'object') {
     throw invalid(t('issue.arrayToObject', { code }), { code, type })
   }
-  // 数组子树里的字段是 schema：**容器字段（array / object）一律不换类型**（逐 item 转换是另一票）。
-  // 数组字段只留 `array`、对象字段只留 `object`；数据层与下拉一起拒，不留能点出坏卡的选项。
+  // 数组子树里的字段是 schema：**容器字段（array / object）不换类型**（逐 item 转换是另一票）。
+  // 例外（t64）：**0 个字段**的数组字段可以换回 text / integer / enum（每个外层实例写标量默认值）；
+  // 有字段的数组字段换标量仍拒（逐 item 转换另一票）。
   if (isInsideArray(card.state, code)) {
-    if (element.type === 'array' || element.type === 'object') {
+    if (element.type === 'object') {
       throw type === 'array' || type === 'object'
         ? invalid(t('issue.fieldContainerConvert', { code }), { code, type })
         : invalid(t('issue.fieldScalarConvert', { code }), { code, type })
+    }
+    if (element.type === 'array') {
+      const hasFields = childrenOf(card.state, code).length > 0
+      if (type === 'object' || hasFields) {
+        throw type === 'object'
+          ? invalid(t('issue.fieldContainerConvert', { code }), { code, type })
+          : invalid(t('issue.fieldScalarConvert', { code }), { code, type })
+      }
     }
   }
   const next: StateElement = { ...element, type }
@@ -369,10 +381,11 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
       object[code] = fieldDefaultOf(card.state, next)
     }
     table[arrayRoot] = value
-  } else if (element.type === 'object' && type === 'array') {
-    // 对象 → 数组：字段当前值拼成一个 item；后代在表里一条值路径都没有 ⇒ 空数组（§十.3）
-    const hasValue = pathsOf(card.state, code).some((path) => path in table)
-    const item = hasValue ? readObjectFromTable(card.state, code, table) : undefined
+  } else if (type === 'array' && childrenOf(card.state, code).length > 0) {
+    // 有孩子的元素（object 或有孩子的标量）→ 数组：自己的值清掉，当前孩子值收成**一个 item**；
+    // 后代一条值路径都没有 ⇒ `[]`（`<code>.0` 是自己的值，不算孩子值）。
+    const hasChildValue = pathsOf(card.state, code).some((path) => path !== `${code}.0` && path in table)
+    const item = hasChildValue ? readObjectFromTable(card.state, code, table) : undefined
     clearTableSubtree(table, code)
     table[code] = item === undefined ? [] : [item]
   } else if (element.type === 'array') {

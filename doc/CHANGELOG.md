@@ -20,6 +20,24 @@
 
 ## [未发布]
 
+### 新增
+- **数组字段往返与「有孩子 → 数组」收成一个 item（2026-11-28）** —— **0 个字段**的数组字段可以换回
+  `text` / `integer` / `enum`：每个外层 item 里那一格回到标量默认值（有字段的数组字段换标量仍拒，
+  逐 item 转换是另一票；类型下拉按「有没有字段」给四档或一档）。**任何有孩子的元素**（`object` 或
+  有孩子的标量）换成数组：自己的值清掉、孩子定义留成字段、当前孩子值收成**一个 item**（孩子一条值路径
+  都没有 ⇒ `[]`）。数组 → 标量仍按「第 1 项铺进孩子 + 自己的默认值写 `<code>.0`」往返（有孩子的
+  标量字段铺 `<字段>.0` + 孩子路径，不留中间键）。判据：`v2/tests/array-conversion-roundtrip.test.js` ·
+  `v2/e2e/array-conversion.spec.js`。
+- **存档编辑器的根元素当前值树（2026-11-28）** —— 存档模式选中根元素时，中栏多一块只读的
+  `[data-current-tree="<root>"]`：按 `pathsOf` 顺序把 `save.tree` 里这一整棵子树的当前值一次列全
+  （`[data-current-tree-row]` / `[data-current-tree-code]` / `[data-current-tree-name]` /
+  `[data-current-tree-value]`；时间根按 `formatTime`；数组行复用只读 `[data-current-array]`）。
+  子元素 / 数组元素 / 卡编辑器不渲染；保存不动 `save.tree`。判据：`v2/e2e/save-current-tree.spec.js`。
+- **枚举白名单改成草稿 / 提交两态（2026-11-28）** —— `[data-field="values"]` 打字只改本地草稿
+  （末行回车、空行、只含空白的行、行首行尾空白都逐字保留，不重绘回旧值、不写卡）；`blur` / 点保存
+  才提交：按行 `trim`、丢掉空行与只含空白的行、textarea 归一化，并按既有规则决定初始值是否重置为
+  第一项。判据：`v2/e2e/enum-values-draft.spec.js`。
+
 ### 修改
 - **读取覆盖与容器口径对齐（2026-11-28）** —— 引用覆盖后代只看**容器**：object / array 元素（或字段）
   的 ref 覆盖它的孩子；**标量元素（哪怕有自己的值和子字段）只覆盖它自己**。所以读 `1.1` 只输出它自己的值，

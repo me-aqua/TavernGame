@@ -124,9 +124,41 @@ test.describe('数组行的类型下拉（增补 §四.1）', () => {
     }
   })
 
-  test('数组字段（item schema 里）仍只有 array 一档', async ({ page }) => {
+  test('有字段的数组字段（item schema 里）仍只有 array 一档', async ({ page }) => {
     await openEditor(page, nestedCard({ id: 'c-conv-field' }), '2.4.2.2')
     expect((await typeOptions(page)).map((option) => option.value)).toEqual(['array'])
+  })
+
+  test('没有字段的数组字段：四档；改回文字后每项取默认值、保存通过（往返契约 §6）', async ({ page }) => {
+    await openEditor(page, holdCard({ id: 'c-conv-field-roundtrip' }), '2.4.1')
+
+    // text 字段 → array：这是 0 字段的数组字段（中间态是坏卡，只活在草稿里）。
+    await page.locator(typeSelect).selectOption('array')
+    await expect(page.locator(typeSelect)).toHaveValue('array')
+    await expect(page.locator('[data-confirm]'), '0 项不弹确认').toHaveCount(0)
+    expect(
+      (await typeOptions(page)).map((option) => option.value),
+      '没有字段的数组字段也要能换回去（text / integer / enum / array）',
+    ).toEqual(['text', 'integer', 'enum', 'array'])
+
+    // 改回 text：每个外层 item 里的那一格回到空串；保存重新通过。
+    await page.locator(typeSelect).selectOption('text')
+    await expect(page.locator('[data-confirm]')).toHaveCount(0)
+    await expect(page.locator(typeSelect)).toHaveValue('text')
+    expect(await save(page)).toBe(0)
+
+    const { card, element, table } = await stored(page, '2.4.1')
+    expect(element.type).toBe('text')
+    expect(
+      card.state.some((item) => item.code.startsWith('2.4.1.')),
+      '不凭空造孩子',
+    ).toBe(false)
+    expect(table['2.4'], '每一项回到 text 默认值').toEqual([
+      { '2.4.1': '', '2.4.2': 1 },
+      { '2.4.1': '', '2.4.2': 1 },
+      { '2.4.1': '', '2.4.2': 3 },
+    ])
+    expect(table).not.toHaveProperty('2.4.1')
   })
 
   test('时间行的类型控件是三个模式，没有 array', async ({ page }) => {

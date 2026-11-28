@@ -657,6 +657,7 @@ function goBack(): void {
             :state="card.state"
             :initial-locked="editingSave"
             :current-value="currentValue"
+            :current-tree="save?.tree"
             @edit="(element) => patchElement(selectedElement!.code, element)"
             @retype="(type, select) => retypeElement(selectedElement!.code, type, select)"
             @initial="setInitialValue"

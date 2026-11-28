@@ -26,13 +26,15 @@
  * 选中数组元素时给只读的 `[data-current-array]` 当前值块；节日勾选照旧可改（它们影响的是提示词，
  * 不是这一局的状态）。
  */
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import ArrayValue from './ArrayValue.vue'
 import { HOLIDAY_GROUPS, NO_HOLIDAYS } from '../core/holidays'
 import {
   TIME_MODES,
   cellsOfMode,
+  childrenOf,
   elementOfPath,
+  formatTime,
   isInsideArray,
   integerRangeOf,
   pathsOf,
@@ -47,6 +49,7 @@ import type {
   TimeMode,
   TimeUnit,
   TimeValue,
+  Tree,
   TreeValue,
   YearMinuteValue,
 } from '../core/types'
@@ -60,6 +63,8 @@ const props = defineProps<{
   initialLocked?: boolean
   /** 存档模式：这一格在 `save.tree` 里的当前值（数字 / 数组元素显示在下方） */
   currentValue?: TreeValue
+  /** 存档模式：这一局的当前树（根元素选中时渲染只读的 `[data-current-tree]`） */
+  currentTree?: Tree
 }>()
 const emit = defineEmits<{
   /** 换掉整份元素（名字 / 备注 / 白名单 / 上下限 / 节日勾选这类**结构**字段） */
@@ -86,15 +91,22 @@ function typeLabel(type: StateType): string {
  *     第 1 项的值铺进孩子、自己的默认值写 `<code>.0`；不许换成时间）；
  *   · 对象（数组子树之外，导入的卡）⇒ 不列 `object`（结构体是内部形态）；只列作者选项（含 `array`）；
  *   · 数组子树里的标量字段 ⇒ `text` / `integer` / `enum` / `array`（没有 time / object）；
- *   · 数组子树里的对象字段 ⇒ 只有 `object`、数组字段 ⇒ 只有 `array`（容器字段不换类型，数据层也拒）；
+ *   · **0 个字段**的数组字段 ⇒ `text` / `integer` / `enum` / `array`（每个外层实例回到标量默认值）；
+ *     **有字段**的数组字段 ⇒ 只有 `array`（逐 item 转换另一票）；
+ *   · 数组子树里的对象字段 ⇒ 只有 `object`（容器字段不换类型，数据层也拒）；
  *   · 其它元素 ⇒ 作者选项原样。
  */
 const typeOptions = computed<StateType[]>(() => {
   const element = props.element
   const field = isInsideArray(props.state, element.code)
-  if (element.type === 'array') return field ? ['array'] : ['text', 'integer', 'enum', 'array']
+  if (element.type === 'array') {
+    if (!field) return ['text', 'integer', 'enum', 'array']
+    return childrenOf(props.state, element.code).length === 0
+      ? ['text', 'integer', 'enum', 'array']
+      : ['array']
+  }
   // 「结构体」任何一行都不出现在下拉里（它是内部形态）：导入的 object 元素只列作者选项
-  // 数组子树里的容器字段不换类型（逐 item 转换是另一票）：对象字段只留 object、数组字段只留 array
+  // 数组子树里的容器字段不换类型（逐 item 转换是另一票）：对象字段只留 object
   if (element.type === 'object') return field ? ['object'] : ['text', 'integer', 'enum', 'time', 'array']
   // 数组里的标量字段：作者选项去掉时间（时间不能当字段）
   if (field) return ['text', 'integer', 'enum', 'array']
@@ -153,6 +165,25 @@ const cells = computed(() => cellsOfMode(mode.value))
 
 /** 初始值块：只在「选中的是根元素」且非存档模式时渲染 */
 const showsInitial = computed(() => !props.initialLocked && isRoot.value)
+
+/** 当前值树：只在**存档模式 + 根元素**时渲染（这一局的 `save.tree` 一次列全） */
+const showsCurrentTree = computed(() => Boolean(props.initialLocked && isRoot.value && props.currentTree))
+
+/** 当前值树的行 = 这个根元素覆盖的值路径（顺序同 `pathsOf`） */
+const currentTreePaths = computed(() => pathsOf(props.state, props.element.code))
+
+/** 一条值路径的当前值（读自 `save.tree`） */
+function currentTreeValueOf(path: string): TreeValue | undefined {
+  return props.currentTree?.[path]
+}
+
+/** 当前值的只读文本：时间根按 `formatTime`（与提示词同一份渲染），其它 `String(value)` */
+function currentTreeTextOf(path: string): string {
+  const value = props.currentTree?.[path]
+  const owner = ownerOf(path)
+  if (owner?.type === 'time') return formatTime(value as TimeValue, owner.timeMode ?? 'year-minute')
+  return String(value ?? '')
+}
 
 /** 某条后代值路径归哪个元素（控件的类型跟着它走） */
 function ownerOf(path: string): StateElement | undefined {
@@ -236,12 +267,38 @@ function setTextInitial(path: string, raw: string): void {
   emit('initial', path, raw)
 }
 
-/** 下拉白名单：一行一个，空行不算一项；旧值不在新表里 ⇒ 重置为第一项（契约 §2.2） */
-function setValues(raw: string): void {
-  const values = raw
+/** 枚举白名单的本地草稿：打字只改它（DOM 逐字保留），blur / 保存才提交 */
+const valuesDraft = ref((props.element.values ?? []).join('\n'))
+
+/** 卡草稿里的白名单变了（提交 / 换类型）⇒ 草稿跟到最新值 */
+watch(
+  () => (props.element.values ?? []).join('\n'),
+  (next) => {
+    valuesDraft.value = next
+  },
+)
+
+/** 换选中元素 ⇒ 草稿从新元素的 `values` 重新开始 */
+watch(
+  () => props.element.code,
+  () => {
+    valuesDraft.value = (props.element.values ?? []).join('\n')
+  },
+)
+
+/**
+ * 提交枚举草稿：按行 `trim`、丢掉空行 / 只含空白的行；写回卡草稿，
+ * 并按既有规则决定初始值是否重置（旧值不在新列表 ⇒ 重置为第一项）。
+ * 只在 textarea `blur` / 点保存（浏览器先 blur 再 click）时走到这里；打字期间不写卡。
+ */
+function commitValues(): void {
+  const values = valuesDraft.value
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line !== '')
+  const normalized = values.join('\n')
+  if (valuesDraft.value !== normalized) valuesDraft.value = normalized
+  if (normalized === (props.element.values ?? []).join('\n')) return
   // 白名单被清空时没有「第一项」可重置：保留旧值，保存校验会拦住空白名单
   const keep = typeof ownValue.value === 'string' && values.includes(ownValue.value)
   emit('edit', { ...props.element, values })
@@ -318,12 +375,8 @@ function requestMode(event: Event): void {
 
       <label v-if="element.type === 'enum'" class="stack">
         <span class="field-label">{{ t('editor.fieldValues') }}</span>
-        <textarea
-          class="values"
-          data-field="values"
-          :value="(element.values ?? []).join('\n')"
-          @input="setValues(($event.target as HTMLTextAreaElement).value)"
-        ></textarea>
+        <!-- 草稿：打字只改本地文本（回车 / 空行原样保留），blur / 保存才归一化并写卡 -->
+        <textarea class="values" data-field="values" v-model="valuesDraft" @blur="commitValues"></textarea>
       </label>
 
       <template v-if="element.type === 'integer'">
@@ -398,6 +451,25 @@ function requestMode(event: Event): void {
             t('editor.holidayTraditionalNote')
           }}</span>
         </div>
+      </div>
+    </div>
+
+    <!-- 存档模式 · 根元素：这一局的当前值树（只读；`save.tree` 一次列全，含数组 item） -->
+    <div v-if="showsCurrentTree" class="current-tree stack" :data-current-tree="element.code">
+      <span class="field-label">{{ t('editor.fieldCurrent') }}</span>
+      <div
+        v-for="path in currentTreePaths"
+        :key="path"
+        class="initial-row"
+        :data-current-tree-row="path"
+        :style="{ marginLeft: `${codeIndent(path)}px` }"
+      >
+        <span class="initial-code" data-current-tree-code>{{ displayCode(path) }}</span>
+        <span class="initial-name ellipsis" :data-current-tree-name="path">{{ nameOf(path) }}</span>
+        <div v-if="ownerOf(path)?.type === 'array'" class="current-array">
+          <ArrayValue :state="state" :code="path" :value="currentTreeValueOf(path)" current top disabled />
+        </div>
+        <span v-else class="current" :data-current-tree-value="path">{{ currentTreeTextOf(path) }}</span>
       </div>
     </div>
 
@@ -508,6 +580,13 @@ function requestMode(event: Event): void {
 }
 
 .initial {
+  flex: 0 0 auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+/* 存档模式的当前值树：与初始值块同一版式（只读，不参与写盘） */
+.current-tree {
   flex: 0 0 auto;
   padding-top: 16px;
   border-top: 1px solid var(--line);
