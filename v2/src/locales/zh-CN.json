@@ -416,5 +416,9 @@
   "issue.refSourceNestedArray": "引用 {code} 的引用源 {source} 是嵌套数组（第一版只允许顶层数组作为引用源）",
   "issue.refNestedField": "引用 {code} 只能作为顶层数组的直接字段（嵌套数组或更深的字段不能是引用）",
   "issue.refItemChild": "数组 item 里的引用 {code} 不能有子元素",
-  "issue.refMultiChild": "引用 {code} 最多 {max} 个，不能有子元素（子元素是针对单条引用的）"
+  "issue.refMultiChild": "引用 {code} 最多 {max} 个，不能有子元素（子元素是针对单条引用的）",
+  "prompt.refStructOwn": "\"{key}\": 指针（源 item 的 id 或 null）",
+  "prompt.refStructShape": "值必须是对象：{ {fields} }（不能只写裸指针，关系子元素要一起给）",
+  "prompt.refStructChild": "引用 {source} 的一个指针（null 或 id）",
+  "prompt.refStructSeparator": "，"
 }

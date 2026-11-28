@@ -328,6 +328,22 @@ export function nestedArrayRefCard(over = {}) {
 }
 
 /**
+ * item 里**没有孩子**的叶子引用：`2.6.3 来源三`（→ `1.4`，0..1）。用来分辨
+ * 「派生写权限给叶子引用、不给带孩子的引用」。
+ */
+export function leafItemRefCard(over = {}) {
+  const items = activeBuffs().map((item) => ({ ...item, '2.6.3': 'id_1' }))
+  const state = refState({
+    extraElements: [
+      refElement('2.6.3', '来源三', { refSource: '1.4', refFields: ['1.4.1'], min: 0, max: 1 }),
+    ],
+    extraPlayerInitial: { 2.6: items },
+  })
+  return { ...refCard(), id: 'c-ref-leaf-item', name: 'leaf item ref card', state, ...over }
+}
+
+/**
+ * **ref 的孩子还是 ref**（item 深度）/**
  * **ref 的孩子还是 ref**（item 深度）：`2.6.1 来源`（→ `1.4`，1..1）带一个孩子
  * `2.6.1.1 增益来源`（→ `1.5`，0..1，投影 `1.5.1`）。item 里的值是
  * `{ '2.6.1.0': 'id_1', '2.6.1.1': 'id_2' }`。

@@ -20,13 +20,22 @@
  * 那一侧的卡结构是冻结的，只许改名字 / 备注 / 提示词与眼睛。
  *
  * 引用（`ref`）那一行在写眼睛旁边还挂一枚 `[data-derived-write="<源数组 code>"]` 小标签
- * （「随 2.4 级联」，引用契约 §8.4）：写源数组容器 ⇒ 引擎自动给**直接引用者自身值**的写权限，
- * **任何深度都一样**（顶层 ref 的自身值是它的值路径；item 级 ref 的自身值是它那一列，`2.6.1`）——
- * 所以只要源数组在这一列写权限里，那一行就有标签。标签只管自身值，**不管关系子元素**
- * （给子元素写不给派生权限），也**不改眼睛的 all / none**（`data-on` / `data-tri` 只反映 `writable` 那一格）。
+ * （「随 2.4 级联」，引用契约 §8.4）：写源数组容器 ⇒ 引擎自动给**直接引用者自身值**的写权限。
+ * 画的条件跟引擎一致：**顶层 ref**（有孩子也一样 —— 自身值是它的值路径 `<code>.0`）与**没有孩子的 item 级 ref**
+ * （自身值就是那一列 `2.6.1`）。**item 级 ref 一旦有孩子就不画** —— 它的自身值是每个 item 里的 `<code>.0` 那一格，
+ * 不是一整列，引擎不派生这条写。标签只管自身值，**不管关系子元素**，也**不改眼睛的 all / none**
+ * （`data-on` / `data-tri` 只反映 `writable` 那一格）。
  */
 import { computed } from 'vue'
-import { MAX_DEPTH, codeDepth, refBoundsOf, refCoveredBy, refPathsOf } from '../core/statetree'
+import {
+  MAX_DEPTH,
+  childrenOf,
+  codeDepth,
+  isInsideArray,
+  refBoundsOf,
+  refCoveredBy,
+  refPathsOf,
+} from '../core/statetree'
 import type { ChainNode, StateElement } from '../core/types'
 import { t } from '../i18n'
 
@@ -79,16 +88,22 @@ function showsAddChild(element: StateElement): boolean {
 
 /**
  * 每个引用元素的**派生写来源**（值 = 源数组 code）：这一列写权限按值路径展开之后包含它的 `refSource`
- * ⇒ 引擎在 `applyWrite` 里会自动给它**自身值**的写权限，**任何深度都一样**（引用契约 §8.4：只给自身值、
- * 不给关系子元素；字段写不传播、反向不传播）。展开用 `refPathsOf`，与引擎的 `coveredRefs` 同一把尺；
- * item 级引用的「自身值」是它那一列（`2.6.1`，引擎的 `derived` 就放这个字段 code），所以那种行同样画标签。
+ * ⇒ 引擎在 `applyWrite` 里会自动给它**自身值**的写权限（引用契约 §8.4：只给自身值、不给关系子元素；
+ * 字段写不传播、反向不传播）。展开用 `refPathsOf`，与引擎的 `coveredRefs` 同一把尺。
+ *
+ * 两种位置都画：**顶层 ref**（有孩子也一样，自身值是 `<code>.0`）与**没有孩子的 item 级 ref**（自身值是那一列）。
+ * **item 级 ref 有孩子时不画** —— 那时自身值是每个 item 里的 `<code>.0` 那一格，不是一整列，引擎不派生。
  */
 const derivedWrites = computed(() => {
   const covered = (props.node?.writable ?? []).flatMap((ref) => refPathsOf(props.elements, ref))
   const map = new Map<string, string>()
   for (const element of props.elements) {
     if (element.type !== 'ref' || element.refSource === undefined) continue
-    if (covered.includes(element.refSource)) map.set(element.code, element.refSource)
+    if (!covered.includes(element.refSource)) continue
+    if (isInsideArray(props.elements, element.code) && childrenOf(props.elements, element.code).length > 0) {
+      continue
+    }
+    map.set(element.code, element.refSource)
   }
   return map
 })

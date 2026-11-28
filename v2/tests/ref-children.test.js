@@ -21,6 +21,7 @@ import {
   payloadOf,
   refCard,
   refChildCard,
+  refChildRefCard,
   saveOf,
   stateLines,
   treeOf,
@@ -288,5 +289,38 @@ describe('item 级引用带子元素（2026-11-28 重开：任何标量位置都
     expect(error.code).toBe('E_VALIDATION')
     expect(error.message).toMatch(CJK)
     expect(`${error.message} ${JSON.stringify(error.detail ?? {})}`, '报文要点名 2.6.1').toContain('2.6.1')
+  })
+})
+
+describe('item 级 ref 的孩子也要递归查值（坏 id 别漏）', () => {
+  it('2.6.1.1 写了一个不存在的 id ⇒ cardIssues 点名它', async () => {
+    const { cardIssues } = await loadState()
+    const base = refChildRefCard()
+    const items = treeOf(base)['2.6'].map((item, index) => ({
+      ...item,
+      '2.6.1': { '2.6.1.0': 'id_1', '2.6.1.1': index === 0 ? 'id_99' : 'id_2' },
+    }))
+    const card = withInitialValue(base, '2.6', items)
+    const issues = cardIssues(card)
+    const hit = issues.find((issue) => issue.code === '2.6.1.1' || issue.path === '2.6.1.1')
+    expect(hit, `要有一条指到 2.6.1.1 的问题（实际：${JSON.stringify(issues)}）`).toBeTruthy()
+    expect(hit.message, '报文要说这个 id 不在源数组里').toContain('id_99')
+  })
+
+  it('同样的坏 id 落在存档树里 ⇒ saveTreeIssues 也点名它', async () => {
+    const { saveTreeIssues } = await loadState()
+    const base = refChildRefCard()
+    const tree = treeOf(base)
+    const badTree = {
+      ...tree,
+      2.6: tree['2.6'].map((item, index) => ({
+        ...item,
+        '2.6.1': { '2.6.1.0': 'id_1', '2.6.1.1': index === 0 ? 'id_99' : 'id_2' },
+      })),
+    }
+    const issues = saveTreeIssues(base, badTree)
+    const hit = issues.find((issue) => issue.code === '2.6.1.1' || issue.path === '2.6.1.1')
+    expect(hit, `存档校验也要递归到孩子那层（实际：${JSON.stringify(issues)}）`).toBeTruthy()
+    expect(hit.message).toContain('id_99')
   })
 })

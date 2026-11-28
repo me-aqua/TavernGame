@@ -173,6 +173,8 @@ export function applyWrite({
     if (element.type !== 'ref' || element.refSource === undefined) continue
     if (!coveredRefs.includes(element.refSource)) continue
     // 顶层 ref：自身值就是它的值路径；item 级 ref：自身值是那个字段列（更深也一样）
+    // 但 item 级 ref 带子元素时不派生：字段列写会连关系子元素一起替换
+    if (isInsideArray(card.state, element.code) && childrenOf(card.state, element.code).length > 0) continue
     const ownPath = isInsideArray(card.state, element.code)
       ? element.code
       : pathsOf(card.state, element.code)[0]

@@ -431,6 +431,21 @@ function writeRuleOf(state: Card['state'], element: Card['state'][number]): stri
   return t('prompt.writableText')
 }
 
+/** 带子元素的引用在字段列里的值形状：{ "<code>.0": 指针, "<code>.N": 孩子 }（不能只写裸指针） */
+function refStructRuleOf(state: Card['state'], element: Card['state'][number]): string {
+  const own = t('prompt.refStructOwn', { key: `${element.code}.0` })
+  const children = childrenOf(state, element.code).map((child) => {
+    const rule =
+      child.type === 'ref'
+        ? t('prompt.refStructChild', { source: child.refSource ?? '' })
+        : fieldRuleOf(state, child)
+    return `"${child.code}": ${rule}`
+  })
+  return t('prompt.refStructShape', {
+    fields: [own, ...children].join(t('prompt.refStructSeparator')),
+  })
+}
+
 /** 引用在可写段里的说明：源数组 / 筛选 / 数量 / 可写 null（投影字段是只读视图） */
 function refWriteRuleOf(state: Card['state'], element: Card['state'][number]): string {
   const source = element.refSource ?? ''
@@ -457,7 +472,11 @@ export function arrayFieldRulesOf(state: Card['state'], code: string): string {
 
 /** 一个数组字段的类型说明：标量给类型与范围，对象 / 数组字段把子字段套在括号里 */
 export function fieldRuleOf(state: Card['state'], field: Card['state'][number]): string {
-  if (field.type === 'ref') return refWriteRuleOf(state, field)
+  if (field.type === 'ref') {
+    return childrenOf(state, field.code).length === 0
+      ? refWriteRuleOf(state, field)
+      : refStructRuleOf(state, field)
+  }
   if (field.type === 'object')
     return t('prompt.arrayObject', { fields: arrayFieldRulesOf(state, field.code) })
   if (field.type === 'array') return t('prompt.arrayNested', { fields: arrayFieldRulesOf(state, field.code) })
@@ -532,6 +551,8 @@ function writableLinesOf(card: Card, node: ChainNode): string[] {
     if (element.type !== 'ref' || element.refSource === undefined) continue
     if (!coveredRefs.has(element.refSource)) continue
     if (isInsideArray(card.state, element.code)) {
+      // 带孩子的 item ref 不派生：字段列写会连关系子元素一起替换
+      if (childrenOf(card.state, element.code).length > 0) continue
       const root = arrayRootOf(card.state, element.code)
       if (root === undefined || coveredRefs.has(root) || emitted.has(element.code)) continue
       emitted.add(element.code)

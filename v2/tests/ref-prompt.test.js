@@ -274,3 +274,15 @@ describe('提示词 · ref 的孩子也是 ref（item 深度）要递归投影',
     expect(typeof source['增益来源'], '孩子的引用位不是裸指针').toBe('object')
   })
 })
+
+describe('提示词 · 带孩子的引用，可写形状是「自身值 + 孩子」的对象', () => {
+  it('2.6.1 的可写行点名 2.6.1.0 / 2.6.1.1，不说「item id」', async () => {
+    const card = patchNode(refChildRefCard(), 'check', { writable: ['2.6.1'] })
+    const lines = writableLines(await promptOf(card, 'check'))
+    const line = lines.find((text) => text.startsWith('- 2.6.1「来源」'))
+    expect(line, `可写段里应当有 2.6.1 那一行（实际：${JSON.stringify(lines)}）`).toBeTruthy()
+    expect(line, '要写明自身值那一格 2.6.1.0').toContain('2.6.1.0')
+    expect(line, '要写明关系子元素 2.6.1.1').toContain('2.6.1.1')
+    expect(line, '不是一列裸 item id').not.toContain('item id')
+  })
+})

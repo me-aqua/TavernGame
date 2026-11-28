@@ -16,6 +16,8 @@ import { describe, expect, it } from 'vitest'
 import {
   bagItems,
   itemRefChildCard,
+  leafItemRefCard,
+  refChildRefCard,
   nodeOf,
   patchNode,
   refCard,
@@ -155,5 +157,24 @@ describe('写权限 · item / 更深位置上的直接引用者（派生）', ()
     const denied = await writeErrorWith(card, ['1.4'], '2.6.1.1', ['双手', '单手'])
     expect(denied, '源数组写权限不带出 ref 子元素的写权限').not.toBeNull()
     expect(denied.code).toBe('E_CHAIN')
+  })
+})
+
+describe('写权限 · 派生只给「没有孩子」的 item 级引用', () => {
+  it('带孩子的 item 级 ref（2.6.1 挂 2.6.1.1）⇒ 写源数组 1.4 **不**派生写它', async () => {
+    const card = refChildRefCard()
+    const denied = await writeErrorWith(card, ['1.4'], '2.6.1', [
+      { '2.6.1.0': 'id_2', '2.6.1.1': 'id_2' },
+      { '2.6.1.0': 'id_2', '2.6.1.1': 'id_2' },
+    ])
+    expect(denied, '带孩子的引用整格写会连孩子一起换掉 ⇒ 不派生').not.toBeNull()
+    expect(denied.code).toBe('E_CHAIN')
+  })
+
+  it('没有孩子的 item 级 ref（2.6.3）⇒ 写源数组 1.4 仍然派生写它', async () => {
+    const card = leafItemRefCard()
+    const written = await writeWith(card, ['1.4'], '2.6.3', ['id_2', null])
+    expect(written['2.6'][0]['2.6.3'], '叶子引用照样可写').toBe('id_2')
+    expect(written['2.6'][1]['2.6.3'], 'null 清空也授权').toBeNull()
   })
 })
