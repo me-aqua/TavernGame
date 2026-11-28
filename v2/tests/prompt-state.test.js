@@ -310,3 +310,52 @@ describe('提示词 · 示例卡的 JSON 键是中文名', () => {
     expect(JSON.stringify(bag), '数组里不许出现数字键').not.toMatch(/"[0-9]+"\s*:/)
   })
 })
+
+/**
+ * F8-①（评审缺口）：真实示例卡的 `check` / `output` 节点，不是合成的「一个读者」。
+ *
+ * 新读口径下 `1.1「区域」`（enum，有孩子 `1.1.1「地点」`）只出自己的值；地点必须由
+ * 自己的 ref 单独成行。删掉示例卡 `reads` 里的 `1.1.1`，这一行就消失 —— 判据必须跟着红。
+ */
+describe('提示词 · 示例卡真实节点的状态段带「地点」', () => {
+  async function promptOf(nodeId) {
+    const { buildPrompt } = await loadPrompt()
+    const { initialTreeOf } = await loadState()
+    const sample = JSON.parse(readFileSync(SAMPLE, 'utf8'))
+    const node = sample.chain.find((item) => item.id === nodeId)
+    expect(node, `示例卡应当有 ${nodeId} 节点`).toBeTruthy()
+    return buildPrompt({
+      card: sample,
+      save: v5Save(sample, { tree: initialTreeOf(sample) }),
+      node,
+      action: '推门走进酒馆',
+      outputs: {},
+    })
+  }
+
+  function expectLocationLine(prompt, nodeId) {
+    const lines = stateLines(prompt)
+    expect(lines, `${nodeId} 读了状态，状态块必须在`).not.toBeNull()
+    const rows = lines ?? []
+    expect(
+      rows.filter((line) => line.startsWith('- 1.1「区域」：')),
+      `${nodeId} 的 1.1「区域」行：标量有孩子也只出自己的值`,
+    ).toEqual(['- 1.1「区域」："晨风镇"'])
+    expect(
+      rows.filter((line) => line.startsWith('- 1.1.1「地点」：')),
+      `${nodeId} 的 1.1.1「地点」行`,
+    ).toEqual(['- 1.1.1「地点」："醉猫旅店 · 一楼"'])
+    expect(
+      rows.filter((line) => line.includes('醉猫旅店 · 一楼')),
+      `${nodeId} 的地点值只能出现在地点行`,
+    ).toHaveLength(1)
+  }
+
+  it('check 的状态段：区域只出自己的值，地点单独一行', async () => {
+    expectLocationLine(await promptOf('check'), 'check')
+  })
+
+  it('output 的状态段：区域只出自己的值，地点单独一行', async () => {
+    expectLocationLine(await promptOf('output'), 'output')
+  })
+})

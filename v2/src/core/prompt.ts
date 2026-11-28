@@ -176,8 +176,9 @@ function subtreeOf(
 
 /**
  * 一个元素投影成提示词里的那一段：时间是按模式格式化的那一行（`2024-02-10 08:30（周六）` /
- * `2024-02-10（周六）` / `第 5 天 08:30`）；有孩子的节点是「自身值 + 整棵子树」的 JSON；
- * 叶子就是自己的值（JSON 形态）。数组给了 `selected`（字段引用）就只投影那些字段。
+ * `2024-02-10（周六）` / `第 5 天 08:30`）；**object / array 容器**输出孩子 / item 的 JSON，
+ * **标量元素只输出自己的值**（哪怕有孩子）；叶子就是自己的值（JSON 形态）。
+ * 数组给了 `selected`（字段引用）就只投影那些字段。
  */
 function projectOf(card: Card, tree: Tree, element: Card['state'][number], selected?: string[]): string {
   if (element.type === 'time') {
@@ -286,11 +287,12 @@ function underReadParent(state: Card['state'], code: string, reads: string[]): b
 
 /**
  * 状态段的几行。三类读法各出各的：
- *   · 读**元素 code** ⇒ 一行：自己这个节点（有孩子就是自身值 + 整棵子树的 JSON，`object` 没有 `"0"`）；
+ *   · 读**元素 code** ⇒ 一行：**object / array 容器**输出孩子 / item 的 JSON（object 没有 `"0"`）；
+ *     **标量元素只输出自己的值**（哪怕有孩子）；
  *   · 读 **`<code>.0`** ⇒ 一行：只输出这个元素自己的值（`code` 那一格写的是值路径）；
  *   · 读**叶子 code** ⇒ 一行：就是它自己的值。
- * 父 code 读到时，子孙不再单独出行；只读了 `.0` 时孩子照旧可以单独读。
- * 时间那一行下面可以多一行 `节日：…`（见 `holidayLineOf`）。
+ * 读 **object / array** 父 code 时子孙不再单独出行；**读标量父 code 不抑制孩子**（要读孩子就单独给 ref）；
+ * 只读了 `.0` 时孩子照旧可以单独读。时间那一行下面可以多一行 `节日：…`（见 `holidayLineOf`）。
  */
 function stateLinesOf(card: Card, tree: Tree, reads: string[]): string[] {
   const lines: string[] = []

@@ -311,9 +311,10 @@ function patchElement(code: string, element: StateElement): void {
  *
  * 状态元素的【读】/【写】只有 **all / none**（老板口径：没有半态；`reads` / `writable` 数组是唯一真源）：
  *   · `all` 且自己的 code 在清单里 ⇒ **只摘掉自己**（关掉容器不补隐藏 ref：子字段显式开着的仍留着）；
- *   · `all` 但只是**被数组容器引用覆盖**（字段行）⇒ **拆开容器**：把容器换成「目标以外的每一层兄弟」，
- *     让这一列真的关掉（例：`['2.4']` 点 `2.4.1` ⇒ `['2.4.2']`）；
- *   · `none` ⇒ 加自己，并去掉后代冗余引用（开父行 = 清单里只有父 code，不逐个孩子）。
+ *   · `all` 但只是**被 object / array 容器引用覆盖**（子行）⇒ **拆开那个容器**：把容器换成「目标以外的每一层
+ *     兄弟」，让这一列真的关掉（例：`['2.4']` 点 `2.4.1` ⇒ `['2.4.2']`）；
+ *   · `none` ⇒ **标量行只加自己**（孩子 ref 独立保留）；**object / array 行**加自己并去掉后代冗余
+ *     （开容器 = 清单里只有容器 code，不逐个孩子）。
  * 叶子只有 all / none 两态，所以它的按钮永远只切自己。
  */
 function toggleRef(field: 'reads' | 'writable' | 'readsUpstream', ref0: string, tri?: 'all' | 'none'): void {
