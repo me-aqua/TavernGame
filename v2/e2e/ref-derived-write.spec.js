@@ -88,3 +88,40 @@ test('item 内的 ref（2.6.1）也显示「随 1.4 级联」；顶层 2.5 仍�
   await expect(nested, 'item 内的 ref 也要画派生写标记').toHaveCount(1)
   await expect(nested).toHaveText('随 1.4 级联')
 })
+
+/**
+ * 深度的第二档（t80 的 badge-depth 探针转正）：item 级 ref **加了孩子之后不再画派生标记**。
+ * 口径：item 里的 ref 一旦有自己的关系子元素，它的「自身值」不再是那一格裸值（值变成
+ * `{ "<code>.0", "<code>.1" }`），派生写只覆盖「自身值」这一个语义，显示层就不再声称「随源数组级联」；
+ * 顶层 ref（`2.5`）不受影响。
+ */
+test('item 级 ref 加孩子前后：2.6.1 的派生标记消失，顶层 2.5 的照旧', async ({ page }) => {
+  await boot(page, { sample: true })
+  const cards = await readStorage(page, KEYS.cards)
+  await page.goto(`${APP_PATH}${route.edit(cards[0].id)}`)
+  await expect(page.locator('[data-page="editor"]')).toBeVisible()
+  await expect(page.locator('[data-state-tree]')).toBeVisible()
+  await page.locator('[data-node-id="check"]').click()
+  await expect(
+    page.locator(`${row('1.4')} [data-eyes="write"]`),
+    '前置：1.4 在判定节点的写权限里',
+  ).toHaveAttribute('data-on', 'true')
+
+  // ① 没有孩子时：item 级 ref 有派生标记，顶层 2.5 也有
+  const nested = page.locator(badge('2.6.1', '1.4'))
+  await expect(nested, '没有孩子时 item 级 ref 画标记').toHaveCount(1)
+  await expect(nested).toHaveText('随 1.4 级联')
+  await expect(page.locator(badge('2.5', '2.4')), '顶层 2.5 的标记照旧').toHaveCount(1)
+
+  // ② 给 2.6.1 加一个孩子
+  await page.locator(row('2.6')).click()
+  await expect(page.locator(`${row('2.6.1')} [data-add-child]`), 'item 级 ref 能加子元素').toHaveCount(1)
+  await page.locator(`${row('2.6.1')} [data-add-child]`).click()
+  await expect(page.locator(row('2.6.1.1')), '孩子出现在 2.6.1 下').toBeVisible()
+
+  // ③ 回 S1（选中工作流节点）才看得到派生标记；有了孩子 ⇒ 2.6.1 的标记消失、顶层 2.5 不受影响
+  await page.locator('[data-node-id="check"]').click()
+  await expect(page.locator(badge('2.6.1', '1.4')), '有孩子之后不再画派生标记').toHaveCount(0)
+  await expect(page.locator(`${row('2.6.1')} [data-derived-write]`), '一条都不许剩').toHaveCount(0)
+  await expect(page.locator(badge('2.5', '2.4')), '顶层 2.5 的标记照旧在').toHaveCount(1)
+})

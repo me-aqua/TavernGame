@@ -437,7 +437,9 @@ function refStructRuleOf(state: Card['state'], element: Card['state'][number]): 
   const children = childrenOf(state, element.code).map((child) => {
     const rule =
       child.type === 'ref'
-        ? t('prompt.refStructChild', { source: child.refSource ?? '' })
+        ? t((child.max ?? 1) > 1 ? 'prompt.refStructChildMulti' : 'prompt.refStructChild', {
+            source: child.refSource ?? '',
+          })
         : fieldRuleOf(state, child)
     return `"${child.code}": ${rule}`
   })

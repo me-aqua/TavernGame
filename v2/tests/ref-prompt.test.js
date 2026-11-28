@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   itemRefChildCard,
+  leafItemRefCard,
   refChildRefCard,
   scalarChildRefCard,
   lineOf,
@@ -284,5 +285,25 @@ describe('提示词 · 带孩子的引用，可写形状是「自身值 + 孩子
     expect(line, '要写明自身值那一格 2.6.1.0').toContain('2.6.1.0')
     expect(line, '要写明关系子元素 2.6.1.1').toContain('2.6.1.1')
     expect(line, '不是一列裸 item id').not.toContain('item id')
+  })
+})
+
+describe('提示词 · 派生写权限在可写段的显示（与引擎同一口径）', () => {
+  it('写源数组 1.4 ⇒ 叶子 item 级引用 2.6.3 的可写行要派生出来', async () => {
+    const card = patchNode(leafItemRefCard(), 'check', { writable: ['1.4'] })
+    const lines = writableLines(await promptOf(card, 'check'))
+    expect(
+      lines.some((line) => line.startsWith('- 2.6.3「来源三」')),
+      `叶子引用的派生行要在（实际：${JSON.stringify(lines)}）`,
+    ).toBe(true)
+  })
+
+  it('带孩子的 item 级引用 2.6.1 ⇒ 写源数组 1.4 **不**该派生可写行', async () => {
+    const card = patchNode(refChildRefCard(), 'check', { writable: ['1.4'] })
+    const lines = writableLines(await promptOf(card, 'check'))
+    expect(
+      lines.some((line) => line.startsWith('- 2.6.1「来源」')),
+      `带孩子的引用不派生：整格写会连孩子一起换（实际：${JSON.stringify(lines)}）`,
+    ).toBe(false)
   })
 })

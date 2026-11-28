@@ -419,6 +419,7 @@
   "issue.refMultiChild": "引用 {code} 最多 {max} 个，不能有子元素（子元素是针对单条引用的）",
   "prompt.refStructOwn": "\"{key}\": 指针（源 item 的 id 或 null）",
   "prompt.refStructShape": "值必须是对象：{ {fields} }（不能只写裸指针，关系子元素要一起给）",
-  "prompt.refStructChild": "引用 {source} 的一个指针（null 或 id）",
-  "prompt.refStructSeparator": "，"
+  "prompt.refStructChild": "引用 {source} 的指针（null | id）",
+  "prompt.refStructSeparator": "，",
+  "prompt.refStructChildMulti": "引用 {source} 的指针列表（null | id[]）"
 }
