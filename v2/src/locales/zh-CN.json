@@ -315,5 +315,6 @@
   "play.failedAction": "行动",
   "play.failedError": "错误",
   "play.failedNext": "下一步",
-  "play.failedText": "已收到的正文"
+  "play.failedText": "已收到的正文",
+  "issue.typeArrayRef": "元素 {code} 换成数组会让引用 {ref} 失效（自身值路径会消失）；先在编辑器里改掉工作流里的引用"
 }

@@ -349,7 +349,7 @@ function requestMode(event: Event): void {
             <option v-for="item in TIME_MODES" :key="item" :value="item">{{ modeLabel(item) }}</option>
           </template>
           <template v-else>
-            <!-- 选项由 `typeOptions` 决定：数组行 = text/integer/enum/array，对象行多一档 object，数组字段只留 array -->
+            <!-- 选项由 `typeOptions` 决定：数组行 = text/integer/enum/array；数组字段按有没有字段给四档 / 只留 array；对象行多一档 object -->
             <option v-for="type in typeOptions" :key="type" :value="type">{{ typeLabel(type) }}</option>
           </template>
         </select>
@@ -421,14 +421,17 @@ function requestMode(event: Event): void {
           />
         </label>
         <!-- 存档模式：这一局的当前值（读自 save.tree），改上下限时照着它判会不会越界 -->
-        <div v-if="currentValue !== undefined" class="field-row">
+        <div v-if="currentValue !== undefined && !showsCurrentTree" class="field-row">
           <span class="field-label">{{ t('editor.fieldCurrent') }}</span>
           <span class="current" data-current-value>{{ currentValue }}</span>
         </div>
       </template>
 
       <!-- 存档模式：数组元素的当前值（读自 save.tree，只读、没有增删） -->
-      <div v-if="element.type === 'array' && currentValue !== undefined" class="current-array">
+      <div
+        v-if="element.type === 'array' && currentValue !== undefined && !showsCurrentTree"
+        class="current-array"
+      >
         <span class="field-label">{{ t('editor.fieldCurrent') }}</span>
         <ArrayValue :state="state" :code="element.code" :value="currentValue" current top disabled />
       </div>

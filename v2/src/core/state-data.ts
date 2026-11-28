@@ -361,6 +361,13 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
       }
     }
   }
+  // 换成数组会让自身值路径（`<code>.0` / 子孙 `.0`）消失：引用它们的工作流必须先在编辑器里改掉
+  if (type === 'array' && element.type !== 'array') {
+    const broken = disappearingRefsOf(card, code)[0]
+    if (broken !== undefined) {
+      throw invalid(t('issue.typeArrayRef', { code, ref: broken }), { code, ref: broken })
+    }
+  }
   const next: StateElement = { ...element, type }
   delete next.values
   delete next.min
@@ -378,7 +385,10 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
     const arrayRoot = arrayRootOf(card.state, code) as string
     const value = cloneValue(table[arrayRoot])
     for (const object of structsAt(card.state, arrayRoot, value, parentOfCode(code) as string)) {
-      object[code] = fieldDefaultOf(card.state, next)
+      object[code] =
+        type === 'array' && element.type !== 'array'
+          ? fieldArrayValueOf(card.state, element, object[code])
+          : fieldDefaultOf(card.state, next)
     }
     table[arrayRoot] = value
   } else if (type === 'array' && childrenOf(card.state, code).length > 0) {
@@ -416,6 +426,30 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
   return { ...card, state }
 }
 
+/** 换成数组后会让哪些引用失效：`<code>.0` 与本子树里以 `.0` 结尾的值路径（自身值路径会消失） */
+function disappearingRefsOf(card: Card, code: string): string[] {
+  const own = `${code}.0`
+  const found = new Set<string>()
+  for (const node of card.chain) {
+    for (const ref of [...node.reads, ...node.writable]) {
+      if (ref === own || (ref.startsWith(`${code}.`) && ref.endsWith('.0'))) found.add(ref)
+    }
+  }
+  return [...found]
+}
+
+/** 一个字段实例换成数组：自己的值丢掉，直接孩子的当前值收成**一个 item**；一个孩子值都没有 ⇒ `[]` */
+function fieldArrayValueOf(state: StateElement[], element: StateElement, value: unknown): ItemValue {
+  const children = childrenOf(state, element.code)
+  if (children.length === 0) return []
+  const source = isRecord(value) ? value : {}
+  if (!children.some((child) => child.code in source)) return []
+  return [
+    Object.fromEntries(
+      children.map((child) => [child.code, source[child.code] ?? fieldDefaultOf(state, child)]),
+    ) as ItemObject,
+  ]
+}
 /** 清掉一个 code 子树在初始值表里的所有键（数组 / 对象换类型时先腾空） */
 function clearTableSubtree(table: InitialTable, code: string): void {
   for (const key of Object.keys(table)) {
