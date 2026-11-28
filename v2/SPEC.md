@@ -143,7 +143,7 @@ runTurn({ card, save, presets, nodePresets, action, onEvent }) → { save, event
 - 手机浏览器：竖屏显示「请横屏使用」遮罩；点击后尝试 `screen.orientation.lock('landscape')`，失败提示手动旋转；横屏进入布局。
 - 不添加低于 720p 的分辨率档。
 - 组件故事：`v2/stories/` 每个组件至少一个故事页；固定 1280×720；浅/深两主题；结构检查（横向溢出、出界、24px 点按、遮挡）+ 三档字号；不建组件像素基线；生成总览页。
-- 整页巡检：四类比例代表档 + 4K；稳定画面像素基线（`maxDiffPixelRatio: 0.01`，动画禁用，caret 隐藏）；只跑 chromium。
+- 整页巡检：四类比例代表档 + 4K；稳定画面像素基线（`maxDiffPixelRatio: 0.002`，动画禁用，caret 隐藏）；只跑 chromium。
 
 ## 7. 构建与部署
 

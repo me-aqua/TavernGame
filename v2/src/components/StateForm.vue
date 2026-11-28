@@ -23,8 +23,8 @@
  * 换类型同理 —— 只发 `retype` 请求，整份新元素由 `statetree.setElementType` 产出。
  *
  * 存档模式（`initialLocked`）：初始值整块不渲染（这一局的当前值在 `save.tree` 里），类型 / 模式下拉锁死；
- * 选中数组元素时给只读的 `[data-current-array]` 当前值块；节日勾选照旧可改（它们影响的是提示词，
- * 不是这一局的状态）。
+ * **只有根元素**选中时给一块只读的 `[data-current-tree]`（非根元素没有当前值块）；节日勾选照旧可改
+ * （它们影响的是提示词，不是这一局的状态）。
  */
 import { computed, ref, watch } from 'vue'
 import ArrayValue from './ArrayValue.vue'
@@ -60,8 +60,6 @@ const props = defineProps<{
   state: StateElement[]
   /** 存档模式：初始值不可改（初值只是新建存档的种子），时间模式锁死 */
   initialLocked?: boolean
-  /** 存档模式：这一格在 `save.tree` 里的当前值（数字 / 数组元素显示在下方） */
-  currentValue?: TreeValue
   /** 存档模式：这一局的当前树（根元素选中时渲染只读的 `[data-current-tree]`） */
   currentTree?: Tree
 }>()
@@ -412,21 +410,7 @@ function requestMode(event: Event): void {
             @input="setNumber('stepMax', ($event.target as HTMLInputElement).value)"
           />
         </label>
-        <!-- 存档模式：这一局的当前值（读自 save.tree），改上下限时照着它判会不会越界 -->
-        <div v-if="!initialLocked && currentValue !== undefined" class="field-row">
-          <span class="field-label">{{ t('editor.fieldCurrent') }}</span>
-          <span class="current" data-current-value>{{ currentValue }}</span>
-        </div>
       </template>
-
-      <!-- 存档模式：数组元素的当前值（读自 save.tree，只读、没有增删） -->
-      <div
-        v-if="element.type === 'array' && !initialLocked && currentValue !== undefined"
-        class="current-array"
-      >
-        <span class="field-label">{{ t('editor.fieldCurrent') }}</span>
-        <ArrayValue :state="state" :code="element.code" :value="currentValue" current top disabled />
-      </div>
 
       <!-- 三个节日勾选同一水平行、左对齐；勾选框是自定义绘制的小方盒（不是浏览器原生蓝框） -->
       <div v-if="element.type === 'time' && mode !== 'days-minute'" class="holidays" data-holidays>

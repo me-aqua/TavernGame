@@ -48,6 +48,12 @@
   第一项。判据：`v2/e2e/enum-values-draft.spec.js`。
 
 ### 修改
+- **存档编辑器：非根元素不再显示当前值块（2026-11-28）** —— 当前值**只在选中根元素时**由只读的
+  `[data-current-tree]` 显示；子元素 / 数组元素 / 数组字段不再渲染单格的 `[data-current-value]` /
+  `[data-current-array]`（保存不动 `save.tree`）。判据：`v2/e2e/save-current-block.spec.js`。
+- **对话页顶栏：回合数只可见一次（2026-11-28）** —— `[data-turn]` 保留为测试钩子但**视觉隐藏**
+  （`display: none`）；`[data-status]`（`已保存 · 第 {turn} 回合`）是唯一可见的回合显示，
+  不再出现重复的裸回合数。判据：`v2/e2e/play-topbar-turn.spec.js`。
 - **读取覆盖与容器口径对齐（2026-11-28）** —— 引用覆盖后代只看**容器**：object / array 元素（或字段）
   的 ref 覆盖它的孩子；**标量元素（哪怕有自己的值和子字段）只覆盖它自己**。所以读 `1.1` 只输出它自己的值，
   不连带 `1.1.1`（要读孩子就给孩子的 ref）；写 `2.4.1.1` 要它自己的引用或 object / array 祖先的引用

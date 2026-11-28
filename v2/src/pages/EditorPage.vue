@@ -46,7 +46,6 @@ import {
   cardIssues,
   childrenOf,
   parentOfCode,
-  pathsOf,
   removeNode,
   saveTreeIssues,
   setElementType,
@@ -142,19 +141,6 @@ const middleTitle = computed(() => {
   if (selectedElement.value) return t('editor.editTitle', { name: selectedElement.value.name })
   if (selectedPrompt.value) return t('editor.editTitle', { name: selectedPrompt.value.title })
   return t('editor.editTitleEmpty')
-})
-
-/**
- * 存档模式：选中元素这一格在 `save.tree` 里的当前值（中栏数字元素的「当前值」那一行）。
- * 卡模式没有「当前值」可看（那一份的树还不存在）⇒ `undefined`。
- */
-const currentValue = computed(() => {
-  const element = selectedElement.value
-  const current = save.value
-  const draft = card.value
-  if (!element || !current || !draft) return undefined
-  const [ownPath] = pathsOf(draft.state, element.code)
-  return ownPath === undefined ? undefined : current.tree[ownPath]
 })
 
 /** 确认层的文案与确认按钮：删除说「删除」，换模式 / 换类型 / 离开说「确定」/「离开」 */
@@ -670,7 +656,6 @@ function goBack(): void {
             :element="selectedElement"
             :state="card.state"
             :initial-locked="editingSave"
-            :current-value="currentValue"
             :current-tree="save?.tree"
             @edit="(element) => patchElement(selectedElement!.code, element)"
             @retype="(type, select) => retypeElement(selectedElement!.code, type, select)"
