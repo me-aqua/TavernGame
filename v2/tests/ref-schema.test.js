@@ -15,6 +15,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   deepObjectArrayCard,
+  scalarChildRefCard,
   element,
   elementOf,
   nestedBagCard,
@@ -374,5 +375,13 @@ describe('引用 · 任何标量位置都能放 ref（2026-11-28 重开）', () 
     // 与上面「任何标量位置都能放 ref」区分：能放的位置放开了，**源**仍然只认顶层数组
     const issues = await expectIssue(nestedBagCard(), '2.8', '嵌套数组当源（重开不包括这条）')
     expect(issues.some((issue) => issue.message.includes('2.4.4'))).toBe(true)
+  })
+})
+
+describe('引用 · 第五种位置：数组 item 里「有孩子的标量字段」下面的 ref', () => {
+  it('2.4.1 是有孩子的标量字段（自身值 + 来源 2.4.1.1）⇒ 卡校验通过', async () => {
+    const card = scalarChildRefCard()
+    expect(elementOf(card, '2.4.1.1').type, '2.4.1.1 是 ref').toBe('ref')
+    await expectClean(card, '有孩子的标量字段下的引用')
   })
 })

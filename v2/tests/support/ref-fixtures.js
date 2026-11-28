@@ -328,6 +328,32 @@ export function nestedArrayRefCard(over = {}) {
 }
 
 /**
+ * 第五种位置：引用在数组 item 里**「有孩子的标量字段」**下面
+ * （`2.4.1 物品`（text，自身值 + 孩子）→ `2.4.1.1 来源`（引用 → 1.4，投影 1.4.1，0..1））。
+ * item 里的值是 `{ '2.4.1.0': 自己的值, '2.4.1.1': 指针 }`。
+ */
+export function scalarChildRefCard(over = {}) {
+  const items = bagItems().map((item) => ({
+    ...item,
+    '2.4.1': { '2.4.1.0': item['2.4.1'], '2.4.1.1': 'id_1' },
+  }))
+  const state = refState({
+    extraElements: [
+      refElement('2.4.1.1', '来源', { refSource: '1.4', refFields: ['1.4.1'], min: 0, max: 1 }),
+    ],
+    extraPlayerInitial: { 2.4: items },
+  })
+  return {
+    ...refCard(),
+    id: 'c-ref-scalar-child',
+    name: 'ref under scalar-with-children card',
+    state,
+    ...over,
+  }
+}
+
+/**
+ * 引用藏在数组 item 的**对象字段**里（更深的字段）/**
  * 引用藏在数组 item 的**对象字段**里（更深的字段）：`2.4` → `2.4.4 属性`（object）→
  * `2.4.4.1 属性来源`（引用 → 1.4，0..1）。
  */

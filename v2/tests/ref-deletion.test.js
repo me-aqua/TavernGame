@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest'
 import {
   bagItems,
   itemRefChildCard,
+  scalarChildRefCard,
   nestedArrayRefCard,
   objectFieldRefCard,
   element,
@@ -375,5 +376,17 @@ describe('删除 · 穿过嵌套数组 / 更深的对象字段找到引用（202
       '要读 item 里「自身值 + 孩子」对象的 2.6.1.0',
     ).toContain('2.6.1')
     expect(blocked.map((use) => use.element.code)).toContain('2.6.1')
+  })
+})
+
+describe('删除 · 第五种位置（有孩子的标量字段下的 ref）也要被找到', () => {
+  it('删 1.4 的 item ⇒ refUsesOf 找得到 2.4.1.1，min = 1 时 blocked', async () => {
+    const card = patchElement(scalarChildRefCard(), '2.4.1.1', { min: 1 })
+    const { uses, blocked } = await deletePlanOf(card, '1.4', 'id_1')
+    expect(
+      uses.map((use) => use.element.code),
+      '要穿过 2.4.1 的「自身 + 孩子」找到 2.4.1.1',
+    ).toContain('2.4.1.1')
+    expect(blocked.map((use) => use.element.code)).toContain('2.4.1.1')
   })
 })

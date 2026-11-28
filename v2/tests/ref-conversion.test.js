@@ -12,7 +12,16 @@
  * 全部走 `setElementType`（编辑器换类型的数据层唯一入口）与 `cardIssues`（能不能保存）。
  */
 import { describe, expect, it } from 'vitest'
-import { bagItems, elementOf, patchElement, refCard, refChildCard } from './support/ref-fixtures.js'
+import {
+  bagItems,
+  element,
+  elementOf,
+  patchElement,
+  refCard,
+  refChildCard,
+  withElement,
+  withInitialValue,
+} from './support/ref-fixtures.js'
 import { loadModule } from './support/load.js'
 
 const loadState = () => loadModule('core/statetree.ts', () => import('../src/core/statetree.ts'))
@@ -191,5 +200,37 @@ describe('转换 · 转换后配置不完整（§9.2）', () => {
     ).toBe(true)
     // 字段留成子元素 ⇒ 自身值住 2.4.0`n    expect(tableOf(converted, '2')['2.4.0'], '转换完的初始值是 null（住 .0）').toBeNull()
     expect(bagItems(), '正控：源卡没被动过').toHaveLength(3)
+  })
+})
+
+describe('转换 · item 里的 array → ref：默认指针 null', () => {
+  it('2.4.4 数组字段换成 ref ⇒ 每个 item 的指针是 null（不是空串），卡补上源后合法', async () => {
+    const { setElementType, cardIssues } = await loadState()
+    const base = refCard()
+    const items = base.state
+      .find((item) => item.code === '2')
+      .initial['2.4'].map((item, index) => ({
+        ...item,
+        '2.4.4': index === 0 ? [{ id: 'id_1', '2.4.4.1': '药膏' }] : [],
+      }))
+    const withArray = withInitialValue(
+      withElement(
+        withElement(base, element('2.4.4', 'array', { name: '内袋' })),
+        element('2.4.4.1', 'text', { name: '物品' }),
+      ),
+      '2.4',
+      items,
+    )
+    const converted = setElementType(withArray, '2.4.4', 'ref')
+    expect(elementOf(converted, '2.4.4').type).toBe('ref')
+    const values = converted.state.find((item) => item.code === '2').initial['2.4']
+    for (const [index, item] of values.entries()) {
+      expect(item['2.4.4']['2.4.4.0'], `第 ${index + 1} 个 item 的指针应为 null`).toBeNull()
+    }
+    // 补上源之后卡应当合法（指针 null + min 0）
+    const ready = patchElement(patchElement(converted, '2.4.4', { refSource: '1.4' }), '2.4.4', {
+      refFields: ['1.4.1'],
+    })
+    expect(cardIssues(ready), '补上引用源后卡应当合法').toEqual([])
   })
 })

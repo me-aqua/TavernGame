@@ -13,7 +13,17 @@
  * 这一份只钉**许可本身**。
  */
 import { describe, expect, it } from 'vitest'
-import { bagItems, nodeOf, patchNode, refCard, refChildCard, saveOf, treeOf } from './support/ref-fixtures.js'
+import {
+  bagItems,
+  itemRefChildCard,
+  nodeOf,
+  patchNode,
+  refCard,
+  refChildCard,
+  saveOf,
+  scalarChildRefCard,
+  treeOf,
+} from './support/ref-fixtures.js'
 import { loadModule } from './support/load.js'
 
 const loadEngine = () => loadModule('core/engine.ts', () => import('../src/core/engine.ts'))
@@ -128,5 +138,22 @@ describe('写权限 · 工具派生（§7.2「引用路径对模型可写」）'
     const card = patchNode(refCard(), 'check', { writable: [] })
     expect(toolsForNode(card, nodeOf(card, 'check'))).toEqual([])
     expect(saveOf(card).tree['2.5'], '读引用不需要写权限').toBe('id_1')
+  })
+})
+
+describe('写权限 · item / 更深位置上的直接引用者（派生）', () => {
+  it('写源数组 1.4 ⇒ item 里 ref 的**自身值**可写（有孩子的标量字段下也照给）', async () => {
+    const card = scalarChildRefCard()
+    const written = await writeWith(card, ['1.4'], '2.4.1.1', ['id_2', null, null])
+    expect(written['2.4'][0]['2.4.1']['2.4.1.1'], '指针写进去了').toBe('id_2')
+    expect(written['2.4'][1]['2.4.1']['2.4.1.1'], 'null 清空也授权').toBeNull()
+    expect(written['2.4'][0]['2.4.1']['2.4.1.0'], '自己的值不动').toBe('短剑')
+  })
+
+  it('派生只给自身值：写 ref 的**子元素**仍然 E_CHAIN', async () => {
+    const card = itemRefChildCard()
+    const denied = await writeErrorWith(card, ['1.4'], '2.6.1.1', ['双手', '单手'])
+    expect(denied, '源数组写权限不带出 ref 子元素的写权限').not.toBeNull()
+    expect(denied.code).toBe('E_CHAIN')
   })
 })

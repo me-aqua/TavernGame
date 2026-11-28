@@ -308,3 +308,20 @@ describe('引用值 · 卡 / 存档 / 写三条路同一把尺（§8.1）', () =
     }
   })
 })
+
+describe('引用值 · 第五种位置（有孩子的标量字段下的 ref）的写入校验', () => {
+  it('写一个不在源数组里的 id ⇒ E_VALIDATION，tree 不动', async () => {
+    const { applyWrite } = await loadEngine()
+    const { scalarChildRefCard } = await import('./support/ref-fixtures.js')
+    const card = scalarChildRefCard()
+    const node = nodeOf(card, 'check')
+    const writable = { ...node, writable: ['2.4.1.1'] }
+    const tree = treeOf(card)
+    const error = errorOf(() =>
+      applyWrite({ card, node: writable, tree, path: '2.4.1.1', value: ['id_9', 'id_1', null] }),
+    )
+    expect(error, '不存在的 id 必须被拒').not.toBeNull()
+    expect(error.code).toBe('E_VALIDATION')
+    expect(tree['2.4'][0]['2.4.1']['2.4.1.1'], '失败的写不许改 tree').toBe('id_1')
+  })
+})

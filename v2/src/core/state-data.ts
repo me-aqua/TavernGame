@@ -506,6 +506,7 @@ function fieldScalarValueOf(
   next: StateElement,
   value: unknown,
 ): ItemValue {
+  if (next.type === 'ref') return fieldDefaultOf(state, next)
   const children = childrenOf(state, element.code)
   if (children.length === 0) return fieldDefaultOf(state, next)
   const items = Array.isArray(value) ? value : []

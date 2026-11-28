@@ -109,7 +109,8 @@ function resolveRefItem(
       ) as ItemObject[string]
       continue
     }
-    if (field.type === 'object' && isRecord(value)) {
+    if (isRecord(value)) {
+      // 标量字段也可以有孩子（text + ref 子元素）：一样往下走，不做类型过滤
       out[field.code] = resolveRefItem(card, field.code, value, tree) as ItemObject[string]
     }
   }
@@ -531,6 +532,18 @@ function writableLinesOf(card: Card, node: ChainNode): string[] {
       const rule = element.type === 'time' ? t('prompt.writableTime') : writeRuleOf(card.state, element)
       lines.push(`${t('prompt.stateLine', { code: path, name: element.name })}${rule}`)
     }
+  }
+  // 派生写权限：写源数组容器 ⇒ 直接引用者的**自身值**也可写（与引擎 applyWrite 同一口径，只一跳）
+  const coveredRefs = new Set(refs.flatMap((ref) => refPathsOf(card.state, ref)))
+  for (const element of card.state) {
+    if (element.type !== 'ref' || element.refSource === undefined) continue
+    if (!coveredRefs.has(element.refSource)) continue
+    const [ownPath] = pathsOf(card.state, element.code)
+    if (ownPath === undefined || emitted.has(ownPath)) continue
+    emitted.add(ownPath)
+    lines.push(
+      `${t('prompt.stateLine', { code: ownPath, name: element.name })}${writeRuleOf(card.state, element)}`,
+    )
   }
   if (lines.length === 0) lines.push(t('prompt.writableEmpty'))
   lines.push(t('prompt.writableReadOnly'))

@@ -259,7 +259,6 @@ export function refTreeIssues(card: Card, tree: Tree): CardIssue[] {
 function nestedIdIssues(card: Card, code: string, items: unknown[], path: string): CardIssue[] {
   const issues: CardIssue[] = []
   for (const field of childrenOf(card.state, code)) {
-    if (field.type !== 'array') continue
     for (const item of items) {
       if (!isRecord(item)) continue
       const nested = item[field.code]
@@ -287,6 +286,13 @@ function nestedIdIssues(card: Card, code: string, items: unknown[], path: string
         seen.add(id)
       }
       issues.push(...nestedIdIssues(card, field.code, nested, path))
+    }
+    for (const item of items) {
+      if (!isRecord(item)) continue
+      const value = item[field.code]
+      if (!Array.isArray(value) && isRecord(value)) {
+        issues.push(...nestedIdIssues(card, field.code, [value], path))
+      }
     }
   }
   return issues
@@ -317,7 +323,8 @@ function itemRefIssues(
       }
       continue
     }
-    if (field.type === 'object' && isRecord(value)) {
+    if (isRecord(value)) {
+      // 标量字段也可能有孩子（text + ref 子元素）：一样往下走，不做类型过滤
       issues.push(...itemRefIssues(card, field.code, value, tree, path))
     }
   }

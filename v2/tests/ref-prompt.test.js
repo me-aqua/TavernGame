@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   itemRefChildCard,
+  scalarChildRefCard,
   lineOf,
   nestedArrayRefCard,
   objectFieldRefCard,
@@ -246,5 +247,17 @@ describe('提示词 · 任何标量位置的引用都要投影（2026-11-28 重�
       expect(typeof item.来源, '引用位是投影对象').toBe('object')
       expect(item.来源, '引用位里不许出现指针字段或裸 id 字符串').not.toHaveProperty('2.6.1.0')
     }
+  })
+})
+
+describe('提示词 · 第五种位置（有孩子的标量字段下的 ref）', () => {
+  it('2.4 的 item 里 物品.来源 要投影成对象，不打印裸指针', async () => {
+    const card = scalarChildRefCard()
+    const bag = JSON.parse(payloadIn(await promptOf(card, 'check'), '2.4'))
+    expect(bag[0]['物品'], '有孩子的标量字段仍是「自身 + 孩子」的对象').toEqual({
+      ['自身']: '短剑',
+      ['来源']: { 名称: '微醺' },
+    })
+    expect(typeof bag[0]['物品']['来源'], '引用位是投影对象，不是裸指针').toBe('object')
   })
 })
