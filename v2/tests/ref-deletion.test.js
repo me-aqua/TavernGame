@@ -201,3 +201,135 @@ describe('删除 · 删除整个源数组元素（§8.3 第五条）', () => {
     expect(elementOf(card, '1.6'), '入参卡不动').toBeTruthy()
   })
 })
+
+// ---------------------------------------------------------------------------
+// 复审缺口（2026-11-28 复审）：跨根 item 引用必须在**删除那一刻**就拦；
+// 重排兄弟时 ref 定义（源 / 投影字段 / 筛选字段）要跟着改。
+// ---------------------------------------------------------------------------
+
+/** 一次「删源 item」的计划：找出所有直接指向它的引用，再算删完要写回什么 / 谁挡着 */
+async function deletePlanOf(card, sourceCode, id) {
+  const { refUsesOf, cascadeOf } = await loadModule(
+    'components/ref-support.ts',
+    () => import('../src/components/ref-support.ts'),
+  )
+  const tree = treeOf(card)
+  const uses = refUsesOf(card.state, sourceCode, (path) => tree[path])
+  return { uses, ...cascadeOf(uses, id) }
+}
+
+describe('删除 · 跨根 item 引用在删除那一刻就要拦（复审缺口 a）', () => {
+  it('1.4 的 item 被**另一个根**的 2.6.1（1..1）指着 ⇒ 删除计划里直接 blocked，不会被静默删掉', async () => {
+    const card = refCard()
+    const { uses, changes, blocked } = await deletePlanOf(card, '1.4', 'id_1')
+    expect(
+      uses.map((use) => use.element.code),
+      '跨根的 item 级引用也要被找出来（2.6.1 在根 2 里）',
+    ).toContain('2.6.1')
+    expect(
+      blocked.map((use) => use.element.code),
+      '会低于 min ⇒ 整笔删除被拒并点名 2.6.1',
+    ).toEqual(['2.6.1'])
+    expect(changes, '被拒时不给任何写回计划（不允许先悄悄改了再在保存时炸）').toEqual([])
+  })
+
+  it('另一个根的 3.2（2..4，指向 1.5）：删到低于 min ⇒ blocked；没被指着的 id 不产生写回', async () => {
+    const card = refCard()
+    const atMin = await deletePlanOf(card, '1.5', 'id_1')
+    expect(
+      atMin.blocked.map((use) => use.element.code),
+      '删到只剩 1 条 < min 2 ⇒ 拒绝',
+    ).toEqual(['3.2'])
+    expect(atMin.changes).toEqual([])
+
+    const untouched = await deletePlanOf(card, '1.5', 'id_3')
+    expect(
+      untouched.uses.map((use) => use.element.code),
+      '3.2 只指向 id_1 / id_2',
+    ).toContain('3.2')
+    expect(untouched.changes, '删没被指着的 item 不该动引用').toEqual([])
+    expect(untouched.blocked, '也不该被拦').toEqual([])
+  })
+
+  it('跨根的可空单引用：删被指着的 item ⇒ 给出「清成 null」的写回计划（确认后才写）', async () => {
+    // 把 1.4 的引用改成可空：2.6.1 是 item 级引用（删源 item 一律显式阻断），
+    // 所以这里用顶层可空单引用 2.5 → 2.4 验证「可空 ⇒ 给 changes」这一半
+    const card = refCard()
+    const { changes, blocked } = await deletePlanOf(card, '2.4', 'id_1')
+    expect(blocked, '2.5 是 0..1 ⇒ 不拦').toEqual([])
+    expect(changes, '要写回的计划里包含把 2.5 清成 null').toEqual([{ path: '2.5', value: null }])
+  })
+
+  it('不误伤：删 2.4 的 item 不会把另一个根的 2.6.1 算进来', async () => {
+    const card = refCard()
+    const { uses } = await deletePlanOf(card, '2.4', 'id_1')
+    expect(uses.map((use) => use.element.code)).not.toContain('2.6.1')
+  })
+})
+
+describe('删除 · 重排兄弟时 ref 定义跟着改（复审缺口 b）', () => {
+  it('删 1.3（在被引用的 1.4 / 1.5 前面）⇒ refSource / refFields 全跟着改，卡仍合法', async () => {
+    const { removeNode, cardIssues } = await loadState()
+    const card = refCard()
+    const next = removeNode(card, '1.3')
+    const buff = elementOf(next, '2.6.1')
+    expect(buff.refSource, '1.4 前移成 1.3 ⇒ 源跟着改').toBe('1.3')
+    expect(buff.refFields, '投影字段跟着改').toEqual(['1.3.1', '1.3.2'])
+    const party = elementOf(next, '3.2')
+    expect(party.refSource, '1.5 前移成 1.4 ⇒ 另一个根上的引用也跟着改').toBe('1.4')
+    expect(party.refFields).toEqual(['1.4.1'])
+    // 值表也按同一张映射表搬：根 1 的两张表改名，item 的字段键跟着改
+    const rootOne = next.state.find((item) => item.code === '1').initial
+    expect(Object.keys(rootOne).sort(), '1.4 → 1.3、1.5 → 1.4').toEqual(['1.1', '1.2', '1.3', '1.4'])
+    expect(rootOne['1.3'][0], 'item 的字段键跟着 1.4.x → 1.3.x').toEqual({
+      id: 'id_1',
+      '1.3.1': '微醺',
+      '1.3.2': '脚步有点飘',
+    })
+    expect(cardIssues(next), '改名后的卡应当仍然合法（引用都还指着存在的数组）').toEqual([])
+    expect(elementOf(card, '2.6.1').refSource, '入参卡不动').toBe('1.4')
+  })
+
+  it('删被投影的字段 1.4.1 ⇒ 拒绝并点名 2.6.1', async () => {
+    const { removeNode } = await loadState()
+    const error = errorOf(() => removeNode(refCard(), '1.4.1'))
+    expect(error, '删被投影的字段要拒绝').not.toBeNull()
+    expect(error.code).toBe('E_VALIDATION')
+    expect(error.message).toMatch(CJK)
+    expect(textOf(error), '报文要点名引用元素 2.6.1').toContain('2.6.1')
+  })
+
+  it('删被当作筛选字段的 2.4.3 ⇒ 拒绝并点名 2.5', async () => {
+    const { removeNode } = await loadState()
+    const error = errorOf(() => removeNode(refCard(), '2.4.3'))
+    expect(error).not.toBeNull()
+    expect(error.code).toBe('E_VALIDATION')
+    expect(textOf(error), '报文要点名 2.5').toContain('2.5')
+  })
+
+  it('删筛选字段**前面的**兄弟 2.4.2 ⇒ 允许，refFilter.field 跟着 2.4.3 → 2.4.2', async () => {
+    const { removeNode, cardIssues } = await loadState()
+    const next = removeNode(refCard(), '2.4.2')
+    expect(elementOf(next, '2.5').refFilter, '筛选字段跟着重排').toEqual({ field: '2.4.2', value: '是' })
+    expect(elementOf(next, '2.5').refFields, '投影字段 2.4.1 不动').toEqual(['2.4.1'])
+    const items = next.state.find((item) => item.code === '2').initial['2.4']
+    expect(items[0], 'item 的字段键也跟着重排（数量列消失、可手持前移）').toEqual({
+      id: 'id_1',
+      '2.4.1': '短剑',
+      '2.4.2': '是',
+    })
+    expect(cardIssues(next)).toEqual([])
+  })
+
+  it('删被引用的源数组本身 ⇒ 拒绝并点名引用（1.4 → 2.6.1，2.4 → 2.5）', async () => {
+    const { removeNode } = await loadState()
+    const buff = errorOf(() => removeNode(refCard(), '1.4'))
+    expect(buff).not.toBeNull()
+    expect(buff.code).toBe('E_VALIDATION')
+    expect(textOf(buff), '点名 2.6.1').toContain('2.6.1')
+    const bag = errorOf(() => removeNode(refCard(), '2.4'))
+    expect(bag).not.toBeNull()
+    expect(bag.code).toBe('E_VALIDATION')
+    expect(textOf(bag), '点名直接引用 2.4 的元素').toMatch(/2\.5|2\.7/)
+  })
+})

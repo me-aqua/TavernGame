@@ -148,9 +148,36 @@ describe('提示词 · 可写说明（§7.2）', () => {
     expect(line, '要说清是列表').toContain('列表')
     expect(line, `要说清数量区间：${line}`).toMatch(/(0 到 4 个|2 到 4 个)/)
     expect(line, '多引用不能重复').toContain('不能重复')
-    expect(line, '可写 null 清空').toContain('null')
+    // 这一条 3.2 是 2..4（min > 0）⇒ 没有 null 提示；min = 0 的 null 提示在下面那两条里钉
+    expect(line, 'min > 0 的多引用不许出现可空提示').not.toContain('可写 null 清空')
   })
 
+  it('可空单引用（min = 0）：可写行带**真正的** null 提示，且没有未替换的 {nullHint} 占位（复审缺口 c）', async () => {
+    const line = await writableLine(refCard(), '2.5')
+    expect(line, 'min = 0 ⇒ 要出现真正的 null 提示').toContain('可写 null 清空')
+    expect(line, '不许把占位符原样吐出来').not.toContain('{nullHint}')
+    expect(line, '也不许留下半截占位名').not.toContain('nullHint')
+  })
+
+  it('必选单引用（min = 1）：可写行**没有** null 提示，也没有 {nullHint} 占位（复审缺口 c）', async () => {
+    const required = patchElement(refCard(), '2.5', { min: 1 })
+    const line = await writableLine(required, '2.5')
+    expect(line, 'min = 1 ⇒ 不许出现可空提示').not.toContain('可写 null 清空')
+    expect(line, '不许把占位符原样吐出来').not.toContain('{nullHint}')
+    expect(line, '也不许留下半截占位名').not.toContain('nullHint')
+  })
+
+  it('多引用的 null 提示同样按 min 决定：0..4 带、1..4 不带（复审缺口 c）', async () => {
+    const optional = patchElement(refCard(), '3.2', { min: 0 })
+    const optionalLine = await writableLine(optional, '3.2')
+    expect(optionalLine, 'min = 0 的多引用要带 null 提示').toContain('可写 null 清空')
+    expect(optionalLine).not.toContain('{nullHint}')
+
+    const required = patchElement(refCard(), '3.2', { min: 1 })
+    const requiredLine = await writableLine(required, '3.2')
+    expect(requiredLine, 'min = 1 的多引用不带 null 提示').not.toContain('可写 null 清空')
+    expect(requiredLine).not.toContain('nullHint')
+  })
   it('投影字段是只读视图：可写段不出现投影字段的写行', async () => {
     const card = patchNode(refCard(), 'check', { writable: ['2.5'] })
     const lines = writableLines(await promptOf(card, 'check'))

@@ -212,8 +212,17 @@ function valueOfPath(path: string): TreeValue | undefined {
   return table.value[path]
 }
 
-/** 有哪些引用直接指向这个数组、它们现在是什么值（删 item 前要先按 `min` 判） */
-const refsOfArray = (code: string): RefUse[] => refUsesOf(props.state, code, (path) => table.value[path])
+/** 一条值路径在它**所属根**的初始值表里的值（跨根引用要读源那一边的根，不是当前选中的根） */
+function initialAt(path: string): unknown {
+  const root = props.state.find((item) => item.code === rootCodeOf(path))
+  if (root === undefined || root.type === 'time') return undefined
+  const initial = root.initial
+  return typeof initial === 'object' && initial !== null && !Array.isArray(initial)
+    ? (initial as InitialTable)[path]
+    : undefined
+}
+
+const refsOfArray = (code: string): RefUse[] => refUsesOf(props.state, code, initialAt)
 
 /** 删 item 之后被清掉的引用值：一条条写回所属根元素的初始值表 */
 function applyRefChanges(changes: RefChange[]): void {

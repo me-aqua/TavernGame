@@ -432,7 +432,8 @@ function refWriteRuleOf(state: Card['state'], element: Card['state'][number]): s
   const { min, max } = refBoundsOf(element)
   const target = max === 1 ? t('prompt.refSingleTarget') : t('prompt.refMultiTarget')
   const range = max === 1 ? t('prompt.refSingleRange') : t('prompt.refMultiRange', { min, max })
-  return t('prompt.writableRef', { source, name: sourceName, target, filter, range })
+  const nullHint = min === 0 ? t('prompt.refNullHint') : ''
+  return t('prompt.writableRef', { source, name: sourceName, target, filter, range, nullHint })
 }
 /** 数组字段的清单文案：`物品 = 文本；数量 = 整数 0..999`（中文名打头，嵌套字段递归） */
 export function arrayFieldRulesOf(state: Card['state'], code: string): string {

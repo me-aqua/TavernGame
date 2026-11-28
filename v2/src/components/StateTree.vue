@@ -20,10 +20,12 @@
  *
  * 引用（`ref`）那一行在写眼睛旁边还挂一枚 `[data-derived-write="<源数组 code>"]` 小标签
  * （「随 2.4 级联」，引用契约 §8.4）：写源数组容器 ⇒ 引擎自动给**直接引用者自身值**的写权限。
+ * 只有**有自己的值路径**的引用（顶层引用 / 有孩子的 ref 的 `.0`）才画这枚标签 —— 数组 item 里的引用
+ * （`2.6.1`）没有自己的值路径，引擎不给它派生写，标签也不出现。
  * 它只说明「派生」这件事，**不改眼睛的 all / none**：`data-on` / `data-tri` 仍只反映 `writable` 里那一格。
  */
 import { computed } from 'vue'
-import { MAX_DEPTH, codeDepth, refCoveredBy, refPathsOf } from '../core/statetree'
+import { MAX_DEPTH, codeDepth, pathsOf, refCoveredBy, refPathsOf } from '../core/statetree'
 import type { ChainNode, StateElement } from '../core/types'
 import { t } from '../i18n'
 
@@ -74,14 +76,17 @@ function showsAddChild(element: StateElement): boolean {
 /**
  * 每个引用元素的**派生写来源**（值 = 源数组 code）：这一列写权限按值路径展开之后包含它的 `refSource`
  * ⇒ 引擎在 `applyWrite` 里会自动给它**自身值**的写权限（引用契约 §8.4：只给自身值、不给关系子元素；
- * 字段写不传播、反向不传播）。展开用 `refPathsOf`，与引擎的 `coveredRefs` 是同一把尺。
+ * 字段写不传播、反向不传播）。判据与引擎逐条对齐：展开用 `refPathsOf`（同一把尺），并且**必须有自己的值路径**
+ * ——数组 item 里的引用（`2.6.1` 这种）`pathsOf` 返回空，引擎根本不会给它派生写，这里也不画标签。
  */
 const derivedWrites = computed(() => {
   const covered = (props.node?.writable ?? []).flatMap((ref) => refPathsOf(props.elements, ref))
   const map = new Map<string, string>()
   for (const element of props.elements) {
     if (element.type !== 'ref' || element.refSource === undefined) continue
-    if (covered.includes(element.refSource)) map.set(element.code, element.refSource)
+    if (!covered.includes(element.refSource)) continue
+    if (pathsOf(props.elements, element.code).length === 0) continue
+    map.set(element.code, element.refSource)
   }
   return map
 })
