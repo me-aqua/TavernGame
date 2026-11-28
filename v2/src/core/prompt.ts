@@ -20,7 +20,7 @@
  */
 import type { Card, ChainNode, Save, SaveEvent, TimeMode, TimeValue, Tree } from './types'
 import { OPENING_PROMPT_ID } from './schema'
-import { childrenOf, elementOfPath, formatTime, integerRangeOf, pathsOf } from './statetree'
+import { childrenOf, elementAt, elementOfPath, formatTime, integerRangeOf, isFieldRef, isInsideArray, parentOfCode, pathsOf, refElementOf, arrayRootOf } from './statetree'
 import { holidaysOf } from './holidays'
 import { t } from '../i18n'
 interface BuildPromptArgs {
@@ -34,26 +34,45 @@ interface BuildPromptArgs {
 }
 
 /**
- * 一个结构体容器（数组元素 / 数组字段 / object 字段）**按中文名**投影成一个普通值：
- * 键是字段的 `name`（不是 code），值按字段类型递归（数组字段 ⇒ 数组，object 字段 ⇒ 对象）。
+ * 一个字段在这份**选择**里要投影到什么程度（读权限可以只开某个字段引用）：
+ *   · `full` —— 整格都投影（容器读全 / 正好选中这个字段 / 选中了它的祖先）；
+ *   · `partial` —— 只投影选中的后代（如只选 `2.4.2.1` 时，`2.4.2` 这层还要出现来装它）；
+ *   · `none` —— 这一格不出现。
+ * `selected === undefined` 表示读整个容器（全字段）。
  */
-function structOf(state: Card['state'], containerCode: string, value: unknown): unknown {
-  const source = (value ?? {}) as Record<string, unknown>
-  return Object.fromEntries(
-    childrenOf(state, containerCode).map((field) => [
-      field.name,
-      field.type === 'object'
-        ? structOf(state, field.code, source[field.code])
-        : field.type === 'array'
-          ? arrayOf(state, field.code, source[field.code])
-          : source[field.code],
-    ]),
-  )
+function selectionOf(fieldCode: string, selected?: string[]): 'full' | 'partial' | 'none' {
+  if (selected === undefined) return 'full'
+  if (selected.some((ref) => ref === fieldCode || fieldCode.startsWith(`${ref}.`))) return 'full'
+  if (selected.some((ref) => ref.startsWith(`${fieldCode}.`))) return 'partial'
+  return 'none'
 }
 
-/** 一个数组值按中文名投影：每个 item 是一个结构体（`[]` 就是空数组） */
-function arrayOf(state: Card['state'], code: string, value: unknown): unknown[] {
-  return Array.isArray(value) ? value.map((item) => structOf(state, code, item)) : []
+/**
+ * 一个结构体容器（数组元素 / 数组字段 / object 字段）**按中文名**投影成一个普通值：
+ * 键是字段的 `name`（不是 code），值按字段类型递归（数组字段 ⇒ 数组，object 字段 ⇒ 对象）。
+ * 给了 `selected`（字段引用清单）就只投影选中的那些字段，顺序仍是 item 顺序、字段编号顺序。
+ */
+function structOf(state: Card['state'], containerCode: string, value: unknown, selected?: string[]): unknown {
+  const source = (value ?? {}) as Record<string, unknown>
+  const entries: [string, unknown][] = []
+  for (const field of childrenOf(state, containerCode)) {
+    if (selectionOf(field.code, selected) === 'none') continue
+    const lower = selectionOf(field.code, selected) === 'partial' ? selected : undefined
+    entries.push([
+      field.name,
+      field.type === 'object'
+        ? structOf(state, field.code, source[field.code], lower)
+        : field.type === 'array'
+          ? arrayOf(state, field.code, source[field.code], lower)
+          : source[field.code],
+    ])
+  }
+  return Object.fromEntries(entries)
+}
+
+/** 一个数组值按中文名投影：每个 item 是一个结构体（`[]` 就是空数组；`selected` 只挑字段） */
+function arrayOf(state: Card['state'], code: string, value: unknown, selected?: string[]): unknown[] {
+  return Array.isArray(value) ? value.map((item) => structOf(state, code, item, selected)) : []
 }
 
 /**
@@ -78,12 +97,15 @@ function subtreeOf(state: Card['state'], tree: Tree, element: Card['state'][numb
 /**
  * 一个元素投影成提示词里的那一段：时间是按模式格式化的那一行（`2024-02-10 08:30（周六）` /
  * `2024-02-10（周六）` / `第 5 天 08:30`）；有孩子的节点是「自身值 + 整棵子树」的 JSON；
- * 叶子就是自己的值（JSON 形态）。
+ * 叶子就是自己的值（JSON 形态）。数组给了 `selected`（字段引用）就只投影那些字段。
  */
-function projectOf(card: Card, tree: Tree, element: Card['state'][number]): string {
+function projectOf(card: Card, tree: Tree, element: Card['state'][number], selected?: string[]): string {
   if (element.type === 'time') {
     // 模式必填由 `cardIssues` 兜住：能走到提示词这一步的卡，时间元素一定带着合法模式
     return formatTime(tree[pathsOf(card.state, element.code)[0]] as TimeValue, element.timeMode as TimeMode)
+  }
+  if (element.type === 'array') {
+    return JSON.stringify(arrayOf(card.state, element.code, tree[element.code], selected))
   }
   return JSON.stringify(subtreeOf(card.state, tree, element))
 }
@@ -188,7 +210,19 @@ function underReadParent(code: string, reads: string[]): boolean {
 function stateLinesOf(card: Card, tree: Tree, reads: string[]): string[] {
   const lines: string[] = []
   for (const element of card.state) {
+    // 数组字段是 schema：它们并进容器那一行，不出自己的行（与 `.0` 不出行同族）
+    if (isInsideArray(card.state, element.code)) continue
     if (underReadParent(element.code, reads)) continue
+    if (element.type === 'array') {
+      // 读容器 ⇒ 全字段；只读字段引用 ⇒ 每个 item 只投影选中的那些字段
+      const selected = reads.filter((ref) => ref === element.code || ref.startsWith(`${element.code}.`))
+      if (selected.length === 0) continue
+      const only = selected.includes(element.code) ? undefined : selected
+      lines.push(
+        `${t('prompt.stateLine', { code: element.code, name: element.name })}${projectOf(card, tree, element, only)}`,
+      )
+      continue
+    }
     if (reads.includes(element.code)) {
       lines.push(
         `${t('prompt.stateLine', { code: element.code, name: element.name })}${projectOf(card, tree, element)}`,
@@ -237,7 +271,7 @@ export function arrayFieldRulesOf(state: Card['state'], code: string): string {
 }
 
 /** 一个数组字段的类型说明：标量给类型与范围，对象 / 数组字段把子字段套在括号里 */
-function fieldRuleOf(state: Card['state'], field: Card['state'][number]): string {
+export function fieldRuleOf(state: Card['state'], field: Card['state'][number]): string {
   if (field.type === 'object')
     return t('prompt.arrayObject', { fields: arrayFieldRulesOf(state, field.code) })
   if (field.type === 'array') return t('prompt.arrayNested', { fields: arrayFieldRulesOf(state, field.code) })
@@ -251,23 +285,58 @@ function fieldRuleOf(state: Card['state'], field: Card['state'][number]): string
   return t('prompt.writableTextShort')
 }
 
+/** 字段引用的值要套几层数组：最外层 item 一层；路上每遇到一个 array 字段（含字段自己）再加一层 */
+function fieldArrayLevels(state: Card['state'], ref: string): number {
+  const root = arrayRootOf(state, ref)
+  let levels = 1
+  for (let at = parentOfCode(ref); at !== undefined && at !== root; at = parentOfCode(at)) {
+    if (elementAt(state, at).type === 'array') levels += 1
+  }
+  return levels
+}
+
 /**
- * `<可写状态>` 的几行：`node.writable` 按 `pathsOf` 展开成**真实值路径**，一行一条
- * （`- <code>「<name>」：<约束>`）。三档：
- *   · 时间路径 ⇒ 只写「只能 `advance_time` 推进，不能 `write_state`」——**不会**列成可写的 `write_state` 路径；
- *   · 其它路径 ⇒ 文本（JSON 字符串）/ 下拉（JSON 字符串，只能是白名单）/ 整数（JSON 整数，范围与步幅）；
- *   · 一条都没有 ⇒ 明说没有写能力（`无可写状态`）。
+ * 一条**字段引用**的写约束（`- 2.4.1「物品」：…`）：一个按数组层嵌套的 JSON 数组，
+ * 每层长度等于那一层的当前 item 数，最内层按字段类型收；只改这一格、不增删外层 item。
+ */
+export function fieldWriteRuleOf(state: Card['state'], ref: string): string {
+  const field = refElementOf(state, ref) as Card['state'][number]
+  const rule = fieldRuleOf(state, field)
+  const levels = fieldArrayLevels(state, ref)
+  if (levels === 1) return t('prompt.writableArrayField', { rule })
+  return t('prompt.writableArrayFieldNested', { levels, rule })
+}
+
+/**
+ * `<可写状态>` 的几行：`node.writable` 的每个引用一行（`- <code>「<name>」：<约束>`）。
+ *   · 元素 / `.0` 引用 ⇒ 按 `pathsOf` 展开成真实值路径；
+ *   · **数组容器** `2.4` ⇒ 整表替换（可增删项目）；
+ *   · **数组字段** `2.4.1` ⇒ 一个按数组层嵌套、每层长度 = 那一层当前项目数的数组，只改这一格；
+ *   · 时间路径 ⇒ 只写「只能 `advance_time` 推进，不能 `write_state`」；一条都没有 ⇒ `无可写状态`。
+ * 容器与字段引用同时开 ⇒ **两行都在**（整表替换与整列替换是两种不同的写操作，增补 §四）。
  * 末尾恒有一句「未列出的状态只读」——这是写权限的权威说明，节点提示词里的说法不作数。
  * `output` 节点整段不出现（见 `buildPrompt`）。
  */
 function writableLinesOf(card: Card, node: ChainNode): string[] {
-  const paths = [...new Set(node.writable.flatMap((ref) => pathsOf(card.state, ref)))]
-  const lines = paths.map((path) => {
-    // `pathsOf` 产出的路径一定属于某个元素（`chainIssues` 已把悬空引用拦在保存之前）
-    const element = elementOfPath(card.state, path) as Card['state'][number]
-    const rule = element.type === 'time' ? t('prompt.writableTime') : writeRuleOf(card.state, element)
-    return `${t('prompt.stateLine', { code: path, name: element.name })}${rule}`
-  })
+  const refs = [...new Set(node.writable)]
+  const lines: string[] = []
+  const emitted = new Set<string>()
+  for (const ref of refs) {
+    const field = isFieldRef(card.state, ref) ? refElementOf(card.state, ref) : undefined
+    if (field) {
+      const name = field.name
+      lines.push(`${t('prompt.stateLine', { code: ref, name })}${fieldWriteRuleOf(card.state, ref)}`)
+      continue
+    }
+    for (const path of pathsOf(card.state, ref)) {
+      if (emitted.has(path)) continue
+      emitted.add(path)
+      // `pathsOf` 产出的路径一定属于某个元素（`chainIssues` 已把悬空引用拦在保存之前）
+      const element = elementOfPath(card.state, path) as Card['state'][number]
+      const rule = element.type === 'time' ? t('prompt.writableTime') : writeRuleOf(card.state, element)
+      lines.push(`${t('prompt.stateLine', { code: path, name: element.name })}${rule}`)
+    }
+  }
   if (lines.length === 0) lines.push(t('prompt.writableEmpty'))
   lines.push(t('prompt.writableReadOnly'))
   return lines

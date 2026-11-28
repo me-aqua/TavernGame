@@ -41,8 +41,9 @@ function structsOf(state: StateElement[], code: string, value: unknown): Record<
 /**
  * 值树里 `target` 这一层的全部对象（`target` 是 `ancestor` 自己或它的子孙）。
  * 每一层都可能有多个对象（数组的 item），所以沿字段定义逐层展开而不是只走一条。
+ * 换类型要「逐格改值」时也从这里取（`2.4` 的每个 item / 嵌套字段的每一份）。
  */
-function structsAt(
+export function structsAt(
   state: StateElement[],
   ancestor: string,
   value: unknown,

@@ -22,24 +22,34 @@ import { t } from '../i18n'
 import { PROVIDER_TIMEOUT_MS, startDeadline } from './deadline'
 import { AppError } from './errors'
 import { mockReply } from './mock'
-import { arrayFieldRulesOf, buildPrompt } from './prompt'
+import { arrayFieldRulesOf, buildPrompt, fieldWriteRuleOf } from './prompt'
 import { elementOfPath, toolsForNode, validateCard, validateSave } from './schema'
 import {
   advanceTime,
+  arrayRootOf,
   arrayValueFits,
+  cloneValue,
+  elementAt,
   enumValueFits,
+  fieldValueFits,
   formatTime,
   integerRangeOf,
   integerStepFits,
   integerValueFits,
+  isFieldRef,
+  isRecord,
   isTimeValue,
   pathsOf,
+  refElementOf,
+  refPathsOf,
   unitsOfMode,
 } from './statetree'
 import { advanceTimeArgsOf, writeStateArgsOf } from './tool-definitions'
 import type {
   Card,
   ChainNode,
+  ItemObject,
+  ItemValue,
   Preset,
   ProviderReply,
   ProviderToolCall,
@@ -114,9 +124,13 @@ function timePathOf(card: Card): string {
 /**
  * 往状态树写一个值，返回**新** tree（入参一个字都不改）。
  *
- * 合法路径 = `node.writable` 里某个引用覆盖的值路径之一（`pathsOf`；引用可以是元素 code，也可以是
- * `<code>.0` 自身值）；其余一律 `E_CHAIN`。时间只能走 `advance_time`；结构体没有自身值；值的类型由
- * 元素决定（文字 / 整数含上下限与单次步幅 / 下拉白名单），不符合 ⇒ `E_VALIDATION`。
+ * 合法路径 = `node.writable` 里某个引用覆盖的权限路径（`pathsOf`；引用可以是元素 code、
+ * `<code>.0`、数组容器 `2.4`，或数组字段 `2.4.1`）；其余一律 `E_CHAIN`。时间只能走 `advance_time`；
+ * 结构体没有自身值；值的类型由元素决定（文字 / 整数含上下限与单次步幅 / 下拉白名单），不符合 ⇒ `E_VALIDATION`。
+ *
+ * 数组两种写法（权限引用决定模型能用哪种）：
+ *   · 数组容器 `2.4` ⇒ **整表替换**（可增删项目）；
+ *   · 数组字段 `2.4.1` ⇒ 一个**长度 = 当前项目数**的数组，逐个 item 只改这一格（不增删项目、不动别的字段）。
  */
 export function applyWrite({
   card,
@@ -132,6 +146,7 @@ export function applyWrite({
   value: unknown
 }): Tree {
   const element = elementOfPath(card.state, path)
+  const field = isFieldRef(card.state, path) ? refElementOf(card.state, path) : undefined
   if (element?.type === 'time') {
     throw new AppError('E_CHAIN', {
       message: t('error.writeTime', { node: node.id }),
@@ -139,17 +154,20 @@ export function applyWrite({
       detail: { nodeId: node.id, path },
     })
   }
-  const covered = node.writable.flatMap((ref) => pathsOf(card.state, ref)).includes(path)
+  const covered =
+    node.writable.flatMap((ref) => pathsOf(card.state, ref)).includes(path) ||
+    // 字段写只由**逐字相同**的字段引用授权（容器 / 祖先字段都不授权，增补 §五.1）
+    (field !== undefined && node.writable.includes(path))
   if (!covered) {
     throw new AppError('E_CHAIN', {
-      message: element
+      message: element || field
         ? t('error.writeNotAllowed', { node: node.id, path })
         : t('error.writeMissing', { path }),
       nextStep: t('next.editor'),
       detail: { nodeId: node.id, path, writable: node.writable },
     })
   }
-  if (!element) {
+  if (!element && !field) {
     throw new AppError('E_CHAIN', {
       message: t('error.writeMissing', { path }),
       nextStep: t('next.editor'),
@@ -161,8 +179,17 @@ export function applyWrite({
     new AppError('E_VALIDATION', {
       message: t('error.valueNotFit', { path }),
       nextStep: t('next.editor'),
-      detail: { path, value, type: element.type },
+      detail: { path, value, type: (element ?? field)?.type },
     })
+  // 数组字段（`2.4.1` 这类引用，没有值路径）：整列替换。
+  // 值**按数组层嵌套**：最外层长度 = 外层 item 数；路上每穿过一个 array 字段就多一层数组，
+  // 每层长度 = 那一层的当前 item 数；最内层按字段类型判。形状不对 ⇒ `E_VALIDATION`，tree 不动。
+  if (element === undefined) {
+    const arrayCode = arrayRootOf(card.state, path) as string
+    const patched = patchFieldLayer(card.state, arrayCode, tree[arrayCode], path, value)
+    if (patched === undefined) throw reject()
+    return { ...tree, [arrayCode]: patched as Tree[string] }
+  }
   // 值的类型与范围由元素决定；数字 / 下拉的规矩与卡校验同一份（`statetree`），这里不重写
   if (element.type === 'text') {
     if (typeof value !== 'string') throw reject()
@@ -180,6 +207,64 @@ export function applyWrite({
     if (!arrayValueFits(card.state, path, value)) throw reject()
   }
   return { ...tree, [path]: value as Tree[string] }
+}
+
+/**
+ * 按数组层写字段：`container` 是当前这一层数组的 code（最外层容器 / 中间的 array 字段），
+ * `current` 是它现在的 item 列表，`incoming` 是「这一层每个 item 的值」。
+ * 形状不对返回 `undefined`（调用方转 `E_VALIDATION`，tree 一个字不动）。
+ */
+function patchFieldLayer(
+  state: Card['state'],
+  container: string,
+  current: unknown,
+  ref: string,
+  incoming: unknown,
+): unknown[] | undefined {
+  if (!Array.isArray(current) || !Array.isArray(incoming) || current.length !== incoming.length) {
+    return undefined
+  }
+  const next = cloneValue(current) as unknown[]
+  for (let at = 0; at < next.length; at += 1) {
+    const item = next[at]
+    if (!isRecord(item)) return undefined
+    const patched = patchFieldInItem(state, container, item, ref, incoming[at])
+    if (patched === undefined) return undefined
+    next[at] = patched
+  }
+  return next
+}
+
+/**
+ * 在一层 item 对象里沿字段 code 下钻：`object` 字段继续往里走，**array 字段多一层数组**
+ * （值继续按层嵌套），到 `ref` 自己那一格就按字段类型判值并写入。返回新的 item；形状不对 ⇒ `undefined`。
+ */
+function patchFieldInItem(
+  state: Card['state'],
+  container: string,
+  item: Record<string, unknown>,
+  ref: string,
+  incoming: unknown,
+): ItemObject | undefined {
+  const nextCode = `${container}.${ref.slice(container.length + 1).split('.')[0]}`
+  const next = { ...item } as ItemObject
+  if (nextCode === ref) {
+    if (!fieldValueFits(state, elementAt(state, ref), incoming)) return undefined
+    next[ref] = incoming as ItemValue
+    return next
+  }
+  const field = elementAt(state, nextCode)
+  if (field.type === 'array') {
+    const patched = patchFieldLayer(state, nextCode, item[nextCode], ref, incoming)
+    if (patched === undefined) return undefined
+    next[nextCode] = patched as ItemValue
+    return next
+  }
+  if (field.type !== 'object' || !isRecord(item[nextCode])) return undefined
+  const patched = patchFieldInItem(state, nextCode, item[nextCode], ref, incoming)
+  if (patched === undefined) return undefined
+  next[nextCode] = patched
+  return next
 }
 
 /**
@@ -271,8 +356,9 @@ function runTool({
     })
   }
   const next = applyWrite({ card, node, tree, path, value })
-  // 事件记的是**真正落进 tree 的值**（数字字符串已被收成数字；数组就是整份新列表），不是模型原文
-  const written = next[path]
+  // 事件记的是**真正落进 tree 的值**（数字字符串已被收成数字；数组整表就是新列表；
+  // 数组字段写的是那一列的值，tree 里没有一条独立路径可以取）
+  const written = isFieldRef(card.state, path) ? value : next[path]
   return {
     tree: next,
     events: [
@@ -328,10 +414,14 @@ function guidanceOf(card: Card, node: ChainNode, call: ProviderToolCall): string
     return t('prompt.retryGuidanceTime', { units: unitsOfMode(mode).join(separator) })
   }
   const { path } = writeStateArgsOf(call.args)
+  // 数组字段引用：写的是「每个 item 一格」，值按数组层嵌套（长度各等于那一层的当前 item 数）
+  if (typeof path === 'string' && isFieldRef(card.state, path)) {
+    return fieldWriteRuleOf(card.state, path)
+  }
   const element = typeof path === 'string' ? elementOfPath(card.state, path) : undefined
   if (!element) {
     return t('prompt.retryGuidancePaths', {
-      paths: node.writable.flatMap((ref) => pathsOf(card.state, ref)).join(separator),
+      paths: [...new Set(node.writable.flatMap((ref) => refPathsOf(card.state, ref)))].join(separator),
     })
   }
   if (element.type === 'time') return t('prompt.retryGuidanceAdvance')

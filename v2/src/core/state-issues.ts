@@ -25,6 +25,7 @@ import {
 } from './state-codes'
 import { integerRangeOf, valueFits } from './state-values'
 import { elementOfPath, pathsOf } from './state-data'
+import { isFieldRef } from './state-refs'
 import { HOLIDAY_GROUPS } from './holidays'
 import { TIME_MODES, isTimeValue } from './timevalue'
 import type { Card, Holidays, StateElement, Tree } from './types'
@@ -247,8 +248,9 @@ function chainIssues(card: Card): CardIssue[] {
   if (chain.filter((node) => node.type === 'time').length > 1) add(t('error.chainTime'), 'E_CHAIN')
 
   const promptIds = new Set((Array.isArray(card.prompts) ? card.prompts : []).map((prompt) => prompt.id))
-  // 引用可以是一个元素 code，也可以是 `<code>.0`（只取自身值）；**数组字段不是值路径**，认不出来
-  const known = (ref: string) => elementOfPath(card.state, ref) !== undefined
+  // 引用可以是一个元素 code、一个 `<code>.0`（只取自身值），也可以是一个**数组字段**引用
+  // （`2.4.1` = 所有 item 里的那一格）。认不出来的两者都不算。
+  const known = (ref: string) => elementOfPath(card.state, ref) !== undefined || isFieldRef(card.state, ref)
   const positions = new Map(chain.map((node, index) => [node.id, index]))
   chain.forEach((node, index) => {
     for (const ref of node.readsUpstream) {

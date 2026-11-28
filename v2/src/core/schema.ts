@@ -13,7 +13,7 @@
  */
 import { t } from '../i18n'
 import { AppError } from './errors'
-import { cardIssues, elementOfPath, isTimeValue, pathsOf, valueFits } from './statetree'
+import { cardIssues, elementOfPath, isFieldRef, isTimeValue, pathsOf, refPathsOf, valueFits } from './statetree'
 import type { Card, ChainNode, Save, StateElement } from './types'
 
 // 值路径 ↔ 元素的那一格住在 `statetree.ts`（卡校验、存档校验、界面三处共用）；老的调用方从这里取
@@ -41,17 +41,19 @@ export const MAX_RETRY_COUNT = 5
 export function toolsForNode(card: Card, node: ChainNode): string[] {
   if (node.type === 'output') return []
   const tools: string[] = []
-  const covered = node.writable.flatMap((ref) => pathsOf(card.state, ref))
+  // 权限引用覆盖的路径：元素 code / `.0` 走值路径，数组字段走它自己那一格
+  const covered = node.writable.flatMap((ref) => refPathsOf(card.state, ref))
   const [timePath] = pathsOf(card.state, '0')
   if (timePath !== undefined && covered.includes(timePath)) tools.push('advance_time')
   if (covered.some((path) => writableValueAt(card, path))) tools.push('write_state')
   return tools
 }
 
-/** 一条值路径是不是 `write_state` 能写的（有自身值、且不是时间） */
+/** 一条路径是不是 `write_state` 能写的（有自身值且不是时间；数组字段引用也能写那一格） */
 function writableValueAt(card: Card, path: string): boolean {
   const element = elementOfPath(card.state, path)
-  return element !== undefined && element.type !== 'time' && element.type !== 'object'
+  if (element === undefined) return isFieldRef(card.state, path)
+  return element.type !== 'time' && element.type !== 'object'
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

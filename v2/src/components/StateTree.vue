@@ -18,7 +18,16 @@
  * 那一侧的卡结构是冻结的，只许改名字 / 备注 / 提示词与眼睛。
  */
 import { computed } from 'vue'
-import { MAX_DEPTH, codeDepth, isInsideArray, pathsOf } from '../core/statetree'
+import {
+  MAX_DEPTH,
+  codeDepth,
+  elementOfPath,
+  isFieldRef,
+  isInsideArray,
+  pathsOf,
+  refCoveredBy,
+  refsUnder,
+} from '../core/statetree'
 import type { ChainNode, StateElement } from '../core/types'
 import { t } from '../i18n'
 
@@ -56,17 +65,33 @@ const coveredPaths = computed(() => {
   return covered
 })
 
-/** 三态：这一行的值路径全被覆盖 = `all`，都没 = `none`，只覆盖一部分 = `some` */
-function triOf(field: 'read' | 'write', code: string): 'all' | 'some' | 'none' {
-  const paths = pathsOf(props.elements, code)
-  const hit = paths.filter((path) => coveredPaths.value[field].has(path)).length
-  if (hit === 0) return 'none'
-  return hit === paths.length ? 'all' : 'some'
-}
-
 /** 输出节点不写状态：它一只写眼睛都没有（`writable` 必须是空的） */
 function showsWrite(): boolean {
   return props.node !== null && props.node.type !== 'output'
+}
+
+/**
+ * 这一行的三态（`CONTRACT §8.2` / 增补 §六.2）：按**子树覆盖**算，不是按值路径交集。
+ * 一行里的「格子」有两类：
+ *   · 值路径（数组容器的值路径不算 —— 它的内容是字段，下面那一类在管）；
+ *   · 数组字段引用（`2.4.1` 这类；容器 / 祖先引用覆盖它们）。
+ * 全被覆盖 ⇒ `all`；一个都没 ⇒ `none`；其余 ⇒ `some`。
+ * 于是「只开 `2.4.1`」⇒ 容器半、「两列都开」⇒ 容器满、「只开 `1.1.0`」⇒ `1.1` 半（旧行为不变）。
+ */
+function triOf(field: 'read' | 'write', code: string): 'all' | 'some' | 'none' {
+  const list = field === 'read' ? (props.node?.reads ?? []) : (props.node?.writable ?? [])
+  const values = pathsOf(props.elements, code).filter((path) => {
+    const owner = elementOfPath(props.elements, path)
+    return owner !== undefined && owner.type !== 'array'
+  })
+  const fieldRefs = refsUnder(props.elements, code).filter((ref) => isFieldRef(props.elements, ref))
+  const total = values.length + fieldRefs.length
+  if (total === 0) return 'none'
+  const hit =
+    values.filter((path) => coveredPaths.value[field].has(path)).length +
+    fieldRefs.filter((ref) => refCoveredBy(props.elements, list, ref)).length
+  if (hit === 0) return 'none'
+  return hit === total ? 'all' : 'some'
 }
 
 /**

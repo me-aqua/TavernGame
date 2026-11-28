@@ -40,7 +40,11 @@ import type { AppError } from '../core/errors'
 import { validateCard, validateSave } from '../core/schema'
 import {
   addChild,
+  arrayDiscardedCount,
   cardIssues,
+  childrenOf,
+  isFieldRef,
+  parentOfCode,
   pathsOf,
   removeNode,
   saveTreeIssues,
@@ -87,11 +91,12 @@ const saveIssues = ref<CardIssue[]>([])
 const savedOk = ref(false)
 /** 草稿动过没有（点【返回】时决定要不要确认） */
 const dirty = ref(false)
-/** 等着确认的那件事：删元素 / 删提示词 / 换时间模式 / 带着改动离开 */
+/** 等着确认的那件事：删元素 / 删提示词 / 换时间模式 / 数组换对象（会丢 item）/ 带着改动离开 */
 const pending = ref<
   | { kind: 'state'; code: string }
   | { kind: 'prompt'; id: string }
   | { kind: 'mode'; mode: TimeMode; select: HTMLSelectElement }
+  | { kind: 'convert'; code: string; type: StateType; select: HTMLSelectElement; discarded: number }
   | { kind: 'back' }
   | null
 >(null)
@@ -137,17 +142,20 @@ const currentValue = computed(() => {
   return ownPath === undefined ? undefined : current.tree[ownPath]
 })
 
-/** 确认层的文案与确认按钮：删除说「删除」，换模式与离开说「确定」/「离开」 */
+/** 确认层的文案与确认按钮：删除说「删除」，换模式 / 换类型 / 离开说「确定」/「离开」 */
 const pendingMessage = computed(() => {
   if (pending.value?.kind === 'state') return t('editor.deleteStateConfirm')
   if (pending.value?.kind === 'prompt') return t('editor.deletePromptConfirm')
   if (pending.value?.kind === 'mode') return t('editor.timeModeConfirm')
+  if (pending.value?.kind === 'convert') {
+    return t('editor.arrayToObjectConfirm', { count: pending.value.discarded })
+  }
   return t('editor.leaveConfirm')
 })
 const pendingConfirmLabel = computed(() =>
   pending.value?.kind === 'back'
     ? t('editor.leave')
-    : pending.value?.kind === 'mode'
+    : pending.value?.kind === 'mode' || pending.value?.kind === 'convert'
       ? t('common.confirm')
       : t('common.delete'),
 )
@@ -302,8 +310,11 @@ function patchElement(code: string, element: StateElement): void {
 /**
  * 眼睛：把某个引用塞进/拿出当前节点的 `reads` / `writable` / `readsUpstream`。
  *
- * 状态元素的【读】/【写】是按**三态**切的：`all` ⇒ 把这一 code 连同它下面已经不用的引用一起摘掉
- * （父行的「全反选」），`some` / `none` ⇒ 加上这一 code（父行加上它 = 自身值 + 整棵子树全选）。
+ * 状态元素的【读】/【写】按**三态**切（数组容器 / 字段行也一样，三态由 `StateTree` 按引用算）：
+ *   · `all` 且自己的 code 在清单里 ⇒ 摘掉自己 + 后代（旧行为）；
+ *   · `all` 但只是**被祖先引用覆盖**（只对数组字段行）⇒ **拆开祖先**：把祖先换成「目标以外的每一层
+ *     兄弟」，让这一列真的关掉（增补 §六.3，例：`['2.4']` 点 `2.4.1` ⇒ `['2.4.2']`）；
+ *   · `some` / `none` ⇒ 加自己，并去掉后代冗余引用（清单里只留这一条，不逐个孩子）。
  * 叶子只有 all / none 两态，所以它的按钮永远只切自己。
  */
 function toggleRef(
@@ -312,7 +323,8 @@ function toggleRef(
   tri?: 'all' | 'some' | 'none',
 ): void {
   const node = selectedNode.value
-  if (!node) return
+  const draft = card.value
+  if (!node || !draft) return
   const list = node[field]
   // 提示词块 / 上游节点那两种眼睛不是三态的：它们只翻自己这一条
   if (tri === undefined) {
@@ -322,8 +334,38 @@ function toggleRef(
     return
   }
   const inside = (ref: string) => ref === ref0 || ref.startsWith(`${ref0}.`)
-  const next = tri === 'all' ? list.filter((item) => !inside(item)) : [...new Set([...list, ref0])]
+  let next: string[]
+  if (tri === 'all') {
+    if (list.includes(ref0) || !isFieldRef(draft.state, ref0)) next = list.filter((item) => !inside(item))
+    else next = splitCoveringRef(draft.state, list, ref0)
+  } else {
+    next = [...list.filter((item) => !item.startsWith(`${ref0}.`)), ref0]
+  }
   patchNode(node.id, { [field]: next })
+}
+
+/**
+ * 一个字段行被祖先引用覆盖时点它：撤掉那个祖先（连同它下面别的引用），
+ * 逐层补上「目标以外的兄弟」，剩下的覆盖范围 = 祖先减去这一列。
+ */
+function splitCoveringRef(state: StateElement[], list: string[], ref: string): string[] {
+  const covering = list
+    .filter((item) => ref.startsWith(`${item}.`))
+    .sort((left, right) => left.length - right.length)[0]
+  if (covering === undefined) return list
+  const rest = list.filter((item) => item !== covering && !item.startsWith(`${covering}.`))
+  const siblings: string[] = []
+  let parent = covering
+  for (;;) {
+    const segment = ref.slice(parent.length + 1).split('.')[0]
+    const onPath = `${parent}.${segment}`
+    for (const child of childrenOf(state, parent)) {
+      if (child.code !== onPath) siblings.push(child.code)
+    }
+    if (parent === parentOfCode(ref)) break
+    parent = onPath
+  }
+  return [...rest, ...siblings]
 }
 
 function selectNode(nodeId: string): void {
@@ -383,13 +425,31 @@ function removeState(code: string): void {
 }
 
 /**
- * 换类型：整份新元素由 `statetree.setElementType` 产出（它还要同步所属根的初始值那一格）。
+ * 换类型：整份新元素由 `statetree.setElementType` 产出（它还要同步初始值那一格）。
  *
  * 类型下拉里「时间」那一档**留着**（导入的卡可能真是时间类型，作者也该看得见它），但**别的元素换不过去**：
  * `setElementType` 抛 `E_VALIDATION`。所以这里必须接住 —— 不接就是一次静默的空转（下拉停在新选项上、
  * 草稿没变、一个字都不说）。接住之后：错误进页内 `[data-error]`，下拉拨回这个元素真实的类型。
+ *
+ * **数组 → 对象**会丢 item（只留第一个）：多于一项目时先弹确认（`editor.arrayToObjectConfirm`），
+ * 取消 ⇒ 草稿一个字不动、下拉拨回去；确定 ⇒ 走同一条 `setElementType`。
  */
 function retypeElement(code: string, type: StateType, select: HTMLSelectElement): void {
+  const current = card.value
+  if (!current) return
+  const element = current.state.find((item) => item.code === code)
+  if (element?.type === 'array' && type === 'object') {
+    const discarded = arrayDiscardedCount(current, code)
+    if (discarded > 0) {
+      pending.value = { kind: 'convert', code, type, select, discarded }
+      return
+    }
+  }
+  applyRetype(code, type, select)
+}
+
+/** 真正换类型（已确认过）：成功清错误，被拒把下拉拨回真实类型 */
+function applyRetype(code: string, type: StateType, select: HTMLSelectElement): void {
   try {
     updateCard((current) => setElementType(current, code, type))
     error.value = null
@@ -420,6 +480,9 @@ function cancelPending(): void {
   const target = pending.value
   pending.value = null
   if (target?.kind === 'mode') target.select.value = card.value?.state[0]?.timeMode ?? ''
+  if (target?.kind === 'convert') {
+    target.select.value = card.value?.state.find((item) => item.code === target.code)?.type ?? ''
+  }
 }
 
 function addPrompt(): void {
@@ -465,6 +528,7 @@ function confirmPending(): void {
   if (target.kind === 'state') removeState(target.code)
   else if (target.kind === 'prompt') removePrompt(target.id)
   else if (target.kind === 'mode') updateCard((current) => setTimeMode(current, target.mode))
+  else if (target.kind === 'convert') applyRetype(target.code, target.type, target.select)
   else location.hash = routeHash({ name: 'home' })
 }
 

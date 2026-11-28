@@ -80,8 +80,8 @@ function objectFits(state: StateElement[], code: string, value: unknown): boolea
   return fields.every((field) => field.code in value && fieldValueFits(state, field, value[field.code]))
 }
 
-/** 一个字段的值：标量按类型收，对象 / 数组字段递归判 */
-function fieldValueFits(state: StateElement[], field: StateElement, value: unknown): boolean {
+/** 一个字段的值：标量按类型收，对象 / 数组字段递归判（权限引用写一格、item 形状、提示词三处共用） */
+export function fieldValueFits(state: StateElement[], field: StateElement, value: unknown): boolean {
   switch (field.type) {
     case 'text':
       return typeof value === 'string'

@@ -128,14 +128,17 @@ describe('数组 · 值路径（§二）', () => {
     }
   })
 
-  it('reads / writable 只接受容器 code；字段 code 与 .0 都是 E_VALIDATION', async () => {
+  it('reads / writable 收容器 code 与字段 code；2.4.0 与不存在的字段仍是 E_VALIDATION', async () => {
     const { validateCard } = await loadSchema()
-    expect(() => validateCard(cardWithRefs('writable', ['2.4'])), '写容器 code 合法').not.toThrow()
-    expect(() => validateCard(cardWithRefs('reads', ['2.4'])), '读容器 code 合法').not.toThrow()
     for (const field of ['reads', 'writable']) {
-      for (const ref of ['2.4.1', '2.4.0', '2.4.2.2.1']) {
+      expect(() => validateCard(cardWithRefs(field, ['2.4'])), `${field} 里的容器 code 合法`).not.toThrow()
+      expect(
+        () => validateCard(cardWithRefs(field, ['2.4.1'])),
+        `${field} 里的字段 code 是权限引用（增补 §一）`,
+      ).not.toThrow()
+      for (const ref of ['2.4.0', '2.4.2.2.1', '2.4.9']) {
         const error = errorOf(() => validateCard(cardWithRefs(field, [ref])))
-        expect(error, `${field} 里的 ${ref} 应当被拒`).not.toBeNull()
+        expect(error, `${field} 里的 ${ref} 应当被拒（holdCard 里没有这个字段 / 不是引用）`).not.toBeNull()
         expect(error.code).toBe('E_VALIDATION')
         expect(error.message).toMatch(CJK)
       }

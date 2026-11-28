@@ -56,6 +56,19 @@
   数组编辑块住 `components/ArrayValue.vue`。判据：`v2/tests/array-*.test.js` · `v2/e2e/array-editor.spec.js` ·
   `v2/e2e/array-write.spec.js`（同批迁移 `sample-card-v5` / `prompt-state` / `prompt-writable` / `sample` /
   `state-tree`）。
+- **v2：数组字段的真读写权限 + 数组 ⇄ 对象换类型（阶段 3 增补 · 2026-11-28）** —— 字段引用（`2.4.1`、`2.4.2.2.1`）
+  从「悬空」变成**真权限**：`reads` 里读 = 并进容器那一行、只投影选中的字段（中文键、item 顺序 / 嵌套保留、
+  没选的一个键都不出现）；`writable` 里写 = `write_state({ path: '2.4.1', value: [...] })` **整列替换**
+  （最外层长度 = item 数；穿 array 字段时值按数组层嵌套，每层长度各等于那一层的当前 item 数；只改这一格、
+  不增删 item；长度 / 形状 / 类型不对 ⇒ `E_VALIDATION` 且 tree 不动；未授权 ⇒ `E_CHAIN`；容器与字段
+  各自授权各自的写）。编辑器里数组字段行**有读 / 写眼睛**（不是 v-if 藏掉）：三态按子树覆盖算（只开一列 ⇒
+  容器半、两列全开 ⇒ 容器满），点字段行写那条字段引用，父引用已开时点字段会**拆开父引用**
+  （`['2.4']` 点 `2.4.1` ⇒ `['2.4.2']`）真的关掉这一列。**数组 ⇄ 对象**（卡编辑器）：字段定义与引用原样保留；
+  数组 → 对象取第 1 项摊平（0 项写字段默认值；多于 1 项先确认「其余 N-1 项将被丢弃」），对象 → 数组把后代值
+  收成一个 item（没有后代值 ⇒ `[]`）；数组 → 文字 / 数字 / 下拉 / 时间 ⇒ `E_VALIDATION`，数组子树里的字段做
+  array⇄object 也 ⇒ `E_VALIDATION`；**存档编辑器类型下拉对所有元素锁死**。判据：
+  `v2/tests/array-field-permissions.test.js` · `v2/tests/array-field-write.test.js` ·
+  `v2/tests/array-conversion.test.js` · `v2/e2e/array-field-eyes.spec.js` · `v2/e2e/array-conversion.spec.js`。
 - **v2：节点调用重试次数（2026-11-28）** —— `ChainNode` 新增 `retryCount`：**第一次之外的额外尝试次数**，
   `0..5` 的整数、缺省 `0`（旧卡 / 旧存档快照没有这一格按 0 处理，不迁移、不回写；新建卡的三个默认节点显式写
   `retryCount: 0`）；越界 / 小数 / 字符串 ⇒ `E_CHAIN`（`detail = { nodeId, retryCount }`）。

@@ -27,13 +27,15 @@ import {
   subtreeCodes,
 } from './state-codes'
 import { fieldDefaultOf } from './state-values'
-import { arrayRootOf, cloneValue, remapArrayValue, withFieldValue } from './state-array'
+import { arrayRootOf, cloneValue, remapArrayValue, structsAt, withFieldValue } from './state-array'
 import { NO_HOLIDAYS } from './holidays'
 import { defaultTimeOf } from './timevalue'
 import type {
   ArrayValue,
   Card,
   InitialTable,
+  ItemObject,
+  ItemValue,
   StateElement,
   StateType,
   StateValue,
@@ -306,16 +308,32 @@ export function removeNode(card: Card, code: string): Card {
  *   · 新类型 `array` ⇒ 清掉这个 code 子树在表里的所有键，写入 `table[code] = []`；
  *   · 有孩子 ⇒ 默认值写在 `<code>.0`；没孩子 ⇒ 写在 `<code>`；
  *   · 旧类型 `object`、新类型是标量 ⇒ 补一条自己的值路径。
- * 孩子不动（换类型不搬孩子）。非 `time` 元素换成 `time` ⇒ `E_VALIDATION`；
- * 数组换成别的类型 ⇒ `E_VALIDATION`（本票只支持换成数组）。
+ * 孩子不动（换类型不搬孩子）。非 `time` 元素换成 `time` ⇒ `E_VALIDATION`。
+ *
+ * **数组 ↔ 对象**（卡编辑器；增补票）：只在两者之间换，字段 code 原样保留（孩子不动）：
+ *   · 数组 → 对象：item 的字段变成对象的字段；初始值取**第一个 item**（0 项 ⇒ 各字段默认值）；
+ *     对象字段没有自己的值，所以第一个 item 的值要**铺回初始值表**（`2.4.1` 那一格就是值路径）。
+ *   · 对象 → 数组：对象的字段变成 item 的字段；对象当前的字段值拼成**一个 item**（长度 1）；
+ *     对象没有字段可拼 ⇒ 空数组 `[]`。
+ *   · 别的方向（数组 → 文字 / 数字 / 下拉 / 时间）一律 `E_VALIDATION`：字段没有落点。
+ * 嵌套字段也照这一条换：每个外层 item 里的那一格各自换（值不跨 item）。
  */
 export function setElementType(card: Card, code: string, type: StateType): Card {
   const element = elementAt(card.state, code)
   if (type === 'time' && element.type !== 'time') {
     throw invalid(t('issue.typeToTime', { code }), { code, type })
   }
-  if (element.type === 'array' && type !== 'array') {
+  if (element.type === 'array' && type !== 'array' && type !== 'object') {
     throw invalid(t('issue.typeFromArray', { code }), { code, type })
+  }
+  // 数组子树里的字段是 schema：逐 item 的 array⇄object 转换不在本票范围（§十.5 数据层兜底）
+  if (
+    isInsideArray(card.state, code) &&
+    (element.type === 'array' || element.type === 'object') &&
+    (type === 'array' || type === 'object') &&
+    type !== element.type
+  ) {
+    throw invalid(t('issue.fieldContainerConvert', { code }), { code, type })
   }
   const next: StateElement = { ...element, type }
   delete next.values
@@ -330,21 +348,27 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
   // 数组子树里的类型是字段类型：值是每个 item 里那一格，不是表里的一条路径
   if (isInsideArray(card.state, code)) {
     const arrayRoot = arrayRootOf(card.state, code) as string
-    table[arrayRoot] = withFieldValue(
-      card.state,
-      arrayRoot,
-      table[arrayRoot] as ArrayValue,
-      parentOfCode(code) as string,
-      code,
-      fieldDefaultOf(card.state, next),
-    )
+    const value = cloneValue(table[arrayRoot])
+    for (const object of structsAt(card.state, arrayRoot, value, parentOfCode(code) as string)) {
+      object[code] = fieldDefaultOf(card.state, next)
+    }
+    table[arrayRoot] = value
+  } else if (element.type === 'array' && type === 'object') {
+    // 数组 → 对象：第一个 item 的值铺回表（数组本身那条值路径消失）
+    const item = arrayFirstItem(card.state, code, table[code])
+    clearTableSubtree(table, code)
+    writeItemToTable(card.state, code, item, table)
+  } else if (element.type === 'object' && type === 'array') {
+    // 对象 → 数组：字段当前值拼成一个 item；后代在表里一条值路径都没有 ⇒ 空数组（§十.3）
+    const hasValue = pathsOf(card.state, code).some((path) => path in table)
+    const item = hasValue ? readObjectFromTable(card.state, code, table) : undefined
+    clearTableSubtree(table, code)
+    table[code] = item === undefined ? [] : [item]
   } else {
     const ownPath = ownPathOf(card.state, element)
     if (type === 'array') {
       // 数组的值住在自己的 code：先清掉这棵子树在表里的键，再写一份空数组
-      for (const key of Object.keys(table)) {
-        if (key === code || key.startsWith(`${code}.`)) delete table[key]
-      }
+      clearTableSubtree(table, code)
       table[code] = []
     } else {
       delete table[ownPath]
@@ -359,6 +383,74 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
     return item
   })
   return { ...card, state }
+}
+
+/** 清掉一个 code 子树在初始值表里的所有键（数组 / 对象换类型时先腾空） */
+function clearTableSubtree(table: InitialTable, code: string): void {
+  for (const key of Object.keys(table)) {
+    if (key === code || key.startsWith(`${code}.`)) delete table[key]
+  }
+}
+
+/** 数组换对象时取的第一个 item；空数组 ⇒ 各字段默认值拼出来的 item */
+function arrayFirstItem(state: StateElement[], code: string, value: unknown): ItemObject {
+  return normalizeObjectOf(state, code, Array.isArray(value) ? value[0] : undefined)
+}
+
+/** 按字段定义补全一个对象值（缺的字段用默认值，对象字段递归） */
+function normalizeObjectOf(state: StateElement[], code: string, value: unknown): ItemObject {
+  const source = isRecord(value) ? value : {}
+  const item: ItemObject = {}
+  for (const field of childrenOf(state, code)) {
+    item[field.code] =
+      field.type === 'object'
+        ? normalizeObjectOf(state, field.code, source[field.code])
+        : ((source[field.code] ?? fieldDefaultOf(state, field)) as ItemValue)
+  }
+  return item
+}
+
+/** 把一个 item 的字段值铺回初始值表：对象字段没有自己的值，继续往下铺；别的字段写自己那一格 */
+function writeItemToTable(state: StateElement[], code: string, item: ItemObject, table: InitialTable): void {
+  for (const field of childrenOf(state, code)) {
+    if (field.type === 'object') {
+      writeItemToTable(state, field.code, item[field.code] as ItemObject, table)
+      continue
+    }
+    table[field.code] = (item[field.code] ?? fieldDefaultOf(state, field)) as TreeValue
+  }
+}
+
+/** 从初始值表里读回一个对象元素的当前值（对象字段没有自己的值，靠孩子拼） */
+function readObjectFromTable(state: StateElement[], code: string, table: InitialTable): ItemObject {
+  const item: ItemObject = {}
+  for (const field of childrenOf(state, code)) {
+    item[field.code] =
+      field.type === 'object'
+        ? readObjectFromTable(state, field.code, table)
+        : ((table[field.code] ?? fieldDefaultOf(state, field)) as ItemValue)
+  }
+  return item
+}
+
+/**
+ * 编辑器换类型前的提示用：这个数组元素 / 数组字段一共会丢掉多少个 item
+ * （每个实例 `len - 1` 之和；嵌套字段按每个外层 item 各算一次）。
+ */
+export function arrayDiscardedCount(card: Card, code: string): number {
+  const root = arrayRootOf(card.state, code)
+  if (root === undefined) return 0
+  const table = initialTableOf(card.state, code)
+  if (root === code) return countDiscarded(table[code])
+  return structsAt(card.state, root, table[root], parentOfCode(code) as string).reduce(
+    (sum, object) => sum + countDiscarded(object[code]),
+    0,
+  )
+}
+
+/** 一份数组值里会丢掉的 item 数（`[]` / 单元素都是 0） */
+function countDiscarded(value: unknown): number {
+  return Array.isArray(value) ? Math.max(0, value.length - 1) : 0
 }
 
 /**

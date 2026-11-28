@@ -33,6 +33,7 @@ import {
   TIME_MODES,
   cellsOfMode,
   elementOfPath,
+  isInsideArray,
   integerRangeOf,
   pathsOf,
   rootCodeOf,
@@ -71,13 +72,30 @@ const emit = defineEmits<{
   'time-mode': [mode: TimeMode, select: HTMLSelectElement]
 }>()
 
-/** 作者能选的类型（`object` 不在这里：它是「有子元素」的后台形态） */
+/** 作者能选的类型（`object` 是「有孩子」的形态：只在导入的卡 / 数组换对象时出现） */
 const TYPES: StateType[] = ['text', 'integer', 'enum', 'time', 'array']
 
 /** 类型标签住文案表：`editor.typeText` / `editor.typeInteger` / … */
 function typeLabel(type: StateType): string {
   return t(`editor.type${type.charAt(0).toUpperCase()}${type.slice(1)}`)
 }
+
+/**
+ * 类型下拉的可选档（增补 §十.5）：
+ *   · 数组（数组子树之外）⇒ 只有 `array` 与 `object`（其余方向不开口子：字段没有落点）；
+ *   · 对象（数组子树之外）⇒ 保留 `object` + 作者选项（含 `array`，好走 结构体 → 数组）；
+ *   · 数组字段 ⇒ 只有 `array`（逐 item 的容器转换不在本票范围，数据层也会拒）；
+ *   · 其它元素 ⇒ 作者选项原样。
+ */
+const typeOptions = computed<StateType[]>(() => {
+  const element = props.element
+  const field = isInsideArray(props.state, element.code)
+  if (element.type === 'array') return field ? ['array'] : ['array', 'object']
+  if (element.type === 'object') {
+    return field ? ['object', 'text', 'integer', 'enum', 'time'] : ['object', ...TYPES]
+  }
+  return [...TYPES]
+})
 
 function unitLabel(unit: TimeUnit): string {
   return t(`time.unit.${unit}`)
@@ -257,21 +275,21 @@ function requestMode(event: Event): void {
     <div class="fields stack">
       <div class="field-row">
         <span class="field-label">{{ t('editor.stateType') }}</span>
-        <!-- 时间元素：这一行就是模式选择器（底层 type 仍是 time）；别的元素照旧选类型 -->
+        <!-- 时间元素：这一行就是模式选择器（底层 type 仍是 time）；别的元素照旧选类型。
+             存档模式整格锁死（`initialLocked`）：换类型改的是卡的种子值，不属于这一局。 -->
         <select
           data-state-type
           data-field="type"
           :value="element.type === 'time' ? mode : element.type"
-          :disabled="element.type === 'time' && initialLocked"
+          :disabled="initialLocked"
           @change="element.type === 'time' ? requestMode($event) : requestType($event)"
         >
           <template v-if="element.type === 'time'">
             <option v-for="item in TIME_MODES" :key="item" :value="item">{{ modeLabel(item) }}</option>
           </template>
           <template v-else>
-            <!-- 导入的卡里真有一个结构体时照实显示它；作者新建 / 换类型只能选下面那四档 -->
-            <option v-if="element.type === 'object'" value="object">{{ typeLabel('object') }}</option>
-            <option v-for="type in TYPES" :key="type" :value="type">{{ typeLabel(type) }}</option>
+            <!-- 选项由 `typeOptions` 决定：数组只有 array/object、对象多一档 object、数组字段只留 array -->
+            <option v-for="type in typeOptions" :key="type" :value="type">{{ typeLabel(type) }}</option>
           </template>
         </select>
       </div>
