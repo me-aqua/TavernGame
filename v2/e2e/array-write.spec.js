@@ -8,7 +8,7 @@
  * 钉四件事：
  *   1. 合法数组整份写进 `save.tree['2.4']`，故事照常产出；
  *   2. item 形状不对 ⇒ `E_VALIDATION`、没有故事、存档一个字不动；
- *   3. 写字段 code（`2.4.1`）⇒ `E_CHAIN`（字段不是值路径）；
+ *   3. 写 `2.4.0`（不是引用）⇒ `E_CHAIN`；**容器写 `2.4` 授权字段写 `2.4.1`**（整列落盘）；
  *   4. 判定节点收到的提示词里是中文键数组（`2.4「背包」`、物品 / 数量），不是字段 code。
  */
 import { expect, test } from '@playwright/test'
@@ -144,14 +144,29 @@ test('item 缺字段 ⇒ E_VALIDATION、没有故事、存档不动', async ({ p
   expect(await storedItems(page)).toEqual(holdItems())
 })
 
-test('写字段 code 2.4.1 ⇒ E_CHAIN、存档不动', async ({ page }) => {
+test('写 2.4.0（不是引用）⇒ E_CHAIN、存档不动', async ({ page }) => {
   const seen = []
   await boot(page, { storage: seeded() })
-  await routeSecondCall(page, 'write_state', { path: '2.4.1', value: 'X' }, seen)
+  await routeSecondCall(page, 'write_state', { path: '2.4.0', value: 'X' }, seen)
   await sendAction(page)
 
   await expect(page.locator('[data-error]')).toBeVisible({ timeout: 15_000 })
   await expect(page.locator('[data-error-code]')).toHaveText('E_CHAIN')
   await expect(page.locator('[data-line="narration"]')).toHaveCount(0)
   expect(await storedItems(page)).toEqual(holdItems())
+})
+
+test('容器写 2.4 授权字段写 2.4.1：整列落盘、item 数不变、兄弟字段不动', async ({ page }) => {
+  const seen = []
+  await boot(page, { storage: seeded() })
+  await routeSecondCall(page, 'write_state', { path: '2.4.1', value: ['长弓', '火把', '盾'] }, seen)
+  await sendAction(page)
+
+  await expect(page.locator('[data-line="narration"]')).toHaveCount(1, { timeout: 15_000 })
+  await expect(page.locator('[data-error]')).toHaveCount(0)
+  expect(await storedItems(page)).toEqual([
+    { '2.4.1': '长弓', '2.4.2': 1 },
+    { '2.4.1': '火把', '2.4.2': 1 },
+    { '2.4.1': '盾', '2.4.2': 3 },
+  ])
 })

@@ -4,7 +4,7 @@
  * 这一份量的是评审 F1 回炉后**玩家在界面上点得到**的那几件事：
  *   · 字段行（`2.4.1` / 嵌套 `2.4.2.1` / 穿数组的 `2.4.2.2.1`）都有读 / 写眼睛，不是被 v-if 藏掉；
  *   · 点字段眼睛 ⇒ `reads` / `writable` 里真的出现字段 code；保存成功（不再报悬空引用）；
- *   · 父行三态：无 / 半 / 满；点父行 = 全选 / 全反选；
+ *   · 父行只有两态：满 / 未（父眼只认自己的 code，不看孩子）；点父行 = 全选 / 全反选；
  *   · 父引用已开时点字段 ⇒ 拆开父引用，真的关掉那一列（不是点不动的假眼睛）；
  *   · 模型拿字段写权限时，`write_state({path:'2.4.1', value:[...]})` 真的整列落盘。
  *
@@ -52,7 +52,7 @@ async function storedRefs(page) {
 }
 
 test.describe('数组字段 · 编辑器眼睛', () => {
-  test('字段行有读 / 写眼睛：点读 ⇒ reads 里出现 2.4.1，父 2.4 半，保存成功', async ({ page }) => {
+  test('字段行有读 / 写眼睛：点读 ⇒ reads 里出现 2.4.1，父 2.4 仍是 none，保存成功', async ({ page }) => {
     const card = cardWithRefs(holdCard({ id: 'c-field-eyes' }))
     await openEditor(page, card)
 
@@ -63,8 +63,11 @@ test.describe('数组字段 · 编辑器眼睛', () => {
 
     await page.locator(readEye('2.4.1')).click()
     await expect(page.locator(readEye('2.4.1'))).toHaveAttribute('data-on', 'true')
-    await expect(page.locator(readEye('2.4')), '只开一列 ⇒ 容器半').toHaveAttribute('data-tri', 'some')
-    await expect(page.locator(readEye('2')), '祖先也要如实反映部分覆盖').toHaveAttribute('data-tri', 'some')
+    await expect(page.locator(readEye('2.4')), '父眼只认自己的 code ⇒ 仍 none').toHaveAttribute(
+      'data-tri',
+      'none',
+    )
+    await expect(page.locator(readEye('2')), '更上层也只看自己的 code').toHaveAttribute('data-tri', 'none')
 
     expect(await save(page), '字段引用必须是合法引用，保存不许报错').toBe(0)
     expect((await storedRefs(page)).reads).toEqual(['2.4.1'])
@@ -76,7 +79,7 @@ test.describe('数组字段 · 编辑器眼睛', () => {
 
     await page.locator(writeEye('2.4.1')).click()
     await expect(page.locator(writeEye('2.4.1'))).toHaveAttribute('data-on', 'true')
-    await expect(page.locator(writeEye('2.4'))).toHaveAttribute('data-tri', 'some')
+    await expect(page.locator(writeEye('2.4')), '父眼不看子引用').toHaveAttribute('data-tri', 'none')
     expect(await save(page)).toBe(0)
     expect((await storedRefs(page)).writable).toEqual(['2.4.1'])
 
@@ -86,18 +89,124 @@ test.describe('数组字段 · 编辑器眼睛', () => {
     expect((await storedRefs(page)).writable).toEqual([])
   })
 
-  test('父行三态：none → 点一列 some → 点两列 all → 点父行 none', async ({ page }) => {
+  test('容器写开 ⇒ 所有字段写眼睛亮、容器 all；拆开后父 none、另一列仍亮', async ({ page }) => {
+    const card = cardWithRefs(holdCard({ id: 'c-container-write-eyes' }), { writable: ['2.4'] })
+    await openEditor(page, card)
+
+    await expect(page.locator(writeEye('2.4')), '容器写满').toHaveAttribute('data-tri', 'all')
+    await expect(page.locator(writeEye('2.4.1')), '容器写授权这一列').toHaveAttribute('data-on', 'true')
+    await expect(page.locator(writeEye('2.4.2')), '容器写授权这一列').toHaveAttribute('data-on', 'true')
+    expect(await save(page), '容器引用本身合法').toBe(0)
+    expect((await storedRefs(page)).writable).toEqual(['2.4'])
+
+    await page.locator(writeEye('2.4.1')).click()
+    await expect(page.locator(writeEye('2.4.1')), '拆开容器后这一列真的关掉').toHaveAttribute(
+      'data-on',
+      'false',
+    )
+    await expect(page.locator(writeEye('2.4.2')), '另一列仍是字段引用').toHaveAttribute('data-on', 'true')
+    await expect(page.locator(writeEye('2.4')), '父眼只认自己的 code').toHaveAttribute('data-tri', 'none')
+    expect(await save(page)).toBe(0)
+    expect((await storedRefs(page)).writable).toEqual(['2.4.2'])
+  })
+
+  test('父 on ⇒ 字段全亮；父 off ⇒ 字段全灭；父 off 后点字段 ⇒ 只存子引用、父 none', async ({ page }) => {
+    const card = cardWithRefs(holdCard({ id: 'c-parent-on-off' }), {
+      reads: ['2.4'],
+      writable: ['2.4'],
+    })
+    await openEditor(page, card)
+
+    await expect(page.locator(readEye('2.4'))).toHaveAttribute('data-tri', 'all')
+    await expect(page.locator(readEye('2.4.1')), '父 on ⇒ 字段读眼睛派生亮').toHaveAttribute(
+      'data-on',
+      'true',
+    )
+    await expect(page.locator(readEye('2.4.2'))).toHaveAttribute('data-on', 'true')
+    await expect(page.locator(writeEye('2.4.1')), '父 on ⇒ 字段写眼睛派生亮').toHaveAttribute(
+      'data-on',
+      'true',
+    )
+
+    await page.locator(readEye('2.4')).click()
+    await expect(page.locator(readEye('2.4')), '父全反选').toHaveAttribute('data-tri', 'none')
+    await expect(page.locator(readEye('2.4.1')), '没有子引用 ⇒ 字段全灭').toHaveAttribute('data-on', 'false')
+    await expect(page.locator(readEye('2.4.2'))).toHaveAttribute('data-on', 'false')
+
+    await page.locator(readEye('2.4.1')).click()
+    await expect(page.locator(readEye('2.4.1')), '父 off 后点字段 ⇒ 存子引用').toHaveAttribute(
+      'data-on',
+      'true',
+    )
+    await expect(page.locator(readEye('2.4')), '父眼仍 none').toHaveAttribute('data-tri', 'none')
+    expect(await save(page)).toBe(0)
+    expect((await storedRefs(page)).reads).toEqual(['2.4.1'])
+
+    await page.locator(writeEye('2.4')).click()
+    await expect(page.locator(writeEye('2.4.1')), '父写全反选 ⇒ 字段写全灭').toHaveAttribute(
+      'data-on',
+      'false',
+    )
+    await page.locator(writeEye('2.4.2')).click()
+    expect(await save(page)).toBe(0)
+    expect((await storedRefs(page)).writable).toEqual(['2.4.2'])
+
+    const cards = await readStorage(page, KEYS.cards)
+    const check = cards[0].chain.find((node) => node.id === 'check')
+    expect(Object.keys(check).sort(), '数据里只有 reads / writable，没有显式 / 继承标记').toEqual([
+      'historyTurns',
+      'id',
+      'name',
+      'prompt',
+      'reads',
+      'readsUpstream',
+      'type',
+      'writable',
+    ])
+  })
+
+  test('只开字段写 ⇒ 容器写 none（父眼不看子引用）', async ({ page }) => {
+    const card = cardWithRefs(holdCard({ id: 'c-field-only-write-eyes' }), { writable: ['2.4.1'] })
+    await openEditor(page, card)
+
+    await expect(page.locator(writeEye('2.4.1'))).toHaveAttribute('data-on', 'true')
+    await expect(page.locator(writeEye('2.4'))).toHaveAttribute('data-tri', 'none')
+    await expect(page.locator(writeEye('2.4')), '字段引用不是整表写').not.toHaveAttribute('data-on', 'true')
+  })
+
+  test('父 none + 子全开：两列都开时容器仍是 none，字段 eyes 全亮', async ({ page }) => {
+    const card = cardWithRefs(holdCard({ id: 'c-parent-none-child-all' }), {
+      reads: ['2.4.1', '2.4.2'],
+      writable: ['2.4.1', '2.4.2'],
+    })
+    await openEditor(page, card)
+
+    await expect(page.locator(readEye('2.4'))).toHaveAttribute('data-tri', 'none')
+    await expect(page.locator(readEye('2.4.1'))).toHaveAttribute('data-on', 'true')
+    await expect(page.locator(readEye('2.4.2'))).toHaveAttribute('data-on', 'true')
+    await expect(page.locator(writeEye('2.4'))).toHaveAttribute('data-tri', 'none')
+    await expect(page.locator(writeEye('2.4.1'))).toHaveAttribute('data-on', 'true')
+    await expect(page.locator(writeEye('2.4.2'))).toHaveAttribute('data-on', 'true')
+  })
+
+  test('父行只有 all / none：点一列仍 none，点两列仍 none，点父行才 all', async ({ page }) => {
     const card = cardWithRefs(holdCard({ id: 'c-parent-tri' }))
     await openEditor(page, card)
 
     await expect(page.locator(readEye('2.4'))).toHaveAttribute('data-tri', 'none')
     await page.locator(readEye('2.4.1')).click()
-    await expect(page.locator(readEye('2.4'))).toHaveAttribute('data-tri', 'some')
+    await expect(page.locator(readEye('2.4')), '父眼不看子引用').toHaveAttribute('data-tri', 'none')
     await page.locator(readEye('2.4.2')).click()
-    await expect(page.locator(readEye('2.4')), '两列都被字段引用覆盖 ⇒ 容器满').toHaveAttribute(
+    await expect(page.locator(readEye('2.4')), '子全开也不把父眼点亮').toHaveAttribute('data-tri', 'none')
+
+    await page.locator(readEye('2.4')).click()
+    await expect(page.locator(readEye('2.4')), '点父行 = 全选（自己的 code）').toHaveAttribute(
       'data-tri',
       'all',
     )
+    await expect(page.locator(readEye('2.4.1')), '父 on 让字段 eyes 全亮').toHaveAttribute('data-on', 'true')
+    expect(await save(page)).toBe(0)
+    expect((await storedRefs(page)).reads).toEqual(['2.4'])
 
     await page.locator(readEye('2.4')).click()
     await expect(page.locator(readEye('2.4')), '点父行 = 全反选').toHaveAttribute('data-tri', 'none')
@@ -115,11 +224,11 @@ test.describe('数组字段 · 编辑器眼睛', () => {
     await expect(page.locator(readEye('2.4.1'))).toHaveAttribute('data-on', 'true')
     await page.locator(readEye('2.4.1')).click()
     await expect(page.locator(readEye('2.4.1')), '这一列必须真的关掉').toHaveAttribute('data-on', 'false')
-    await expect(page.locator(readEye('2.4'))).toHaveAttribute('data-tri', 'some')
+    await expect(page.locator(readEye('2.4')), '拆开后父眼 none').toHaveAttribute('data-tri', 'none')
 
     await page.locator(writeEye('2.4.2')).click()
     await expect(page.locator(writeEye('2.4.2'))).toHaveAttribute('data-on', 'false')
-    await expect(page.locator(writeEye('2.4'))).toHaveAttribute('data-tri', 'some')
+    await expect(page.locator(writeEye('2.4')), '拆开后父眼 none').toHaveAttribute('data-tri', 'none')
 
     expect(await save(page)).toBe(0)
     expect((await storedRefs(page)).reads).toEqual(['2.4.2'])
@@ -142,6 +251,18 @@ test.describe('数组字段 · 编辑器眼睛', () => {
     ])
   })
 
+  test('对象祖先 2 的写不授权字段写：2.4.1 写眼睛 off（只有数组容器才派生）', async ({ page }) => {
+    const card = cardWithRefs(holdCard({ id: 'c-object-ancestor-write' }), { writable: ['2'] })
+    await openEditor(page, card)
+
+    await expect(page.locator(writeEye('2')), '对象 code 自己是 all').toHaveAttribute('data-tri', 'all')
+    await expect(page.locator(writeEye('2.4.1')), '对象祖先不是数组容器').toHaveAttribute('data-on', 'false')
+    await expect(page.locator(writeEye('2.4')), '2.4 自己的 code 不在清单里').toHaveAttribute(
+      'data-tri',
+      'none',
+    )
+  })
+
   test('object 字段里的嵌套字段 2.4.2.1：两只眼睛都在、保存成功', async ({ page }) => {
     const card = cardWithRefs(nestedCard(), {})
     await openEditor(page, card)
@@ -150,9 +271,9 @@ test.describe('数组字段 · 编辑器眼睛', () => {
     await expect(page.locator(writeEye('2.4.2.1'))).toHaveCount(1)
     await page.locator(readEye('2.4.2.1')).click()
     await page.locator(writeEye('2.4.2.1')).click()
-    await expect(page.locator(readEye('2.4')), '嵌套字段命中也要进父行三态').toHaveAttribute(
+    await expect(page.locator(readEye('2.4')), '父眼只认自己的 code ⇒ none').toHaveAttribute(
       'data-tri',
-      'some',
+      'none',
     )
 
     expect(await save(page)).toBe(0)

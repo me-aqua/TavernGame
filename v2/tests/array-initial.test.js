@@ -205,7 +205,7 @@ describe('数组 · 删字段：所有 item 的键一起摘掉 / 改名（§四�
   })
 })
 
-describe('数组 · 换类型（§四 4.1）', () => {
+describe('数组 · 换类型', () => {
   it('text 字段换成 array：item 里那格清成 []；补一个字段后卡重新合法', async () => {
     const setElementType = await fn('setElementType')
     const addChild = await fn('addChild')
@@ -224,13 +224,15 @@ describe('数组 · 换类型（§四 4.1）', () => {
     expect(cardIssues(withField)).toEqual([])
   })
 
-  it('从数组换成别的类型：E_VALIDATION，草稿（原卡）一个字不动', async () => {
+  it('从数组换成 object / time：E_VALIDATION，草稿（原卡）一个字不动', async () => {
     const setElementType = await fn('setElementType')
-    const card = holdCard()
-    const error = errorOf(() => setElementType(card, '2.4', 'text'))
-    expect(error, '本票不支持从数组换回标量').not.toBeNull()
-    expect(error.code).toBe('E_VALIDATION')
-    expect(error.message).toMatch(CJK)
-    expect(itemsOf(card)).toEqual(holdItems())
+    for (const type of ['object', 'time']) {
+      const card = holdCard()
+      const error = errorOf(() => setElementType(card, '2.4', type))
+      expect(error, `array → ${type} 应当被拒`).not.toBeNull()
+      expect(error.code).toBe('E_VALIDATION')
+      expect(error.message).toMatch(CJK)
+      expect(itemsOf(card)).toEqual(holdItems())
+    }
   })
 })

@@ -5,9 +5,8 @@
  * 字段定义（`2.4.1`）**不是**值路径。权限引用可以更细：`2.4` = 整个数组（含增删项目），
  * `2.4.1` = 所有 item 里的「物品」这一格（整列替换，不增删项目）。两者都在这一份里解析。
  *
- * **覆盖（`refCoveredBy`）只用于读投影与眼睛三态**：一个引用覆盖自己 + 整棵子树。
- * **写权限不按覆盖**：`applyWrite` 要求 `path` 与 `writable` 里某一条**逐字相等**（容器不授权字段写，
- * 字段也不授权整表写）—— 见 `engine.ts` 的 `applyWrite`。
+ * **写权限**：容器写 ⊇ 字段写（`fieldWriteCoveredBy`）；字段引用不授权整表 / 增删 item —— 见 `engine.ts`。
+ * **眼睛**只有 all / none：父行只看自己的 ref，数组字段行由自己的 ref 或数组容器 ref 派生。
  */
 import { elementAt, isInsideArray, parentOfCode } from './state-codes'
 import { pathsOf, elementOfPath } from './state-data'
@@ -38,8 +37,8 @@ export function refsUnder(state: StateElement[], code: string): string[] {
 }
 
 /**
- * `list` 里有没有哪个引用覆盖 `ref`：引用覆盖**自己 + 整棵子树**，所以祖先 code 也算
- * （`2.4` 覆盖 `2.4.1`、`2` 也覆盖 `2.4.1`）。**只给读投影 / 眼睛三态用**；写权限走精确引用。
+ * **读**的覆盖（读投影 / 读眼睛用）：引用覆盖**自己 + 整棵子树**，所以任何祖先 code 都算
+ * （`2` 覆盖 `2.4.1`、`2.4` 覆盖 `2.4.1`、`2.4.2` 覆盖 `2.4.2.1`）。
  * 非字段引用只认自身（它们由值路径那一套管，不在这里重复）。
  */
 export function refCoveredBy(state: StateElement[], list: string[], ref: string): boolean {
@@ -47,6 +46,20 @@ export function refCoveredBy(state: StateElement[], list: string[], ref: string)
   if (!isFieldRef(state, ref)) return false
   for (let at = parentOfCode(ref); at !== undefined; at = parentOfCode(at)) {
     if (list.includes(at)) return true
+  }
+  return false
+}
+
+/**
+ * **字段写**的授权（`applyWrite` / 写眼睛用）：`writable` 里有这一条，或者有它的**数组容器**祖先
+ * （数组元素 `2.4` / 数组字段 `2.4.2.2`）。**对象字段 / 对象祖先不算**（`2` 不是容器，不授权 `2.4.1`）。
+ * 方向只有一个：**容器写 ⊇ 字段写**；字段引用不授权整表替换 / 增删 item。
+ */
+export function fieldWriteCoveredBy(state: StateElement[], list: string[], ref: string): boolean {
+  if (list.includes(ref)) return true
+  if (!isFieldRef(state, ref)) return false
+  for (let at = parentOfCode(ref); at !== undefined; at = parentOfCode(at)) {
+    if (list.includes(at) && elementAt(state, at).type === 'array') return true
   }
   return false
 }

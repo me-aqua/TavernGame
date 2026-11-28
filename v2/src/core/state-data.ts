@@ -51,6 +51,13 @@ function defaultInitialOf(type: StateType): StateValue | undefined {
   return ''
 }
 
+/** 换成**标量**时元素自己的默认值（有孩子就写在 `<code>.0`；enum 取白名单第一项） */
+function ownInitialOf(element: StateElement): StateValue {
+  if (element.type === 'integer') return 0
+  if (element.type === 'enum') return (element.values ?? [])[0] ?? ''
+  return ''
+}
+
 function invalid(message: string, detail: unknown): AppError {
   return new AppError('E_VALIDATION', { message, nextStep: t('next.editor'), detail })
 }
@@ -325,10 +332,16 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
   if (type === 'time' && element.type !== 'time') {
     throw invalid(t('issue.typeToTime', { code }), { code, type })
   }
-  if (element.type === 'array' && type !== 'array' && type !== 'object') {
-    throw invalid(t('issue.typeFromArray', { code }), { code, type })
+  // 时间元素不能换成别的类型（没有字段容器 / 值路径能接住它）
+  if (element.type === 'time' && type !== 'time') {
+    throw invalid(t('issue.typeFromTime', { code }), { code, type })
   }
-  // 数组子树里的字段是 schema：逐 item 的 array⇄object 转换不在本票范围（§十.5 数据层兜底）
+  // 数组元素可以换成标量（字段留成孩子、自己的值写 `<code>.0`），但**不能换成结构体**：
+  // 「结构体」不是可选类型，它就是「有孩子」；数组子树里的字段做容器间转换也不在本票范围。
+  if (element.type === 'array' && type === 'object') {
+    throw invalid(t('issue.arrayToObject', { code }), { code, type })
+  }
+  // 数组子树里的字段是 schema：逐 item 的 array⇄object 转换不在本票范围
   if (
     isInsideArray(card.state, code) &&
     (element.type === 'array' || element.type === 'object') &&
@@ -345,7 +358,9 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
   delete next.stepMax
   delete next.timeMode
   delete next.holidays
-  if (type === 'enum') next.values = []
+  // enum 目标：**保留源元素上已有的 values**（导入的数组元素可能带），own 默认从第一项来；
+  // 没有 values ⇒ 空白名单（坏卡，等作者补）。
+  if (type === 'enum') next.values = Array.isArray(element.values) ? [...element.values] : []
   const table = initialTableOf(card.state, code)
   // 数组子树里的类型是字段类型：值是每个 item 里那一格，不是表里的一条路径
   if (isInsideArray(card.state, code)) {
@@ -366,6 +381,13 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
     const item = hasValue ? readObjectFromTable(card.state, code, table) : undefined
     clearTableSubtree(table, code)
     table[code] = item === undefined ? [] : [item]
+  } else if (element.type === 'array') {
+    // 数组 → 标量：字段留成孩子（code 不动），第 1 项的值铺进孩子路径，自己的默认值写 `<code>.0`
+    const item = arrayFirstItem(card.state, code, table[code])
+    clearTableSubtree(table, code)
+    writeItemToTable(card.state, code, item, table)
+    const ownPath = childrenOf(card.state, code).length > 0 ? `${code}.0` : code
+    table[ownPath] = ownInitialOf(next)
   } else {
     const ownPath = ownPathOf(card.state, element)
     if (type === 'array') {
@@ -419,7 +441,7 @@ function writeItemToTable(state: StateElement[], code: string, item: ItemObject,
       writeItemToTable(state, field.code, item[field.code] as ItemObject, table)
       continue
     }
-    table[field.code] = (item[field.code] ?? fieldDefaultOf(state, field)) as TreeValue
+    table[field.code] = cloneValue((item[field.code] ?? fieldDefaultOf(state, field)) as TreeValue)
   }
 }
 
@@ -430,7 +452,7 @@ function readObjectFromTable(state: StateElement[], code: string, table: Initial
     item[field.code] =
       field.type === 'object'
         ? readObjectFromTable(state, field.code, table)
-        : ((table[field.code] ?? fieldDefaultOf(state, field)) as ItemValue)
+        : cloneValue((table[field.code] ?? fieldDefaultOf(state, field)) as ItemValue)
   }
   return item
 }

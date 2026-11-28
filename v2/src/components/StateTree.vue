@@ -7,26 +7,23 @@
  * （初始值在中栏下半部分改，当前值在存档编辑器里看）。
  *
  * 眼睛按 S1 / S2 露出来：
- *   · **S1**（选中工作流节点）：每行两只**文字按钮**【读】【写】；`data-on` 是「这一行整段都被读到 / 写到」，
- *     `data-tri` 是父行的三态（`all` 满 / `some` 半 / `none` 未）—— 父行覆盖**自身值 + 整棵子树**，
- *     所以只点了孩子时父行是「半」；子节点按钮只切自己。手写 / 导入的卡里可能直接写了 `<code>.0`
- *     （只取自身值）—— 那时父行就是「半」，`.0` 自己不占一行。
+ *   · **S1**（选中工作流节点）：每行两只**文字按钮**【读】【写】；`data-on` / `data-tri` **只有 all / none**
+ *     （老板口径：没有半态）—— 父行 / 普通行只看**自己的 ref 在不在**（子字段开着也不算）；数组字段行
+ *     在「自己的 ref 在」或「它的数组容器 ref 在」时为满（容器写 ⊇ 字段写）。`reads` / `writable` 数组是
+ *     唯一真源：关掉容器不会补隐藏的字段 ref。手写 / 导入的 `<code>.0`（只取自身值）也不再有半态。
  *   · **S2**（选中状态元素）：栏顶 `[data-add-state]`（新顶层元素）、每行 `[data-add-child]`（加子元素，
  *     第 5 层不出现、时间没有）与 `[data-delete-state]`（删这一棵，时间没有）。
  *
  * `structureLocked`（存档编辑器）把 `+` / 加子元素 / 删除**整块拿掉**（不渲染、不是禁用）：
  * 那一侧的卡结构是冻结的，只许改名字 / 备注 / 提示词与眼睛。
  */
-import { computed } from 'vue'
 import {
   MAX_DEPTH,
   codeDepth,
-  elementOfPath,
+  fieldWriteCoveredBy,
   isFieldRef,
   isInsideArray,
-  pathsOf,
   refCoveredBy,
-  refsUnder,
 } from '../core/statetree'
 import type { ChainNode, StateElement } from '../core/types'
 import { t } from '../i18n'
@@ -44,26 +41,9 @@ defineEmits<{
   select: [code: string]
   remove: [code: string]
   'add-child': [code: string]
-  'toggle-read': [code: string, tri: 'all' | 'some' | 'none']
-  'toggle-write': [code: string, tri: 'all' | 'some' | 'none']
+  'toggle-read': [code: string, tri: 'all' | 'none']
+  'toggle-write': [code: string, tri: 'all' | 'none']
 }>()
-
-/**
- * 节点这一只眼睛覆盖到的值路径。引用可能是元素 code（覆盖自身值 + 整棵子树），也可能是
- * `<code>.0`（只覆盖那个自身值）；`reads` 里还有提示词 id —— `pathsOf` 对这两类之外的输入返回 `[]`。
- */
-const coveredPaths = computed(() => {
-  const node = props.node
-  const covered: Record<'read' | 'write', Set<string>> = { read: new Set(), write: new Set() }
-  if (!node) return covered
-  for (const [field, list] of [
-    ['read', node.reads],
-    ['write', node.writable],
-  ] as const) {
-    for (const ref of list) for (const path of pathsOf(props.elements, ref)) covered[field].add(path)
-  }
-  return covered
-})
 
 /** 输出节点不写状态：它一只写眼睛都没有（`writable` 必须是空的） */
 function showsWrite(): boolean {
@@ -71,27 +51,22 @@ function showsWrite(): boolean {
 }
 
 /**
- * 这一行的三态（`CONTRACT §8.2` / 增补 §六.2）：按**子树覆盖**算，不是按值路径交集。
- * 一行里的「格子」有两类：
- *   · 值路径（数组容器的值路径不算 —— 它的内容是字段，下面那一类在管）；
- *   · 数组字段引用（`2.4.1` 这类；容器 / 祖先引用覆盖它们）。
- * 全被覆盖 ⇒ `all`；一个都没 ⇒ `none`；其余 ⇒ `some`。
- * 于是「只开 `2.4.1`」⇒ 容器半、「两列都开」⇒ 容器满、「只开 `1.1.0`」⇒ `1.1` 半（旧行为不变）。
+ * 这一行的眼睛只有 **all / none** 两态（老板口径：不许半态）：
+ *   · **父行 / 普通行**：只看**它自己的 ref 在不在**清单里（`2.4` 在 ⇒ 满；子字段开着也不算）；
+ *   · **读的字段行**：自己的 ref 在，或**任何祖先引用**在（读 = 覆盖整棵子树：`reads: ['2']` 也读到 `2.4.1`）；
+ *   · **写的字段行**：自己的 ref 在，或**数组容器**祖先在（容器写 ⊇ 字段写；对象祖先 `2` 不算）。
+ * `writable` / `reads` 数组是**唯一真源**：不开容器就只留显式字段 ref，不补隐藏 ref。
  */
-function triOf(field: 'read' | 'write', code: string): 'all' | 'some' | 'none' {
+function triOf(field: 'read' | 'write', code: string): 'all' | 'none' {
   const list = field === 'read' ? (props.node?.reads ?? []) : (props.node?.writable ?? [])
-  const values = pathsOf(props.elements, code).filter((path) => {
-    const owner = elementOfPath(props.elements, path)
-    return owner !== undefined && owner.type !== 'array'
-  })
-  const fieldRefs = refsUnder(props.elements, code).filter((ref) => isFieldRef(props.elements, ref))
-  const total = values.length + fieldRefs.length
-  if (total === 0) return 'none'
-  const hit =
-    values.filter((path) => coveredPaths.value[field].has(path)).length +
-    fieldRefs.filter((ref) => refCoveredBy(props.elements, list, ref)).length
-  if (hit === 0) return 'none'
-  return hit === total ? 'all' : 'some'
+  if (isFieldRef(props.elements, code)) {
+    const covered =
+      field === 'read'
+        ? refCoveredBy(props.elements, list, code)
+        : fieldWriteCoveredBy(props.elements, list, code)
+    return covered ? 'all' : 'none'
+  }
+  return list.includes(code) ? 'all' : 'none'
 }
 
 /**

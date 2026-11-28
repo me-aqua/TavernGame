@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 数组值的编辑块（阶段 3 契约 §4.2 / §4.3）：item 列表 + 每项每个字段一个控件。
+ * 数组值的编辑块（阶段 3 契约 §4.2 / §4.3 + 增补 §四.3 / §四.4）：item 列表 + 每项每个字段一个控件。
  *
  * 一个组件管两种容器，由传进来的 `code` 的元素类型决定：
  *   · `array`（数组元素或数组字段）⇒ item 列表：`[data-array]`（存档模式的当前值是 `[data-current-array]`）；
@@ -11,11 +11,17 @@
  * 显示只用中文名（`field.name`）：code 只住在 `data-*` 钩子里，界面上看不见。
  * 只读块（存档模式）不渲染加 / 删按钮，控件 `disabled`。
  *
+ * 两条 UI 口径（增补 §四.3 / §四.4）：
+ *   · item 卡**直接从第一字段那一行开始**：删除按钮 `[data-array-remove]` 挂在**第一字段同一行**
+ *     （不是绝对定位、不是单独一行），第一字段上方没有空白高度；
+ *   · 整数字段每一行在输入框右边带 `[data-array-range]` 小字 `min~max`（`integerRangeOf` 的生效上下限，
+ *     与 `StateForm` 的 `[data-initial-range]` 同一把尺）。
+ *
  * `top` 只由初始值块传 true：`[data-array-item]` / `data-array-index` 是**顶层 item 列表**的钩子，
  * 嵌套数组不重复挂它（否则「外层有几个 item」会被内层的 item 数污染）。
  */
 import { computed } from 'vue'
-import { arrayItemOf, childrenOf, isRecord } from '../core/statetree'
+import { arrayItemOf, childrenOf, integerRangeOf, isRecord } from '../core/statetree'
 import type { ArrayValue, ItemObject, ItemValue, StateElement } from '../core/types'
 import { t } from '../i18n'
 
@@ -68,6 +74,12 @@ function removeItem(index: number): void {
   commit(items.value.filter((_, at) => at !== index))
 }
 
+/** 整数控件的 `min~max` 小字：与校验共用 `integerRangeOf` 的生效上下限 */
+function rangeOf(field: StateElement): string {
+  const { min, max } = integerRangeOf(field)
+  return `${min}~${max}`
+}
+
 /** 文本 / 下拉控件：值原样落进草稿 */
 function onText(index: number, field: StateElement, event: Event): void {
   setField(index, field.code, (event.target as HTMLInputElement | HTMLSelectElement).value)
@@ -99,18 +111,7 @@ function onInteger(index: number, field: StateElement, event: Event): void {
       :data-array-item="top && isArray ? '' : undefined"
       :data-array-index="top && isArray ? index + 1 : undefined"
     >
-      <button
-        v-if="isArray && !disabled"
-        type="button"
-        class="icon item-action"
-        data-array-remove
-        :title="t('editor.arrayRemove')"
-        :aria-label="t('editor.arrayRemove')"
-        @click="removeItem(index)"
-      >
-        {{ t('common.remove') }}
-      </button>
-      <div v-for="field in fields" :key="field.code" class="field">
+      <div v-for="(field, fieldIndex) in fields" :key="field.code" class="field">
         <span class="field-name ellipsis" :data-array-field-name="field.code">{{ field.name }}</span>
         <select
           v-if="field.type === 'enum'"
@@ -121,15 +122,17 @@ function onInteger(index: number, field: StateElement, event: Event): void {
         >
           <option v-for="option in field.values ?? []" :key="option" :value="option">{{ option }}</option>
         </select>
-        <input
-          v-else-if="field.type === 'integer'"
-          type="number"
-          class="num"
-          :data-array-field="field.code"
-          :value="item[field.code] ?? ''"
-          :disabled="disabled"
-          @input="onInteger(index, field, $event)"
-        />
+        <template v-else-if="field.type === 'integer'">
+          <input
+            type="number"
+            class="num"
+            :data-array-field="field.code"
+            :value="item[field.code] ?? ''"
+            :disabled="disabled"
+            @input="onInteger(index, field, $event)"
+          />
+          <span class="field-range" data-array-range>{{ rangeOf(field) }}</span>
+        </template>
         <input
           v-else-if="field.type === 'text'"
           :data-array-field="field.code"
@@ -146,6 +149,31 @@ function onInteger(index: number, field: StateElement, event: Event): void {
           :disabled="disabled"
           @change="(value) => setField(index, field.code, value)"
         />
+        <!-- 删除按钮与**第一个字段同一行**：卡片直接从第一行开始，没有空白首行 -->
+        <button
+          v-if="isArray && !disabled && fieldIndex === 0"
+          type="button"
+          class="icon item-action"
+          data-array-remove
+          :title="t('editor.arrayRemove')"
+          :aria-label="t('editor.arrayRemove')"
+          @click="removeItem(index)"
+        >
+          {{ t('common.remove') }}
+        </button>
+      </div>
+      <!-- 一个字段都没有的坏卡没有「第一行」可挂：单独给一行，按钮不至于消失 -->
+      <div v-if="isArray && !disabled && fields.length === 0" class="field">
+        <button
+          type="button"
+          class="icon item-action"
+          data-array-remove
+          :title="t('editor.arrayRemove')"
+          :aria-label="t('editor.arrayRemove')"
+          @click="removeItem(index)"
+        >
+          {{ t('common.remove') }}
+        </button>
       </div>
     </div>
 
@@ -168,6 +196,10 @@ function onInteger(index: number, field: StateElement, event: Event): void {
   border-left: 1px solid var(--line);
 }
 
+/*
+ * 一个 item 是一张卡片：删除按钮**挂在第一个字段那一行的末尾**（与字段名 / 控件同一行），
+ * 所以卡片直接从第一行开始，不会多出一条空白首行。
+ */
 .item {
   display: flex;
   flex-direction: column;
@@ -179,7 +211,8 @@ function onInteger(index: number, field: StateElement, event: Event): void {
 }
 
 .item-action {
-  align-self: flex-end;
+  flex: 0 0 auto;
+  margin-left: 2px;
 }
 
 .field {
@@ -205,6 +238,16 @@ function onInteger(index: number, field: StateElement, event: Event): void {
 .num {
   flex: 0 0 auto;
   width: 72px;
+}
+
+/* 整数格的 min~max 小字：与校验共用 integerRangeOf 的生效上下限；盒高与输入框一致，同一行对齐 */
+.field-range {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  height: var(--control-h);
+  font-size: var(--fs3);
+  color: var(--ink-soft);
 }
 
 .empty {

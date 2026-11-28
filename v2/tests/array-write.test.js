@@ -5,8 +5,8 @@
  *   · `write_state` 的 value schema 同时收 JSON 数组 / 对象（模型才可能发整份数组）；
  *   · 命中数组值路径 ⇒ **整表替换**：旧 item 全消失、新 item 按给定顺序落盘；
  *   · item 形状按 §3.2 严格收；形状不对 ⇒ `E_VALIDATION`、tree 一个字不动；
- *   · 数组路径不在 writable 覆盖内 / **只有容器权限时**写字段 code / 写 2.4.0 ⇒ `E_CHAIN`
- *     （字段引用授权的整列写见 `array-field-permissions.test.js`，增补 §五）；
+ *   · 数组路径不在 writable 覆盖内 / 写 2.4.0 / 写 2.4.1.0 ⇒ `E_CHAIN`
+ *     （字段整列写与「容器写 ⊇ 字段写」见 `array-field-write.test.js`）；
  *   · item 里的 integer **不判步幅**（整表替换没有单次写入的旧值可比），数字字符串不收编。
  */
 import { describe, expect, it } from 'vitest'
@@ -154,7 +154,7 @@ describe('数组 · applyWrite 整表替换（§六）', () => {
     expect(written['2.4']).toEqual(next)
   })
 
-  it('路径不在 writable 覆盖内 ⇒ E_CHAIN；只有容器权限时字段 code / 2.4.0 也 ⇒ E_CHAIN', async () => {
+  it('路径不在 writable 覆盖内 / 不是引用 ⇒ E_CHAIN（容器授权字段写在另一份判据里）', async () => {
     const { applyWrite } = await loadEngine()
     const card = holdCard()
     const tree = holdSave(card).tree
@@ -165,10 +165,10 @@ describe('数组 · applyWrite 整表替换（§六）', () => {
     ).toBe('E_CHAIN')
 
     const check = card.chain.find((item) => item.id === 'check')
-    // 字段写要**逐字**的字段引用授权（增补 §五「精确引用」）：容器 2.4 只授权整表替换。
-    for (const path of ['2.4.1', '2.4.0', '2.4.2.2']) {
+    // 2.4.0 / 2.4.1.0 不是引用、也不是值路径：容器 2.4 的授权也覆盖不到它们。
+    for (const path of ['2.4.0', '2.4.1.0']) {
       const error = errorOf(() => applyWrite({ card, node: check, tree, path, value: 'X' }))
-      expect(error, `${path} 不是值路径`).not.toBeNull()
+      expect(error, `${path} 不是引用`).not.toBeNull()
       expect(error.code).toBe('E_CHAIN')
       expect(error.message).toMatch(CJK)
     }

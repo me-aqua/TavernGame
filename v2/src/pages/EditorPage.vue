@@ -43,7 +43,6 @@ import {
   arrayDiscardedCount,
   cardIssues,
   childrenOf,
-  isFieldRef,
   parentOfCode,
   pathsOf,
   removeNode,
@@ -148,7 +147,7 @@ const pendingMessage = computed(() => {
   if (pending.value?.kind === 'prompt') return t('editor.deletePromptConfirm')
   if (pending.value?.kind === 'mode') return t('editor.timeModeConfirm')
   if (pending.value?.kind === 'convert') {
-    return t('editor.arrayToObjectConfirm', { count: pending.value.discarded })
+    return t('editor.arrayConvertConfirm', { count: pending.value.discarded })
   }
   return t('editor.leaveConfirm')
 })
@@ -310,18 +309,14 @@ function patchElement(code: string, element: StateElement): void {
 /**
  * 眼睛：把某个引用塞进/拿出当前节点的 `reads` / `writable` / `readsUpstream`。
  *
- * 状态元素的【读】/【写】按**三态**切（数组容器 / 字段行也一样，三态由 `StateTree` 按引用算）：
- *   · `all` 且自己的 code 在清单里 ⇒ 摘掉自己 + 后代（旧行为）；
- *   · `all` 但只是**被祖先引用覆盖**（只对数组字段行）⇒ **拆开祖先**：把祖先换成「目标以外的每一层
- *     兄弟」，让这一列真的关掉（增补 §六.3，例：`['2.4']` 点 `2.4.1` ⇒ `['2.4.2']`）；
- *   · `some` / `none` ⇒ 加自己，并去掉后代冗余引用（清单里只留这一条，不逐个孩子）。
+ * 状态元素的【读】/【写】只有 **all / none**（老板口径：没有半态；`reads` / `writable` 数组是唯一真源）：
+ *   · `all` 且自己的 code 在清单里 ⇒ **只摘掉自己**（关掉容器不补隐藏 ref：子字段显式开着的仍留着）；
+ *   · `all` 但只是**被数组容器引用覆盖**（字段行）⇒ **拆开容器**：把容器换成「目标以外的每一层兄弟」，
+ *     让这一列真的关掉（例：`['2.4']` 点 `2.4.1` ⇒ `['2.4.2']`）；
+ *   · `none` ⇒ 加自己，并去掉后代冗余引用（开父行 = 清单里只有父 code，不逐个孩子）。
  * 叶子只有 all / none 两态，所以它的按钮永远只切自己。
  */
-function toggleRef(
-  field: 'reads' | 'writable' | 'readsUpstream',
-  ref0: string,
-  tri?: 'all' | 'some' | 'none',
-): void {
+function toggleRef(field: 'reads' | 'writable' | 'readsUpstream', ref0: string, tri?: 'all' | 'none'): void {
   const node = selectedNode.value
   const draft = card.value
   if (!node || !draft) return
@@ -333,11 +328,11 @@ function toggleRef(
     })
     return
   }
-  const inside = (ref: string) => ref === ref0 || ref.startsWith(`${ref0}.`)
   let next: string[]
   if (tri === 'all') {
-    if (list.includes(ref0) || !isFieldRef(draft.state, ref0)) next = list.filter((item) => !inside(item))
-    else next = splitCoveringRef(draft.state, list, ref0)
+    next = list.includes(ref0)
+      ? list.filter((item) => item !== ref0)
+      : splitCoveringRef(draft.state, list, ref0)
   } else {
     next = [...list.filter((item) => !item.startsWith(`${ref0}.`)), ref0]
   }
@@ -431,14 +426,14 @@ function removeState(code: string): void {
  * `setElementType` 抛 `E_VALIDATION`。所以这里必须接住 —— 不接就是一次静默的空转（下拉停在新选项上、
  * 草稿没变、一个字都不说）。接住之后：错误进页内 `[data-error]`，下拉拨回这个元素真实的类型。
  *
- * **数组 → 对象**会丢 item（只留第一个）：多于一项目时先弹确认（`editor.arrayToObjectConfirm`），
- * 取消 ⇒ 草稿一个字不动、下拉拨回去；确定 ⇒ 走同一条 `setElementType`。
+ * **数组换成任何别的类型都会丢 item**（只留第一个）：多于一项目时先弹确认
+ * （`editor.arrayConvertConfirm`），取消 ⇒ 草稿一个字不动、下拉拨回去；确定 ⇒ 走同一条 `setElementType`。
  */
 function retypeElement(code: string, type: StateType, select: HTMLSelectElement): void {
   const current = card.value
   if (!current) return
   const element = current.state.find((item) => item.code === code)
-  if (element?.type === 'array' && type === 'object') {
+  if (element?.type === 'array' && type !== 'array') {
     const discarded = arrayDiscardedCount(current, code)
     if (discarded > 0) {
       pending.value = { kind: 'convert', code, type, select, discarded }

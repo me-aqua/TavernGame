@@ -72,7 +72,7 @@ const emit = defineEmits<{
   'time-mode': [mode: TimeMode, select: HTMLSelectElement]
 }>()
 
-/** 作者能选的类型（`object` 是「有孩子」的形态：只在导入的卡 / 数组换对象时出现） */
+/** 作者能选的类型（`object` 是「有孩子」的形态：只在导入的卡里照实显示，不是可选类型） */
 const TYPES: StateType[] = ['text', 'integer', 'enum', 'time', 'array']
 
 /** 类型标签住文案表：`editor.typeText` / `editor.typeInteger` / … */
@@ -81,19 +81,20 @@ function typeLabel(type: StateType): string {
 }
 
 /**
- * 类型下拉的可选档（增补 §十.5）：
- *   · 数组（数组子树之外）⇒ 只有 `array` 与 `object`（其余方向不开口子：字段没有落点）；
- *   · 对象（数组子树之外）⇒ 保留 `object` + 作者选项（含 `array`，好走 结构体 → 数组）；
+ * 类型下拉的可选档（增补 §十.5 / 老板口径）：**「结构体」不是可选类型，它就是「有孩子」**。
+ *   · 数组（数组子树之外）⇒ `text` / `integer` / `enum` / `array`（换成标量时字段留成孩子、
+ *     第 1 项的值铺进孩子、自己的默认值写 `<code>.0`；不许换成时间）；
+ *   · 对象（导入的卡）⇒ 不列 `object`（结构体是内部形态）；只列作者选项（含 `array`，好走 结构体 → 数组）；
  *   · 数组字段 ⇒ 只有 `array`（逐 item 的容器转换不在本票范围，数据层也会拒）；
  *   · 其它元素 ⇒ 作者选项原样。
  */
 const typeOptions = computed<StateType[]>(() => {
   const element = props.element
   const field = isInsideArray(props.state, element.code)
-  if (element.type === 'array') return field ? ['array'] : ['array', 'object']
-  if (element.type === 'object') {
-    return field ? ['object', 'text', 'integer', 'enum', 'time'] : ['object', ...TYPES]
-  }
+  if (element.type === 'array') return field ? ['array'] : ['text', 'integer', 'enum', 'array']
+  // 「结构体」任何一行都不出现在下拉里（它是内部形态）：导入的 object 元素只列作者选项
+  if (element.type === 'object')
+    return field ? ['text', 'integer', 'enum', 'time'] : ['text', 'integer', 'enum', 'time', 'array']
   return [...TYPES]
 })
 
@@ -288,7 +289,7 @@ function requestMode(event: Event): void {
             <option v-for="item in TIME_MODES" :key="item" :value="item">{{ modeLabel(item) }}</option>
           </template>
           <template v-else>
-            <!-- 选项由 `typeOptions` 决定：数组只有 array/object、对象多一档 object、数组字段只留 array -->
+            <!-- 选项由 `typeOptions` 决定：数组行 = text/integer/enum/array，对象行多一档 object，数组字段只留 array -->
             <option v-for="type in typeOptions" :key="type" :value="type">{{ typeLabel(type) }}</option>
           </template>
         </select>

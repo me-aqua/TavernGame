@@ -3,7 +3,7 @@
  *
  * 这一份量的是**玩家在界面上点得到的那几件事**：
  *   · 左栏按 code 缩进；**`.0` 不单独出行**；有自身值的行显示自身值（时间显示公历格式）；
- *   · 【读】【写】是**文字按钮**；父行三态（满 / 半 / 未）；子节点按钮只切自己；
+ *   · 【读】【写】是**文字按钮**；父行**只有两态**（满 / 未，父眼只认自己的 code）；子节点按钮只切自己；
  *   · 第 5 层不再显示「加子元素」；给标量加孩子**不转换类型**；
  *   · 顶栏 `[data-save-card]`：编辑只改内存草稿，点保存才校验 + 落盘；
  *     校验不过 ⇒ 不写盘、草稿保留、中文错误清单可点回；合法 ⇒ 写盘。
@@ -126,7 +126,7 @@ test('示例卡：新建存档的 tree 就是 §7.2 那张扁平表（.0 与叶�
   })
 })
 
-test('文字按钮：【读】【写】在每一行都有，父行带三态', async ({ page }) => {
+test('文字按钮：【读】【写】在每一行都有，父行只有 all / none', async ({ page }) => {
   const card = v5Card()
   await openEditor(page, card)
   await selectNode(page, 'check')
@@ -134,25 +134,25 @@ test('文字按钮：【读】【写】在每一行都有，父行带三态', as
   for (const code of ['1.1', '1.1.1', '2.2']) {
     await expect(page.locator(readEye(code)), `${code} 的读按钮`).toHaveText('读')
     await expect(page.locator(writeEye(code)), `${code} 的写按钮`).toHaveText('写')
-    await expect(page.locator(readEye(code))).toHaveAttribute('data-tri', /^(all|some|none)$/)
-    await expect(page.locator(writeEye(code))).toHaveAttribute('data-tri', /^(all|some|none)$/)
+    await expect(page.locator(readEye(code))).toHaveAttribute('data-tri', /^(all|none)$/)
+    await expect(page.locator(writeEye(code))).toHaveAttribute('data-tri', /^(all|none)$/)
   }
 })
 
-test('父【读】全选 / 全反选 = 自身值 + 所有孩子；子节点按钮只切自己（三态）', async ({ page }) => {
+test('父【读】全选 / 全反选 = 自身值 + 所有孩子；子节点按钮只切自己（all / none）', async ({ page }) => {
   const card = v5Card()
   await openEditor(page, card)
   // 时间节点的 reads 是空的：整棵树都从「未选」出发
   await selectNode(page, 'time')
   await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-tri', 'none')
 
-  // 只点孩子 ⇒ 父行变「半」
+  // 只点孩子 ⇒ 父眼只认自己的 code，仍是 none
   await page.locator(readEye('1.1.1')).click()
   await expect(page.locator(readEye('1.1.1'))).toHaveAttribute('data-on', 'true')
-  await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-tri', 'some')
+  await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-tri', 'none')
   await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-on', 'false')
 
-  // 点父行全选 ⇒ 满（自身值 + 所有孩子在语义上都被覆盖）
+  // 点父行全选 ⇒ 满（存的是父 code；字段眼睛由父派生）
   await page.locator(readEye('1.1')).click()
   await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-tri', 'all')
   await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-on', 'true')
@@ -169,7 +169,7 @@ test('父【读】全选 / 全反选 = 自身值 + 所有孩子；子节点按�
   expect((await readStorage(page, KEYS.cards))[0].chain.find((node) => node.id === 'time').reads).toEqual([])
 })
 
-test('父行三态把自身值 1.1.0 算进去：只引用 .0 ⇒ 半；.0 不出行', async ({ page }) => {
+test('父眼只认自己的 code：只引用 .0 ⇒ 父 none；.0 不出行', async ({ page }) => {
   const base = v5Card()
   const card = {
     ...base,
@@ -181,14 +181,14 @@ test('父行三态把自身值 1.1.0 算进去：只引用 .0 ⇒ 半；.0 不�
   await expect(page.locator(row('1.1.0')), '.0 是自身值的保留槽，不出行').toHaveCount(0)
 
   await selectNode(page, 'check')
-  // 只覆盖了 1.1 的自身值（1.1.0），孩子 1.1.1 没覆盖 ⇒ 父行是「半」
-  await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-tri', 'some')
+  // 只引用 1.1.0：父自己的 code 1.1 不在清单里 ⇒ 父行 none（`.0` 自己是另一条引用）
+  await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-tri', 'none')
   await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-on', 'false')
-  await expect(page.locator(writeEye('1.1'))).toHaveAttribute('data-tri', 'some')
+  await expect(page.locator(writeEye('1.1'))).toHaveAttribute('data-tri', 'none')
   await expect(page.locator(writeEye('1.1'))).toHaveAttribute('data-on', 'false')
 })
 
-test('父行三态：引用 .0 + 孩子 ⇒ 满；.0 仍然不出行', async ({ page }) => {
+test('父行两态：引用 .0 + 孩子但父 code 不在 ⇒ 父 none、孩子亮；.0 不出行', async ({ page }) => {
   const base = v5Card()
   const card = {
     ...base,
@@ -200,20 +200,22 @@ test('父行三态：引用 .0 + 孩子 ⇒ 满；.0 仍然不出行', async ({ 
   await expect(page.locator(row('1.1.0')), '.0 是自身值的保留槽，不出行').toHaveCount(0)
 
   await selectNode(page, 'check')
-  await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-tri', 'all')
-  await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-on', 'true')
-  await expect(page.locator(writeEye('1.1'))).toHaveAttribute('data-tri', 'all')
-  await expect(page.locator(writeEye('1.1'))).toHaveAttribute('data-on', 'true')
+  await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-tri', 'none')
+  await expect(page.locator(readEye('1.1'))).toHaveAttribute('data-on', 'false')
+  await expect(page.locator(readEye('1.1.1')), '孩子自己是显式引用').toHaveAttribute('data-on', 'true')
+  await expect(page.locator(writeEye('1.1'))).toHaveAttribute('data-tri', 'none')
+  await expect(page.locator(writeEye('1.1'))).toHaveAttribute('data-on', 'false')
+  await expect(page.locator(writeEye('1.1.1'))).toHaveAttribute('data-on', 'true')
 })
 
-test('父【写】同样是三态：全选 / 半选 / 全反选', async ({ page }) => {
+test('父【写】同样是两态：全选 / 全反选（子引用不点亮父眼）', async ({ page }) => {
   const card = v5Card()
   await openEditor(page, card)
   await selectNode(page, 'time')
   await expect(page.locator(writeEye('2'))).toHaveAttribute('data-tri', 'none')
 
   await page.locator(writeEye('2.2')).click()
-  await expect(page.locator(writeEye('2'))).toHaveAttribute('data-tri', 'some')
+  await expect(page.locator(writeEye('2')), '只开子引用 ⇒ 父眼 none').toHaveAttribute('data-tri', 'none')
   await page.locator(writeEye('2')).click()
   await expect(page.locator(writeEye('2'))).toHaveAttribute('data-tri', 'all')
   expect(await save(page)).toBe(0)

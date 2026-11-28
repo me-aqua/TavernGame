@@ -3,8 +3,9 @@
  *
  * 这一份钉的是引擎那条路（`applyWrite`）：
  *   · 字段引用 `2.4.1` ⇒ 整列替换：长度 = 当前 item 数、只改这一格、不增删 item；
- *   · 长度 / 类型不对 ⇒ `E_VALIDATION`，tree 一个字不动；没字段权限 ⇒ `E_CHAIN`（先权限后值）；
- *   · 容器 `2.4` 整表写不变（可增删 item），且只由容器引用授权；
+ *   · 长度 / 类型不对 ⇒ `E_VALIDATION`，tree 一个字不动；没授权 ⇒ `E_CHAIN`（先权限后值）；
+ *   · **容器写 ⊇ 字段写**：`writable: ['2.4']` 也授权 `2.4.x` 的整列写（反向不成立）；
+ *   · 容器 `2.4` 整表写不变（可增删 item），只由容器引用授权（字段引用不授权整表）；
  *   · 嵌套：object 字段里的 `2.4.2.1` 一层列表；穿 array 字段的 `2.4.2.2.1` 按数组层嵌套
  *     （每层长度 = 那一层的当前 item 数）；array 字段本身（`2.4.2.2`）每外层写一份完整嵌套数组。
  *
@@ -43,6 +44,33 @@ describe('数组字段 · write_state 整列写（增补 §五）', () => {
     expect(Object.keys(next)).not.toContain('2.4.0')
   })
 
+  it('容器写授权字段写：只有 2.4 也能整列写 2.4.1，item 数 / 兄弟字段不动', async () => {
+    const card = cardWithRefs(holdCard(), { writable: ['2.4'] })
+    const node = card.chain.find((item) => item.id === 'check')
+    const tree = holdSave(card).tree
+    const next = await write({ card, node, tree, path: '2.4.1', value: ['长弓', '火把', '盾'] })
+
+    expect(next['2.4']).toEqual([
+      { '2.4.1': '长弓', '2.4.2': 1 },
+      { '2.4.1': '火把', '2.4.2': 1 },
+      { '2.4.1': '盾', '2.4.2': 3 },
+    ])
+    expect(next['2.4']).toHaveLength(3)
+    expect(tree['2.4'], '入参 tree 一个字都不许改').toEqual(holdItems())
+  })
+
+  it('容器授权字段写仍不能增删 item：长度不对 ⇒ E_VALIDATION，tree 不动', async () => {
+    const card = cardWithRefs(holdCard(), { writable: ['2.4'] })
+    const node = card.chain.find((item) => item.id === 'check')
+    const tree = holdSave(card).tree
+    for (const value of [['长弓', '火把'], ['长弓', '火把', '盾', '弓'], []]) {
+      const failed = await write({ card, node, tree, path: '2.4.1', value }).catch((cause) => cause)
+      expect(failed.code, `${JSON.stringify(value)} 应当 E_VALIDATION`).toBe('E_VALIDATION')
+      expect(failed.message).toMatch(CJK)
+      expect(tree['2.4']).toEqual(holdItems())
+    }
+  })
+
   it('长度不对（多 / 少）⇒ E_VALIDATION + 中文，tree 不动', async () => {
     const card = cardWithRefs(holdCard(), { writable: ['2.4.1'] })
     const node = card.chain.find((item) => item.id === 'check')
@@ -67,12 +95,12 @@ describe('数组字段 · write_state 整列写（增补 §五）', () => {
     }
   })
 
-  it('没权限 ⇒ E_CHAIN：容器引用不授权字段写；别的字段也不授权；output 更不行', async () => {
+  it('没授权 ⇒ E_CHAIN：兄弟字段不授权、output 不行；字段引用不授权整表', async () => {
     const base = holdCard()
+    const sibling = cardWithRefs(base, { writable: ['2.4.2'] })
     const tree = holdSave(base).tree
     const cases = [
-      ['只有容器 2.4', cardWithRefs(base, { writable: ['2.4'] }), base.chain.find((n) => n.id === 'check')],
-      ['只有 2.4.2', cardWithRefs(base, { writable: ['2.4.2'] }), base.chain.find((n) => n.id === 'check')],
+      ['只有 2.4.2', sibling, sibling.chain.find((n) => n.id === 'check')],
       ['output', base, base.chain.find((n) => n.id === 'output')],
     ]
     for (const [note, card, node] of cases) {
@@ -85,17 +113,27 @@ describe('数组字段 · write_state 整列写（增补 §五）', () => {
     }
   })
 
-  it('错误次序：没权限 + 坏值 ⇒ E_CHAIN（先权限后值）', async () => {
-    const card = cardWithRefs(holdCard(), { writable: ['2.4'] })
-    const node = card.chain.find((item) => item.id === 'check')
-    const failed = await write({
-      card,
-      node,
-      tree: holdSave(card).tree,
+  it('错误次序：没授权 + 坏值 ⇒ E_CHAIN；有容器授权 + 坏值 ⇒ E_VALIDATION', async () => {
+    const bad = '不是数组'
+    const noAuth = cardWithRefs(holdCard(), { writable: ['2.4.2'] })
+    const denied = await write({
+      card: noAuth,
+      node: noAuth.chain.find((item) => item.id === 'check'),
+      tree: holdSave(noAuth).tree,
       path: '2.4.1',
-      value: '不是数组',
+      value: bad,
     }).catch((cause) => cause)
-    expect(failed.code).toBe('E_CHAIN')
+    expect(denied.code, '先判权限').toBe('E_CHAIN')
+
+    const authorized = cardWithRefs(holdCard(), { writable: ['2.4'] })
+    const failed = await write({
+      card: authorized,
+      node: authorized.chain.find((item) => item.id === 'check'),
+      tree: holdSave(authorized).tree,
+      path: '2.4.1',
+      value: bad,
+    }).catch((cause) => cause)
+    expect(failed.code, '权限过了再判值').toBe('E_VALIDATION')
   })
 
   it('2.4.0 / 2.4.1.0 不是引用 ⇒ E_CHAIN', async () => {
@@ -135,6 +173,36 @@ describe('数组字段 · write_state 整列写（增补 §五）', () => {
       value: two,
     }).catch((cause) => cause)
     expect(failed.code, '字段权限不授权整表替换').toBe('E_CHAIN')
+  })
+
+  it('容器写也授权嵌套字段：2.4.2.1 / 穿 array 的 2.4.2.2.1 / array 字段本身', async () => {
+    const card = cardWithRefs(twoOuterNestedCard(), { writable: ['2.4'] })
+    const node = card.chain.find((item) => item.id === 'check')
+    const tree = holdSave(card).tree
+
+    const nested = await write({ card, node, tree, path: '2.4.2.1', value: ['稀有', '普通'] })
+    expect(nested['2.4'][0]['2.4.2']['2.4.2.1']).toBe('稀有')
+    expect(nested['2.4'][1]['2.4.2']['2.4.2.1']).toBe('普通')
+
+    const through = await write({
+      card,
+      node,
+      tree,
+      path: '2.4.2.2.1',
+      value: [['锋利'], ['微光', '余响']],
+    })
+    expect(through['2.4'][0]['2.4.2']['2.4.2.2'][0]['2.4.2.2.1']).toBe('锋利')
+    expect(through['2.4'][1]['2.4.2']['2.4.2.2'][1]['2.4.2.2.1']).toBe('余响')
+
+    const arrayField = await write({
+      card,
+      node,
+      tree,
+      path: '2.4.2.2',
+      value: [[{ '2.4.2.2.1': '初火', '2.4.2.2.2': 3 }], []],
+    })
+    expect(arrayField['2.4'][0]['2.4.2']['2.4.2.2']).toHaveLength(1)
+    expect(arrayField['2.4'][1]['2.4.2']['2.4.2.2']).toEqual([])
   })
 
   it('object 字段里的 2.4.2.1：整列替换、兄弟字段不动', async () => {

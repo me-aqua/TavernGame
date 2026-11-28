@@ -36,6 +36,7 @@ import {
   integerRangeOf,
   integerStepFits,
   integerValueFits,
+  fieldWriteCoveredBy,
   isFieldRef,
   isRecord,
   isTimeValue,
@@ -156,13 +157,14 @@ export function applyWrite({
   }
   const covered =
     node.writable.flatMap((ref) => pathsOf(card.state, ref)).includes(path) ||
-    // 字段写只由**逐字相同**的字段引用授权（容器 / 祖先字段都不授权，增补 §五.1）
-    (field !== undefined && node.writable.includes(path))
+    // 字段写：逐字引用，或者它的**数组容器**祖先（容器写 ⊇ 字段写；字段引用不授权整表）
+    (field !== undefined && fieldWriteCoveredBy(card.state, node.writable, path))
   if (!covered) {
     throw new AppError('E_CHAIN', {
-      message: element || field
-        ? t('error.writeNotAllowed', { node: node.id, path })
-        : t('error.writeMissing', { path }),
+      message:
+        element || field
+          ? t('error.writeNotAllowed', { node: node.id, path })
+          : t('error.writeMissing', { path }),
       nextStep: t('next.editor'),
       detail: { nodeId: node.id, path, writable: node.writable },
     })
