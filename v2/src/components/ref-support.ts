@@ -3,8 +3,10 @@
  * 删掉一个 item 会让哪些引用失效。
  *
  * 只做「读」与纯计算：写回卡 / 存档的活仍归 `setInitial` / `save.tree` 的调用方。
- * 口径全部来自 `core/state-ref-type.ts`（源必须是数组、投影只认直接标量字段、零条 = `null`）；
+ * 口径来自 `core/state-ref-type.ts`（源必须是**顶层数组**、投影只认直接标量字段、零条 = `null`）；
  * 这里不重复判一遍合法性 —— 那是 `refDefinitionIssues` / `refValueIssues` 的事。
+ * 「嵌套数组不能当源」两层的口径一致：数据层在 `refDefinitionIssues` 里拒（`issue.refSourceNestedArray`），
+ * 编辑器干脆不列（理由见 `sourceOptionsOf`）。
  */
 import {
   arrayRootOf,
@@ -30,7 +32,7 @@ export interface RefUse {
   item?: boolean
 }
 
-/** 引用源的一档：`selectable = false` 的是包含自己的数组（引用它会递归） */
+/** 引用源的一档：`selectable = false` 的是**包含自己的数组**（引用它会递归） */
 export interface SourceOption {
   element: StateElement
   selectable: boolean
@@ -42,10 +44,16 @@ export interface RefChange {
   value: unknown
 }
 
-/** 能当引用源的数组（含嵌套数组字段），按状态树顺序；自己所在的数组不可选 */
+/**
+ * 能当引用源的数组：**只有顶层数组**，按状态树顺序。两种数组不当源 ——
+ *   · 数组子树里的数组字段（`2.4.5` 这种，`isInsideArray`）：它的 item 列表散在每个外层 item 里，
+ *     没有一条自己的值路径，取不到唯一的一份候选；数据层也拒它（`issue.refSourceNestedArray`）
+ *     ⇒ **整档不列**（不提供作者一个保存时必被拦的选项）；
+ *   · 包含自己的数组（引用会递归）⇒ 列出来但 `selectable = false`，让作者看得见它、也知道为什么不能选。
+ */
 export function sourceOptionsOf(state: StateElement[], own: StateElement): SourceOption[] {
   return state
-    .filter((item) => item.type === 'array')
+    .filter((item) => item.type === 'array' && !isInsideArray(state, item.code))
     .map((element) => ({ element, selectable: !containsCode(element.code, own.code) }))
 }
 

@@ -31,7 +31,10 @@
  *   · `refChildCard()` —— `2.5` 带子元素 `2.5.1 握法`（enum）/ `2.5.2 临时附魔`（text），
  *     自身值因此住 `2.5.0`（引用契约 §4.3）；
  *   · `nestedBagCard()` —— `2.4` 里多一个**嵌套数组字段** `2.4.4 内袋`，另有 `2.8 内袋主手`
- *     引用它（测「传播只走直接引用」：写 `2.4` 不许带出写 `2.8`）；
+ *     引用它 —— **这张卡现在按契约是坏的**（2026-11-28 收敛：嵌套数组不能当引用源）；
+ *     留着专门给「嵌套源必须被拒」那条判据用；
+ *   · `deepObjectArrayCard()` —— 数组藏在**两层对象**里（`1.6 柜子` → `1.6.1 抽屉`），
+ *     由 `2.8 抽屉主手` 引用 —— 非顶层但**不在数组里**的数组仍是合法引用源；
  *   · `objectFieldBagCard()` —— `2.4` 里多一个**对象字段** `2.4.4 附魔`（测「投影 / 筛选字段只允许
  *     text / integer / enum」）。
  *
@@ -178,6 +181,7 @@ export function refState(over = {}) {
     bagFields = [],
     extraElements = [],
     extraPlayerInitial = {},
+    extraRootOneInitial = {},
     mainHand = 'id_1',
   } = over
   const mainHandChildrenState = mainHandChildren
@@ -196,6 +200,7 @@ export function refState(over = {}) {
         1.3: '炉火噼啪，麦酒和湿羊毛的味道',
         1.4: buffDefs(),
         1.5: chars(),
+        ...extraRootOneInitial,
       },
     }),
     element('1.1', 'enum', { name: '区域', values: ['晨风镇', '镇郊'] }),
@@ -267,7 +272,8 @@ export function refChildCard(over = {}) {
 
 /**
  * 嵌套数组卡：`2.4 背包` 里多一个数组字段 `2.4.4 内袋`（字段 `2.4.4.1 物品`），
- * 另有 `2.8 内袋主手` 引用 `2.4.4` —— 用来测「写 `2.4` 不带出写 `2.8`」。
+ * 另有 `2.8 内袋主手` 引用 `2.4.4` —— **按 2026-11-28 的收敛这张卡是坏的**
+ * （嵌套数组不能当引用源），专门留给「嵌套源必须被拒」那条判据。
  * 内袋 item 自己也有隐藏 id（嵌套数组是另一个数组，从 `id_1` 起）。
  */
 export function nestedBagCard(over = {}) {
@@ -284,6 +290,24 @@ export function nestedBagCard(over = {}) {
   return { ...refCard(), id: 'c-ref-nested', name: 'ref nested card', state, ...over }
 }
 
+/**
+ * 深嵌对象里的数组仍是合法引用源（2026-11-28 收敛只禁「数组里的数组」）：
+ * 根 `1`（对象）→ `1.6 柜子`（对象）→ `1.6.1 抽屉`（数组，字段 `1.6.1.1 名`），
+ * `2.8 抽屉主手`（引用 → `1.6.1`，投影 `1.6.1.1`，0..1）。
+ */
+export function deepObjectArrayCard(over = {}) {
+  const state = refState({
+    extraElements: [
+      element('1.6', 'object', { name: '柜子' }),
+      element('1.6.1', 'array', { name: '抽屉' }),
+      element('1.6.1.1', 'text', { name: '名' }),
+      refElement('2.8', '抽屉主手', { refSource: '1.6.1', refFields: ['1.6.1.1'], min: 0, max: 1 }),
+    ],
+    extraRootOneInitial: { '1.6.1': [{ id: 'id_1', '1.6.1.1': '甲' }] },
+    extraPlayerInitial: { 2.8: 'id_1' },
+  })
+  return { ...refCard(), id: 'c-ref-deep-object', name: 'ref deep object card', state, ...over }
+}
 /**
  * 对象字段卡：`2.4` 里多一个对象字段 `2.4.4 附魔`（子字段 `2.4.4.1 名`）。
  * 用它测「投影字段只能 text / integer / enum」——对象字段不是可选投影。

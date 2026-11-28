@@ -1089,7 +1089,7 @@ ActionDeck / GameStage / HistoryModal / CharacterSigil / SceneSigil / WorldWhere
 **规则**：
 - **每个数组 item 带隐藏 `id`**（`id_N`，本数组内唯一、机器生成、不可编辑）。玩家 / 编辑器看不到，
   模型提示词与 `write_state` 入参可见；整表写入必须带回原 id，新 item 省略 id 由引擎生成。
-- **`ref` 是元素 / 字段类型**：声明 `refSource`（必须是数组）+ `refFields`（源 item 的直接标量字段）+
+- **`ref` 是元素 / 字段类型**：声明 `refSource`（必须是**顶层**数组；嵌套数组字段第一版不能当源，它们仍是普通状态数组）+ `refFields`（源 item 的直接标量字段）+
   可选 `refFilter`（单字段等值）+ `min` / `max`；值层只存 id（单引用 `id | null`，
   多引用 `null | 有序不重复的 id[]`，零条统一 `null`），读取时按 `refFields` 投影成对象 / 对象数组。
 - **写权限只从源数组容器流向直接引用者的自身值**：字段写不传播、反向不传播、不穿过 ref 链；

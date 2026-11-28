@@ -14,7 +14,9 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  deepObjectArrayCard,
   elementOf,
+  nestedBagCard,
   objectFieldBagCard,
   patchElement,
   refCard,
@@ -264,5 +266,32 @@ describe('引用 · min / max（§三 / §5.4）', () => {
     ]) {
       await expectIssue(patchElement(refCard(), '2.5', bounds), '2.5', `边界 ${note}`)
     }
+  })
+})
+
+describe('引用 · 嵌套数组不能当引用源（2026-11-28 收敛）', () => {
+  it('源是「数组里的数组」（2.4.4 内袋）⇒ 拒绝，报错点名字段（code + 源）', async () => {
+    // nestedBagCard 的 2.8 内袋主手 → 2.4.4（2.4 里的数组字段）：这正是被收敛掉的形状
+    const card = nestedBagCard()
+    const issues = await expectIssue(card, '2.8', '嵌套数组当引用源')
+    const hit = issues.find((issue) => issue.code === '2.8' || issue.path === '2.8')
+    expect(hit, '要有一条指到 2.8 的问题').toBeTruthy()
+    expect(hit.message, '报文要点名那个源（2.4.4）').toContain('2.4.4')
+    await expectReject(card, '嵌套数组当引用源')
+  })
+
+  it('禁的只是「数组里的数组」：顶层数组与藏在对象里的数组仍然是合法源', async () => {
+    // 顶层 2.4（2.5 / 2.7 的源）与对象根 1 的孩子 1.4 / 1.5（2.6.1 / 3.2 的源）都允许
+    await expectClean(refCard(), '顶层数组 + 对象里的数组当源')
+    // 再深一层：数组藏在两层对象里（1.6 柜子 → 1.6.1 抽屉），仍然允许
+    await expectClean(deepObjectArrayCard(), '两层对象里的数组当源')
+  })
+
+  it('嵌套数组作筛选字段 / 投影字段不受这条影响（它们本来就只认直接子字段）', async () => {
+    const card = refCard()
+    const filter = withFilter(card, { field: '2.4.3', value: '是' })
+    await expectClean(filter, '顶层数组的字段当筛选')
+    const nested = patchElement(card, '2.5', { refFields: ['2.4.3'] })
+    await expectClean(nested, '顶层数组的字段当投影')
   })
 })

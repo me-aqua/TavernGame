@@ -147,14 +147,15 @@ test.describe('引用自：只列数组 + 层级路径 + 搜索（§5.1）', () 
     await openEditor(page, defCard())
     await switchToRef(page, '2.5')
 
-    // 数组字段（`2.4.5` 附魔）也是数组节点 ⇒ 可选（引用契约 §8.4 点名「直接引用 2.4.2 这种嵌套数组」）
-    expect(await sourceCodes(page), '可选源恰好是全部数组节点（含嵌套数组字段）').toEqual([
-      '2.4',
-      '2.4.5',
-      '2.6',
-      '2.7',
-      '2.8',
-    ])
+    // 嵌套数组字段（`2.4.5` 附魔）**已降范围**：不作用源 ⇒ 不可选
+    expect(await sourceCodes(page), '可选源恰好是这四个顶层数组').toEqual(['2.4', '2.6', '2.7', '2.8'])
+    const offered = await page
+      .locator(`${source} option`)
+      .evaluateAll((all) => all.map((option) => ({ value: option.value, disabled: option.disabled })))
+    const nested = offered.find((option) => option.value === '2.4.5')
+    expect(nested === undefined || nested.disabled, '嵌套数组字段 2.4.5 不许作为引用源（不列或不许选）').toBe(
+      true,
+    )
     for (const code of ['0', '1', '2', '2.1', '2.2', '2.3', '2.4.1', '2.5']) {
       expect(await sourceCodes(page), `${code} 不是数组，不许可选`).not.toContain(code)
     }
@@ -178,7 +179,7 @@ test.describe('引用自：只列数组 + 层级路径 + 搜索（§5.1）', () 
     await search.fill('zzz')
     expect(await sourceCodes(page), '搜不到就一个都不给').toEqual([])
     await search.fill('')
-    expect(await sourceCodes(page)).toEqual(['2.4', '2.4.5', '2.6', '2.7', '2.8'])
+    expect(await sourceCodes(page)).toEqual(['2.4', '2.6', '2.7', '2.8'])
   })
 })
 
@@ -342,7 +343,7 @@ test.describe('源的禁区（§5.1 / 契约 §十二）', () => {
 
     const enabled = await sourceCodes(page)
     expect(enabled, '包含自己的数组不许作为源').not.toContain('2.8')
-    expect(enabled, '别的数组照常可选').toEqual(['2.4', '2.4.5', '2.6', '2.7'])
+    expect(enabled, '别的数组照常可选').toEqual(['2.4', '2.6', '2.7'])
   })
 
   test('引用字段不列对象 / 数组 / ref 字段（2.10 作源）', async ({ page }) => {

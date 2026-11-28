@@ -8,7 +8,7 @@
  */
 import { t } from '../i18n'
 import { AppError } from './errors'
-import { childrenOf, isRecord } from './state-codes'
+import { childrenOf, isInsideArray, isRecord } from './state-codes'
 import type { CardIssue } from './state-issues'
 import type { ItemValue, StateElement } from './types'
 
@@ -157,6 +157,10 @@ export function refDefinitionIssues(state: StateElement[], element: StateElement
   }
   if (source.type !== 'array') {
     push(t('issue.refMsg5', { p1: element.code, p2: element.refSource }))
+    return issues
+  }
+  if (isInsideArray(state, element.refSource)) {
+    push(t('issue.refSourceNestedArray', { code: element.code, source: element.refSource }))
     return issues
   }
   if (element.refSource === element.code) push(t('issue.refMsg6', { p1: element.code }))

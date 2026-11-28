@@ -89,3 +89,35 @@ test('item 里的 ref（2.6.1 来源）：投影成一页、× 回 null、选择
   expect(items[0]['2.6.2'], '同一 item 的别的字段不动').toBe('轻')
   expect(items[1]).toEqual({ id: 'id_2', '2.6.1': 'id_2', '2.6.2': '中' })
 })
+
+/**
+ * 跨根「删除那一刻就判」：`1.4`（根 `1`）里的 item 被 `2.6.1`（根 `2` 的数组 item 里，`1..1`）指着。
+ * item 级引用没有扁平值路径，清不掉 ⇒ 契约 §8.3 第 3 条要的是**删除当下**整笔拒绝、点名引用元素，
+ * 而不是先删掉、等到保存才报「id 不在源数组里」。
+ */
+test('跨根：删 1.4 里被 2.6.1 引用的 item ⇒ 删除那一刻就拒绝，不是等保存', async ({ page }) => {
+  await boot(page, { sample: true })
+  const cards = await readStorage(page, KEYS.cards)
+  await page.goto(`${APP_PATH}${route.edit(cards[0].id)}`)
+  await expect(page.locator('[data-page="editor"]')).toBeVisible()
+  await expect(page.locator('[data-state-tree]')).toBeVisible()
+
+  // `1.4` 在根 `1` 的初始值块里（初始值只挂在根元素上）
+  await page.locator('[data-state-item="1"]').click()
+  const gains = '[data-array="1.4"]'
+  const items = `${gains} [data-array-item]`
+  await expect(page.locator(items), '示例卡 1.4 有两项').toHaveCount(2)
+
+  // 第 1 项（微醺）被另一个根里的 2.6.1 指着；1..1 清不掉 ⇒ 删除当场拒绝
+  await page.locator(`${items}[data-array-index="1"] [data-array-remove]`).click()
+  const blocked = page.locator('[data-delete-error]')
+  await expect(blocked, '删被引用的源 item 要在删除那一刻拒绝').toBeVisible()
+  await expect(blocked, '拒绝原因要点名引用元素（2.6.1 / 2.6）').toContainText(/2\.6/)
+  await expect(page.locator(items), '拒绝后 item 一个都不许少').toHaveCount(2)
+  await expect(page.locator('[data-confirm]'), '1..1 清不掉，不许给「确认级联」那条路').toHaveCount(0)
+
+  // 卡片因此没变：保存 0 错，源数组一项不少
+  expect(await save(page)).toBe(0)
+  const later = (await readStorage(page, KEYS.cards))[0]
+  expect(later.state.find((element) => element.code === '1').initial['1.4']).toHaveLength(2)
+})

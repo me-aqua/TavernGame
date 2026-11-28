@@ -207,14 +207,19 @@ describe('删除 · 删除整个源数组元素（§8.3 第五条）', () => {
 // 重排兄弟时 ref 定义（源 / 投影字段 / 筛选字段）要跟着改。
 // ---------------------------------------------------------------------------
 
-/** 一次「删源 item」的计划：找出所有直接指向它的引用，再算删完要写回什么 / 谁挡着 */
+/**
+ * 一次「删源 item」的计划：找出所有直接指向它的引用，再算删完要写回什么 / 谁挡着。
+ *
+ * 要求：`valueOf` 必须用**真实的逐根 initial 查表**（`initialItemsOf`：按 code 找它所属根，
+ * 只读那一张表），**不能**用摊平成一棵的 `treeOf` —— 摊平之后「只从某一个根取 item」这种
+ * 单根接线 bug 会照样通过，判据就抓不到它（复审要求）。
+ */
 async function deletePlanOf(card, sourceCode, id) {
-  const { refUsesOf, cascadeOf } = await loadModule(
+  const { refUsesOf, cascadeOf, initialItemsOf } = await loadModule(
     'components/ref-support.ts',
     () => import('../src/components/ref-support.ts'),
   )
-  const tree = treeOf(card)
-  const uses = refUsesOf(card.state, sourceCode, (path) => tree[path])
+  const uses = refUsesOf(card.state, sourceCode, (path) => initialItemsOf(card.state, path))
   return { uses, ...cascadeOf(uses, id) }
 }
 

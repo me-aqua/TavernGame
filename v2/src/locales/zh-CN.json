@@ -412,5 +412,6 @@
   "prompt.refNullHint": "；可写 null 清空",
   "issue.removeRefDangling": "删除 {code} 会让引用 {ref} 指向已删除的 {target}",
   "issue.itemIdUnknown": "数组 {code} 里没有 id {id}（新 item 请省略 id，由引擎生成）",
-  "issue.itemIdInvalid": "数组 {code} 的 item id {id} 不合法（id 由机器生成，不能手写别的形状）"
+  "issue.itemIdInvalid": "数组 {code} 的 item id {id} 不合法（id 由机器生成，不能手写别的形状）",
+  "issue.refSourceNestedArray": "引用 {code} 的引用源 {source} 是嵌套数组（第一版只允许顶层数组作为引用源）"
 }

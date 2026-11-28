@@ -13,16 +13,7 @@
  * 这一份只钉**许可本身**。
  */
 import { describe, expect, it } from 'vitest'
-import {
-  bagItems,
-  nestedBagCard,
-  nodeOf,
-  patchNode,
-  refCard,
-  refChildCard,
-  saveOf,
-  treeOf,
-} from './support/ref-fixtures.js'
+import { bagItems, nodeOf, patchNode, refCard, refChildCard, saveOf, treeOf } from './support/ref-fixtures.js'
 import { loadModule } from './support/load.js'
 
 const loadEngine = () => loadModule('core/engine.ts', () => import('../src/core/engine.ts'))
@@ -108,15 +99,16 @@ describe('写权限 · 不传播的两侧（§8.4）', () => {
     expect(error.code).toBe('E_CHAIN')
   })
 
-  it('只走一跳：writable = ["2.4"] 不给 2.8 的写权限（2.8 引用嵌套数组 2.4.4）', async () => {
-    const card = nestedBagCard()
-    const denied = await writeErrorWith(card, ['2.4'], '2.8', null)
-    expect(denied, '写 2.4 不该带出写 2.8').not.toBeNull()
+  it('传播只给直接引用者：写 2.4 带出 2.5 / 2.7，但不带出引用 1.4 的 2.6.1', async () => {
+    // 2026-11-28 收敛后「嵌套数组当源」被删掉，原「只走一跳（2.8 引用 2.4.4）」没有实例了；
+    // 这里钉同一件事的另一面：传播只认自己那条源数组，不串到别的数组的引用者。
+    const card = refCard()
+    expect((await writeWith(card, ['2.4'], '2.5', 'id_2'))['2.5'], '直接引用者 2.5 可写').toBe('id_2')
+    expect((await writeWith(card, ['2.4'], '2.7', null))['2.7'], '直接引用者 2.7 可写').toBeNull()
+    const denied = await writeErrorWith(card, ['2.4'], '2.6.1', null)
+    expect(denied, '2.6.1 引用的是 1.4，和 2.4 无关').not.toBeNull()
     expect(denied.code).toBe('E_CHAIN')
-    const allowed = await writeWith(card, ['2.4.4'], '2.8', null)
-    expect(allowed['2.8'], '写 2.4.4（它是 2.8 的直接源）才带出写权限').toBeNull()
   })
-
   it('派生写权限关掉就消失：writable 里没有 2.4、只有 2.5 ⇒ 两侧都只认自己', async () => {
     const card = refCard()
     expect((await writeWith(card, ['2.5'], '2.5', 'id_2'))['2.5']).toBe('id_2')
