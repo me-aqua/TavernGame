@@ -13,7 +13,15 @@
  */
 import { t } from '../i18n'
 import { AppError } from './errors'
-import { cardIssues, elementOfPath, isFieldRef, isTimeValue, pathsOf, refPathsOf, valueFits } from './statetree'
+import {
+  cardIssues,
+  elementOfPath,
+  isFieldRef,
+  isTimeValue,
+  pathsOf,
+  refPathsOf,
+  valueFits,
+} from './statetree'
 import type { Card, ChainNode, Save, StateElement } from './types'
 
 // 值路径 ↔ 元素的那一格住在 `statetree.ts`（卡校验、存档校验、界面三处共用）；老的调用方从这里取

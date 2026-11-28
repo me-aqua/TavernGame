@@ -341,14 +341,14 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
   if (element.type === 'array' && type === 'object') {
     throw invalid(t('issue.arrayToObject', { code }), { code, type })
   }
-  // 数组子树里的字段是 schema：逐 item 的 array⇄object 转换不在本票范围
-  if (
-    isInsideArray(card.state, code) &&
-    (element.type === 'array' || element.type === 'object') &&
-    (type === 'array' || type === 'object') &&
-    type !== element.type
-  ) {
-    throw invalid(t('issue.fieldContainerConvert', { code }), { code, type })
+  // 数组子树里的字段是 schema：**容器字段（array / object）一律不换类型**（逐 item 转换是另一票）。
+  // 数组字段只留 `array`、对象字段只留 `object`；数据层与下拉一起拒，不留能点出坏卡的选项。
+  if (isInsideArray(card.state, code)) {
+    if (element.type === 'array' || element.type === 'object') {
+      throw type === 'array' || type === 'object'
+        ? invalid(t('issue.fieldContainerConvert', { code }), { code, type })
+        : invalid(t('issue.fieldScalarConvert', { code }), { code, type })
+    }
   }
   const next: StateElement = { ...element, type }
   delete next.values
@@ -370,11 +370,6 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
       object[code] = fieldDefaultOf(card.state, next)
     }
     table[arrayRoot] = value
-  } else if (element.type === 'array' && type === 'object') {
-    // 数组 → 对象：第一个 item 的值铺回表（数组本身那条值路径消失）
-    const item = arrayFirstItem(card.state, code, table[code])
-    clearTableSubtree(table, code)
-    writeItemToTable(card.state, code, item, table)
   } else if (element.type === 'object' && type === 'array') {
     // 对象 → 数组：字段当前值拼成一个 item；后代在表里一条值路径都没有 ⇒ 空数组（§十.3）
     const hasValue = pathsOf(card.state, code).some((path) => path in table)

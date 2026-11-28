@@ -30,12 +30,6 @@ export function refPathsOf(state: StateElement[], ref: string): string[] {
   return isFieldRef(state, ref) ? [ref] : pathsOf(state, ref)
 }
 
-/** 一个 code 连同它下面的所有元素（数组行 / 字段行的三态用：容器 + 字段，字段 + 子字段） */
-export function refsUnder(state: StateElement[], code: string): string[] {
-  const prefix = `${code}.`
-  return state.filter((item) => item.code === code || item.code.startsWith(prefix)).map((item) => item.code)
-}
-
 /**
  * **读**的覆盖（读投影 / 读眼睛用）：引用覆盖**自己 + 整棵子树**，所以任何祖先 code 都算
  * （`2` 覆盖 `2.4.1`、`2.4` 覆盖 `2.4.1`、`2.4.2` 覆盖 `2.4.2.1`）。

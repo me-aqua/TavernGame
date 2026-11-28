@@ -20,7 +20,19 @@
  */
 import type { Card, ChainNode, Save, SaveEvent, TimeMode, TimeValue, Tree } from './types'
 import { OPENING_PROMPT_ID } from './schema'
-import { childrenOf, elementAt, elementOfPath, formatTime, integerRangeOf, isFieldRef, isInsideArray, parentOfCode, pathsOf, refElementOf, arrayRootOf } from './statetree'
+import {
+  childrenOf,
+  elementAt,
+  elementOfPath,
+  formatTime,
+  integerRangeOf,
+  isFieldRef,
+  isInsideArray,
+  parentOfCode,
+  pathsOf,
+  refElementOf,
+  arrayRootOf,
+} from './statetree'
 import { holidaysOf } from './holidays'
 import { t } from '../i18n'
 interface BuildPromptArgs {

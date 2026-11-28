@@ -93,8 +93,8 @@ const typeOptions = computed<StateType[]>(() => {
   const field = isInsideArray(props.state, element.code)
   if (element.type === 'array') return field ? ['array'] : ['text', 'integer', 'enum', 'array']
   // 「结构体」任何一行都不出现在下拉里（它是内部形态）：导入的 object 元素只列作者选项
-  if (element.type === 'object')
-    return field ? ['text', 'integer', 'enum', 'time'] : ['text', 'integer', 'enum', 'time', 'array']
+  // 数组子树里的容器字段不换类型（逐 item 转换是另一票）：对象字段只留 object、数组字段只留 array
+  if (element.type === 'object') return field ? ['object'] : ['text', 'integer', 'enum', 'time', 'array']
   return [...TYPES]
 })
 
