@@ -310,5 +310,10 @@
   "default.state.time": "时间",
   "error.writeValueUnknown": "写进 {path} 的键「{key}」不是这里的字段（没有这个中文名或编号）",
   "error.writeValueDuplicate": "写进 {path} 的字段 {field} 被指定了两次（中文名与编号只能留一个）",
-  "error.writeValueAmbiguous": "写进 {path} 的「{name}」对应多个字段（{fields}），请改用编号"
+  "error.writeValueAmbiguous": "写进 {path} 的「{name}」对应多个字段（{fields}），请改用编号",
+  "play.failedTurnTitle": "上一回合失败（调试）",
+  "play.failedAction": "行动",
+  "play.failedError": "错误",
+  "play.failedNext": "下一步",
+  "play.failedText": "已收到的正文"
 }

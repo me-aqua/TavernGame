@@ -196,6 +196,28 @@ export function validateCard(card: Card, options: { initial?: boolean } = {}): v
   }
 }
 
+/** 失败回合的调试槽（有才判）：形状不对 ⇒ `E_VALIDATION`，不影响 turn / tree / events */
+function validateFailedTurn(value: unknown): void {
+  if (value === undefined) return
+  if (!isRecord(value)) throw badField('save.failedTurn')
+  requireString(value.action, 'save.failedTurn.action')
+  requireString(value.at, 'save.failedTurn.at')
+  if (!isRecord(value.error)) throw badField('save.failedTurn.error')
+  requireString(value.error.code, 'save.failedTurn.error.code')
+  requireString(value.error.message, 'save.failedTurn.error.message')
+  if (value.error.nextStep !== undefined) {
+    requireString(value.error.nextStep, 'save.failedTurn.error.nextStep')
+  }
+  const events = requireArray(value.events, 'save.failedTurn.events')
+  events.forEach((event, index) => {
+    if (!isRecord(event)) throw badField(`save.failedTurn.events[${index}]`)
+    requireString(event.type, `save.failedTurn.events[${index}].type`)
+    requireString(event.text, `save.failedTurn.events[${index}].text`)
+    requireString(event.at, `save.failedTurn.events[${index}].at`)
+  })
+  requireString(value.text, 'save.failedTurn.text')
+}
+
 /**
  * 存档校验。给了 `card` 就一并核对「游戏卡 id 对得上」「状态树**覆盖全部值路径**且没有多余键」——
  * 这是引擎入场那一步用的形态；存储层读盘时没有卡可比，只校验它自己那一半（时间必须是六格）。
@@ -221,6 +243,7 @@ export function validateSave(save: Save, card?: Card): void {
   if (!Array.isArray(save.events)) {
     throw new AppError('E_VALIDATION', { message: t('error.events'), nextStep: t('next.home') })
   }
+  validateFailedTurn(save.failedTurn)
   if (!isRecord(save.tree)) throw badField('save.tree')
   // 值的形状分两半：时间只住在 `0`（给了卡按卡的模式判，没给卡三种形状都收）；
   // 其它值要么是标量，要么是数组 / item 对象 —— 后者有卡时由下面的类型段按字段形状严格判，

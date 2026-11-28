@@ -23,7 +23,7 @@ import { t } from '../i18n'
 import type { TokenUsage } from '../core/types'
 import type { StoryItem } from './types'
 
-defineProps<{ items: StoryItem[]; streaming: string; generating: boolean }>()
+defineProps<{ items: StoryItem[]; streaming: string; generating: boolean; embedded?: boolean }>()
 
 /** trace 卡片的用量文案：入 / 出两个数；没有用量就直说，不拿 0 冒充 */
 function traceTokens(usage: TokenUsage | null): string {
@@ -39,7 +39,7 @@ function statsTokens(usage: TokenUsage | null): string {
 </script>
 
 <template>
-  <div class="story" data-story>
+  <div class="story" :data-story="embedded ? undefined : ''">
     <p v-if="items.length === 0 && streaming === '' && !generating" class="story-empty muted">
       {{ t('play.emptyStory') }}
     </p>

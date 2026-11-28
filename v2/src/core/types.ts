@@ -170,6 +170,18 @@ export interface SaveEvent {
  */
 export type Tree = Record<string, TreeValue>
 
+/**
+ * 上一次**失败**的回合（调试与重发用）：只多这一格 —— 	urn / 	ree / vents 一个字不动。
+ * vents 是失败那次的 trace / turnStats 读数（不并进存档的事件流）；	ext 是已经收到的半截正文。
+ */
+export interface FailedTurn {
+  action: string
+  at: string
+  error: { code: string; message: string; nextStep?: string }
+  events: SaveEvent[]
+  text: string
+}
+
 export interface Save {
   schemaVersion: 1
   id: string
@@ -186,6 +198,8 @@ export interface Save {
   tree: Tree
   events: SaveEvent[]
   updatedAt: string
+  /** 失败回合的调试槽；成功回合不写、重发前先摘掉，失败时替换这一格 */
+  failedTurn?: FailedTurn
 }
 
 export type Provider = 'openai-compatible' | 'mock'

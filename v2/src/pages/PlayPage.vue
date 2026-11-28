@@ -70,6 +70,16 @@ const openingBody = computed(
   () => save.value?.cardSnapshot.prompts.find((prompt) => prompt.id === OPENING_PROMPT_ID)?.body ?? '',
 )
 
+/** 把一条存档事件翻译成时间轴上的一项（trace 另看调试开关）；认识的类型之外返回 null */
+function eventItem(event: SaveEvent): StoryItem | null {
+  if (event.type === 'action' || event.type === 'narration') return { type: event.type, text: event.text }
+  if (event.type === 'trace') {
+    return debugEnabled.value ? { type: 'trace', trace: event.detail as TraceDetail } : null
+  }
+  if (event.type === 'turnStats') return { type: 'turnStats', stats: event.detail as TurnStatsDetail }
+  return null
+}
+
 /**
  * 故事流时间轴：按 `save.events` 的顺序排，再拼上本轮还在路上的那几条。
  *   · action / narration：永远在；
@@ -79,15 +89,10 @@ const openingBody = computed(
  */
 const items = computed<StoryItem[]>(() => {
   const timeline: StoryItem[] = []
-  /** 把一条存档事件翻译成时间轴上的一项（trace 另看调试开关） */
+  /** 把一条事件收进时间轴（不认识的类型不占位） */
   const push = (event: SaveEvent) => {
-    if (event.type === 'action' || event.type === 'narration') {
-      timeline.push({ type: event.type, text: event.text })
-    } else if (event.type === 'trace' && debugEnabled.value) {
-      timeline.push({ type: 'trace', trace: event.detail as TraceDetail })
-    } else if (event.type === 'turnStats') {
-      timeline.push({ type: 'turnStats', stats: event.detail as TurnStatsDetail })
-    }
+    const item = eventItem(event)
+    if (item !== null) timeline.push(item)
   }
   if (openingBody.value !== '') timeline.push({ type: 'narration', text: openingBody.value })
   for (const event of save.value?.events ?? []) push(event)
@@ -96,6 +101,22 @@ const items = computed<StoryItem[]>(() => {
   }
   for (const event of liveEvents.value) push(event)
   return timeline
+})
+
+/** 失败回合的逐节点读数（`failedTurn.events` 里只存 trace / turnStats）：调试卡片里复用故事流的样子 */
+const failedItems = computed<StoryItem[]>(() => {
+  const list: StoryItem[] = []
+  for (const event of save.value?.failedTurn?.events ?? []) {
+    const item = eventItem(event)
+    if (item !== null) list.push(item)
+  }
+  return list
+})
+
+/** 失败回合的错误一行：`码 · 中文消息`（调试卡片用） */
+const failedErrorText = computed(() => {
+  const failed = save.value?.failedTurn
+  return failed ? `${failed.error.code} · ${failed.error.message}` : ''
 })
 
 onMounted(() => {
@@ -108,6 +129,8 @@ onMounted(() => {
     validateCard(found.cardSnapshot)
     validateSave(found, found.cardSnapshot)
     save.value = found
+    // 上一次失败的行动放回输入框（刷新 / 重新打开都还在）
+    draft.value = found.failedTurn?.action ?? ''
     presets.value = storage().loadPresets()
     // 模型映射：这一份存档自己的（`save.nodeModels`）优先；没有这一格就是旧存档，回落卡级那一片
     nodePresets.value = found.nodeModels ?? storage().loadNodeModels()[props.cardId] ?? {}
@@ -130,6 +153,9 @@ async function send(): Promise<void> {
   const current = save.value
   const action = draft.value
   if (!current || running.value || action === '') return
+  // 重发前先摘掉上一次的失败槽：成功回合一格都不带，失败回合替换这一格
+  const base: Save = { ...current }
+  delete base.failedTurn
   running.value = true
   streaming.value = ''
   error.value = null
@@ -141,7 +167,7 @@ async function send(): Promise<void> {
   try {
     const result = await runTurn({
       card: current.cardSnapshot,
-      save: current,
+      save: base,
       presets: presets.value,
       nodePresets: nodePresets.value,
       action,
@@ -162,8 +188,29 @@ async function send(): Promise<void> {
     status.value = t('play.status', { turn: next.turn })
   } catch (cause) {
     const failure = asAppError(cause)
-    // 停止不是错误现场：半截文本丢掉、输入框留着刚才那句话，不弹错
-    if (failure.code !== 'E_ABORTED') error.value = failure
+    // 停止不是错误现场：半截文本丢掉、输入框留着刚才那句话，不弹错、也不写失败槽
+    if (failure.code !== 'E_ABORTED') {
+      error.value = failure
+      // 失败回合：turn / tree / events 一个字不动，只落这一格（行动 / 错误 / 已收到的正文 / 读数）
+      const failed: Save = {
+        ...base,
+        failedTurn: {
+          action,
+          at: new Date().toISOString(),
+          error: { code: failure.code, message: failure.message, nextStep: failure.nextStep },
+          events: liveEvents.value,
+          text: streaming.value,
+        },
+      }
+      try {
+        validateSave(failed)
+        persistSave(failed)
+      } catch (persistCause) {
+        // 失败槽写不进盘就只留在内存里（盘上仍是上一回合），并把写盘错误报出来
+        error.value = asAppError(persistCause)
+      }
+      save.value = failed
+    }
     // 停止 / 出错：把刚发出去的那句放回输入框（玩家没改过才放）
     if (draft.value === '') draft.value = action
   } finally {
@@ -215,6 +262,31 @@ function goBack(): void {
     <div v-if="!loadFailed" class="page-body">
       <div class="play-main">
         <StoryView :items="items" :streaming="streaming" :generating="running && streaming === ''" />
+
+        <!-- 失败回合的调试卡：只在调试开着时出现（玩家看不到）；逐节点读数复用故事流的卡片 -->
+        <section v-if="debugEnabled && save?.failedTurn" class="failed-turn" data-failed-turn>
+          <div class="field-label">{{ t('play.failedTurnTitle') }}</div>
+          <div class="failed-row">
+            <span class="muted">{{ t('play.failedAction') }}</span>
+            <span data-failed-action>{{ save.failedTurn.action }}</span>
+          </div>
+          <div class="failed-row">
+            <span class="muted">{{ t('play.failedError') }}</span>
+            <span data-failed-error>{{ failedErrorText }}</span>
+            <span data-failed-next>{{ save.failedTurn.error.nextStep }}</span>
+          </div>
+          <div v-if="save.failedTurn.text !== ''" class="failed-row">
+            <span class="muted">{{ t('play.failedText') }}</span>
+            <div class="mono" data-failed-text>{{ save.failedTurn.text }}</div>
+          </div>
+          <StoryView
+            v-if="failedItems.length > 0"
+            :items="failedItems"
+            streaming=""
+            :generating="false"
+            embedded
+          />
+        </section>
 
         <div class="composer">
           <textarea
@@ -277,6 +349,25 @@ function goBack(): void {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* 失败回合的调试卡：虚线框、与故事流同宽；只在调试开着时渲染 */
+.failed-turn {
+  flex: 0 0 auto;
+  max-height: 45%;
+  overflow: auto;
+  margin: 8px 12px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+
+.failed-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
 }
 
 .composer {

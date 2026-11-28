@@ -102,6 +102,7 @@ v2/
 - `Event = { type, text, detail?, at }`，`type` 允许 `'action' | 'narration' | 'node' | 'request' | 'tool' | 'write' | 'toolResult' | 'error' | 'trace' | 'turnStats'`；`chunk` 不是持久事件（只走 `onEvent`）。
 - `trace` 每节点一条、按链顺序：`detail = { nodeId, nodeName, nodeType, presetId, prompt, thinking, toolCalls: [{ name, args, result? }], output, usage: { inputTokens, outputTokens, totalTokens } | null, durationMs, tps: number | null, turn }`，`text = node.name`。
 - `turnStats` 每回合一条、回合末尾：`detail = { turn, totalMs, usage, tps }`，`text = 'turn <n>'`；`usage` 是各节点之和，`tps` 量不出为 `null`。
+- `failedTurn? = { action, at, error: { code, message, nextStep? }, events: SaveEvent[], text }` 是**失败回合的调试槽**（可选）：只在 `PlayPage.send` 失败时写；`turn` / `tree` / `events` 一个字不动，`events` 是失败那次收到的 `trace` / `turnStats`，`text` 是已收到的半截正文。**不并进 `save.events`**、不占回合；`validateSave` 判它的形状（`action` / `at` / `error.code` / `error.message` / `text` 字符串，`error.nextStep` 可选字符串，`events` 是事件数组）。
 - 引擎**一律读 `save.cardSnapshot`**，不读 `tg2.cards`；改卡只影响之后新建的存档。
 - 新建存档把卡级 `tg2.nodeModels[cardId]` 整片拷进 `save.nodeModels`；播放优先用它，没有这一格才回落卡级映射（旧存档不迁移）；存档编辑器改它，卡映射不动。
 
@@ -467,7 +468,8 @@ export const CODES = ['E_PROVIDER', 'E_VALIDATION', 'E_CHAIN', 'E_UNKNOWN', 'E_A
 - 第一段正文未到 ⇒ 行动下面一行 `[data-generating]`（文案 = `play.generating`「生成中……」）；第一段 `chunk` 一到 ⇒ `[data-generating]` 消失、换成 `[data-line="narration"]` 流式正文，行动气泡留着；调试开着时 trace 卡片照常按节点顺序出现，`[data-generating]` 只有一行。
 - 回合成功 ⇒ **先校验 `result.save`、再写回 `tg2.saves`，写盘成功之后才更新内存与界面**：撤掉乐观副本（`save.events` 里已有这条 `action`，不许出现两个气泡）、隐藏 `[data-stop]`、恢复输入、更新 `[data-turn]` 与 `[data-status]`；校验不过 / 写盘失败 ⇒ 整回合按出错处理，`[data-turn]`、故事流与内存 `save` 都停在上一回合。
 - 停止：点 `[data-stop]` ⇒ 中止本轮、丢弃本轮半截文本与乐观行动（故事流回到本轮开始前）、恢复输入、把刚才那句放回 `[data-action-input]`（输入框仍为空时才放）、存档不变。
-- 出错：`[data-error]` 出现，`[data-error-code]` = 错误码字符串、`[data-error-next]` = 下一步中文；乐观气泡撤掉、刚才那句放回输入框（仍为空时才放）、存档不变；界面不白屏、不丢卡。
+- 出错：`[data-error]` 出现，`[data-error-code]` = 错误码字符串、`[data-error-next]` = 下一步中文；乐观气泡撤掉、刚才那句放回输入框（仍为空时才放）、**存档只多一格 `failedTurn`**（`turn` / `tree` / `events` 不动）、界面不白屏、不丢卡。
+- 失败回合槽：失败时把 `{ action, at, error: { code, message, nextStep }, events: 这次收到的 trace / turnStats, text: 已收到的半截正文 }` 写回 `tg2.saves`；刷新 / 重开 ⇒ 输入框从 `failedTurn.action` 回填。调试开着时 `[data-failed-turn]` 卡片可见（`[data-failed-action]` / `[data-failed-error]` / `[data-failed-next]` / `[data-failed-text]`，逐节点读数复用 `[data-trace]` / `[data-turn-stats]`），调试关着时**不渲染**。重发前先摘掉旧槽：成功回合不带 `failedTurn`，再失败就替换这一格。
 - 调试内联（**没有右侧调试面板**，`[data-debug]` / `[data-debug-node]` / `[data-debug-prompt]` / 旧表头 `[data-turn-ms]` 都不存在）：故事流按 `save.events` 顺序排成时间轴；`action` / `narration` **永远在**；`trace` 卡片**只在调试开着时**出现；`turnStats` **永远在**（紧凑一行：回合 / 总 token / 总耗时 / t/s）。
 - 开关：右上角 `[data-debug-toggle]`（带 `data-on`），`?debug=1` 只是它的初始状态，点它随时开 / 关；开着 = 深底浅字（`--active-bg` / `--active-ink`）+ 字重 600、边框 `--accent`；加载旧存档后打开开关也要显示历史回合的 trace（读数来自 `save.events`，不是内存里那一回合）。
 - trace 卡片：`[data-trace][data-trace-node="<id>"][data-trace-turn="<n>"]`，内含 `[data-trace-name]` / `[data-trace-type]` / `[data-trace-prompt]`；有思考时 `[data-trace-thinking]`；有工具调用时 `[data-trace-tools]`（每条 `[data-trace-tool]`，带执行结果的那条还有 `[data-trace-tool-result]`）；有正文时 `[data-trace-output]`；脚注 `[data-trace-tokens]` / `[data-trace-tps]` / `[data-trace-ms]` / `[data-trace-preset]`；**空段不画空框**。

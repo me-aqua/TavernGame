@@ -53,7 +53,8 @@
   schemaVersion: 1,
   id, cardId, cardSnapshot, // 整张卡冻结
   nodeModels, // 可选：这一份存档自己的节点映射（新建时从卡映射拷一份；缺省 = 旧存档，播放回落卡级）
-  name, turn, tree, events, updatedAt
+  name, turn, tree, events, updatedAt,
+  failedTurn? // 上一次失败回合的调试槽（见下）
 }
 ```
 
@@ -61,6 +62,7 @@
 - `nodeModels`: `{ [nodeId]: presetId }`。播放优先用它，没有才用卡级 `tg2.nodeModels[cardId]`（旧存档不迁移）；
   存档编辑器改的是它，卡的映射不动。
 - `events`: `[{ type: 'action'|'narration'|'node'|'request'|'tool'|'write'|'toolResult'|'error'|'trace'|'turnStats', text, detail?, at }]`。
+- `failedTurn`: `{ action, at, error: { code, message, nextStep? }, events, text }` 可选槽 —— 只在回合**失败**时写：`turn` / `tree` / `events` 一个字不动，`events` 是那次失败收到的 trace / turnStats，`text` 是已收到的半截正文。**不并进 `events`**、不算一回合；重发前先摘掉，成功回合不带这一格。
 - 新建存档时 `tree` 由卡的初始值展开（`initialTreeOf`）；之后改卡不影响旧存档。
 
 ### Preset

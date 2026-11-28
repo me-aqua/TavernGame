@@ -21,6 +21,12 @@
 ## [未发布]
 
 ### 新增
+- **失败回合的调试槽 `failedTurn`（2026-11-28）** —— 回合失败时把这一份存档写回盘上（`turn` / `tree` /
+  `events` 一个字不动），只多一格 `failedTurn = { action, at, error: { code, message, nextStep? }, events, text }`：
+  `events` 是失败那次收到的 trace / turnStats（**不并进** `save.events`、不占回合），`text` 是已收到的
+  半截正文。对话页失败后把行动放回输入框，刷新 / 重开从 `failedTurn.action` 回填；调试开着时显示
+  `[data-failed-turn]` 卡片（行动 / 错误 / 下一步 / 半截正文 + 逐节点读数），关着时不渲染。
+  重发前先摘掉旧槽：成功回合不带 `failedTurn`，再失败就替换这一格。`validateSave` 校验它的形状。
 - **数组 item 字段与普通节点同权：自己的值 + 孩子（阶段 3 parity · 2026-11-28）** —— 数组子树里的
   **标量字段可以有子字段**，有孩子时 item 里的值 = `{ "<code>.0": 自己的值, 孩子 code: 孩子值, … }`
   （完整值路径口径，与扁平树一致；无孩子时仍是裸标量，旧行为不变）。`addChild` 在**每个现存实例**上把
