@@ -15,6 +15,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   bagItems,
+  itemRefChildCard,
+  nestedArrayRefCard,
+  objectFieldRefCard,
   element,
   buffDefs,
   chars,
@@ -336,5 +339,41 @@ describe('删除 · 重排兄弟时 ref 定义跟着改（复审缺口 b）', ()
     expect(bag).not.toBeNull()
     expect(bag.code).toBe('E_VALIDATION')
     expect(textOf(bag), '点名直接引用 2.4 的元素').toMatch(/2\.5|2\.7/)
+  })
+})
+
+describe('删除 · 穿过嵌套数组 / 更深的对象字段找到引用（2026-11-28 重开）', () => {
+  it('嵌套数组 item 里的引用（2.4.4.2）也要被找到：min = 1 ⇒ 删除计划 blocked', async () => {
+    const card = patchElement(nestedArrayRefCard(), '2.4.4.2', { min: 1 })
+    const { uses, blocked, changes } = await deletePlanOf(card, '1.4', 'id_1')
+    expect(
+      uses.map((use) => use.element.code),
+      '要穿过 2.4.4 的内层 item 找到 2.4.4.2',
+    ).toContain('2.4.4.2')
+    expect(
+      blocked.map((use) => use.element.code),
+      'min = 1 ⇒ 整笔删除被拒并点名',
+    ).toContain('2.4.4.2')
+    expect(changes, '被拒时不写回').toEqual([])
+  })
+
+  it('数组 item 的对象字段里的引用（2.4.4.1）也要被找到', async () => {
+    const card = patchElement(objectFieldRefCard(), '2.4.4.1', { min: 1 })
+    const { uses, blocked } = await deletePlanOf(card, '1.4', 'id_1')
+    expect(
+      uses.map((use) => use.element.code),
+      '要穿过对象字段找到 2.4.4.1',
+    ).toContain('2.4.4.1')
+    expect(blocked.map((use) => use.element.code)).toContain('2.4.4.1')
+  })
+
+  it('item 级引用带子元素（2.6.1.0 指针）也要被找到 ⇒ 删除计划 blocked', async () => {
+    const card = itemRefChildCard()
+    const { uses, blocked } = await deletePlanOf(card, '1.4', 'id_1')
+    expect(
+      uses.map((use) => use.element.code),
+      '要读 item 里「自身值 + 孩子」对象的 2.6.1.0',
+    ).toContain('2.6.1')
+    expect(blocked.map((use) => use.element.code)).toContain('2.6.1')
   })
 })

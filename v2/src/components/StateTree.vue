@@ -13,19 +13,20 @@
  *     关掉容器不会补隐藏的字段 ref。手写 / 导入的 `<code>.0`（只取自身值）也不再有半态。
  *     点标量行只动自己（开 / 关都不动后代 ref）；点 object / array 行开 = 去后代冗余、关 = 只摘自己。
  *   · **S2**（选中状态元素）：栏顶 `[data-add-state]`（新顶层元素）、每行 `[data-add-child]`（加子元素，
- *     第 5 层不出现、时间没有）与 `[data-delete-state]`（删这一棵，时间没有）。
+ *     第 5 层不出现、时间没有；**数组子树里的字段也能加**，item 级引用有孩子时自身值就住 `<code>.0`）与
+ *     `[data-delete-state]`（删这一棵，时间没有）。
  *
  * `structureLocked`（存档编辑器）把 `+` / 加子元素 / 删除**整块拿掉**（不渲染、不是禁用）：
  * 那一侧的卡结构是冻结的，只许改名字 / 备注 / 提示词与眼睛。
  *
  * 引用（`ref`）那一行在写眼睛旁边还挂一枚 `[data-derived-write="<源数组 code>"]` 小标签
- * （「随 2.4 级联」，引用契约 §8.4）：写源数组容器 ⇒ 引擎自动给**直接引用者自身值**的写权限。
- * 只有**有自己的值路径**的引用（顶层引用 / 有孩子的 ref 的 `.0`）才画这枚标签 —— 数组 item 里的引用
- * （`2.6.1`）没有自己的值路径，引擎不给它派生写，标签也不出现。
- * 它只说明「派生」这件事，**不改眼睛的 all / none**：`data-on` / `data-tri` 仍只反映 `writable` 里那一格。
+ * （「随 2.4 级联」，引用契约 §8.4）：写源数组容器 ⇒ 引擎自动给**直接引用者自身值**的写权限（任何深度）。
+ * 它画在**有自己的值路径**的引用上：不在数组子树里的（扁平值路径就是它的 code）与**有孩子的 ref**
+ * （自身值住 `<code>.0`，item 级引用有孩子时也一样）；只剩一个裸字段值的 item 级引用没有自己的路径，
+ * 引擎不给它派生写，标签也不出现。标签只管自身值，**不管关系子元素**，也**不改眼睛的 all / none**。
  */
 import { computed } from 'vue'
-import { MAX_DEPTH, codeDepth, pathsOf, refCoveredBy, refPathsOf } from '../core/statetree'
+import { MAX_DEPTH, codeDepth, refCoveredBy, refPathsOf } from '../core/statetree'
 import type { ChainNode, StateElement } from '../core/types'
 import { t } from '../i18n'
 
@@ -66,8 +67,8 @@ function triOf(field: 'read' | 'write', code: string): 'all' | 'none' {
 }
 
 /**
- * 这一行能不能「加子元素」：时间不能、第 5 层不能；**数组子树里的标量字段也能加**
- * （字段与普通节点同权：可以同时有自己的值和子字段）。
+ * 这一行能不能「加子元素」：时间不能、第 5 层不能；**数组子树里的字段（含 item 级引用）也能加**
+ * （字段与普通节点同权：可以同时有自己的值和子字段；item 级引用有孩子时自身值住 `<code>.0`）。
  */
 function showsAddChild(element: StateElement): boolean {
   return element.type !== 'time' && codeDepth(element.code) < MAX_DEPTH
@@ -75,18 +76,16 @@ function showsAddChild(element: StateElement): boolean {
 
 /**
  * 每个引用元素的**派生写来源**（值 = 源数组 code）：这一列写权限按值路径展开之后包含它的 `refSource`
- * ⇒ 引擎在 `applyWrite` 里会自动给它**自身值**的写权限（引用契约 §8.4：只给自身值、不给关系子元素；
- * 字段写不传播、反向不传播）。判据与引擎逐条对齐：展开用 `refPathsOf`（同一把尺），并且**必须有自己的值路径**
- * ——数组 item 里的引用（`2.6.1` 这种）`pathsOf` 返回空，引擎根本不会给它派生写，这里也不画标签。
+ * ⇒ 引擎在 `applyWrite` 里会自动给它**自身值**的写权限，**任何深度都一样**（引用契约 §8.4：只给自身值、
+ * 不给关系子元素；字段写不传播、反向不传播）。展开用 `refPathsOf`，与引擎的 `coveredRefs` 同一把尺；
+ * item 级引用的「自身值」是它那一列（`2.6.1`，引擎的 `derived` 就放这个字段 code），所以那种行同样画标签。
  */
 const derivedWrites = computed(() => {
   const covered = (props.node?.writable ?? []).flatMap((ref) => refPathsOf(props.elements, ref))
   const map = new Map<string, string>()
   for (const element of props.elements) {
     if (element.type !== 'ref' || element.refSource === undefined) continue
-    if (!covered.includes(element.refSource)) continue
-    if (pathsOf(props.elements, element.code).length === 0) continue
-    map.set(element.code, element.refSource)
+    if (covered.includes(element.refSource)) map.set(element.code, element.refSource)
   }
   return map
 })

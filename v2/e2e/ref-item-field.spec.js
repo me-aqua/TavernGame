@@ -121,3 +121,52 @@ test('跨根：删 1.4 里被 2.6.1 引用的 item ⇒ 删除那一刻就拒绝�
   const later = (await readStorage(page, KEYS.cards))[0]
   expect(later.state.find((element) => element.code === '1').initial['1.4']).toHaveLength(2)
 })
+
+/**
+ * 范围重开：**item 级引用也能有孩子**（关系自己的数据）。示例卡 `2.6.1 来源` 加一个孩子 `施加者`：
+ * 每个 item 的那一格从裸值变成 `{ "<code>.0": 引用值, "<code>.1": 孩子值 }`（与「有孩子的标量字段」同一形状）。
+ */
+test('item 级 ref 加子元素：2.6.1 = { 2.6.1.0, 2.6.1.1 }（施加者），add-child 可用、保存 0 错', async ({
+  page,
+}) => {
+  await boot(page, { sample: true })
+  const cards = await readStorage(page, KEYS.cards)
+  await page.goto(`${APP_PATH}${route.edit(cards[0].id)}`)
+  await expect(page.locator('[data-page="editor"]')).toBeVisible()
+  await expect(page.locator('[data-state-tree]')).toBeVisible()
+
+  // ① item 级 ref 现在能加孩子：选中它再点 +
+  await page.locator('[data-state-item="2.6"]').click()
+  await expect(
+    page.locator('[data-state-item="2.6.1"] [data-add-child]'),
+    'item 级引用也要有加子元素',
+  ).toHaveCount(1)
+  await page.locator('[data-state-item="2.6.1"] [data-add-child]').click()
+  await expect(page.locator('[data-state-item="2.6.1.1"]'), '新孩子挂在 2.6.1 下').toBeVisible()
+
+  // ② 把孩子改名成「施加者」
+  await page.locator('[data-state-item="2.6.1.1"]').click()
+  await page.locator('[data-field="name"]').fill('施加者')
+
+  // ③ 在第 1 个 item 的 item 卡里填孩子值
+  await page.locator('[data-state-item="2"]').click()
+  const item1 = '[data-array="2.6"] [data-array-item][data-array-index="1"]'
+  await expect(page.locator(`${item1} [data-array-field="2.6.1"]`), '引用自己的值格子还在').toHaveCount(0)
+  await page.locator(`${item1} [data-array-field="2.6.1.1"]`).fill('旅人')
+
+  // ④ 保存 0 错；item 的那一格是「自身值 + 孩子」的对象形状
+  expect(await save(page), '加孩子之后保存不许报错').toBe(0)
+  const card = (await readStorage(page, KEYS.cards))[0]
+  const items = card.state.find((element) => element.code === '2').initial['2.6']
+  expect(items).toHaveLength(2)
+  expect(items[0].id, 'item 的隐藏 id 不动').toBe('id_1')
+  expect(items[0]['2.6.1'], '自身值住 .0、孩子住 .1').toEqual({ '2.6.1.0': 'id_1', '2.6.1.1': '旅人' })
+  expect(items[1]['2.6.1'], '另一个 item 也换成同一形状（孩子取默认空串）').toEqual({
+    '2.6.1.0': 'id_2',
+    '2.6.1.1': '',
+  })
+  expect(items[0]['2.6.2'], '同一 item 的别的字段不动').toBe('轻')
+  const child = card.state.find((element) => element.code === '2.6.1.1')
+  expect(child, '新孩子是 2.6.1.1').toBeTruthy()
+  expect(child.name, '孩子名 = 施加者').toBe('施加者')
+})

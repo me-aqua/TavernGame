@@ -309,6 +309,58 @@ export function deepObjectArrayCard(over = {}) {
   return { ...refCard(), id: 'c-ref-deep-object', name: 'ref deep object card', state, ...over }
 }
 /**
+ * 引用藏在**嵌套数组**的 item 里（2026-11-28 重开：任何标量位置都能放 ref）：
+ * `2.4 背包`（顶层数组）→ `2.4.4 内袋`（嵌套数组）→ item 里的 `2.4.4.2 内袋来源`（引用 → 1.4，0..1）。
+ */
+export function nestedArrayRefCard(over = {}) {
+  const items = bagItems().map((item, index) => ({
+    ...item,
+    '2.4.4': index === 0 ? [{ id: 'id_1', '2.4.4.1': '药膏', '2.4.4.2': 'id_1' }] : [],
+  }))
+  const state = refState({
+    bagFields: [element('2.4.4', 'array', { name: '内袋' }), element('2.4.4.1', 'text', { name: '物品' })],
+    extraElements: [
+      refElement('2.4.4.2', '内袋来源', { refSource: '1.4', refFields: ['1.4.1'], min: 0, max: 1 }),
+    ],
+    extraPlayerInitial: { 2.4: items },
+  })
+  return { ...refCard(), id: 'c-ref-nested-array-ref', name: 'ref in nested array card', state, ...over }
+}
+
+/**
+ * 引用藏在数组 item 的**对象字段**里（更深的字段）：`2.4` → `2.4.4 属性`（object）→
+ * `2.4.4.1 属性来源`（引用 → 1.4，0..1）。
+ */
+export function objectFieldRefCard(over = {}) {
+  const items = bagItems().map((item) => ({ ...item, '2.4.4': { '2.4.4.1': 'id_1' } }))
+  const state = refState({
+    bagFields: [element('2.4.4', 'object', { name: '属性' })],
+    extraElements: [
+      refElement('2.4.4.1', '属性来源', { refSource: '1.4', refFields: ['1.4.1'], min: 0, max: 1 }),
+    ],
+    extraPlayerInitial: { 2.4: items },
+  })
+  return { ...refCard(), id: 'c-ref-object-field-ref', name: 'ref in object field card', state, ...over }
+}
+
+/**
+ * item 级引用**带子元素**（重开后允许）：`2.6.1 来源` 挂 `2.6.1.1 握法`，
+ * item 里的值是「自身值 + 孩子」的对象：`{ '2.6.1.0': pointer, '2.6.1.1': child }`。
+ */
+export function itemRefChildCard(over = {}) {
+  const items = activeBuffs().map((item) => ({
+    ...item,
+    '2.6.1': { '2.6.1.0': 'id_1', '2.6.1.1': '单手' },
+  }))
+  const state = refState({
+    extraElements: [element('2.6.1.1', 'text', { name: '握法' })],
+    extraPlayerInitial: { 2.6: items },
+  })
+  return { ...refCard(), id: 'c-ref-item-child', name: 'item ref with child card', state, ...over }
+}
+
+/**
+ * 对象字段卡：/**
  * 对象字段卡：`2.4` 里多一个对象字段 `2.4.4 附魔`（子字段 `2.4.4.1 名`）。
  * 用它测「投影字段只能 text / integer / enum」——对象字段不是可选投影。
  */

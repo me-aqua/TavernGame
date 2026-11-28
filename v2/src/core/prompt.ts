@@ -81,7 +81,26 @@ function resolveRefItem(
     const value = out[field.code]
     if (field.type === 'ref') {
       const sourceItems = field.refSource === undefined ? undefined : tree[field.refSource]
-      out[field.code] = refValueOf(card.state, field, value, sourceItems) as ItemObject[string]
+      const children = childrenOf(card.state, field.code)
+      const pointer = children.length === 0 ? value : isRecord(value) ? value[`${field.code}.0`] : value
+      const projected = refValueOf(card.state, field, pointer, sourceItems)
+      if (children.length === 0 || projected === null) {
+        out[field.code] = projected as ItemObject[string]
+        continue
+      }
+      const merged = { ...(projected as Record<string, unknown>) }
+      for (const child of children) {
+        const raw = isRecord(value) ? value[child.code] : undefined
+        merged[child.name] =
+          child.type === 'array' && Array.isArray(raw)
+            ? raw.map((nested) =>
+                isRecord(nested) ? resolveRefItem(card, child.code, nested, tree) : nested,
+              )
+            : isRecord(raw) && (child.type === 'object' || childrenOf(card.state, child.code).length > 0)
+              ? resolveRefItem(card, child.code, raw, tree)
+              : raw
+      }
+      out[field.code] = merged as ItemObject[string]
       continue
     }
     if (field.type === 'array' && Array.isArray(value)) {

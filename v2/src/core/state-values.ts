@@ -111,7 +111,15 @@ function scalarFits(field: StateElement, value: unknown): boolean {
  *   · 时间不能做字段（坏卡）。
  */
 export function fieldValueFits(state: StateElement[], field: StateElement, value: unknown): boolean {
-  if (field.type === 'ref') return refShapeFits(field, value)
+  if (field.type === 'ref') {
+    const children = childrenOf(state, field.code)
+    if (children.length === 0) return refShapeFits(field, value)
+    if (!isRecord(value)) return false
+    const ownKey = `${field.code}.0`
+    if (Object.keys(value).length !== children.length + 1) return false
+    if (!(ownKey in value) || !refShapeFits(field, value[ownKey])) return false
+    return children.every((child) => child.code in value && fieldValueFits(state, child, value[child.code]))
+  }
   if (field.type === 'object') return structFits(state, field.code, value)
   if (field.type === 'array') return arrayValueFits(state, field.code, value)
   const children = childrenOf(state, field.code)
@@ -147,7 +155,14 @@ function scalarDefaultOf(field: StateElement): ItemValue {
  * 有孩子的标量字段 ⇒ `{ "<code>.0": 自己默认, 子字段 code: 子默认, … }`；对象字段 ⇒ 孩子默认；数组字段 ⇒ `[]`。
  */
 export function fieldDefaultOf(state: StateElement[], field: StateElement): ItemValue {
-  if (field.type === 'ref') return null
+  if (field.type === 'ref') {
+    const children = childrenOf(state, field.code)
+    if (children.length === 0) return null
+    return Object.fromEntries([
+      [`${field.code}.0`, null],
+      ...children.map((child) => [child.code, fieldDefaultOf(state, child)]),
+    ])
+  }
   if (field.type === 'object') {
     return Object.fromEntries(
       childrenOf(state, field.code).map((child) => [child.code, fieldDefaultOf(state, child)]),

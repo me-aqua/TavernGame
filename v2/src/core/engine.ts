@@ -39,6 +39,7 @@ import {
   integerValueFits,
   fieldWriteCoveredBy,
   isFieldRef,
+  isInsideArray,
   valueFits,
   isRecord,
   isTimeValue,
@@ -50,6 +51,7 @@ import {
   refPathsOf,
   refTreeIssues,
   refValueIssues,
+  refChildOwnerBlocked,
   assignIdsDeep,
   itemIdsOf,
   unitsOfMode,
@@ -170,7 +172,10 @@ export function applyWrite({
   for (const element of card.state) {
     if (element.type !== 'ref' || element.refSource === undefined) continue
     if (!coveredRefs.includes(element.refSource)) continue
-    const [ownPath] = pathsOf(card.state, element.code)
+    // 顶层 ref：自身值就是它的值路径；item 级 ref：自身值是那个字段列（更深也一样）
+    const ownPath = isInsideArray(card.state, element.code)
+      ? element.code
+      : pathsOf(card.state, element.code)[0]
     if (ownPath !== undefined) derived.add(ownPath)
   }
   const covered =
@@ -195,18 +200,14 @@ export function applyWrite({
       detail: { path },
     })
   }
-  // ref 自身值为 null 时，关系子元素不生效：写它之前必须先有目标
-  for (const ref of card.state) {
-    if (ref.type !== 'ref') continue
-    if (!path.startsWith(`${ref.code}.`) || path === `${ref.code}.0`) continue
-    const ownPath = childrenOf(card.state, ref.code).length > 0 ? `${ref.code}.0` : ref.code
-    if ((tree[ownPath] ?? null) === null) {
-      throw new AppError('E_VALIDATION', {
-        message: t('error.writeRefChildEmpty', { code: ref.code }),
-        nextStep: t('next.editor'),
-        detail: { code: ref.code, path },
-      })
-    }
+  // 关系子元素：ref 自身值为 null 时写它 ⇒ E_VALIDATION（顶层 / item 级 / 更深一律覆盖）
+  const blockedRef = refChildOwnerBlocked(card.state, tree, path)
+  if (blockedRef !== undefined) {
+    throw new AppError('E_VALIDATION', {
+      message: t('error.writeRefChildEmpty', { code: blockedRef }),
+      nextStep: t('next.editor'),
+      detail: { code: blockedRef, path },
+    })
   }
   /** 值 / 范围不合就报这一条（中文，带上路径与类型，方便排障） */
   const reject = () =>

@@ -32,7 +32,7 @@ import { ref, computed } from 'vue'
 import RefValueEditor from './RefValueEditor.vue'
 import { cascadeOf, initialItemsOf } from './ref-support'
 import type { RefChange, RefUse } from './ref-support'
-import { arrayItemOf, childrenOf, integerRangeOf, isItemId, isRecord } from '../core/statetree'
+import { arrayItemOf, childrenOf, integerRangeOf, isItemId, isRecord, refPointerOf } from '../core/statetree'
 import type { ArrayValue, ItemObject, ItemValue, StateElement } from '../core/types'
 import { t } from '../i18n'
 
@@ -135,18 +135,28 @@ function rangeOf(field: StateElement): string {
   return `${min}~${max}`
 }
 
-/**
- * 这一项里的字段行：字段与普通节点同权 —— 标量字段可以**同时有自己的值和子字段**，
- * 有孩子时自己的值住 `<code>.0`（扁平值路径口径），孩子用它们的 code 递归一层组件。
- */
+/** 这一项里的字段行：字段与普通节点同权 —— 标量字段可以**同时有自己的值和子字段**，
+ * 有孩子时自己的值住 `<code>.0`（扁平值路径口径），孩子用它们的 code 递归一层组件。 */
 function hasChildren(field: StateElement): boolean {
   return childrenOf(props.state, field.code).length > 0
 }
 
+/**
+ * 这一字段的**关系子行**要不要渲染：引用（任何位置 —— 顶层 / item 级 / 更深都一样）自身指针是 `null` 时，
+ * 子元素不展示也不生效（引用契约 §4.3）：先选到目标，再谈这次关系的数据。值仍留在卡里，
+ * 重新选中目标之后原样回来。其余字段（标量 / 对象 / 数组）照旧。
+ */
+function showsChildRows(field: StateElement, raw: ItemValue | undefined): boolean {
+  if (!hasChildren(field)) return false
+  if (field.type !== 'ref') return true
+  return (refPointerOf(props.state, field, raw) ?? null) !== null
+}
+
 /** 标量字段自己的值：有孩子时是 `{<code>.0>: …, 孩子: …}` 里的那一格，没孩子就是裸值 */
 function ownValue(raw: ItemValue | undefined, field: StateElement): ItemValue {
-  // 引用的空值就是 null（不是空串）：少了这一条，值编辑器会把它读成「一条空引用」
-  if (field.type === 'ref') return raw ?? null
+  // 引用的指针那一格用数据层同一个函数取（有孩子时在 `<code>.0`，否则就是值本身）；空值统一是 null，
+  // 值编辑器才画「选择引用」而不是一条空引用
+  if (field.type === 'ref') return (refPointerOf(props.state, field, raw) ?? null) as ItemValue
   if (!hasChildren(field)) return (raw ?? '') as ItemValue
   return (isRecord(raw) ? (raw[`${field.code}.0`] ?? '') : '') as ItemValue
 }
@@ -254,7 +264,7 @@ function onInteger(index: number, field: StateElement, event: Event): void {
           </button>
         </div>
         <ArrayValue
-          v-if="hasChildren(field)"
+          v-if="showsChildRows(field, item[field.code])"
           class="field-children"
           :state="state"
           :code="field.code"

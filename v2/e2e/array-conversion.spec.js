@@ -124,15 +124,12 @@ test.describe('数组行的类型下拉（增补 §四.1）', () => {
     }
   })
 
-  test('有字段的数组字段（item schema 里）也列五档（本票放开）', async ({ page }) => {
+  test('有字段的数组字段（item schema 里）也列五档（范围重开后 ref 不再限位置）', async ({ page }) => {
+    // 2.4.2.2 是「数组字段的数组字段」：范围重开后任何行都能选 ref
     await openEditor(page, nestedCard({ id: 'c-conv-field' }), '2.4.2.2')
-    expect((await typeOptions(page)).map((option) => option.value)).toEqual([
-      'text',
-      'integer',
-      'enum',
-      'array',
-      'ref',
-    ])
+    expect(
+      await page.locator('[data-state-type] option').evaluateAll((all) => all.map((o) => o.value)),
+    ).toEqual(['text', 'integer', 'enum', 'array', 'ref'])
   })
 
   test('没有字段的数组字段：五档；改回文字后每项取默认值、保存通过（往返契约 §6）', async ({ page }) => {

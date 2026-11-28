@@ -11,7 +11,10 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  itemRefChildCard,
   lineOf,
+  nestedArrayRefCard,
+  objectFieldRefCard,
   nodeOf,
   patchElement,
   patchNode,
@@ -208,5 +211,40 @@ describe('提示词 · 可写说明（§7.2）', () => {
     )
     expect(error, '投影字段不是可写路径').not.toBeNull()
     expect(error.code, '路径不存在是链的错').toBe('E_CHAIN')
+  })
+})
+
+describe('提示词 · 任何标量位置的引用都要投影（2026-11-28 重开）', () => {
+  it('嵌套数组 item 里的引用：投影成对象，不打印裸指针', async () => {
+    const card = nestedArrayRefCard()
+    const bag = JSON.parse(payloadIn(await promptOf(card, 'check'), '2.4'))
+    const inner = bag[0]['内袋']
+    expect(Array.isArray(inner), '内袋是数组').toBe(true)
+    expect(inner[0]['内袋来源'], '内袋来源要投影成对象（键是投影字段的中文名）').toEqual({ 名称: '微醺' })
+    expect(typeof inner[0]['内袋来源'], '引用位是投影对象，不是裸 id').toBe('object')
+  })
+
+  it('数组 item 的对象字段里的引用：同样是投影对象', async () => {
+    const card = objectFieldRefCard()
+    const bag = JSON.parse(payloadIn(await promptOf(card, 'check'), '2.4'))
+    expect(bag[0]['属性'], '对象字段里的引用要投影成对象').toEqual({ 属性来源: { 名称: '微醺' } })
+    expect(JSON.stringify(bag[0]['属性']), '不许出现裸指针').not.toContain('"id_1"')
+  })
+
+  it('item 级引用带子元素：投影对象 + 关系子元素都在，不打印裸指针', async () => {
+    const card = itemRefChildCard()
+    const payload = payloadIn(await promptOf(card, 'check'), '2.6')
+    expect(payload, '投影字段要在').toContain('微醺')
+    expect(payload, '关系子元素（握法）也要在').toContain('单手')
+    // item 自己的 id 是合法的提示词内容（§7.1）；这里只禁「引用位被吐成裸指针」
+    const buffs = JSON.parse(payload)
+    expect(
+      buffs.map((item) => item.id),
+      '数组 item 的隐藏 id 照常出现（不是裸指针）',
+    ).toEqual(['id_1', 'id_2'])
+    for (const item of buffs) {
+      expect(typeof item.来源, '引用位是投影对象').toBe('object')
+      expect(item.来源, '引用位里不许出现指针字段或裸 id 字符串').not.toHaveProperty('2.6.1.0')
+    }
   })
 })

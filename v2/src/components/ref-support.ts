@@ -19,6 +19,7 @@ import {
   pathsOf,
   refBoundsOf,
   refFieldsOf,
+  refPointerOf,
   rootCodeOf,
 } from '../core/statetree'
 import type { StateElement, Tree } from '../core/types'
@@ -30,6 +31,8 @@ export interface RefUse {
   value: unknown
   /** 数组 item 里的引用（`2.6.1`）：值住在 item 里，没有扁平值路径 */
   item?: boolean
+  /** item 级引用：把根数组里的指针清成 null / 去掉 id（级联写回用） */
+  clear?: (id: string) => unknown
 }
 
 /** 引用源的一档：`selectable = false` 的是**包含自己的数组**（引用它会递归） */
@@ -122,23 +125,100 @@ export function rowTextOf(
 /** 所有**直接**指向 `code` 这个数组的引用（`valueOf` 给它们现在的值） */
 export function refUsesOf(state: StateElement[], code: string, valueOf: (path: string) => unknown): RefUse[] {
   const uses: RefUse[] = []
+  /** 递归穿过 item 里的对象字段 / 嵌套数组，找到目标 ref 字段并记下指针 */
+  const findIn = (
+    struct: Record<string, unknown>,
+    container: string,
+    element: StateElement,
+    ownRoot: string,
+    ownValue: unknown,
+  ) => {
+    for (const child of childrenOf(state, container)) {
+      if (!(child.code in struct)) continue
+      const value = struct[child.code]
+      if (child.code === element.code) {
+        uses.push({
+          element,
+          path: ownRoot,
+          value: refPointerOf(state, element, value),
+          item: true,
+          /** 级联写回：复制整份根数组，把这一处的指针清成 null / 去掉 id */
+          clear: (id) =>
+            Array.isArray(ownValue)
+              ? ownValue.map((item) =>
+                  isRecord(item) ? clearStruct(state, ownRoot, item, element, id) : item,
+                )
+              : ownValue,
+        })
+        continue
+      }
+      if (child.type === 'array' && Array.isArray(value)) {
+        for (const nested of value) {
+          if (isRecord(nested)) findIn(nested, child.code, element, ownRoot, ownValue)
+        }
+        continue
+      }
+      if (isRecord(value) && (child.type === 'object' || childrenOf(state, child.code).length > 0)) {
+        findIn(value, child.code, element, ownRoot, ownValue)
+      }
+    }
+  }
   for (const element of state) {
     if (element.type !== 'ref' || element.refSource !== code) continue
-    if (isInsideArray(state, element.code)) {
-      // item 级引用：值在每个 item 的字段里（没有扁平值路径）
-      const root = arrayRootOf(state, element.code)
-      const items = root === undefined ? undefined : valueOf(root)
-      if (!Array.isArray(items)) continue
-      for (const item of items) {
-        if (!isRecord(item)) continue
-        uses.push({ element, path: root as string, value: item[element.code], item: true })
-      }
+    if (!isInsideArray(state, element.code)) {
+      const [path] = pathsOf(state, element.code)
+      if (path !== undefined) uses.push({ element, path, value: valueOf(path) })
       continue
     }
-    const [path] = pathsOf(state, element.code)
-    if (path !== undefined) uses.push({ element, path, value: valueOf(path) })
+    const root = arrayRootOf(state, element.code)
+    const items = root === undefined ? undefined : valueOf(root)
+    if (!Array.isArray(items)) continue
+    for (const item of items) if (isRecord(item)) findIn(item, root as string, element, root as string, items)
   }
   return uses
+}
+
+/** 在根数组里把某个 item 级引用的指针清掉（只清指针，不动子元素） */
+function clearStruct(
+  state: StateElement[],
+  container: string,
+  struct: Record<string, unknown>,
+  element: StateElement,
+  id: string,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...struct }
+  for (const child of childrenOf(state, container)) {
+    if (!(child.code in out)) continue
+    const value = out[child.code]
+    if (child.code === element.code) {
+      out[child.code] = clearPointer(state, element, value, id)
+      continue
+    }
+    if (child.type === 'array' && Array.isArray(value)) {
+      out[child.code] = value.map((nested) =>
+        isRecord(nested) ? clearStruct(state, child.code, nested, element, id) : nested,
+      )
+      continue
+    }
+    if (isRecord(value) && (child.type === 'object' || childrenOf(state, child.code).length > 0)) {
+      out[child.code] = clearStruct(state, child.code, value, element, id)
+    }
+  }
+  return out
+}
+
+/** 单个 ref 值的指针清空（多引用去掉 id，单引用清 null；有子元素时只改 `.0`） */
+function clearPointer(state: StateElement[], element: StateElement, value: unknown, id: string): unknown {
+  const children = childrenOf(state, element.code)
+  const pointer = refPointerOf(state, element, value)
+  const put = (next: unknown): unknown =>
+    children.length === 0 ? next : { ...(isRecord(value) ? value : {}), [`${element.code}.0`]: next }
+  if (isMultiRef(element)) {
+    if (!Array.isArray(pointer) || !pointer.includes(id)) return value
+    const next = pointer.filter((item) => item !== id)
+    return put(next.length === 0 ? null : next)
+  }
+  return pointer === id ? put(null) : value
 }
 
 /**
@@ -178,11 +258,17 @@ export function cascadeOf(uses: RefUse[], id: string): { changes: RefChange[]; b
   for (const use of uses) {
     const { min } = refBoundsOf(use.element)
     if (use.item === true) {
-      // item 级引用没有扁平值路径：删源 item 时一律显式阻断，让人先改那个 item 字段
       const affected = isMultiRef(use.element)
         ? Array.isArray(use.value) && use.value.includes(id)
         : use.value === id
-      if (affected) blocked.push(use)
+      if (!affected) continue
+      const next = isMultiRef(use.element)
+        ? Array.isArray(use.value)
+          ? use.value.filter((item) => item !== id)
+          : []
+        : []
+      if ((isMultiRef(use.element) ? next.length : 0) < min) blocked.push(use)
+      else changes.push({ path: use.path, value: use.clear?.(id) })
       continue
     }
     if (isMultiRef(use.element)) {

@@ -34,13 +34,13 @@ import RefForm from './RefForm.vue'
 import RefValueEditor from './RefValueEditor.vue'
 import { blockedByRef, refItemsOf, refUsesOf } from './ref-support'
 import type { RefChange, RefUse } from './ref-support'
+import { typeOptionsAt } from './state-types'
 import { HOLIDAY_GROUPS, NO_HOLIDAYS } from '../core/holidays'
 import {
   TIME_MODES,
   cellsOfMode,
   elementOfPath,
   formatTime,
-  isInsideArray,
   integerRangeOf,
   pathsOf,
   rootCodeOf,
@@ -84,35 +84,13 @@ const emit = defineEmits<{
   cascade: [message: string, run: () => void]
 }>()
 
-/** 作者能选的类型（`object` 是「有孩子」的形态：只在导入的卡里照实显示，不是可选类型） */
-const TYPES: StateType[] = ['text', 'integer', 'enum', 'array', 'ref']
-
 /** 类型标签住文案表：`editor.typeText` / `editor.typeInteger` / … */
 function typeLabel(type: StateType): string {
   return t(`editor.type${type.charAt(0).toUpperCase()}${type.slice(1)}`)
 }
 
-/**
- * 类型下拉的可选档（老板口径）：**「结构体」不是可选类型，它就是「有孩子」**。
- *   · 数组（任何行）⇒ `text` / `integer` / `enum` / `array` / `ref`（换成标量时字段留成孩子、
- *     第 1 项的值铺进孩子、自己的默认值写 `<code>.0`；数组字段逐 item 取第一个 item，其余丢弃）；
- *   · 对象（数组子树之外，导入的卡）⇒ 不列 `object`（结构体是内部形态）；只列作者选项（含 `array`）；
- *   · 数组子树里的标量字段 ⇒ `text` / `integer` / `enum` / `array` / `ref`（没有 object）；
- *   · 数组子树里的对象字段 ⇒ 只有 `object`（容器字段不换类型，数据层也拒）；
- *   · 其它元素 ⇒ 作者选项（`text` / `integer` / `enum` / `array` / `ref`；时间行是模式选择器，不在这一列）。
- * `ref` 与文字 / 数字 / 下拉 / 数组互转（数据层清空自身与子元素初始值、不搬运旧值）；`ref` ↔ 时间拒绝。
- */
-const typeOptions = computed<StateType[]>(() => {
-  const element = props.element
-  const field = isInsideArray(props.state, element.code)
-  if (element.type === 'array') return ['text', 'integer', 'enum', 'array', 'ref']
-  // 「结构体」任何一行都不出现在下拉里（它是内部形态）：导入的 object 元素只列作者选项
-  // 数组子树里的容器字段不换类型（逐 item 转换是另一票）：对象字段只留 object
-  if (element.type === 'object') return field ? ['object'] : ['text', 'integer', 'enum', 'array']
-  // 数组里的标量字段：作者选项去掉时间（时间不能当字段）
-  if (field) return ['text', 'integer', 'enum', 'array', 'ref']
-  return [...TYPES]
-})
+/** 类型下拉的每一档（规则住在 `state-types.ts`：含「引用只能住在顶层 / 顶层数组的直接字段」） */
+const typeOptions = computed<StateType[]>(() => typeOptionsAt(props.state, props.element))
 
 function unitLabel(unit: TimeUnit): string {
   return t(`time.unit.${unit}`)
@@ -491,7 +469,15 @@ function requestMode(event: Event): void {
         <span class="initial-code" data-current-tree-code>{{ displayCode(path) }}</span>
         <span class="initial-name ellipsis" :data-current-tree-name="path">{{ nameOf(path) }}</span>
         <div v-if="ownerOf(path)?.type === 'array'" class="current-array">
-          <ArrayValue :state="state" :code="path" :value="currentTreeValueOf(path)" current top disabled />
+          <ArrayValue
+            :state="state"
+            :code="path"
+            :value="currentTreeValueOf(path)"
+            :source-items="(code) => currentTree?.[code]"
+            current
+            top
+            disabled
+          />
         </div>
         <!-- ref 的当前值用同一套行构建器改（候选从 `save.tree` 的当前数组现算） -->
         <RefValueEditor

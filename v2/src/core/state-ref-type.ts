@@ -8,9 +8,9 @@
  */
 import { t } from '../i18n'
 import { AppError } from './errors'
-import { childrenOf, isInsideArray, isRecord } from './state-codes'
+import { childrenOf, isInsideArray, isRecord, parentOfCode } from './state-codes'
 import type { CardIssue } from './state-issues'
-import type { ItemValue, StateElement } from './types'
+import type { ItemValue, StateElement, Tree } from './types'
 
 /** `max` 第一版上限（引用契约 §三） */
 export const REF_MAX_LIMIT = 999
@@ -97,6 +97,12 @@ export function refShapeFits(element: StateElement, value: unknown): boolean {
 export function hasRefs(state: StateElement[]): boolean {
   return state.some((element) => element.type === 'ref')
 }
+/** 一个 ref 值的**指针那一格**：有子元素时在 `<code>.0`，否则就是值本身 */
+export function refPointerOf(state: StateElement[], element: StateElement, value: unknown): unknown {
+  if (childrenOf(state, element.code).length === 0) return value
+  return isRecord(value) ? value[`${element.code}.0`] : value
+}
+
 /** 引用值里要解析的 id（单引用一个 / 多引用一串；null / 坏形状 ⇒ 空） */
 export function refIdsOf(element: StateElement, value: unknown): string[] {
   if (value === null || value === undefined) return []
@@ -234,6 +240,8 @@ export function refValueIssues(
   const source = state.find((item) => item.code === element.refSource)
   if (source === undefined || source.type !== 'array') return [t('issue.refMsg21', { p1: element.code })]
   const { min, max } = refBoundsOf(element)
+  const children = childrenOf(state, element.code)
+  const pointer = children.length === 0 ? value : isRecord(value) ? value[`${element.code}.0`] : value
   const items = Array.isArray(sourceItems) ? sourceItems : []
   const sourceId = (id: string): Record<string, unknown> | undefined =>
     items.find((item) => isRecord(item) && item.id === id) as Record<string, unknown> | undefined
@@ -267,35 +275,37 @@ export function refValueIssues(
       )
     }
   }
-  if (value === null) {
+  if (pointer === null) {
     if (min > 0) issues.push(t('issue.refMsg25', { p1: element.code, p2: min }))
     return issues
   }
   if (isMultiRef(element)) {
-    if (!Array.isArray(value)) {
+    if (!Array.isArray(pointer)) {
       issues.push(t('issue.refMsg26', { p1: element.code }))
       return issues
     }
     const seen = new Set<string>()
-    for (const id of value) {
+    for (const id of pointer) {
       if (typeof id === 'string' && seen.has(id))
         issues.push(t('issue.refMsg27', { p1: element.code, p2: id }))
       if (typeof id === 'string') seen.add(id)
       checkOne(id)
     }
-    if (value.length < min) issues.push(t('issue.refMsg28', { p1: element.code, p2: min, p3: value.length }))
-    if (value.length > max) issues.push(t('issue.refMsg29', { p1: element.code, p2: max, p3: value.length }))
+    if (pointer.length < min)
+      issues.push(t('issue.refMsg28', { p1: element.code, p2: min, p3: pointer.length }))
+    if (pointer.length > max)
+      issues.push(t('issue.refMsg29', { p1: element.code, p2: max, p3: pointer.length }))
     return issues
   }
-  if (Array.isArray(value) || isRecord(value) || (typeof value === 'number' && !isItemId(value))) {
+  if (Array.isArray(pointer) || isRecord(pointer)) {
     issues.push(t('issue.refMsg30', { p1: element.code }))
     return issues
   }
-  if (typeof value !== 'string') {
+  if (typeof pointer !== 'string') {
     issues.push(t('issue.refMsg30', { p1: element.code }))
     return issues
   }
-  checkOne(value)
+  checkOne(pointer)
   return issues
 }
 
@@ -356,4 +366,61 @@ export function assignIdsDeep(
     return out
   }
   return value
+}
+
+/**
+ * 写关系子元素之前，看它的 ref 祖先里有没有「自身值 null」的：有 ⇒ 返回那个 ref 的 code。
+ * 覆盖顶层 ref、数组 item 里的 ref、嵌套数组 / 更深对象字段里的 ref（任意深度）。
+ */
+export function refChildOwnerBlocked(state: StateElement[], tree: Tree, path: string): string | undefined {
+  const refs = state.filter(
+    (element) =>
+      element.type === 'ref' &&
+      childrenOf(state, element.code).length > 0 &&
+      path.startsWith(`${element.code}.`) &&
+      path !== `${element.code}.0`,
+  )
+  for (const element of refs) {
+    if (!isInsideArray(state, element.code)) {
+      if ((tree[`${element.code}.0`] ?? null) === null) return element.code
+      continue
+    }
+    const root = outerArrayOf(state, element.code)
+    const items = root === undefined ? undefined : tree[root]
+    const pointers = root === undefined ? [] : pointersIn(state, root, items, element.code)
+    if (pointers.some((value) => (value ?? null) === null)) return element.code
+  }
+  return undefined
+}
+
+/** 最外层数组祖先 */
+function outerArrayOf(state: StateElement[], code: string): string | undefined {
+  let found: string | undefined
+  for (let at: string | undefined = code; at !== undefined; at = parentOfCode(at)) {
+    if (state.find((item) => item.code === at)?.type === 'array') found = at
+  }
+  return found
+}
+
+/** 在根数组值里递归找某个 ref 字段的指针（找不到 ⇒ 空） */
+function pointersIn(state: StateElement[], container: string, value: unknown, target: string): unknown[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => (isRecord(item) ? pointersIn(state, container, item, target) : []))
+  }
+  if (!isRecord(value)) return []
+  const out: unknown[] = []
+  for (const child of childrenOf(state, container)) {
+    if (!(child.code in value)) continue
+    const fieldValue = value[child.code]
+    if (child.code === target) {
+      const element = state.find((item) => item.code === target) as StateElement
+      out.push(refPointerOf(state, element, fieldValue))
+      continue
+    }
+    if (child.type === 'array') out.push(...pointersIn(state, child.code, fieldValue, target))
+    else if (isRecord(fieldValue) && (child.type === 'object' || childrenOf(state, child.code).length > 0)) {
+      out.push(...pointersIn(state, child.code, fieldValue, target))
+    }
+  }
+  return out
 }

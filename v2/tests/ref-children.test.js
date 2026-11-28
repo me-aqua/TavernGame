@@ -12,6 +12,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   bagItems,
+  elementOf,
+  itemRefChildCard,
   lineOf,
   nodeOf,
   patchElement,
@@ -42,8 +44,8 @@ function errorOf(run) {
   }
 }
 
-/** 状态段里 ref 元素那一行的 payload（JSON 或 `null`） */
-async function mainHandPayload(card) {
+/** 状态段里某个 code 那一行的 payload（JSON 或 `null`） */
+async function payloadOfCode(card, code) {
   const { buildPrompt } = await loadPrompt()
   const prompt = buildPrompt({
     card,
@@ -53,10 +55,13 @@ async function mainHandPayload(card) {
     outputs: {},
   })
   const lines = stateLines(prompt)
-  const line = lineOf(lines, '2.5')
-  expect(line, `状态段里应当有 2.5 那一行（实际：${JSON.stringify(lines)}）`).toBeTruthy()
+  const line = lineOf(lines, code)
+  expect(line, `状态段里应当有 ${code} 那一行（实际：${JSON.stringify(lines)}）`).toBeTruthy()
   return payloadOf(line)
 }
+
+/** 2.5 主手那一行（本文件另一半判据用的名字保留） */
+const mainHandPayload = (card) => payloadOfCode(card, '2.5')
 
 describe('带子元素的引用 · 值路径（§4.3）', () => {
   it('有子元素 ⇒ 自身值住 2.5.0，子元素住 2.5.1 / 2.5.2（深度优先、同级升序）', async () => {
@@ -175,3 +180,113 @@ describe('带子元素的引用 · 写（§4.3）', () => {
 function textOf(error) {
   return `${error?.message ?? ''} ${JSON.stringify(error?.detail ?? {})}`
 }
+
+describe('item 级引用带子元素（2026-11-28 重开：任何标量位置都能放 ref）', () => {
+  it('值形状是「自身值 + 孩子」的对象：2.6.1.0 / 2.6.1.1；裸指针不算合法值', async () => {
+    const { fieldValueFits } = await loadState()
+    const card = itemRefChildCard()
+    const field = elementOf(card, '2.6.1')
+    expect(
+      fieldValueFits(card.state, field, { '2.6.1.0': 'id_1', '2.6.1.1': '单手' }),
+      '自身值 + 孩子 ⇒ 合法',
+    ).toBe(true)
+    expect(fieldValueFits(card.state, field, 'id_1'), '有孩子的引用不接受裸指针').toBe(false)
+    expect(fieldValueFits(card.state, field, { '2.6.1.0': 'id_1' }), '缺孩子 ⇒ 坏值').toBe(false)
+  })
+
+  it('卡校验通过（2.6 的 item 里是嵌套对象），读投影 + 本地孩子都读得到', async () => {
+    const { cardIssues } = await loadState()
+    const card = itemRefChildCard()
+    expect(cardIssues(card)).toEqual([])
+    const payload = await payloadOfCode(card, '2.6')
+    expect(payload, '投影字段（来源 → 名称）要在').toContain('微醺')
+    expect(payload, '关系子元素（握法）也要在').toContain('单手')
+    // 数组 item 自己的隐藏 id 照常出现在模型提示词里（§7.1 / 阶段 4 口径）；
+    // 要禁的是「引用位被吐成裸指针」，不是 item 的 id。
+    const buffs = JSON.parse(payload)
+    expect(buffs[0].id, 'item 自己的 id 照常出现').toBe('id_1')
+    for (const [index, item] of buffs.entries()) {
+      expect(typeof item.来源, `第 ${index + 1} 条：引用位是投影对象，不是裸指针`).toBe('object')
+      expect(
+        Object.keys(item.来源),
+        `第 ${index + 1} 条：投影对象里只有字段中文名 + 关系子元素，没有指针字段 code`,
+      ).not.toContain('2.6.1.0')
+      expect(item.来源.握法, '关系子元素住在这条引用的投影里').toBe('单手')
+    }
+  })
+
+  it('写：整表写 2.6 收「自身值 + 孩子」的对象；字段列写 2.6.1 也收', async () => {
+    const { applyWrite } = await loadEngine()
+    const card = itemRefChildCard()
+    const node = patchNode(card, 'check', { writable: ['2.6', '2.6.1'] })
+    const next = [{ id: 'id_1', '2.6.1': { '2.6.1.0': 'id_2', '2.6.1.1': '双手' }, '2.6.2': '轻' }]
+    const table = applyWrite({
+      card: node,
+      node: nodeOf(node, 'check'),
+      tree: treeOf(node),
+      path: '2.6',
+      value: next,
+    })
+    expect(table['2.6'][0]['2.6.1']).toEqual({ '2.6.1.0': 'id_2', '2.6.1.1': '双手' })
+    const column = applyWrite({
+      card: node,
+      node: nodeOf(node, 'check'),
+      tree: treeOf(node),
+      path: '2.6.1',
+      value: [
+        { '2.6.1.0': 'id_2', '2.6.1.1': '双手' },
+        { '2.6.1.0': 'id_1', '2.6.1.1': '单手' },
+      ],
+    })
+    expect(column['2.6'][0]['2.6.1']).toEqual({ '2.6.1.0': 'id_2', '2.6.1.1': '双手' })
+    expect(column['2.6'][1]['2.6.1']).toEqual({ '2.6.1.0': 'id_1', '2.6.1.1': '单手' })
+  })
+
+  it('指针已设置 ⇒ 写子元素 2.6.1.1 成功，并落进 item["2.6.1"]["2.6.1.1"]', async () => {
+    // 决定性判据：item 级 ref 的指针住在 item 里（item['2.6.1']['2.6.1.0']），
+    // 不在扁平 tree 上 —— 任何拿 `tree[element.code + '.0']` 判「有没有目标」的写法都会把这里误拒。
+    const { applyWrite } = await loadEngine()
+    const card = itemRefChildCard()
+    const node = patchNode(card, 'check', { writable: ['2.6.1.1'] })
+    const tree = treeOf(card)
+    const written = applyWrite({
+      card: node,
+      node: nodeOf(node, 'check'),
+      tree,
+      path: '2.6.1.1',
+      value: ['双手', '单手'],
+    })
+    expect(written['2.6'][0]['2.6.1']['2.6.1.1'], '第 1 条的握法写进去了').toBe('双手')
+    expect(written['2.6'][1]['2.6.1']['2.6.1.1'], '第 2 条的握法写进去了').toBe('单手')
+    expect(written['2.6'][0]['2.6.1']['2.6.1.0'], '指针不动').toBe('id_1')
+    expect(tree['2.6'][0]['2.6.1']['2.6.1.1'], '入参 tree 一个字都不改').toBe('单手')
+  })
+
+  it('指针为 null ⇒ 写子元素 2.6.1.1 被拒，报文点名 2.6.1', async () => {
+    const { applyWrite } = await loadEngine()
+    const base = itemRefChildCard()
+    const card = withInitialValue(
+      patchElement(base, '2.6.1', { min: 0 }),
+      '2.6',
+      [0, 1].map((index) => ({
+        id: `id_${index + 1}`,
+        '2.6.1': { '2.6.1.0': null, '2.6.1.1': '单手' },
+        '2.6.2': index === 0 ? '轻' : '中',
+      })),
+    )
+    const node = patchNode(card, 'check', { writable: ['2.6.1.1'] })
+    const error = errorOf(() =>
+      applyWrite({
+        card: node,
+        node: nodeOf(node, 'check'),
+        tree: treeOf(node),
+        path: '2.6.1.1',
+        value: ['双手', '双手'],
+      }),
+    )
+    expect(error, '指针为 null 时写子元素必须被拒').not.toBeNull()
+    expect(error.code).toBe('E_VALIDATION')
+    expect(error.message).toMatch(CJK)
+    expect(`${error.message} ${JSON.stringify(error.detail ?? {})}`, '报文要点名 2.6.1').toContain('2.6.1')
+  })
+})

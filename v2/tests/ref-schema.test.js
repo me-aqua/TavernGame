@@ -15,6 +15,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   deepObjectArrayCard,
+  element,
   elementOf,
   nestedBagCard,
   objectFieldBagCard,
@@ -293,5 +294,85 @@ describe('引用 · 嵌套数组不能当引用源（2026-11-28 收敛）', () =
     await expectClean(filter, '顶层数组的字段当筛选')
     const nested = patchElement(card, '2.5', { refFields: ['2.4.3'] })
     await expectClean(nested, '顶层数组的字段当投影')
+  })
+})
+
+/** 需要 `bagItems` / `activeBuffs` 的具体值：从卡里读出来再改，避免在判据里重抄一份 */
+function itemsOf(card, path) {
+  return card.state.find((item) => item.code === path.split('.')[0]).initial[path]
+}
+
+describe('引用 · 任何标量位置都能放 ref（2026-11-28 重开）', () => {
+  it('引用元素藏在**嵌套数组**的 item 里（2.4.4.2 内袋来源）⇒ 合法，一条问题都没有', async () => {
+    const base = refCard()
+    const items = itemsOf(base, '2.4').map((item, index) => ({
+      ...item,
+      '2.4.4': index === 0 ? [{ id: 'id_1', '2.4.4.1': '药膏', '2.4.4.2': 'id_1' }] : [],
+    }))
+    const card = withInitialValue(
+      withElement(
+        withElement(
+          withElement(base, element('2.4.4', 'array', { name: '内袋' })),
+          element('2.4.4.1', 'text', { name: '物品' }),
+        ),
+        refElement('2.4.4.2', '内袋来源', {
+          refSource: '1.4',
+          refFields: ['1.4.1'],
+          min: 0,
+          max: 1,
+        }),
+      ),
+      '2.4',
+      items,
+    )
+    await expectClean(card, '嵌套数组 item 里的引用')
+  })
+
+  it('引用元素藏在数组 item 的**对象字段**里（2.4.4.1 属性来源）⇒ 合法', async () => {
+    const base = refCard()
+    const items = itemsOf(base, '2.4').map((item) => ({
+      ...item,
+      '2.4.4': { '2.4.4.1': 'id_1' },
+    }))
+    const card = withInitialValue(
+      withElement(
+        withElement(base, element('2.4.4', 'object', { name: '属性' })),
+        refElement('2.4.4.1', '属性来源', {
+          refSource: '1.4',
+          refFields: ['1.4.1'],
+          min: 0,
+          max: 1,
+        }),
+      ),
+      '2.4',
+      items,
+    )
+    await expectClean(card, '对象字段里的引用')
+  })
+
+  it('item 级引用可以带子元素：item 里是「自身值 + 孩子」的对象（2.6.1.0 / 2.6.1.1）', async () => {
+    const base = refCard()
+    const items = itemsOf(base, '2.6').map((item) => ({
+      ...item,
+      '2.6.1': { '2.6.1.0': 'id_1', '2.6.1.1': '单手' },
+    }))
+    const card = withInitialValue(
+      withElement(base, element('2.6.1.1', 'text', { name: '握法' })),
+      '2.6',
+      items,
+    )
+    await expectClean(card, 'item 级引用带子元素（自身值 + 孩子）')
+  })
+
+  it('正控：顶层数组 item 的**直接字段**引用仍然合法（2.6.1 来源）', async () => {
+    const card = refCard()
+    expect(elementOf(card, '2.6.1').type, '正控：2.6.1 是 2.6（顶层数组）的直接字段').toBe('ref')
+    await expectClean(card, '顶层数组 item 的直接字段引用')
+  })
+
+  it('源仍然是**顶层数组**：嵌套数组当源照旧拒绝（这条没重开）', async () => {
+    // 与上面「任何标量位置都能放 ref」区分：能放的位置放开了，**源**仍然只认顶层数组
+    const issues = await expectIssue(nestedBagCard(), '2.8', '嵌套数组当源（重开不包括这条）')
+    expect(issues.some((issue) => issue.message.includes('2.4.4'))).toBe(true)
   })
 })
