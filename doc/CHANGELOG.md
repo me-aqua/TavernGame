@@ -20,6 +20,16 @@
 
 ## [未发布]
 
+### 新增
+- **数组 item 字段与普通节点同权：自己的值 + 孩子（阶段 3 parity · 2026-11-28）** —— 数组子树里的
+  **标量字段可以有子字段**，有孩子时 item 里的值 = `{ "<code>.0": 自己的值, 孩子 code: 孩子值, … }`
+  （完整值路径口径，与扁平树一致；无孩子时仍是裸标量，旧行为不变）。`addChild` 在**每个现存实例**上把
+  裸标量提升成 `{<code>.0>: 旧值, 新孩子: 默认}`；`removeNode` 删孩子时值跟着改名、**删光最后一个孩子收成裸标量**；
+  `fieldValueFits` / `fieldDefaultOf` / `initialTreeOf` / `applyWrite` / 提示词投影（`自身` + 孩子中文名）/
+  item 卡渲染（自己的输入 + 孩子的行）全部按这一形状；字段引用 `2.4.1` 覆盖自身 + 孩子（读写同权）。
+  时间仍然不能进数组子树；数组里的标量字段类型下拉 = `text / integer / enum / array`；`+` 与普通节点一样可见。
+  判据：`v2/tests/array-field-parity.test.js` · `v2/e2e/array-item-field-parity.spec.js`。
+
 ### 移除
 - **删掉孤儿组件 `CardNodeForm.vue` 与它的一整套（2026-10-09 · 清理过期件）** —— 它**不在任何界面上**：
   票 8d-② 起中栏换成了 `StepForm` / `BranchForm` / `DisplayForm` / `PromptForm` 四选一，

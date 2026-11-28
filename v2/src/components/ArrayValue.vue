@@ -80,20 +80,50 @@ function rangeOf(field: StateElement): string {
   return `${min}~${max}`
 }
 
+/**
+ * 这一项里的字段行：字段与普通节点同权 —— 标量字段可以**同时有自己的值和子字段**，
+ * 有孩子时自己的值住 `<code>.0`（扁平值路径口径），孩子用它们的 code 递归一层组件。
+ */
+function hasChildren(field: StateElement): boolean {
+  return childrenOf(props.state, field.code).length > 0
+}
+
+/** 标量字段自己的值：有孩子时是 `{<code>.0>: …, 孩子: …}` 里的那一格，没孩子就是裸值 */
+function ownValue(raw: ItemValue | undefined, field: StateElement): ItemValue {
+  if (!hasChildren(field)) return (raw ?? '') as ItemValue
+  return (isRecord(raw) ? (raw[`${field.code}.0`] ?? '') : '') as ItemValue
+}
+
+/** 自己那一格的 DOM 钩子：仍是字段 code（有孩子时值取 `<code>.0`，钩子不变） */
+function ownHook(field: StateElement): string {
+  return field.code
+}
+
+/** 把字段自己的值写回去：有孩子时保留孩子那一层，只换 `<code>.0` */
+function setOwnValue(index: number, field: StateElement, value: ItemValue): void {
+  if (!hasChildren(field)) {
+    setField(index, field.code, value)
+    return
+  }
+  const current = items.value[index]?.[field.code]
+  const holder = isRecord(current) ? current : {}
+  setField(index, field.code, { ...holder, [`${field.code}.0`]: value } as ItemObject)
+}
+
 /** 文本 / 下拉控件：值原样落进草稿 */
 function onText(index: number, field: StateElement, event: Event): void {
-  setField(index, field.code, (event.target as HTMLInputElement | HTMLSelectElement).value)
+  setOwnValue(index, field, (event.target as HTMLInputElement | HTMLSelectElement).value)
 }
 
 /** 整数控件：空输入不写草稿（输入框恢复旧值），合法整数才更新 */
 function onInteger(index: number, field: StateElement, event: Event): void {
   const input = event.target as HTMLInputElement
   if (input.value.trim() === '') {
-    input.value = String(items.value[index]?.[field.code] ?? '')
+    input.value = String(ownValue(items.value[index]?.[field.code], field))
     return
   }
   const value = Number(input.value)
-  if (Number.isInteger(value)) setField(index, field.code, value)
+  if (Number.isInteger(value)) setOwnValue(index, field, value)
 }
 </script>
 
@@ -111,56 +141,60 @@ function onInteger(index: number, field: StateElement, event: Event): void {
       :data-array-item="top && isArray ? '' : undefined"
       :data-array-index="top && isArray ? index + 1 : undefined"
     >
-      <div v-for="(field, fieldIndex) in fields" :key="field.code" class="field">
-        <span class="field-name ellipsis" :data-array-field-name="field.code">{{ field.name }}</span>
-        <select
-          v-if="field.type === 'enum'"
-          :data-array-field="field.code"
-          :value="item[field.code] ?? ''"
-          :disabled="disabled"
-          @change="onText(index, field, $event)"
-        >
-          <option v-for="option in field.values ?? []" :key="option" :value="option">{{ option }}</option>
-        </select>
-        <template v-else-if="field.type === 'integer'">
-          <input
-            type="number"
-            class="num"
-            :data-array-field="field.code"
-            :value="item[field.code] ?? ''"
+      <!-- 一行一个字段：有孩子的字段 = 自己那一行（值住 `<code>.0`）+ 下面递归孩子；没孩子就是裸值 -->
+      <div v-for="(field, fieldIndex) in fields" :key="field.code" class="field-group">
+        <div class="field">
+          <span class="field-name ellipsis" :data-array-field-name="field.code">{{ field.name }}</span>
+          <select
+            v-if="field.type === 'enum'"
+            :data-array-field="ownHook(field)"
+            :value="ownValue(item[field.code], field)"
             :disabled="disabled"
-            @input="onInteger(index, field, $event)"
+            @change="onText(index, field, $event)"
+          >
+            <option v-for="option in field.values ?? []" :key="option" :value="option">{{ option }}</option>
+          </select>
+          <template v-else-if="field.type === 'integer'">
+            <input
+              type="number"
+              class="num"
+              :data-array-field="ownHook(field)"
+              :value="ownValue(item[field.code], field)"
+              :disabled="disabled"
+              @input="onInteger(index, field, $event)"
+            />
+            <span class="field-range" data-array-range>{{ rangeOf(field) }}</span>
+          </template>
+          <input
+            v-else-if="field.type === 'text'"
+            :data-array-field="ownHook(field)"
+            :value="ownValue(item[field.code], field)"
+            :disabled="disabled"
+            @input="onText(index, field, $event)"
           />
-          <span class="field-range" data-array-range>{{ rangeOf(field) }}</span>
-        </template>
-        <input
-          v-else-if="field.type === 'text'"
-          :data-array-field="field.code"
-          :value="item[field.code] ?? ''"
-          :disabled="disabled"
-          @input="onText(index, field, $event)"
-        />
-        <!-- 对象 / 数组字段：递归一个同款组件（它自己带 `[data-array-object]` / `[data-array]`） -->
+          <!-- 对象 / 数组字段：值整份挂在字段 code 上，孩子由下一层组件渲染 -->
+          <!-- 删除按钮与**第一个字段同一行**：卡片直接从第一行开始，没有空白首行 -->
+          <button
+            v-if="isArray && !disabled && fieldIndex === 0"
+            type="button"
+            class="icon item-action"
+            data-array-remove
+            :title="t('editor.arrayRemove')"
+            :aria-label="t('editor.arrayRemove')"
+            @click="removeItem(index)"
+          >
+            {{ t('common.remove') }}
+          </button>
+        </div>
         <ArrayValue
-          v-else
+          v-if="hasChildren(field)"
+          class="field-children"
           :state="state"
           :code="field.code"
           :value="item[field.code]"
           :disabled="disabled"
           @change="(value) => setField(index, field.code, value)"
         />
-        <!-- 删除按钮与**第一个字段同一行**：卡片直接从第一行开始，没有空白首行 -->
-        <button
-          v-if="isArray && !disabled && fieldIndex === 0"
-          type="button"
-          class="icon item-action"
-          data-array-remove
-          :title="t('editor.arrayRemove')"
-          :aria-label="t('editor.arrayRemove')"
-          @click="removeItem(index)"
-        >
-          {{ t('common.remove') }}
-        </button>
       </div>
       <!-- 一个字段都没有的坏卡没有「第一行」可挂：单独给一行，按钮不至于消失 -->
       <div v-if="isArray && !disabled && fields.length === 0" class="field">
@@ -213,6 +247,18 @@ function onInteger(index: number, field: StateElement, event: Event): void {
 .item-action {
   flex: 0 0 auto;
   margin-left: 2px;
+}
+
+/* 一个字段：自己那一行 + （有孩子时）下面一层孩子 */
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.field-children {
+  margin-left: 12px;
 }
 
 .field {

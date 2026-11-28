@@ -119,6 +119,7 @@
   "prompt.writableIntegerShort": "整数 {min}..{max}",
   "prompt.writableEnumShort": "下拉（{values}）",
   "prompt.arrayObject": "对象（{fields}）",
+  "prompt.arrayOwnChildren": "对象：自身 + {fields}",
   "prompt.arrayNested": "数组 [{fields}]",
   "prompt.fieldSeparator": "；",
   "prompt.writableTime": "只能通过 advance_time 推进，不能 write_state",

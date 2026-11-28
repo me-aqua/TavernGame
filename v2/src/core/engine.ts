@@ -28,6 +28,7 @@ import {
   advanceTime,
   arrayRootOf,
   arrayValueFits,
+  childrenOf,
   cloneValue,
   elementAt,
   enumValueFits,
@@ -238,8 +239,9 @@ function patchFieldLayer(
 }
 
 /**
- * 在一层 item 对象里沿字段 code 下钻：`object` 字段继续往里走，**array 字段多一层数组**
- * （值继续按层嵌套），到 `ref` 自己那一格就按字段类型判值并写入。返回新的 item；形状不对 ⇒ `undefined`。
+ * 在一层 item 对象里沿字段 code 下钻：**有孩子的字段**（对象字段、或「自身值 + 孩子」的标量字段）
+ * 继续往里走，**array 字段多一层数组**（值继续按层嵌套），到 `ref` 自己那一格就按字段类型判值并写入。
+ * 返回新的 item；形状不对 ⇒ `undefined`。
  */
 function patchFieldInItem(
   state: Card['state'],
@@ -262,7 +264,7 @@ function patchFieldInItem(
     next[nextCode] = patched as ItemValue
     return next
   }
-  if (field.type !== 'object' || !isRecord(item[nextCode])) return undefined
+  if (childrenOf(state, nextCode).length === 0 || !isRecord(item[nextCode])) return undefined
   const patched = patchFieldInItem(state, nextCode, item[nextCode], ref, incoming)
   if (patched === undefined) return undefined
   next[nextCode] = patched

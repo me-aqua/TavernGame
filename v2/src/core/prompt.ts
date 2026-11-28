@@ -68,18 +68,46 @@ function structOf(state: Card['state'], containerCode: string, value: unknown, s
   const source = (value ?? {}) as Record<string, unknown>
   const entries: [string, unknown][] = []
   for (const field of childrenOf(state, containerCode)) {
-    if (selectionOf(field.code, selected) === 'none') continue
-    const lower = selectionOf(field.code, selected) === 'partial' ? selected : undefined
-    entries.push([
-      field.name,
-      field.type === 'object'
-        ? structOf(state, field.code, source[field.code], lower)
-        : field.type === 'array'
-          ? arrayOf(state, field.code, source[field.code], lower)
-          : source[field.code],
-    ])
+    const level = selectionOf(field.code, selected)
+    if (level === 'none') continue
+    const lower = level === 'partial' ? selected : undefined
+    entries.push([field.name, projectField(state, field, source[field.code], lower, level === 'full')])
   }
   return Object.fromEntries(entries)
+}
+
+/**
+ * 一个 **item 里字段**的投影（数组字段与普通节点同权：字段可以有自己的值 + 子字段）：
+ *   · 数组字段 ⇒ item 列表；对象字段 ⇒ 孩子对象；标量叶子 ⇒ 值本身；
+ *   · 标量字段**有孩子** ⇒ 对象：自己的值用 `自身`（`prompt.ownKey`），孩子用中文名递归。
+ * `full` 是「这一格整段都选中」（含自己的值）；`partial` 只投影选中的后代，不投影自己的值。
+ */
+function projectField(
+  state: Card['state'],
+  field: Card['state'][number],
+  value: unknown,
+  selected?: string[],
+  full = true,
+): unknown {
+  if (field.type === 'array') return arrayOf(state, field.code, value, selected)
+  if (field.type === 'object') return structOf(state, field.code, value, selected)
+  const children = childrenOf(state, field.code)
+  if (children.length === 0) return value
+  const source = (value ?? {}) as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  if (full) out[t('prompt.ownKey')] = source[`${field.code}.0`]
+  for (const child of children) {
+    const level = selectionOf(child.code, selected)
+    if (level === 'none') continue
+    out[child.name] = projectField(
+      state,
+      child,
+      source[child.code],
+      level === 'partial' ? selected : undefined,
+      level === 'full',
+    )
+  }
+  return out
 }
 
 /** 一个数组值按中文名投影：每个 item 是一个结构体（`[]` 就是空数组；`selected` 只挑字段） */
@@ -287,6 +315,9 @@ export function fieldRuleOf(state: Card['state'], field: Card['state'][number]):
   if (field.type === 'object')
     return t('prompt.arrayObject', { fields: arrayFieldRulesOf(state, field.code) })
   if (field.type === 'array') return t('prompt.arrayNested', { fields: arrayFieldRulesOf(state, field.code) })
+  if (childrenOf(state, field.code).length > 0) {
+    return t('prompt.arrayOwnChildren', { fields: arrayFieldRulesOf(state, field.code) })
+  }
   if (field.type === 'integer') {
     const { min, max } = integerRangeOf(field)
     return t('prompt.writableIntegerShort', { min, max })

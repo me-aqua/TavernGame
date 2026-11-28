@@ -95,6 +95,8 @@ const typeOptions = computed<StateType[]>(() => {
   // 「结构体」任何一行都不出现在下拉里（它是内部形态）：导入的 object 元素只列作者选项
   // 数组子树里的容器字段不换类型（逐 item 转换是另一票）：对象字段只留 object、数组字段只留 array
   if (element.type === 'object') return field ? ['object'] : ['text', 'integer', 'enum', 'time', 'array']
+  // 数组里的标量字段：作者选项去掉时间（时间不能当字段）
+  if (field) return ['text', 'integer', 'enum', 'array']
   return [...TYPES]
 })
 

@@ -17,14 +17,7 @@
  * `structureLocked`（存档编辑器）把 `+` / 加子元素 / 删除**整块拿掉**（不渲染、不是禁用）：
  * 那一侧的卡结构是冻结的，只许改名字 / 备注 / 提示词与眼睛。
  */
-import {
-  MAX_DEPTH,
-  codeDepth,
-  fieldWriteCoveredBy,
-  isFieldRef,
-  isInsideArray,
-  refCoveredBy,
-} from '../core/statetree'
+import { MAX_DEPTH, codeDepth, fieldWriteCoveredBy, isFieldRef, refCoveredBy } from '../core/statetree'
 import type { ChainNode, StateElement } from '../core/types'
 import { t } from '../i18n'
 
@@ -70,12 +63,11 @@ function triOf(field: 'read' | 'write', code: string): 'all' | 'none' {
 }
 
 /**
- * 这一行能不能「加子元素」：时间不能；数组字段里的**标量**不能（item 是纯 JSON 结构体，
- * 标量字段没有 `.0` 那一层，加孩子要由 `addChild` 报 `E_VALIDATION`）。
+ * 这一行能不能「加子元素」：时间不能、第 5 层不能；**数组子树里的标量字段也能加**
+ * （字段与普通节点同权：可以同时有自己的值和子字段）。
  */
 function showsAddChild(element: StateElement): boolean {
-  if (element.type === 'time' || codeDepth(element.code) >= MAX_DEPTH) return false
-  return !isInsideArray(props.elements, element.code) || element.type === 'object' || element.type === 'array'
+  return element.type !== 'time' && codeDepth(element.code) < MAX_DEPTH
 }
 </script>
 

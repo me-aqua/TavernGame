@@ -45,15 +45,17 @@ export function refCoveredBy(state: StateElement[], list: string[], ref: string)
 }
 
 /**
- * **字段写**的授权（`applyWrite` / 写眼睛用）：`writable` 里有这一条，或者有它的**数组容器**祖先
- * （数组元素 `2.4` / 数组字段 `2.4.2.2`）。**对象字段 / 对象祖先不算**（`2` 不是容器，不授权 `2.4.1`）。
- * 方向只有一个：**容器写 ⊇ 字段写**；字段引用不授权整表替换 / 增删 item。
+ * **字段写**的授权（`applyWrite` / 写眼睛用）：`writable` 里有这一条，或者有祖先引用覆盖它 ——
+ *   · **祖先字段**（`2.4.1` / `2.4.2` / `2.4.2.2`）：字段与普通节点同权，引用覆盖**自己的值 + 整棵子树**；
+ *   · **祖先数组元素**（`2.4`）：数组容器覆盖它下面的所有字段写（容器写 ⊇ 字段写）。
+ * 数组**元素**的整表写（`2.4`）仍只由它自己的引用授权；字段引用不授权整表替换 / 增删 item。
  */
 export function fieldWriteCoveredBy(state: StateElement[], list: string[], ref: string): boolean {
   if (list.includes(ref)) return true
   if (!isFieldRef(state, ref)) return false
   for (let at = parentOfCode(ref); at !== undefined; at = parentOfCode(at)) {
-    if (list.includes(at) && elementAt(state, at).type === 'array') return true
+    if (!list.includes(at)) continue
+    if (isFieldRef(state, at) || elementAt(state, at).type === 'array') return true
   }
   return false
 }

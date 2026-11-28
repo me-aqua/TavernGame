@@ -152,11 +152,8 @@ function stateIssues(card: Card, checkInitial: boolean): CardIssue[] {
       add(element.code, '', t('issue.childNumbering', { code: element.code }))
     }
     const field = isInsideArray(state, element.code)
+    // 数组子树里只有时间不能当字段；标量字段可以和普通节点一样**有自身值 + 子字段**
     if (field && element.type === 'time') add(element.code, '', t('issue.timeField', { code: element.code }))
-    // 数组字段是标量 ⇒ 叶子：值就住在字段 key 上，没有 `.0` 这一层
-    if (field && element.type !== 'object' && element.type !== 'array' && children.length > 0) {
-      add(element.code, '', t('issue.scalarFieldChild', { code: element.code }))
-    }
     if (element.type === 'array') {
       if (children.length === 0) add(element.code, '', t('issue.emptyArray', { code: element.code }))
       continue

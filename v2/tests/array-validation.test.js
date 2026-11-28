@@ -5,7 +5,8 @@
  *   · item 必须是**同构普通对象**：键集合恰好等于字段定义全集（缺 / 多 / 多出 id 都不行）；
  *   · 字段类型递归收：text 字符串 / integer 安全整数且在上下限内 / enum 白名单 /
  *     object 嵌套对象 / array 嵌套数组；数字字符串不做收编；
- *   · time 不能做 item 字段（直接或嵌套子孙）；标量字段不许有孩子；array 字段必须有孩子；
+ *   · time 不能做 item 字段（直接或嵌套子孙）；标量字段可以有孩子（自身值住 `<code>.0`，2026-11-28 翻面）；
+ *     array 字段必须有孩子；
  *   · 初始值表：缺数组路径 / 多字段 code / 多 `2.4.0` / 值形状不对都拦；
  *   · 存档：值路径恰好覆盖；空数组合法；字段 code 不许当键。
  */
@@ -176,10 +177,22 @@ describe('数组 · item 形状（§3.2）', () => {
     await expectIssue(nested, '2.4', '嵌套 time 字段')
   })
 
-  it('标量字段是叶子：给 2.4.1（text）加孩子是坏卡', async () => {
-    const card = withElement(holdCard(), { code: '2.4.1.1', name: '子', note: '', type: 'text' })
-    await expectIssue(card, ['2.4.1', '2.4.1.1'], '标量字段加孩子')
-    await expectReject(card, '标量字段加孩子')
+  it('标量字段可以有孩子（2026-11-28 翻面）：`<code>.0` + 孩子是合法值；仍写裸标量则拒', async () => {
+    const card = withInitialValue(
+      withElement(holdCard(), { code: '2.4.1.1', name: '附魔', note: '', type: 'text' }),
+      '2.4',
+      [{ '2.4.1': { '2.4.1.0': '短剑', '2.4.1.1': '锋利' }, '2.4.2': 1 }],
+    )
+    const value = [{ '2.4.1': { '2.4.1.0': '短剑', '2.4.1.1': '锋利' }, '2.4.2': 1 }]
+    expect(await arrayFits(card.state, '2.4', value), '正控：自身值 + 孩子').toBe(true)
+    const { cardIssues } = await loadState()
+    expect(cardIssues(card), '有自身值 + 孩子的字段是合法卡').toEqual([])
+    const { validateCard } = await loadSchema()
+    expect(() => validateCard(card)).not.toThrow()
+
+    const bare = withInitialValue(card, '2.4', [{ '2.4.1': '短剑', '2.4.2': 1 }])
+    await expectIssue(bare, '2.4', '有孩子的字段仍写裸标量')
+    await expectReject(bare, '有孩子的字段仍写裸标量')
   })
 
   it('object / array 字段必须有孩子', async () => {

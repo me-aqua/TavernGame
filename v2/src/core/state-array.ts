@@ -60,19 +60,33 @@ export function structsAt(
 }
 
 /**
- * 把数组值里 `parent` 那一层的每个对象的一个键换成给定值（加字段 / 换字段类型时用）。
- * **每个现存 item 都要写**：外层每个 item、内层每个嵌套 item 都算。
+ * 给数组子树里的 `parent` 加一个子字段：**每个实例**都补上这个键。
+ *   · 父是数组容器 / 数组字段 / 对象字段 ⇒ 它的对象值直接多一个键；
+ *   · 父是**标量字段**（自身值 + 可能已有孩子）：
+ *     - 已经有孩子（值是 `{<code>.0>: 自己, 孩子: …}`）⇒ 直接补键；
+ *     - 还没有孩子（值是裸标量）⇒ 先把裸值包成 `{<code>.0>: 旧值, 新键: 默认}`（与普通节点 `.0` 同一口径）。
+ * 返回新值，不改入参。
  */
-export function withFieldValue(
+export function addChildValue(
   state: StateElement[],
-  arrayCode: string,
+  arrayRoot: string,
   value: ArrayValue,
   parentCode: string,
-  fieldCode: string,
-  fieldValue: ItemValue,
+  childCode: string,
+  childValue: ItemValue,
 ): ArrayValue {
   const next = cloneValue(value)
-  for (const object of structsAt(state, arrayCode, next, parentCode)) object[fieldCode] = fieldValue
+  const parent = elementAt(state, parentCode)
+  if (parent.type === 'array' || parent.type === 'object') {
+    for (const object of structsAt(state, arrayRoot, next, parentCode)) object[childCode] = childValue
+    return next
+  }
+  // 标量字段：owner 对象里那个键，可能是裸值，也可能是 `{<code>.0>: 自己, …}` 对象
+  for (const owner of structsAt(state, arrayRoot, next, parentOfCode(parentCode) as string)) {
+    const holder = owner[parentCode]
+    if (isRecord(holder)) holder[childCode] = childValue
+    else owner[parentCode] = { [`${parentCode}.0`]: holder as ItemValue, [childCode]: childValue }
+  }
   return next
 }
 
@@ -99,7 +113,12 @@ function remapStruct(
   return out
 }
 
-/** 一个字段的值在改名 / 删字段之后长什么样（对象与数组字段继续往下走） */
+/**
+ * 一个字段的值在改名 / 删字段之后长什么样：
+ *   · 对象 / 数组字段继续往下走；
+ *   · 标量字段有孩子 ⇒ 自己的值（`<code>.0`）与孩子一起改名 / 删；
+ *   · **孩子被删光** ⇒ 收成裸标量（自己的值），不留空对象。
+ */
 function remapField(
   state: StateElement[],
   field: StateElement,
@@ -113,7 +132,19 @@ function remapField(
       ? value.map((item) => remapStruct(state, field.code, item, mapping, removed))
       : []
   }
-  return value as ItemValue
+  const source = isRecord(value) ? value : {}
+  const children = childrenOf(state, field.code).filter((child) => !removed.has(child.code))
+  const ownKey = `${field.code}.0`
+  // 没孩子（包括孩子刚被删光）⇒ 裸标量
+  if (children.length === 0) return (source[ownKey] ?? value) as ItemValue
+  const nextKey = mapping.get(field.code) ?? field.code
+  return Object.fromEntries([
+    [`${nextKey}.0`, source[ownKey] as ItemValue],
+    ...children.map((child) => [
+      mapping.get(child.code) ?? child.code,
+      remapField(state, child, source[child.code], mapping, removed),
+    ]),
+  ])
 }
 
 /**

@@ -6,7 +6,7 @@
  *   · 加 / 删 item：默认值、空数组、删第一项后的位置前移与索引重排；
  *   · 加 / 删 item 字段：新字段默认值补进所有现存 item，删字段时 item 的键跟着重排；
  *   · 卡模式落盘到 `initial['2.4']`；存档模式当前数组只读、没有增删；
- *   · 状态树里没有 `2.4.0`；标量字段没有「加子元素」。
+ *   · 状态树里没有 `2.4.0`；标量字段也有「加子元素」（2026-11-28 翻面：字段可以有自己的值 + 孩子）。
  *
  * 判据只用契约 §4.2 的 data-* 钩子；界面文案不在这里钉（字段中文名来自卡数据）。
  */
@@ -185,7 +185,7 @@ test('删字段：删 2.4.1，item 的键重排（旧 2.4.2 变 2.4.1），保�
   expect(await storedItems(page)).toEqual([{ '2.4.1': 1 }, { '2.4.1': 1 }, { '2.4.1': 3 }])
 })
 
-test('类型下拉有「数组」；2.4 的当前类型是 array；标量字段没有加子元素', async ({ page }) => {
+test('类型下拉有「数组」；2.4 的当前类型是 array；标量字段也有加子元素', async ({ page }) => {
   await openEditor(page, holdCard())
   await selectElement(page, '2.4')
   await expect(page.locator('[data-state-type]')).toHaveValue('array')
@@ -194,9 +194,9 @@ test('类型下拉有「数组」；2.4 的当前类型是 array；标量字段�
     .evaluateAll((options) => options.map((option) => option.getAttribute('value')))
   expect(types).toContain('array')
 
-  // 选中标量字段：行内没有「加子元素」，只能有删除
+  // 选中标量字段：加子元素与删除都在（2026-11-28 翻面：标量字段可以有自己的值 + 孩子）
   await selectElement(page, '2.4.1')
-  await expect(page.locator('[data-add-child="2.4.1"]')).toHaveCount(0)
+  await expect(page.locator('[data-add-child="2.4.1"]')).toHaveCount(1)
   await expect(page.locator(`${row('2.4.1')} [data-delete-state]`)).toHaveCount(1)
 })
 

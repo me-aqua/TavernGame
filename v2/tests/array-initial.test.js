@@ -153,12 +153,18 @@ describe('数组 · 加字段：默认值补进所有现存 item（§四）', ()
     expect(cardIssues(changed)).toEqual([])
   })
 
-  it('标量字段不许加孩子：addChild(2.4.1) 抛 E_VALIDATION + 中文', async () => {
+  it('给标量字段 2.4.1 加孩子：提升成 `<code>.0` + 孩子（2026-11-28 翻面）', async () => {
     const addChild = await fn('addChild')
-    const error = errorOf(() => addChild(holdCard(), '2.4.1'))
-    expect(error, '2.4.1 是 text 字段，不能有孩子').not.toBeNull()
-    expect(error.code).toBe('E_VALIDATION')
-    expect(error.message).toMatch(CJK)
+    const cardIssues = await fn('cardIssues')
+    const changed = addChild(holdCard(), '2.4.1')
+    expect(changed.state.find((item) => item.code === '2.4.1.1')).toMatchObject({ type: 'text' })
+    expect(itemsOf(changed)).toEqual([
+      { '2.4.1': { '2.4.1.0': '短剑', '2.4.1.1': '' }, '2.4.2': 1 },
+      { '2.4.1': { '2.4.1.0': '斗篷', '2.4.1.1': '' }, '2.4.2': 1 },
+      { '2.4.1': { '2.4.1.0': '银币', '2.4.1.1': '' }, '2.4.2': 3 },
+    ])
+    expect(itemsOf(holdCard()), '原卡不变').toEqual(holdItems())
+    expect(cardIssues(changed), '有自身值 + 孩子的字段是合法卡').toEqual([])
   })
 })
 

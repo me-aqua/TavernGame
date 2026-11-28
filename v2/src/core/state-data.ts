@@ -27,7 +27,7 @@ import {
   subtreeCodes,
 } from './state-codes'
 import { fieldDefaultOf } from './state-values'
-import { arrayRootOf, cloneValue, remapArrayValue, structsAt, withFieldValue } from './state-array'
+import { addChildValue, arrayRootOf, cloneValue, remapArrayValue, structsAt } from './state-array'
 import { NO_HOLIDAYS } from './holidays'
 import { defaultTimeOf } from './timevalue'
 import type {
@@ -160,16 +160,14 @@ export function initialTreeOf(card: Card): Tree {
  * 标量元素**不转换类型**：它原来的自身值在所属根的初始值表里从 `<code>` 搬到 `<code>.0`，
  * 新孩子的值路径补一条空串。
  *
- * 数组（含数组字段 / 对象字段）下面是「每个 item 都补这个键」：新字段的默认值写进**所有现存**
- * 对应 item（外层每个 item、内层每个嵌套 item），见 `withFieldValue`。
- * 标量字段不许有孩子；时间不能有孩子；不存在的 code 也是错（都 `E_VALIDATION`）。
+ * 数组子树下面是「每个 item 都补这个键」：新字段的默认值写进**所有现存**对应 item（外层每个 item、
+ * 内层每个嵌套 item），见 `addChildValue`；**标量字段也能加孩子**（与普通节点同权）：它原来的裸值
+ * 就地包成 `{<code>.0>: 旧值, 新键: 默认}`。时间不能有孩子；不存在的 code 也是错（都 `E_VALIDATION`）。
  */
 export function addChild(card: Card, code: string): Card {
   const element = elementAt(card.state, code)
   if (element.type === 'time') throw invalid(t('issue.timeChild', { code }), { code })
-  if (isInsideArray(card.state, code) && element.type !== 'object' && element.type !== 'array') {
-    throw invalid(t('issue.scalarFieldChild', { code }), { code })
-  }
+
   const children = childrenOf(card.state, code)
   const lastSegment = children.length === 0 ? 0 : Number(children[children.length - 1].code.split('.').at(-1))
   const childCode = `${code}.${lastSegment + 1}`
@@ -183,7 +181,7 @@ export function addChild(card: Card, code: string): Card {
   const arrayRoot = arrayRootOf(card.state, code)
   if (arrayRoot !== undefined) {
     // 数组子树里：新字段的默认值写进每一层的每个 item，值路径仍是**最外层数组**那一条
-    table[arrayRoot] = withFieldValue(
+    table[arrayRoot] = addChildValue(
       card.state,
       arrayRoot,
       table[arrayRoot] as ArrayValue,
@@ -416,40 +414,90 @@ function arrayFirstItem(state: StateElement[], code: string, value: unknown): It
   return normalizeObjectOf(state, code, Array.isArray(value) ? value[0] : undefined)
 }
 
-/** 按字段定义补全一个对象值（缺的字段用默认值，对象字段递归） */
+/** 按字段定义补全一个对象值（缺的字段用默认值，有孩子的字段递归） */
 function normalizeObjectOf(state: StateElement[], code: string, value: unknown): ItemObject {
   const source = isRecord(value) ? value : {}
   const item: ItemObject = {}
   for (const field of childrenOf(state, code)) {
-    item[field.code] =
-      field.type === 'object'
-        ? normalizeObjectOf(state, field.code, source[field.code])
-        : ((source[field.code] ?? fieldDefaultOf(state, field)) as ItemValue)
+    item[field.code] = normalizeFieldValue(state, field, source[field.code])
   }
   return item
 }
 
-/** 把一个 item 的字段值铺回初始值表：对象字段没有自己的值，继续往下铺；别的字段写自己那一格 */
+/** 补全一个 item 里字段的值：对象 / 数组字段递归；标量字段有孩子时带 `<code>.0` 与孩子 */
+function normalizeFieldValue(state: StateElement[], field: StateElement, value: unknown): ItemValue {
+  if (field.type === 'object') return normalizeObjectOf(state, field.code, value)
+  if (field.type === 'array') return cloneValue(Array.isArray(value) ? value : [])
+  const children = childrenOf(state, field.code)
+  const fallback = fieldDefaultOf(state, field)
+  if (children.length === 0) return (value ?? fallback) as ItemValue
+  const source = isRecord(value) ? value : {}
+  const ownKey = `${field.code}.0`
+  return Object.fromEntries([
+    [ownKey, source[ownKey] ?? (fallback as ItemObject)[ownKey]],
+    ...children.map((child) => [child.code, normalizeFieldValue(state, child, source[child.code])]),
+  ])
+}
+
+/**
+ * 把一个 item 的字段值铺回初始值表：有孩子的字段，自己的值写 `<code>.0`、孩子按普通节点继续铺；
+ * 数组字段写它自己的 code（整份嵌套数组）；标量叶子写自己那一格。
+ */
 function writeItemToTable(state: StateElement[], code: string, item: ItemObject, table: InitialTable): void {
   for (const field of childrenOf(state, code)) {
-    if (field.type === 'object') {
-      writeItemToTable(state, field.code, item[field.code] as ItemObject, table)
-      continue
-    }
-    table[field.code] = cloneValue((item[field.code] ?? fieldDefaultOf(state, field)) as TreeValue)
+    writeFieldToTable(state, field, item[field.code], table)
   }
 }
 
-/** 从初始值表里读回一个对象元素的当前值（对象字段没有自己的值，靠孩子拼） */
+function writeFieldToTable(
+  state: StateElement[],
+  field: StateElement,
+  value: unknown,
+  table: InitialTable,
+): void {
+  if (field.type === 'array') {
+    table[field.code] = cloneValue(value ?? []) as TreeValue
+    return
+  }
+  const children = childrenOf(state, field.code)
+  const fallback = fieldDefaultOf(state, field)
+  if (field.type === 'object') {
+    const source = isRecord(value) ? value : {}
+    for (const child of children) writeFieldToTable(state, child, source[child.code], table)
+    return
+  }
+  if (children.length === 0) {
+    table[field.code] = cloneValue(value ?? fallback) as TreeValue
+    return
+  }
+  const source = isRecord(value) ? value : {}
+  const ownKey = `${field.code}.0`
+  table[ownKey] = cloneValue(source[ownKey] ?? (fallback as ItemObject)[ownKey]) as TreeValue
+  for (const child of children) writeFieldToTable(state, child, source[child.code], table)
+}
+
+/** 从初始值表里读回一个对象元素的当前值（有孩子的字段拼出自己的值 + 孩子） */
 function readObjectFromTable(state: StateElement[], code: string, table: InitialTable): ItemObject {
   const item: ItemObject = {}
   for (const field of childrenOf(state, code)) {
-    item[field.code] =
-      field.type === 'object'
-        ? readObjectFromTable(state, field.code, table)
-        : cloneValue((table[field.code] ?? fieldDefaultOf(state, field)) as ItemValue)
+    item[field.code] = readFieldFromTable(state, field, table)
   }
   return item
+}
+
+function readFieldFromTable(state: StateElement[], field: StateElement, table: InitialTable): ItemValue {
+  if (field.type === 'array') return cloneValue(table[field.code] ?? []) as ItemValue
+  const children = childrenOf(state, field.code)
+  if (field.type === 'object') {
+    return Object.fromEntries(children.map((child) => [child.code, readFieldFromTable(state, child, table)]))
+  }
+  const fallback = fieldDefaultOf(state, field)
+  if (children.length === 0) return cloneValue(table[field.code] ?? fallback) as ItemValue
+  const ownKey = `${field.code}.0`
+  return Object.fromEntries([
+    [ownKey, cloneValue(table[ownKey] ?? (fallback as ItemObject)[ownKey])],
+    ...children.map((child) => [child.code, readFieldFromTable(state, child, table)]),
+  ])
 }
 
 /**
