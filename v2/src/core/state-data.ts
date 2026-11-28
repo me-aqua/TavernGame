@@ -315,13 +315,14 @@ export function removeNode(card: Card, code: string): Card {
  *   · 旧类型 `object`、新类型是标量 ⇒ 补一条自己的值路径。
  * 孩子不动（换类型不搬孩子）。非 `time` 元素换成 `time` ⇒ `E_VALIDATION`。
  *
- * **数组 ↔ 对象**（卡编辑器；增补票）：只在两者之间换，字段 code 原样保留（孩子不动）：
- *   · 数组 → 对象：item 的字段变成对象的字段；初始值取**第一个 item**（0 项 ⇒ 各字段默认值）；
- *     对象字段没有自己的值，所以第一个 item 的值要**铺回初始值表**（`2.4.1` 那一格就是值路径）。
+ * **数组换类型**（卡编辑器；增补票）：只对数组子树之外的容器，字段 code 原样保留（孩子不动）：
+ *   · 数组 → `text` / `integer` / `enum`：字段留成孩子，初始值取**第一个 item** 铺进孩子路径，
+ *     自己的默认值写 `<code>.0`（0 项 ⇒ 各字段默认值 + 自己的默认值）；
  *   · 对象 → 数组：对象的字段变成 item 的字段；对象当前的字段值拼成**一个 item**（长度 1）；
- *     对象没有字段可拼 ⇒ 空数组 `[]`。
- *   · 别的方向（数组 → 文字 / 数字 / 下拉 / 时间）一律 `E_VALIDATION`：字段没有落点。
- * 嵌套字段也照这一条换：每个外层 item 里的那一格各自换（值不跨 item）。
+ *     对象没有字段可拼 ⇒ 空数组 `[]`；
+ *   · `array → object` / `array ⇄ time` 一律 `E_VALIDATION`（结构体不可选、时间不能换）。
+ * **数组子树里的字段**：标量字段之间照常换（每个实例写新类型的默认值）；容器字段（`object` / `array`）
+ * 不换类型 —— 逐 item 的容器转换不在本票范围，数据层与下拉一起拒。
  */
 export function setElementType(card: Card, code: string, type: StateType): Card {
   const element = elementAt(card.state, code)

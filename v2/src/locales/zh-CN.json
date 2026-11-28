@@ -274,7 +274,6 @@
   "issue.typeFromTime": "时间元素 {code} 不能换成别的类型",
   "issue.emptyArray": "数组 {code} 至少要有一个字段",
   "issue.timeField": "数组字段 {code} 不能是时间类型",
-  "issue.scalarFieldChild": "数组字段 {code} 是标量，不能有子字段",
   "issue.fieldContainerConvert": "字段 {code} 不能在数组与对象之间换类型（逐 item 转换不在本票范围）",
   "issue.fieldScalarConvert": "字段 {code} 不能换成标量或时间（逐 item 转换不在本票范围）",
   "issue.arrayToObject": "元素 {code} 是数组，不能换成结构体（结构体不是可选类型）",

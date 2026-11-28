@@ -6,6 +6,8 @@
  * 不是短键 `"0"`（与扁平树同一套口径）。
  *
  * 这一份钉的是纯函数：形状 / 默认值 / 加删孩子 / 卡与存档校验 / 提示词投影 / `applyWrite`。
+ * 另含评审 F5 的 5 条补判据：嵌套孩子写 `2.4.1.1`、容器授权写「自身 + 孩子」字段列、精确提示词
+ * （父 → 数组 → item 字段自身 + 孩子）、根表多 `2.4.1.0`、孙子层缺键。
  * DOM 那半边在 `v2/e2e/array-item-field-parity.spec.js`。
  */
 import { describe, expect, it } from 'vitest'
@@ -60,6 +62,41 @@ function childCard({ children = [textChild(CHILD, '附魔')], items = childItems
     state: [...base.state.slice(0, at), ...children, ...base.state.slice(at)],
   }
   return withInitialValue(card, '2.4', items)
+}
+
+/**
+ * 评审 F5-③ 的精确提示词夹具：根 `1「区域」`(object) → `1.1「名称」` / `1.2「地点」`(array)
+ * → item 字段 `1.2.1「名称」`(text，自身值 + `1.2.1.1「描述」`)。
+ * 这一份钉的是「父节点 → 数组孩子 → item 字段自身 + 孩子」的完整组合，而不只是数组那一行。
+ */
+function regionCard() {
+  const base = holdCard()
+  const rest = base.state.filter(
+    (item) => item.code === '0' || item.code === '2' || item.code.startsWith('2.'),
+  )
+  return {
+    ...base,
+    id: 'c-region',
+    name: 'region card',
+    state: [
+      base.state.find((item) => item.code === '0'),
+      {
+        code: '1',
+        name: '区域',
+        note: '',
+        type: 'object',
+        initial: {
+          1.1: '镇中心',
+          1.2: [{ '1.2.1': { '1.2.1.0': '醉猫旅店', '1.2.1.1': '炉火噼啪，麦酒和湿羊毛的味道' } }],
+        },
+      },
+      { code: '1.1', name: '名称', note: '', type: 'text' },
+      { code: '1.2', name: '地点', note: '', type: 'array' },
+      { code: '1.2.1', name: '名称', note: '', type: 'text' },
+      { code: '1.2.1.1', name: '描述', note: '', type: 'text' },
+      ...rest.filter((item) => item.code !== '0'),
+    ],
+  }
 }
 
 /** 三种标量孩子各一个：文本 / 整数 / 下拉（用来钉「孩子值也逐类型校验」） */
@@ -356,6 +393,41 @@ describe('数组 item 字段 · 校验（契约 §2）', () => {
     })
     expect(cardIssues(nested).length, '孙层 time 字段应当是坏卡').toBeGreaterThan(0)
   })
+  it('根初始值表多出 `2.4.1.0`（不是 `2.4.0`）：cardIssues / validateCard / validateSave 都拒', async () => {
+    const card = childCard()
+    const bad = withInitialValue(card, '2.4.1.0', 'X')
+    const { cardIssues } = await loadState()
+    const issues = cardIssues(bad)
+    expect(
+      issues.some((issue) => issue.path === '2.4.1.0'),
+      `多出的 2.4.1.0 没被点名（实际：${JSON.stringify(issues)}）`,
+    ).toBe(true)
+    const { validateCard, validateSave } = await loadSchema()
+    expect(errorOf(() => validateCard(bad))?.code).toBe('E_VALIDATION')
+    expect(errorOf(() => validateSave(holdSave(bad), bad))?.code).toBe('E_VALIDATION')
+  })
+
+  it('孙子层缺键（缺自身 / 缺孩子 / 多键）也拒，不是只拒类型错', async () => {
+    const nested = childCard({
+      children: [textChild(CHILD, '附魔'), { code: '2.4.1.1.1', name: '深层', note: '', type: 'text' }],
+      items: [
+        {
+          '2.4.1': { [OWN]: '短剑', [CHILD]: { '2.4.1.1.0': '锋', '2.4.1.1.1': '深' } },
+          '2.4.2': 1,
+        },
+      ],
+    })
+    await expectCardValid(nested, '孙层键齐')
+
+    const withChild = (childValue) => [{ '2.4.1': { [OWN]: '短剑', [CHILD]: childValue }, '2.4.2': 1 }]
+    for (const [note, childValue] of [
+      ['缺孙层自身值 2.4.1.1.0', { '2.4.1.1.1': '深' }],
+      ['缺孙层孩子 2.4.1.1.1', { '2.4.1.1.0': '锋' }],
+      ['孙层多一个键', { '2.4.1.1.0': '锋', '2.4.1.1.1': '深', '2.4.1.1.9': 'X' }],
+    ]) {
+      await expectBadValue(nested, withChild(childValue), note)
+    }
+  })
 })
 
 describe('数组 item 字段 · 提示词与写（契约 §3）', () => {
@@ -385,6 +457,21 @@ describe('数组 item 字段 · 提示词与写（契约 §3）', () => {
       { 物品: { 自身: '银币', 附魔: '锋利' } },
     ])
     expect(lines[0], '没读的字段一个键都不出现').not.toContain('数量')
+  })
+
+  it('精确例子：父节点 1「区域」→ 地点 array → item 字段 名称（自身 + 描述）', async () => {
+    const card = regionCard()
+    await expectCardValid(card, '精确提示词夹具')
+    const prompt = await promptOf(card, reader({ reads: ['1'] }))
+    const lines = linesOf(prompt, '<世界状态树>')
+    expect(lines, '读了 1，状态块必须在').toHaveLength(1)
+    expect(JSON.parse(payloadOf(lines[0])), '父 → 数组 → 字段自身 + 孩子的完整组合').toEqual({
+      名称: '镇中心',
+      地点: [{ 名称: { 自身: '醉猫旅店', 描述: '炉火噼啪，麦酒和湿羊毛的味道' } }],
+    })
+    for (const code of ['1.2', '1.2.1', '1.2.1.0', '1.2.1.1']) {
+      expect(lines[0], `投影里出现了 code ${code}`).not.toContain(code)
+    }
   })
 
   it('可写段：字段引用说明 JSON 数组 / 长度 / 对象形状里的自身与孩子；容器约束也列孩子', async () => {
@@ -480,6 +567,54 @@ describe('数组 item 字段 · 提示词与写（契约 §3）', () => {
       applyWrite({ card, node, tree, path: '2.4', value: [{ '2.4.1': { [CHILD]: '锋利' }, '2.4.2': 1 }] }),
     )
     expect(bad?.code).toBe('E_VALIDATION')
+  })
+
+  it('容器写 2.4 也授权「自身 + 孩子」的字段列 2.4.1（每项字段对象）', async () => {
+    const { applyWrite } = await loadEngine()
+    const card = childCard()
+    const node = reader({ writable: ['2.4'] })
+    const tree = holdSave(card).tree
+    const value = childItems(['长弓', '火把', '盾'], '尖').map((item) => item['2.4.1'])
+    const next = applyWrite({ card, node, tree, path: '2.4.1', value })
+    expect(next['2.4']).toEqual([
+      { '2.4.1': value[0], '2.4.2': 1 },
+      { '2.4.1': value[1], '2.4.2': 1 },
+      { '2.4.1': value[2], '2.4.2': 3 },
+    ])
+    expect(next['2.4'][0]['2.4.1'][OWN], '自身值在').toBe('长弓')
+    expect(next['2.4'][0]['2.4.1'][CHILD], '孩子值在').toBe('尖')
+    expect(tree['2.4'], '入参 tree 不动').toEqual(childItems())
+  })
+
+  it('applyWrite 2.4.1.1：容器授权写嵌套孩子的整列；own 与兄弟字段不动', async () => {
+    const { applyWrite } = await loadEngine()
+    const card = childCard()
+    const node = reader({ writable: ['2.4'] })
+    const tree = holdSave(card).tree
+    const next = applyWrite({
+      card,
+      node,
+      tree,
+      path: '2.4.1.1',
+      value: ['锋利', '锐利', '微光'],
+    })
+    expect(next['2.4']).toEqual([
+      { '2.4.1': { [OWN]: '短剑', [CHILD]: '锋利' }, '2.4.2': 1 },
+      { '2.4.1': { [OWN]: '斗篷', [CHILD]: '锐利' }, '2.4.2': 1 },
+      { '2.4.1': { [OWN]: '银币', [CHILD]: '微光' }, '2.4.2': 3 },
+    ])
+    expect(next['2.4'][1]['2.4.1'][OWN], '父字段的自身值不动').toBe('斗篷')
+    expect(next['2.4'][0]['2.4.2'], '兄弟字段不动').toBe(1)
+    expect(tree['2.4'], '入参 tree 不动').toEqual(childItems())
+
+    for (const [note, value] of [
+      ['长度错', ['锋利', '锐利']],
+      ['孩子类型错', [7, 7, 7]],
+    ]) {
+      const error = errorOf(() => applyWrite({ card, node, tree, path: '2.4.1.1', value }))
+      expect(error?.code, `${note}：嵌套孩子写应当 E_VALIDATION`).toBe('E_VALIDATION')
+      expect(tree['2.4'], `${note}：tree 不动`).toEqual(childItems())
+    }
   })
 })
 
