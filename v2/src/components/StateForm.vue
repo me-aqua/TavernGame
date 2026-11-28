@@ -32,7 +32,6 @@ import { HOLIDAY_GROUPS, NO_HOLIDAYS } from '../core/holidays'
 import {
   TIME_MODES,
   cellsOfMode,
-  childrenOf,
   elementOfPath,
   formatTime,
   isInsideArray,
@@ -78,7 +77,7 @@ const emit = defineEmits<{
 }>()
 
 /** 作者能选的类型（`object` 是「有孩子」的形态：只在导入的卡里照实显示，不是可选类型） */
-const TYPES: StateType[] = ['text', 'integer', 'enum', 'time', 'array']
+const TYPES: StateType[] = ['text', 'integer', 'enum', 'array']
 
 /** 类型标签住文案表：`editor.typeText` / `editor.typeInteger` / … */
 function typeLabel(type: StateType): string {
@@ -87,27 +86,20 @@ function typeLabel(type: StateType): string {
 
 /**
  * 类型下拉的可选档（老板口径）：**「结构体」不是可选类型，它就是「有孩子」**。
- *   · 数组（数组子树之外）⇒ `text` / `integer` / `enum` / `array`（换成标量时字段留成孩子、
- *     第 1 项的值铺进孩子、自己的默认值写 `<code>.0`；不许换成时间）；
+ *   · 数组（任何行）⇒ `text` / `integer` / `enum` / `array`（换成标量时字段留成孩子、
+ *     第 1 项的值铺进孩子、自己的默认值写 `<code>.0`；数组字段逐 item 取第一个 item，其余丢弃）；
  *   · 对象（数组子树之外，导入的卡）⇒ 不列 `object`（结构体是内部形态）；只列作者选项（含 `array`）；
- *   · 数组子树里的标量字段 ⇒ `text` / `integer` / `enum` / `array`（没有 time / object）；
- *   · **0 个字段**的数组字段 ⇒ `text` / `integer` / `enum` / `array`（每个外层实例回到标量默认值）；
- *     **有字段**的数组字段 ⇒ 只有 `array`（逐 item 转换另一票）；
+ *   · 数组子树里的标量字段 ⇒ `text` / `integer` / `enum` / `array`（没有 object）；
  *   · 数组子树里的对象字段 ⇒ 只有 `object`（容器字段不换类型，数据层也拒）；
- *   · 其它元素 ⇒ 作者选项原样。
+ *   · 其它元素 ⇒ 作者选项（`text` / `integer` / `enum` / `array`；时间行是模式选择器，不在这一列）。
  */
 const typeOptions = computed<StateType[]>(() => {
   const element = props.element
   const field = isInsideArray(props.state, element.code)
-  if (element.type === 'array') {
-    if (!field) return ['text', 'integer', 'enum', 'array']
-    return childrenOf(props.state, element.code).length === 0
-      ? ['text', 'integer', 'enum', 'array']
-      : ['array']
-  }
+  if (element.type === 'array') return ['text', 'integer', 'enum', 'array']
   // 「结构体」任何一行都不出现在下拉里（它是内部形态）：导入的 object 元素只列作者选项
   // 数组子树里的容器字段不换类型（逐 item 转换是另一票）：对象字段只留 object
-  if (element.type === 'object') return field ? ['object'] : ['text', 'integer', 'enum', 'time', 'array']
+  if (element.type === 'object') return field ? ['object'] : ['text', 'integer', 'enum', 'array']
   // 数组里的标量字段：作者选项去掉时间（时间不能当字段）
   if (field) return ['text', 'integer', 'enum', 'array']
   return [...TYPES]
@@ -349,7 +341,7 @@ function requestMode(event: Event): void {
             <option v-for="item in TIME_MODES" :key="item" :value="item">{{ modeLabel(item) }}</option>
           </template>
           <template v-else>
-            <!-- 选项由 `typeOptions` 决定：数组行 = text/integer/enum/array；数组字段按有没有字段给四档 / 只留 array；对象行多一档 object -->
+            <!-- 选项由 `typeOptions` 决定：数组行 = text/integer/enum/array；数组字段四档（0 个字段 / 有字段都一样）；对象行多一档 object -->
             <option v-for="type in typeOptions" :key="type" :value="type">{{ typeLabel(type) }}</option>
           </template>
         </select>

@@ -1,13 +1,13 @@
 /**
- * 文档锁（评审 F3）：数组字段的类型锁不能只写「数组字段只留 array」。
+ * 文档锁（本票 §2 / §3）：**数组字段的类型锁只有一档** —— 有没有字段都列四档。
  *
- * 同一个事实在代码里有两种数组字段：**0 个字段**的数组字段可以换 `text` / `integer` / `enum`
- * （`StateForm.vue` 的 `typeOptions` 给四档），**有字段**的数组字段才只留 `array`。
- * `v2/CONTRACT.md` 的 §8.2 与 `StateForm.vue` 的类型下拉注释必须同时写出这两档；
- * 只写「数组字段只留 array」会把下一个照文档改代码的人带回旧口径。
+ * 旧口径（`0 个字段四档 / 有字段只留 array`）在本票被推翻：有字段的数组字段换成标量时
+ * 每个外层实例取第一个内层 item，其余丢弃（`CONTRACT §2.1`）。`v2/CONTRACT.md` 的 §8.2
+ * 与 `StateForm.vue` 的类型下拉注释必须同时写出新口径；只留旧句子会把下一个照文档改代码的人
+ * 带回旧行为。
  *
- * 这两条是**文档判据**，只读文本、不 import 产品代码；改文案时以契约
- * `.team/test/2026-11-28/契约-评审F1F2-数组字段换数组与消失引用.md` §五 为准。
+ * 这两条是**文档判据**，只读文本、不 import 产品代码；口径来源是
+ * `.team/test/2026-11-28/契约-数组字段转标量-类型下拉-撤销重做.md` §2.4 / §3。
  */
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -29,19 +29,20 @@ function lineWith(text, anchor) {
   return line
 }
 
-describe('文档口径 · 数组字段的类型锁（评审 F3）', () => {
-  it('CONTRACT §8.2 同时写「0 个字段四档」与「有字段只留 array」', () => {
+describe('文档口径 · 数组字段的类型锁（本票 §2.4 / §3）', () => {
+  it('CONTRACT §8.2 写「数组字段一律四档」，两者都覆盖，不再留旧分档', () => {
     const line = lineWith(read(CONTRACT), '[data-state-type]')
-    expect(line, '必须点名 0 个字段这一档').toContain('0 个字段')
     expect(line, '必须写出四档').toContain('四档')
-    expect(line, '必须点名有字段这一档').toContain('有字段')
-    expect(line, '旧口径「数组字段只留 array」不能原样留着').not.toContain('；数组字段只留 `array`')
+    expect(line, '必须覆盖「有字段」这一档').toContain('有字段')
+    expect(line, '必须覆盖「0 个字段」这一档').toContain('0 个字段')
+    expect(line, '旧口径「有字段只留 array」不能原样留着').not.toContain('有字段只留 `array`')
+    expect(line, '旧口径「0 个字段列四档」不能原样留着').not.toContain('0 个字段列四档')
   })
 
-  it('StateForm.vue 的类型下拉注释同样分两档，不再写死「数组字段只留 array」', () => {
+  it('StateForm.vue 的类型下拉注释同样写四档，不再写死「有字段只留 array」', () => {
     const line = lineWith(read(STATE_FORM), '选项由 `typeOptions` 决定')
     expect(line, '必须写出四档').toContain('四档')
-    expect(line, '必须提到有字段这一档').toContain('有字段')
-    expect(line, '旧口径「数组字段只留 array」不能原样留着').not.toContain('数组字段只留 array')
+    expect(line, '必须提到数组字段').toContain('数组字段')
+    expect(line, '旧口径「只留 array」不能原样留着').not.toContain('只留 array')
   })
 })

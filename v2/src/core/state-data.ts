@@ -343,22 +343,16 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
   if (element.type === 'array' && type === 'object') {
     throw invalid(t('issue.arrayToObject', { code }), { code, type })
   }
-  // 数组子树里的字段是 schema：**容器字段（array / object）不换类型**（逐 item 转换是另一票）。
-  // 例外（t64）：**0 个字段**的数组字段可以换回 text / integer / enum（每个外层实例写标量默认值）；
-  // 有字段的数组字段换标量仍拒（逐 item 转换另一票）。
+  // 数组子树里的字段是 schema：容器字段（object / array）默认不换类型；但**数组字段可以换标量**
+  // （逐 item 转换：每个外层实例取第一个 item 的字段值做孩子值，第 2 项起丢弃；0 字段 ⇒ 标量默认值）。
   if (isInsideArray(card.state, code)) {
     if (element.type === 'object') {
       throw type === 'array' || type === 'object'
         ? invalid(t('issue.fieldContainerConvert', { code }), { code, type })
         : invalid(t('issue.fieldScalarConvert', { code }), { code, type })
     }
-    if (element.type === 'array') {
-      const hasFields = childrenOf(card.state, code).length > 0
-      if (type === 'object' || hasFields) {
-        throw type === 'object'
-          ? invalid(t('issue.fieldContainerConvert', { code }), { code, type })
-          : invalid(t('issue.fieldScalarConvert', { code }), { code, type })
-      }
+    if (element.type === 'array' && type === 'object') {
+      throw invalid(t('issue.fieldContainerConvert', { code }), { code, type })
     }
   }
   // 换成数组会让自身值路径（`<code>.0` / 子孙 `.0`）消失：引用它们的工作流必须先在编辑器里改掉
@@ -388,7 +382,9 @@ export function setElementType(card: Card, code: string, type: StateType): Card 
       object[code] =
         type === 'array' && element.type !== 'array'
           ? fieldArrayValueOf(card.state, element, object[code])
-          : fieldDefaultOf(card.state, next)
+          : element.type === 'array'
+            ? fieldScalarValueOf(card.state, element, next, object[code])
+            : fieldDefaultOf(card.state, next)
     }
     table[arrayRoot] = value
   } else if (type === 'array' && childrenOf(card.state, code).length > 0) {
@@ -438,6 +434,22 @@ function disappearingRefsOf(card: Card, code: string): string[] {
   return [...found]
 }
 
+/** 一个字段实例（数组值）换成标量：**第一个 item 的字段值**做孩子值、自己的值取默认；第 2 项起丢弃 */
+function fieldScalarValueOf(
+  state: StateElement[],
+  element: StateElement,
+  next: StateElement,
+  value: unknown,
+): ItemValue {
+  const children = childrenOf(state, element.code)
+  if (children.length === 0) return fieldDefaultOf(state, next)
+  const items = Array.isArray(value) ? value : []
+  const first = isRecord(items[0]) ? items[0] : {}
+  return Object.fromEntries([
+    [`${element.code}.0`, ownInitialOf(next)],
+    ...children.map((child) => [child.code, first[child.code] ?? fieldDefaultOf(state, child)]),
+  ])
+}
 /** 一个字段实例换成数组：自己的值丢掉，直接孩子的当前值收成**一个 item**；一个孩子值都没有 ⇒ `[]` */
 function fieldArrayValueOf(state: StateElement[], element: StateElement, value: unknown): ItemValue {
   const children = childrenOf(state, element.code)

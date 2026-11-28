@@ -102,23 +102,22 @@ test.describe('B5 时间元素表单', () => {
 })
 
 test.describe('B6 时间类型只属于时间元素', () => {
-  test('非时间元素选「时间」：给中文错误、下拉不静默停在 time、页面不崩', async ({ page }) => {
+  test('非时间元素的类型行没有「时间」：恰好四档、页面不崩', async ({ page }) => {
     const pageErrors = []
     page.on('pageerror', (error) => pageErrors.push(error.message))
     await boot(page, { storage: seeded() })
     await openCardEditor(page, YEAR_MINUTE)
 
-    // 选一个普通子元素（1.2 是 text），把类型拨到 time
+    // 选一个普通子元素（1.2 是 text）：它是非时间行，类型下拉里没有 time 这一档
     await page.locator('[data-state-item="1.2"]').click()
     await expect(typeRow(page)).toHaveValue('text')
-    await typeRow(page).selectOption('time')
+    const types = await typeRow(page)
+      .locator('option')
+      .evaluateAll((options) => options.map((option) => option.value))
+    expect(types, '非时间行的类型下拉恰好四档').toEqual(['text', 'integer', 'enum', 'array'])
+    expect(types, '时间只住在根 0（它的行是模式选择器），非时间行不许出现 time').not.toContain('time')
 
-    // ① 中文错误（E_VALIDATION 的那条文案走 ErrorPanel）
-    await expect(page.locator('[data-error]'), '换不成 time 要有中文错误').toBeVisible()
-    await expect(page.locator('[data-error]')).toContainText(/[\u4e00-\u9fff]/)
-    // ② 下拉不许静默留在 time（草稿没变，界面要回到 text）
-    await expect(typeRow(page), '下拉不许静默停在 time').toHaveValue('text')
-    // ③ 页面不崩：编辑器还在、没有未捕获异常
+    // 页面不崩：编辑器还在、没有未捕获异常
     await expect(page.locator('[data-page="editor"]')).toBeVisible()
     expect(pageErrors, `不许有未捕获异常：${pageErrors.join(' | ')}`).toEqual([])
   })

@@ -381,7 +381,9 @@ test('enum values 改成不含旧值：initial 自动重置为第一项，保存
   expect(saved.state.find((item) => item.code === '1').initial['1.1.0']).toBe('B1')
 })
 
-test('类型下拉没有结构体；示例卡 1/2 是 text 空自身值；加孩子仍是 text', async ({ page }) => {
+test('类型下拉恰好四档（无结构体 / 无时间）；示例卡 1/2 是 text 空自身值；加孩子仍是 text', async ({
+  page,
+}) => {
   await openSample(page)
 
   for (const code of ['1', '2']) {
@@ -390,12 +392,13 @@ test('类型下拉没有结构体；示例卡 1/2 是 text 空自身值；加孩
     await expect(page.locator('[data-field="initial"]')).toHaveValue('')
   }
 
-  // 类型下拉里不许出现「结构体」（object 是后台形态）
+  // 非时间行的类型下拉恰好四档：结构体是后台形态，时间只住在根 0（它的类型行是模式选择器）
   const types = await page
     .locator('[data-state-type] option')
     .evaluateAll((options) => options.map((option) => option.getAttribute('value')))
+  expect(types, '非时间行的类型下拉恰好四档').toEqual(['text', 'integer', 'enum', 'array'])
   expect(types, '类型下拉不许出现 object / 结构体').not.toContain('object')
-  for (const type of ['text', 'integer', 'enum', 'time']) expect(types).toContain(type)
+  expect(types, '非时间行不许出现 time').not.toContain('time')
 
   // 给 text 容器加孩子：类型不变，孩子落到 1.4
   await selectElement(page, '1')

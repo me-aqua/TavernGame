@@ -24,7 +24,7 @@
  *   · 存档模式：初始值不判（它只是新建存档的种子），改判**新快照容不容得下这一份存档的当前树** ——
  *     `saveTreeIssues` 给出路径级的清单，不兼容 ⇒ 不写盘、草稿保留、错误点回那一格。
  */
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ErrorPanel from '../components/ErrorPanel.vue'
 import NodeForm from '../components/NodeForm.vue'
@@ -36,6 +36,8 @@ import WorkflowStrip from '../components/WorkflowStrip.vue'
 import { asAppError, storage } from '../app-context'
 import { cloneCard, nextPromptId, nextStateCode } from '../cards'
 import { useEditorColumns } from '../composables/useEditorColumns'
+import { useEditorHistory } from '../composables/useEditorHistory'
+import { useFlashMessage } from '../composables/useFlashMessage'
 import type { AppError } from '../core/errors'
 import { validateCard, validateSave } from '../core/schema'
 import {
@@ -87,9 +89,10 @@ const nodePresets = ref<Record<string, string>>({})
 const error = ref<AppError | null>(null)
 /** 上一次点保存的问题清单（空 = 没拦下来）与成功提示 */
 const saveIssues = ref<CardIssue[]>([])
-const savedOk = ref(false)
+const { visible: savedOk, flash: flashSaved } = useFlashMessage()
 /** 草稿动过没有（点【返回】时决定要不要确认） */
 const dirty = ref(false)
+
 /** 等着确认的那件事：删元素 / 删提示词 / 换时间模式 / 数组换对象（会丢 item）/ 带着改动离开 */
 const pending = ref<
   | { kind: 'state'; code: string }
@@ -99,6 +102,19 @@ const pending = ref<
   | { kind: 'back' }
   | null
 >(null)
+
+/** 撤销 / 复原：两摞有界栈；restore 负责放回卡、标脏、收起成功提示与错误面板 */
+const { canUndo, canRedo, snapshot, undo, redo } = useEditorHistory(
+  () => card.value,
+  (next) => {
+    card.value = next
+    dirty.value = true
+    savedOk.value = false
+    error.value = null
+    saveIssues.value = []
+  },
+  () => pending.value === null,
+)
 const selectedNodeId = ref<string | null>(null)
 const selectedCode = ref<string | null>(null)
 const selectedPromptId = ref<string | null>(null)
@@ -265,17 +281,6 @@ function saveCard(): void {
   }
 }
 
-/** 成功提示只活 3 秒（连着保存两次就从这一次重新计时） */
-let savedTimer: number | undefined
-function flashSaved(): void {
-  savedOk.value = true
-  window.clearTimeout(savedTimer)
-  savedTimer = window.setTimeout(() => {
-    savedOk.value = false
-  }, 3000)
-}
-onUnmounted(() => window.clearTimeout(savedTimer))
-
 /** 点错误清单里的一条：有 code 就选中那一格（卡级问题只清掉成功提示） */
 function selectIssue(issue: CardIssue): void {
   savedOk.value = false
@@ -283,12 +288,15 @@ function selectIssue(issue: CardIssue): void {
   selectElement(issue.code)
 }
 
-/** 草稿改动：只动内存，不写盘；从这一刻起草稿就「脏」了（返回要先确认） */
+/** 草稿改动：只动内存，不写盘；改之前先压一份撤销快照（有界栈由 useEditorHistory 管） */
 function updateCard(mutate: (current: Card) => Card): void {
   const current = card.value
   if (!current) return
+  snapshot()
   card.value = mutate(current)
   dirty.value = true
+  // 一改草稿就收起上一次的成功提示（不必等 3 秒计时器）
+  savedOk.value = false
 }
 
 function patchNode(nodeId: string, patch: Partial<ChainNode>): void {
@@ -578,8 +586,14 @@ function goBack(): void {
           REPO_URL
         }}</a>
       </span>
-      <button type="button" data-save-card :disabled="!card" @click="saveCard">{{ t('editor.save') }}</button>
-      <span v-if="savedOk" class="save-ok" data-save-ok>{{ t('editor.saveOk') }}</span>
+      <span class="bar-right">
+        <span v-if="savedOk" class="save-ok" data-save-ok>{{ t('editor.saveOk') }}</span>
+        <button type="button" data-save-card :disabled="!card" @click="saveCard">
+          {{ t('editor.save') }}
+        </button>
+        <button type="button" data-undo :disabled="!canUndo" @click="undo">{{ t('editor.undo') }}</button>
+        <button type="button" data-redo :disabled="!canRedo" @click="redo">{{ t('editor.redo') }}</button>
+      </span>
     </header>
 
     <ErrorPanel v-if="error" :error="error" />
@@ -718,7 +732,13 @@ function goBack(): void {
   align-items: stretch;
 }
 
-/* 保存成功的提示：页栏里的一小行次要文字 */
+/* 顶栏右侧：成功提示 → 保存 → 撤销 → 复原；成功提示是一小行次要文字 */
+.bar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .save-ok {
   font-size: var(--fs3);
   color: var(--ink-soft);

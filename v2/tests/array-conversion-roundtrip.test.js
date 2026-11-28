@@ -7,7 +7,7 @@
  * 三件事：
  *   · **数组字段（item schema 里）没有字段**时允许换回 `text` / `integer` / `enum`：
  *     每个外层 item 里的那一格回到标量默认值（`''` / `0` / 白名单第一项）；
- *     有字段的数组字段仍拒（`E_VALIDATION`，逐 item 转换是另一票）——这是本票**钉死的选择**。
+ *     **有字段的数组字段也允许**（本票放开）：每个外层实例取第一个内层 item，其余丢弃。
  *   · **任何有孩子的元素换成数组**：自己的值清掉、孩子定义原样留成字段、**当前孩子值收成一个 item**
  *     （数组长度 1）；孩子一条值路径都没有 ⇒ `[]`（与 object → array 的既有口径一致，也是钉死的选择）。
  *   · 既有方向回归：object → array、array → 标量（自己 + 孩子）。
@@ -203,18 +203,23 @@ describe('数组字段没有字段：换回标量（往返契约 §2）', () => 
     expect(cardIssues(back)).toEqual([])
   })
 
-  it('有字段的数组字段：换标量一律 E_VALIDATION（中文、点名字段、卡不动）——本票钉死的选择', async () => {
-    const { setElementType } = await loadState()
+  it('有字段的数组字段：换标量允许（本票放开），每个外层实例取第一个内层 item', async () => {
+    const { setElementType, cardIssues } = await loadState()
+    const { validateCard } = await loadSchema()
     const card = nestedCard()
     const before = copy(card)
-    for (const type of ['text', 'integer', 'enum']) {
-      const error = errorOf(() => setElementType(card, '2.4.2.2', type))
-      expect(error, `2.4.2.2 → ${type} 应当被拒`).not.toBeNull()
-      expect(error.code).toBe('E_VALIDATION')
-      expect(error.message).toMatch(CJK)
-      expect(error.message).toContain('2.4.2.2')
-      expect(card, `${type} 被拒后卡不许动`).toEqual(before)
-    }
+    expect(cardIssues(card), '夹具本身要先合法').toEqual([])
+
+    const next = setElementType(card, '2.4.2.2', 'text')
+    expect(card, '入参卡一个字都不许动').toEqual(before)
+    expect(next.state.find((item) => item.code === '2.4.2.2').type).toBe('text')
+    expect(itemsOf(next)[0]['2.4.2']['2.4.2.2'], '第一个内层 item 的字段值成为孩子值、own 默认').toEqual({
+      '2.4.2.2.0': '',
+      '2.4.2.2.1': '锋锐',
+      '2.4.2.2.2': 2,
+    })
+    expect(cardIssues(next), '换完卡仍合法').toEqual([])
+    expect(() => validateCard(next)).not.toThrow()
   })
 
   it('没有字段的数组字段：object / time 仍拒（时间不能做字段、结构体不可选）', async () => {

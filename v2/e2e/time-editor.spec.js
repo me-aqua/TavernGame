@@ -124,7 +124,7 @@ test.describe('A 时间元素：第一行「类型」就是模式', () => {
     expect(card.state[0].initial).toEqual({ day: 1, hour: 8, minute: 0 })
   })
 
-  test('非时间元素：类型行仍是五档（文字 / 数字 / 下拉 / 时间 / 数组）', async ({ page }) => {
+  test('非时间元素：类型行恰好四档（文字 / 数字 / 下拉 / 数组），没有时间', async ({ page }) => {
     await boot(page, { storage: seeded() })
     await page.goto(`${APP_PATH}#/edit/${CARD_ID}`)
     await expect(page.locator('[data-page="editor"]')).toBeVisible()
@@ -132,9 +132,9 @@ test.describe('A 时间元素：第一行「类型」就是模式', () => {
 
     const type = page.locator('[data-field="type"]')
     await expect(type).toHaveValue('text')
-    expect(
-      await type.locator('option').evaluateAll((options) => options.map((option) => option.value)),
-    ).toEqual(['text', 'integer', 'enum', 'time', 'array'])
+    const types = await type.locator('option').evaluateAll((options) => options.map((option) => option.value))
+    expect(types, '非时间行的类型下拉恰好四档').toEqual(['text', 'integer', 'enum', 'array'])
+    expect(types, '非时间行不许出现 time（时间只住在根 0）').not.toContain('time')
   })
 
   test('存档模式：类型行显示快照的模式，整格锁死', async ({ page }) => {

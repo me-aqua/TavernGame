@@ -124,9 +124,14 @@ test.describe('数组行的类型下拉（增补 §四.1）', () => {
     }
   })
 
-  test('有字段的数组字段（item schema 里）仍只有 array 一档', async ({ page }) => {
+  test('有字段的数组字段（item schema 里）也列四档（本票放开）', async ({ page }) => {
     await openEditor(page, nestedCard({ id: 'c-conv-field' }), '2.4.2.2')
-    expect((await typeOptions(page)).map((option) => option.value)).toEqual(['array'])
+    expect((await typeOptions(page)).map((option) => option.value)).toEqual([
+      'text',
+      'integer',
+      'enum',
+      'array',
+    ])
   })
 
   test('没有字段的数组字段：四档；改回文字后每项取默认值、保存通过（往返契约 §6）', async ({ page }) => {

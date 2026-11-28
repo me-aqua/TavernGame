@@ -7,7 +7,7 @@
  *   · **允许**，不是拒绝；每个外层 item 的**这一实例**把「当前孩子值」收成**恰好一个 item**；
  *   · 自己的值 `<code>.0` 清掉（不进 item）；一个孩子值都没有 ⇒ `[]`；
  *   · 每一外层 item 各算各的；有孩子值的实例**不许静默变 `[]`**；
- *   · 换完是有字段的数组字段 ⇒ 换回标量仍 `E_VALIDATION`（既有决定，守卫）。
+ *   · 换完是有字段的数组字段 ⇒ 换回标量**允许**（每个外层实例取第一个内层 item；本票放开）。
  *
  * F2（换数组会让 `<code>.0` 引用消失）：
  *   · `reads` / `writable` 里出现 `${code}.0` ⇒ 换 array 必须 `E_VALIDATION`、**点名那条引用**；
@@ -203,19 +203,24 @@ describe('F1 · 数组字段（有孩子）→ array：每个外层实例收成�
     expect(cardIssues(array), '数组有字段、0 个 item 是合法值').toEqual([])
   })
 
-  it('换完是有字段的数组字段：换回 text / integer / enum 仍 E_VALIDATION，卡不动（既有决定）', async () => {
-    const { setElementType } = await loadState()
+  it('换完是有字段的数组字段：换回 text 允许（本票放开），每个外层实例取第一个 item', async () => {
+    const { setElementType, cardIssues } = await loadState()
+    const { validateCard } = await loadSchema()
     const array = setElementType(fieldWithChildren(fullItems()), '2.4.1', 'array')
     const before = copy(array)
 
-    for (const type of ['text', 'integer', 'enum']) {
-      const error = errorOf(() => setElementType(array, '2.4.1', type))
-      expect(error, `有字段的数组字段 → ${type} 应当被拒`).not.toBeNull()
-      expect(error.code).toBe('E_VALIDATION')
-      expect(error.message).toMatch(CJK)
-      expect(error.message).toContain('2.4.1')
-      expect(array, `${type} 被拒后卡一个字不许动`).toEqual(before)
-    }
+    const back = setElementType(array, '2.4.1', 'text')
+    expect(array, '入参卡一个字都不许动').toEqual(before)
+    expect(back.state.find((item) => item.code === '2.4.1').type).toBe('text')
+    expect(subtreeCodesOf(back), '孩子定义 / code / 顺序一个都不许动').toEqual(subtreeCodesOf(array))
+    expect(back.chain).toEqual(array.chain)
+    expect(fieldValuesOf(back), '每个外层实例取第一个内层 item，其余丢弃').toEqual([
+      { '2.4.1.0': '', '2.4.1.1': '锋利', '2.4.1.2': 3 },
+      { '2.4.1.0': '', '2.4.1.1': '轻柔', '2.4.1.2': 1 },
+      { '2.4.1.0': '', '2.4.1.1': '微光', '2.4.1.2': 5 },
+    ])
+    expect(cardIssues(back), '换完卡仍合法').toEqual([])
+    expect(() => validateCard(back)).not.toThrow()
   })
 })
 
