@@ -315,6 +315,8 @@ function itemRefIssues(
       for (const message of refValueIssues(card.state, field, value, sourceItems)) {
         issues.push({ code: field.code, path, message, errorCode: 'E_VALIDATION' })
       }
+      // 关系子元素自己也可能再挂 ref：验完指针继续往下走
+      if (isRecord(value)) issues.push(...itemRefIssues(card, field.code, value, tree, path))
       continue
     }
     if (field.type === 'array' && Array.isArray(value)) {

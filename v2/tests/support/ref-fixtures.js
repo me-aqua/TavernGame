@@ -328,6 +328,26 @@ export function nestedArrayRefCard(over = {}) {
 }
 
 /**
+ * **ref 的孩子还是 ref**（item 深度）：`2.6.1 来源`（→ `1.4`，1..1）带一个孩子
+ * `2.6.1.1 增益来源`（→ `1.5`，0..1，投影 `1.5.1`）。item 里的值是
+ * `{ '2.6.1.0': 'id_1', '2.6.1.1': 'id_2' }`。
+ */
+export function refChildRefCard(over = {}) {
+  const items = activeBuffs().map((item) => ({
+    ...item,
+    '2.6.1': { '2.6.1.0': 'id_1', '2.6.1.1': 'id_2' },
+  }))
+  const state = refState({
+    extraElements: [
+      refElement('2.6.1.1', '增益来源', { refSource: '1.5', refFields: ['1.5.1'], min: 0, max: 1 }),
+    ],
+    extraPlayerInitial: { 2.6: items },
+  })
+  return { ...refCard(), id: 'c-ref-child-ref', name: 'ref child ref card', state, ...over }
+}
+
+/**
+ * 第五种位置：引用在数组 item 里**「有孩子的标量字段」**下面/**
  * 第五种位置：引用在数组 item 里**「有孩子的标量字段」**下面
  * （`2.4.1 物品`（text，自身值 + 孩子）→ `2.4.1.1 来源`（引用 → 1.4，投影 1.4.1，0..1））。
  * item 里的值是 `{ '2.4.1.0': 自己的值, '2.4.1.1': 指针 }`。

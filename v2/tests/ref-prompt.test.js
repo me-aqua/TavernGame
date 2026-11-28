@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   itemRefChildCard,
+  refChildRefCard,
   scalarChildRefCard,
   lineOf,
   nestedArrayRefCard,
@@ -259,5 +260,17 @@ describe('提示词 · 第五种位置（有孩子的标量字段下的 ref）',
       ['来源']: { 名称: '微醺' },
     })
     expect(typeof bag[0]['物品']['来源'], '引用位是投影对象，不是裸指针').toBe('object')
+  })
+})
+
+describe('提示词 · ref 的孩子也是 ref（item 深度）要递归投影', () => {
+  it('2.6 的 item 里 来源.增益来源 投影成对象，不打印裸指针', async () => {
+    const card = refChildRefCard()
+    const payload = payloadIn(await promptOf(card, 'check'), '2.6')
+    const buffs = JSON.parse(payload)
+    const source = buffs[0]['来源']
+    expect(source, '外层的引用投影在').toMatchObject({ 名称: '微醺' })
+    expect(source['增益来源'], '孩子 ref 也要投影成对象').toEqual({ 角色名: '阿拉贡' })
+    expect(typeof source['增益来源'], '孩子的引用位不是裸指针').toBe('object')
   })
 })

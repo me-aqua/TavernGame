@@ -1096,7 +1096,9 @@ ActionDeck / GameStage / HistoryModal / CharacterSigil / SceneSigil / WorldWhere
   删源 item 时未同步清引用 ⇒ 拒绝（显式级联才算数），删整个源数组一律拒绝。
 - **`ref` 可以有子元素**（关系自己的数据：握法 / 临时附魔），自身值住 `<code>.0`；
   自身值为 `null` 时子元素不展示、不可写。
-- **转换**：`ref ↔ text / integer / enum / 结构 / array` 可互转（清空自身及子元素初始值、保留子元素结构、
+- **多引用（`max > 1`）不能有子元素**：子元素是「这一条引用」的数据，多引用没有单条可以挂；定义校验与 `addChild` 都拒绝。
+
+**转换**：`ref ↔ text / integer / enum / 结构 / array` 可互转（清空自身及子元素初始值、保留子元素结构、
   不搬运旧值、丢旧配置）；`ref ↔ time` 拒绝。
 
 **代价（已知并接受）**：引用不复制源数据 ⇒ 读取要现解析；删源、改筛选字段、改投影字段都需要

@@ -13,8 +13,8 @@
  *     关掉容器不会补隐藏的字段 ref。手写 / 导入的 `<code>.0`（只取自身值）也不再有半态。
  *     点标量行只动自己（开 / 关都不动后代 ref）；点 object / array 行开 = 去后代冗余、关 = 只摘自己。
  *   · **S2**（选中状态元素）：栏顶 `[data-add-state]`（新顶层元素）、每行 `[data-add-child]`（加子元素，
- *     第 5 层不出现、时间没有；**数组子树里的字段也能加**，item 级引用有孩子时自身值就住 `<code>.0`）与
- *     `[data-delete-state]`（删这一棵，时间没有）。
+ *     第 5 层不出现、时间没有、**多引用没有**（关系子元素只挂在单引用那一对一的关系上）；数组子树里的字段也能加，
+ *     item 级引用有孩子时自身值就住 `<code>.0`）与 `[data-delete-state]`（删这一棵，时间没有）。
  *
  * `structureLocked`（存档编辑器）把 `+` / 加子元素 / 删除**整块拿掉**（不渲染、不是禁用）：
  * 那一侧的卡结构是冻结的，只许改名字 / 备注 / 提示词与眼睛。
@@ -26,7 +26,7 @@
  * （给子元素写不给派生权限），也**不改眼睛的 all / none**（`data-on` / `data-tri` 只反映 `writable` 那一格）。
  */
 import { computed } from 'vue'
-import { MAX_DEPTH, codeDepth, refCoveredBy, refPathsOf } from '../core/statetree'
+import { MAX_DEPTH, codeDepth, refBoundsOf, refCoveredBy, refPathsOf } from '../core/statetree'
 import type { ChainNode, StateElement } from '../core/types'
 import { t } from '../i18n'
 
@@ -67,11 +67,14 @@ function triOf(field: 'read' | 'write', code: string): 'all' | 'none' {
 }
 
 /**
- * 这一行能不能「加子元素」：时间不能、第 5 层不能；**数组子树里的字段（含 item 级引用）也能加**
- * （字段与普通节点同权：可以同时有自己的值和子字段；item 级引用有孩子时自身值住 `<code>.0`）。
+ * 这一行能不能「加子元素」：时间不能、第 5 层不能、**多引用（`max > 1`）不能** —— 关系子元素描述的是一对一
+ * 的那次关系（「这只手怎么握」），多引用没有「那一次」；**单引用照旧能加**。数组子树里的字段也能加
+ * （item 级引用有孩子时自身值住 `<code>.0`）。
  */
 function showsAddChild(element: StateElement): boolean {
-  return element.type !== 'time' && codeDepth(element.code) < MAX_DEPTH
+  if (element.type === 'time' || codeDepth(element.code) >= MAX_DEPTH) return false
+  if (element.type === 'ref' && refBoundsOf(element).max > 1) return false
+  return true
 }
 
 /**

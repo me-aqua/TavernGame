@@ -169,6 +169,10 @@ export function refDefinitionIssues(state: StateElement[], element: StateElement
     push(t('issue.refSourceNestedArray', { code: element.code, source: element.refSource }))
     return issues
   }
+  if (childrenOf(state, element.code).length > 0 && refBoundsOf(element).max > 1) {
+    push(t('issue.refMultiChild', { code: element.code, max: refBoundsOf(element).max }))
+    return issues
+  }
   if (element.refSource === element.code) push(t('issue.refMsg6', { p1: element.code }))
   const sourceRoot = element.refSource.split('.')[0]
   const ownRoot = element.code.split('.')[0]

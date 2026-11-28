@@ -168,6 +168,9 @@ export function initialTreeOf(card: Card): Tree {
 export function addChild(card: Card, code: string): Card {
   const element = elementAt(card.state, code)
   if (element.type === 'time') throw invalid(t('issue.timeChild', { code }), { code })
+  if (element.type === 'ref' && (element.max ?? 1) > 1) {
+    throw invalid(t('issue.refMultiChild', { code, max: element.max ?? 1 }), { code })
+  }
 
   const children = childrenOf(card.state, code)
   const lastSegment = children.length === 0 ? 0 : Number(children[children.length - 1].code.split('.').at(-1))

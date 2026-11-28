@@ -78,44 +78,37 @@ function resolveRefItem(
   const out: ItemObject = { ...(item as ItemObject) }
   for (const field of childrenOf(card.state, container)) {
     if (!(field.code in out)) continue
-    const value = out[field.code]
-    if (field.type === 'ref') {
-      const sourceItems = field.refSource === undefined ? undefined : tree[field.refSource]
-      const children = childrenOf(card.state, field.code)
-      const pointer = children.length === 0 ? value : isRecord(value) ? value[`${field.code}.0`] : value
-      const projected = refValueOf(card.state, field, pointer, sourceItems)
-      if (children.length === 0 || projected === null) {
-        out[field.code] = projected as ItemObject[string]
-        continue
-      }
-      const merged = { ...(projected as Record<string, unknown>) }
-      for (const child of children) {
-        const raw = isRecord(value) ? value[child.code] : undefined
-        merged[child.name] =
-          child.type === 'array' && Array.isArray(raw)
-            ? raw.map((nested) =>
-                isRecord(nested) ? resolveRefItem(card, child.code, nested, tree) : nested,
-              )
-            : isRecord(raw) && (child.type === 'object' || childrenOf(card.state, child.code).length > 0)
-              ? resolveRefItem(card, child.code, raw, tree)
-              : raw
-      }
-      out[field.code] = merged as ItemObject[string]
-      continue
-    }
-    if (field.type === 'array' && Array.isArray(value)) {
-      out[field.code] = value.map((nested) =>
-        isRecord(nested) ? resolveRefItem(card, field.code, nested, tree) : nested,
-      ) as ItemObject[string]
-      continue
-    }
-    if (isRecord(value)) {
-      // 标量字段也可以有孩子（text + ref 子元素）：一样往下走，不做类型过滤
-      out[field.code] = resolveRefItem(card, field.code, value, tree) as ItemObject[string]
-    }
+    out[field.code] = resolveFieldValue(card, field, out[field.code], tree) as ItemObject[string]
   }
   return out
 }
+
+/** 一个字段值按定义递归解析：ref 投影成对象（孩子继续递归）、数组逐项、对象 / 标量+孩子再下钻 */
+function resolveFieldValue(card: Card, field: Card['state'][number], value: unknown, tree: Tree): unknown {
+  if (field.type === 'ref') {
+    const sourceItems = field.refSource === undefined ? undefined : tree[field.refSource]
+    const children = childrenOf(card.state, field.code)
+    const pointer = children.length === 0 ? value : isRecord(value) ? value[`${field.code}.0`] : value
+    const projected = refValueOf(card.state, field, pointer, sourceItems)
+    if (children.length === 0 || projected === null) return projected
+    const merged = { ...(projected as Record<string, unknown>) }
+    for (const child of children) {
+      merged[child.name] = resolveFieldValue(
+        card,
+        child,
+        isRecord(value) ? value[child.code] : undefined,
+        tree,
+      )
+    }
+    return merged
+  }
+  if (field.type === 'array' && Array.isArray(value)) {
+    return value.map((nested) => (isRecord(nested) ? resolveRefItem(card, field.code, nested, tree) : nested))
+  }
+  if (isRecord(value)) return resolveRefItem(card, field.code, value, tree)
+  return value
+}
+
 /**
  * 一个字段在这份**选择**里要投影到什么程度（读权限可以只开某个字段引用）：
  *   · `full` —— 整格都投影（容器读全 / 正好选中这个字段 / 选中了它的祖先）；
@@ -538,6 +531,15 @@ function writableLinesOf(card: Card, node: ChainNode): string[] {
   for (const element of card.state) {
     if (element.type !== 'ref' || element.refSource === undefined) continue
     if (!coveredRefs.has(element.refSource)) continue
+    if (isInsideArray(card.state, element.code)) {
+      const root = arrayRootOf(card.state, element.code)
+      if (root === undefined || coveredRefs.has(root) || emitted.has(element.code)) continue
+      emitted.add(element.code)
+      lines.push(
+        `${t('prompt.stateLine', { code: element.code, name: element.name })}${fieldWriteRuleOf(card.state, element.code)}`,
+      )
+      continue
+    }
     const [ownPath] = pathsOf(card.state, element.code)
     if (ownPath === undefined || emitted.has(ownPath)) continue
     emitted.add(ownPath)

@@ -15,6 +15,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   deepObjectArrayCard,
+  refChildRefCard,
   scalarChildRefCard,
   element,
   elementOf,
@@ -383,5 +384,43 @@ describe('引用 · 第五种位置：数组 item 里「有孩子的标量字段
     const card = scalarChildRefCard()
     expect(elementOf(card, '2.4.1.1').type, '2.4.1.1 是 ref').toBe('ref')
     await expectClean(card, '有孩子的标量字段下的引用')
+  })
+})
+
+describe('引用 · ref 的孩子也是 ref（item 深度）', () => {
+  it('2.6.1（→ 1.4）带一个孩子 ref 2.6.1.1（→ 1.5）⇒ 卡校验通过', async () => {
+    const card = refChildRefCard()
+    expect(elementOf(card, '2.6.1').type).toBe('ref')
+    expect(elementOf(card, '2.6.1.1').type, '孩子也是 ref').toBe('ref')
+    await expectClean(card, 'ref 的孩子还是 ref')
+  })
+
+  it('单引用（max = 1）带孩子是合法的：2.6.1 是 1..1，带一个 ref 孩子', async () => {
+    const card = refChildRefCard()
+    expect(elementOf(card, '2.6.1')).toMatchObject({ min: 1, max: 1 })
+    await expectClean(card, '单引用带孩子')
+  })
+})
+
+describe('引用 · 多引用（max > 1）不许带孩子', () => {
+  it('定义层：给多引用 3.2 挂一个孩子 ⇒ cardIssues 点名 3.2', async () => {
+    const card = withElement(refCard(), element('3.2.1', 'text', { name: '成员备注' }))
+    const issues = await expectIssue(card, '3.2', '多引用带孩子')
+    expect(
+      issues.some(
+        (issue) =>
+          (issue.code === '3.2' || issue.path === '3.2') &&
+          (issue.message.includes('多引用') || issue.message.includes('子元素')),
+      ),
+      '要报「多引用不能有子元素」这条规则本身',
+    ).toBe(true)
+  })
+
+  it('addChild：给多引用 3.2 加孩子 ⇒ E_VALIDATION（中文）', async () => {
+    const { addChild } = await loadState()
+    const error = errorOf(() => addChild(refCard(), '3.2'))
+    expect(error, '多引用加孩子必须被拒').not.toBeNull()
+    expect(error.code).toBe('E_VALIDATION')
+    expect(error.message).toMatch(CJK)
   })
 })
