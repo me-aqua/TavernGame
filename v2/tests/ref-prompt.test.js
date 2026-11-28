@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   itemRefChildCard,
+  refChildMultiCard,
   leafItemRefCard,
   refChildRefCard,
   scalarChildRefCard,
@@ -305,5 +306,17 @@ describe('提示词 · 派生写权限在可写段的显示（与引擎同一口
       lines.some((line) => line.startsWith('- 2.6.1「来源」')),
       `带孩子的引用不派生：整格写会连孩子一起换（实际：${JSON.stringify(lines)}）`,
     ).toBe(false)
+  })
+})
+
+describe('提示词 · 可写结构里「多引用孩子」的形状', () => {
+  it('父 ref（max 1）带多引用孩子（max 2）⇒ 孩子的说明是指针列表（null | id[]），不是单个指针', async () => {
+    const card = patchNode(refChildMultiCard(), 'check', { writable: ['2.6.1'] })
+    const lines = writableLines(await promptOf(card, 'check'))
+    const line = lines.find((text) => text.startsWith('- 2.6.1「来源」'))
+    expect(line, `可写段里应当有 2.6.1 那一行（实际：${JSON.stringify(lines)}）`).toBeTruthy()
+    expect(line, '要写到孩子那一格').toContain('"2.6.1.1"')
+    expect(line, '多引用孩子要写成指针列表').toContain('null | id[]')
+    expect(line, '不能把多引用孩子写成单个指针').not.toContain('null | id）')
   })
 })

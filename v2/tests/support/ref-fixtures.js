@@ -328,6 +328,26 @@ export function nestedArrayRefCard(over = {}) {
 }
 
 /**
+ * **父 ref（max 1）带一个多引用孩子（max 2）**：`2.6.1 来源`（→ `1.4`，1..1）挂
+ * `2.6.1.1 来源列表`（→ `1.5`，0..2）。用来钉可写结构里孩子那半边的形状：
+ * 多引用孩子是**指针列表**（`null | id[]`），不是单个指针。
+ */
+export function refChildMultiCard(over = {}) {
+  const items = activeBuffs().map((item) => ({
+    ...item,
+    '2.6.1': { '2.6.1.0': 'id_1', '2.6.1.1': ['id_1', 'id_2'] },
+  }))
+  const state = refState({
+    extraElements: [
+      refElement('2.6.1.1', '来源列表', { refSource: '1.5', refFields: ['1.5.1'], min: 0, max: 2 }),
+    ],
+    extraPlayerInitial: { 2.6: items },
+  })
+  return { ...refCard(), id: 'c-ref-child-multi', name: 'ref child multi card', state, ...over }
+}
+
+/**
+ * item 里**没有孩子**的叶子引用/**
  * item 里**没有孩子**的叶子引用：`2.6.3 来源三`（→ `1.4`，0..1）。用来分辨
  * 「派生写权限给叶子引用、不给带孩子的引用」。
  */
