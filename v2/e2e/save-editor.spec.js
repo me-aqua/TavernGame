@@ -272,7 +272,7 @@ test.describe('存档编辑器：模型映射', () => {
   })
 })
 test.describe('存档编辑器：整数当前值', () => {
-  test('显示 save.tree 当前值；新上下限不兼容当前值时保存被拦，错误点名 2.2', async ({ page }) => {
+  test('根当前值树显示 save.tree 当前值；新上下限不兼容当前值时保存被拦，错误点名 2.2', async ({ page }) => {
     const base = v5Card()
     const card = {
       ...base,
@@ -291,10 +291,20 @@ test.describe('存档编辑器：整数当前值', () => {
     })
     await page.goto(`${APP_PATH}#/edit-save/s-int-current`)
     await expect(page.locator('[data-page="editor"]')).toBeVisible()
-    await page.locator('[data-state-item="2.2"]').click()
 
-    // 中间表单要显示这一局的当前值（save.tree 的 80），不是快照 initial 的 100
-    await expect(page.locator('[data-col="middle"]')).toContainText('80')
+    // 当前值只在根元素的当前值树里显示：save.tree 的 80，不是快照 initial 的 100
+    await page.locator('[data-state-item="2"]').click()
+    await expect(
+      page.locator('[data-current-tree="2"] [data-current-tree-value="2.2"]'),
+      '当前值树要显示 save.tree 当前值',
+    ).toHaveText('80')
+
+    // 非根选中时不显示当前值块；上下限仍可改，保存校验仍按 save.tree 的 80 判
+    await page.locator('[data-state-item="2.2"]').click()
+    await expect(
+      page.locator('[data-current-value], [data-current-array], [data-current-tree]'),
+      '非根元素不许有自己的当前值块',
+    ).toHaveCount(0)
 
     await page.locator('[data-field="min"]').fill('90')
     await page.locator('[data-field="max"]').fill('100')

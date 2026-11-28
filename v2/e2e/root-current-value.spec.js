@@ -4,13 +4,13 @@
  * 钉住的形状（评测口径）：
  *   · 选中**数组根** ⇒ 恰好一块只读 `[data-current-array="<root>"]`，item 值读自 `save.tree`；
  *   · 选中**整数根** ⇒ 恰好一处当前值（`[data-current-value]` 或 `[data-current-tree-value]`），值读自 `save.tree`；
- *   · 非根的数组元素照旧只有它自己那一块（别把根上的修正带下去）。
+ *   · 非根元素**不再有自己的当前值块**（当前值只在根元素的 `[data-current-tree]` 里）。
  *
  * 判据只认 `data-*` 钩子；值用只出现在 `cardSnapshot.initial` / `save.tree` 里的 ASCII 记号分辨。
  */
 import { expect, test } from '@playwright/test'
 import { KEYS, MOCK_PRESET, boot, route } from './support/app.js'
-import { element, holdCard, holdItems, holdSave } from '../tests/support/array-fixtures.js'
+import { element, holdCard, holdSave } from '../tests/support/array-fixtures.js'
 
 const SAVE_ID = 's-root-current-block'
 const CARD_ID = 'c-root-current-block'
@@ -115,15 +115,15 @@ test('R2 选中整数根 4：当前值只渲染一处', async ({ page }) => {
   await expect(page.locator('[data-current-array]')).toHaveCount(0)
 })
 
-test('R3 非根数组元素 2.4：照旧只有自己那一块（修正不带下去）', async ({ page }) => {
+test('R3 非根数组元素 2.4：不再有自己的当前值块', async ({ page }) => {
   await openSaveEditor(page)
   await page.locator(row('2.4')).click()
 
-  await expect(page.locator('[data-current-array]')).toHaveCount(1)
-  const block = page.locator('[data-current-array="2.4"]')
-  await expect(block).toBeVisible()
-  await expect(block.locator('[data-array-item]')).toHaveCount(holdItems().length)
-  await expect(page.locator('[data-current-tree]')).toHaveCount(0)
+  // 当前值只在根元素的当前值树里；非根选中时不渲染单块。
+  await expect(
+    page.locator('[data-current-array], [data-current-value], [data-current-tree]'),
+    '非根元素不许有自己的当前值块',
+  ).toHaveCount(0)
 })
 
 // 卡模式没有「这一局」的 save.tree：两个钩子都不该出现（防止判据只在存档模式成立）

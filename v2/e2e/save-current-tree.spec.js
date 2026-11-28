@@ -164,8 +164,11 @@ test('A4 只有根元素有这棵树：子元素 / 数组 / 卡编辑器都不�
 
   await page.locator(row('2.4')).click()
   await expect(page.locator('[data-current-tree]'), '数组元素不该有根当前值树').toHaveCount(0)
-  // 数组自己的当前值块照旧（不是本票要拿掉的东西）
-  await expect(page.locator('[data-current-array="2.4"]')).toBeVisible()
+  // 非根元素没有自己的当前值块：当前值只在根元素的当前值树里
+  await expect(
+    page.locator('[data-current-array], [data-current-value]'),
+    '非根数组元素不许有自己的当前值块',
+  ).toHaveCount(0)
 
   // 卡编辑器没有「这一局」的 save.tree ⇒ 任何元素都没有当前值树
   await page.goto(`${APP_PATH}${route.edit(CARD_ID)}`)

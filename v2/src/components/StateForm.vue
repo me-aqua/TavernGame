@@ -413,7 +413,7 @@ function requestMode(event: Event): void {
           />
         </label>
         <!-- 存档模式：这一局的当前值（读自 save.tree），改上下限时照着它判会不会越界 -->
-        <div v-if="currentValue !== undefined && !showsCurrentTree" class="field-row">
+        <div v-if="!initialLocked && currentValue !== undefined" class="field-row">
           <span class="field-label">{{ t('editor.fieldCurrent') }}</span>
           <span class="current" data-current-value>{{ currentValue }}</span>
         </div>
@@ -421,7 +421,7 @@ function requestMode(event: Event): void {
 
       <!-- 存档模式：数组元素的当前值（读自 save.tree，只读、没有增删） -->
       <div
-        v-if="element.type === 'array' && currentValue !== undefined && !showsCurrentTree"
+        v-if="element.type === 'array' && !initialLocked && currentValue !== undefined"
         class="current-array"
       >
         <span class="field-label">{{ t('editor.fieldCurrent') }}</span>

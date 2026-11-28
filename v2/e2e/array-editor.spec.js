@@ -228,7 +228,7 @@ test('嵌套字段在初始值块里递归显示中文名，且能保存原值',
   ])
 })
 
-test('存档编辑器：选中 2.4 看当前数组（只读、中文名、没有增删）', async ({ page }) => {
+test('存档编辑器：选中根 2 看 2.4 当前数组（只读、中文名、没有增删）', async ({ page }) => {
   const card = holdCard()
   const save0 = holdSave(card)
   await boot(page, {
@@ -236,9 +236,10 @@ test('存档编辑器：选中 2.4 看当前数组（只读、中文名、没有
     hash: route.editSave(save0.id),
   })
   await expect(page.locator('[data-page="editor"]')).toBeVisible()
-  await selectElement(page, '2.4')
+  await selectElement(page, '2')
 
-  const current = page.locator('[data-current-array="2.4"]')
+  // 非根元素没有自己的当前值块：2.4 的只读当前数组挂在根元素的当前值树里
+  const current = page.locator('[data-current-tree="2"] [data-current-array="2.4"]')
   await expect(current).toBeVisible()
   await expect(current.locator('[data-array-item]')).toHaveCount(3)
   await expect(current.locator('[data-array-field-name="2.4.1"]').first()).toHaveText('物品')

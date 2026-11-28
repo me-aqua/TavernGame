@@ -322,12 +322,9 @@ function goBack(): void {
   flex: 1 1 auto;
 }
 
+/* 回合数只由 status 那一行显示；这个钩子给测试用，不占视觉位置 */
 .turn {
-  flex: 0 0 auto;
-  font-weight: 600;
-  font-size: var(--fs1);
-  min-width: 20px;
-  text-align: right;
+  display: none;
 }
 
 .status {

@@ -158,7 +158,7 @@ test.describe('C 初始值子树：编号 / 名字 / 值 / 缩进', () => {
 })
 
 test.describe('D 存档模式：初始值不显示，当前值不动', () => {
-  test('初始值整块与行钩子都不渲染；整数当前值照旧；save.tree 保存前后逐字不变', async ({ page }) => {
+  test('初始值整块与行钩子都不渲染；当前值只在根当前值树里；save.tree 保存前后逐字不变', async ({ page }) => {
     await boot(page, { storage: seeded() })
     await page.goto(`${APP_PATH}#/edit-save/${SAVE_ID}`)
     await expect(page.locator('[data-page="editor"]')).toBeVisible()
@@ -171,8 +171,18 @@ test.describe('D 存档模式：初始值不显示，当前值不动', () => {
     await expect(page.locator('[data-initial-row]')).toHaveCount(0)
     await expect(page.locator('[data-initial-code]')).toHaveCount(0)
 
+    // 非根元素没有自己的当前值块；当前值只挂在根元素的当前值树里
     await page.locator('[data-state-item="2.2"]').click()
-    await expect(page.locator('[data-current-value]'), '整数的当前值照旧显示').toHaveText('80')
+    await expect(
+      page.locator('[data-current-value], [data-current-array], [data-current-tree]'),
+      '非根标量不许有自己的当前值块',
+    ).toHaveCount(0)
+
+    await page.locator('[data-state-item="2"]').click()
+    await expect(
+      page.locator('[data-current-tree="2"] [data-current-tree-value="2.2"]'),
+      '整数的当前值在根当前值树里',
+    ).toHaveText('80')
 
     await page.locator('[data-save-card]').click()
     await expect(page.locator('[data-save-ok]')).toBeVisible()
